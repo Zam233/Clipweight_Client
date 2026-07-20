@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Asset, MaterialSearchResult } from '@/types/api';
+import { loadPrefArray, savePref } from '@/services/storage/localPrefs';
 
 type AssetTab = 'ai' | 'library' | 'history';
 
@@ -26,7 +27,7 @@ export const useAssetStore = create<AssetState>((set, get) => ({
   activeTab: 'library',
   assets: [],
   searchResults: [],
-  history: [],
+  history: loadPrefArray<Asset>('assetHistory'),
   isLoading: false,
   searchQuery: '',
   uploadProgress: null,
@@ -36,9 +37,11 @@ export const useAssetStore = create<AssetState>((set, get) => ({
   setSearchResults: (results) => set({ searchResults: results }),
 
   addToHistory: (asset) =>
-    set((state) => ({
-      history: [asset, ...state.history.filter((a) => a.id !== asset.id)].slice(0, 50),
-    })),
+    set((state) => {
+      const history = [asset, ...state.history.filter((a) => a.id !== asset.id)].slice(0, 50);
+      savePref('assetHistory', history);
+      return { history };
+    }),
 
   setLoading: (loading) => set({ isLoading: loading }),
   setSearchQuery: (query) => set({ searchQuery: query }),

@@ -1,0 +1,112 @@
+/**
+ * KeybindingEngine — a centralized shortcut system.
+ *
+ * Bindings declare a combo string ("ctrl+z", "space", "shift+delete", "s"),
+ * a human-readable label (for the cheat sheet), and an optional `when`
+ * guard. The engine normalizes keydown events and dispatches to handlers.
+ */
+
+export interface KeyBinding {
+  id: string;
+  /** Combo like "ctrl+z", "space", "shift+delete", "arrowleft" */
+  combo: string;
+  label: string;
+  category: string;
+  handler: () => void;
+  /** Optional guard — binding only fires when this returns true */
+  when?: () => boolean;
+}
+
+/** Parse a combo string into a normalized matcher. */
+function parseCombo(combo: string) {
+  const parts = combo.toLowerCase().split('+').map((p) => p.trim());
+  return {
+    ctrl: parts.includes('ctrl') || parts.includes('mod') || parts.includes('meta'),
+    shift: parts.includes('shift'),
+    alt: parts.includes('alt'),
+    key: parts.filter((p) => !['ctrl', 'mod', 'meta', 'shift', 'alt'].includes(p))[0] ?? '',
+  };
+}
+
+/** Normalize a KeyboardEvent key name to match combo keys. */
+function normalizeKey(e: KeyboardEvent): string {
+  const k = e.key.toLowerCase();
+  const map: Record<string, string> = {
+    ' ': 'space', spacebar: 'space',
+    esc: 'escape',
+    arrowup: 'arrowup', arrowdown: 'arrowdown', arrowleft: 'arrowleft', arrowright: 'arrowright',
+  };
+  return map[k] ?? k;
+}
+
+function isTypingTarget(e: KeyboardEvent): boolean {
+  const el = e.target as HTMLElement;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+
+export class KeybindingEngine {
+  private bindings: KeyBinding[] = [];
+  private attached = false;
+
+  register(binding: KeyBinding): () => void {
+    this.bindings.push(binding);
+    return () => this.unregister(binding.id);
+  }
+
+  registerMany(bindings: KeyBinding[]): () => void {
+    bindings.forEach((b) => this.bindings.push(b));
+    return () => bindings.forEach((b) => this.unregister(b.id));
+  }
+
+  unregister(id: string): void {
+    this.bindings = this.bindings.filter((b) => b.id !== id);
+  }
+
+  /** All registered bindings (for the cheat sheet). */
+  list(): KeyBinding[] {
+    return [...this.bindings];
+  }
+
+  private onKeyDown = (e: KeyboardEvent) => {
+    // Don't hijack typing in form fields (unless combo uses a modifier)
+    const combo = this.match(e);
+    if (!combo) return;
+    const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
+    if (isTypingTarget(e) && !hasModifier) return;
+
+    const binding = this.bindings.find((b) => {
+      const m = parseCombo(b.combo);
+      if (m.key !== combo.key) return false;
+      if (m.ctrl !== (e.ctrlKey || e.metaKey)) return false;
+      if (m.shift !== e.shiftKey) return false;
+      if (m.alt !== e.altKey) return false;
+      if (b.when && !b.when()) return false;
+      return true;
+    });
+
+    if (binding) {
+      e.preventDefault();
+      e.stopPropagation();
+      binding.handler();
+    }
+  };
+
+  private match(e: KeyboardEvent): { key: string } | null {
+    return { key: normalizeKey(e) };
+  }
+
+  attach(): void {
+    if (this.attached) return;
+    window.addEventListener('keydown', this.onKeyDown, true);
+    this.attached = true;
+  }
+
+  detach(): void {
+    window.removeEventListener('keydown', this.onKeyDown, true);
+    this.attached = false;
+  }
+}
+
+/** Singleton engine for the app. */
+export const keybindingEngine = new KeybindingEngine();

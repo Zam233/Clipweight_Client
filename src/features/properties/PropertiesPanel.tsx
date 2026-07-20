@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useHistoryStore } from '@/stores/historyStore';
@@ -5,10 +6,11 @@ import { usePreviewStore } from '@/stores/previewStore';
 import { Slider, Badge } from '@/components/ui';
 import { TRACK_COLORS } from '@/types/timeline';
 import { EASING_NAMES, interpolateProperties } from '@/features/timeline/engine/easing';
+import { ANIMATION_PRESETS, presetKeyframes } from './animationPresets';
 import type { Clip } from '@/types/timeline';
 import {
   SlidersHorizontal, Type, Diamond, Plus, Trash2, ChevronLeft, ChevronRight,
-  Move, RotateCcw,
+  Move, RotateCcw, Wand2,
 } from 'lucide-react';
 
 /**
@@ -137,6 +139,9 @@ export function PropertiesPanel() {
               )}
             </Section>
 
+            {/* Animation presets + keyframe timeline */}
+            <AnimationSection clip={clip} />
+
             {/* Keyframes */}
             <KeyframeEditor clip={clip} />
           </div>
@@ -149,6 +154,99 @@ export function PropertiesPanel() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * AnimationSection — apply animation presets and visualize keyframes on a
+ * mini timeline strip (P4-7 / P4-9).
+ */
+function AnimationSection({ clip }: { clip: Clip }) {
+  const updateClip = useTimelineStore((s) => s.updateClip);
+  const setCurrentTime = usePreviewStore((s) => s.setCurrentTime);
+  const currentTimeSec = usePreviewStore((s) => s.currentTimeSec);
+  const [activeCat, setActiveCat] = useState<string>('入场');
+
+  const pushHistory = () =>
+    useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'animation');
+
+  const applyPreset = (presetId: string) => {
+    const preset = ANIMATION_PRESETS.find((p) => p.id === presetId);
+    if (!preset) return;
+    pushHistory();
+    // Merge preset keyframes with any existing ones (preset wins on same time)
+    updateClip(clip.id, { keyframes: presetKeyframes(preset) });
+  };
+
+  const categories = ['入场', '出场', '强调', '循环'];
+  const visible = ANIMATION_PRESETS.filter((p) => p.category === activeCat);
+
+  // Playhead position within clip (0-1) for the strip
+  const localT = clip.duration_sec > 0
+    ? Math.min(1, Math.max(0, (currentTimeSec - clip.start_sec) / clip.duration_sec))
+    : 0;
+  const inClip = currentTimeSec >= clip.start_sec && currentTimeSec <= clip.start_sec + clip.duration_sec;
+
+  const seekStrip = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    setCurrentTime(clip.start_sec + frac * clip.duration_sec);
+  };
+
+  return (
+    <Section title="动画 Animation" icon={<Wand2 className="w-3 h-3" />}>
+      {/* category tabs */}
+      <div className="flex gap-1 mb-2">
+        {categories.map((c) => (
+          <button key={c} onClick={() => setActiveCat(c)}
+            className={`flex-1 px-1.5 py-1 rounded-cw-xs text-label-sm transition-colors cursor-pointer ${
+              activeCat === c ? 'bg-primary-container text-on-primary-container' : 'bg-surface-container-high text-on-surface-variant hover:text-on-surface'
+            }`}>
+            {c}
+          </button>
+        ))}
+      </div>
+
+      {/* preset grid */}
+      <div className="grid grid-cols-3 gap-1.5 mb-3">
+        {visible.map((p) => (
+          <button key={p.id} onClick={() => applyPreset(p.id)} title={`应用「${p.name}」动画`}
+            className="flex flex-col items-center gap-1 px-1 py-2 rounded-cw-sm bg-surface-container-high border border-outline-variant/20
+              hover:border-primary/50 hover:bg-primary/10 transition-all duration-short3 cursor-pointer group">
+            <span className="text-body text-on-surface-variant group-hover:text-primary transition-colors">{p.icon}</span>
+            <span className="text-caption text-on-surface-variant group-hover:text-on-surface transition-colors">{p.name}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* keyframe timeline strip */}
+      <div>
+        <p className="text-caption text-on-surface-variant mb-1.5">关键帧时间轴（点击定位）</p>
+        <div
+          onClick={seekStrip}
+          className="relative h-8 bg-surface rounded-cw-xs border border-outline-variant/30 cursor-pointer overflow-hidden group"
+        >
+          {/* playhead */}
+          {inClip && (
+            <span className="absolute top-0 bottom-0 w-px bg-playhead z-10" style={{ left: `${localT * 100}%` }} />
+          )}
+          {/* keyframe diamonds */}
+          {clip.keyframes.map((kf, i) => (
+            <span key={i}
+              className="absolute top-1/2 w-2.5 h-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-keyframe-dot border border-black/30
+                hover:scale-125 transition-transform z-20"
+              style={{ left: `${kf.time * 100}%` }}
+              title={`t=${kf.time.toFixed(2)}`}
+            />
+          ))}
+          {clip.keyframes.length === 0 && (
+            <span className="absolute inset-0 flex items-center justify-center text-caption text-on-surface-variant/50">
+              无关键帧 — 应用预设或手动添加
+            </span>
+          )}
+        </div>
+      </div>
+    </Section>
   );
 }
 

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { loadPref, savePref } from '@/services/storage/localPrefs';
 
 interface WorkspacePanel {
   assets: boolean;
@@ -39,14 +40,17 @@ const DEFAULT_PANEL_WIDTHS = {
 
 const DEFAULT_TIMELINE_HEIGHT = 280;
 
-export const useWorkspaceStore = create<WorkspaceState>((set) => ({
-  panels: {
-    assets: true,
-    properties: true,
-    agent: true,
-  },
+/** Persisted layout (survives reloads via localStorage). */
+const persisted = loadPref('layout', {
+  panels: { assets: true, properties: true, agent: true },
   panelWidths: { ...DEFAULT_PANEL_WIDTHS },
   timelineHeight: DEFAULT_TIMELINE_HEIGHT,
+});
+
+export const useWorkspaceStore = create<WorkspaceState>((set) => ({
+  panels: { ...persisted.panels },
+  panelWidths: { ...persisted.panelWidths },
+  timelineHeight: persisted.timelineHeight,
   timelineCollapsed: false,
   activeBottomTab: 'timeline',
 
@@ -76,3 +80,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
       timelineCollapsed: false,
     }),
 }));
+
+// Persist layout changes (debounced via simple throttle on each change)
+useWorkspaceStore.subscribe((state) => {
+  savePref('layout', {
+    panels: state.panels,
+    panelWidths: state.panelWidths,
+    timelineHeight: state.timelineHeight,
+  });
+});

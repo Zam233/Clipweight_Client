@@ -6,6 +6,8 @@ import { createEmptyTimeline } from '@/types/timeline';
 import type { Timeline, Track, Clip } from '@/types/timeline';
 import { uid } from '@/lib/utils';
 import { projectCache, createAutoSaver } from '@/services/storage/projectCache';
+import { useGlobalKeybindings } from '@/features/keyboard/useGlobalKeybindings';
+import { ShortcutCheatSheet } from '@/features/keyboard/ShortcutCheatSheet';
 
 const AUTOSAVE_PROJECT_ID = 'current';
 
@@ -15,6 +17,9 @@ const AUTOSAVE_PROJECT_ID = 'current';
  * timeline changes so a crash never loses work.
  */
 export function EditorPage() {
+  // Global shortcuts + cheat sheet (Ctrl+/)
+  const { cheatSheetOpen, setCheatSheetOpen } = useGlobalKeybindings();
+
   // Restore or seed on mount
   useEffect(() => {
     let alive = true;
@@ -58,7 +63,12 @@ export function EditorPage() {
     };
   }, []);
 
-  return <EditorLayout />;
+  return (
+    <>
+      <EditorLayout />
+      <ShortcutCheatSheet open={cheatSheetOpen} onClose={() => setCheatSheetOpen(false)} />
+    </>
+  );
 }
 
 /** Build a small demo timeline showcasing all clip kinds. */

@@ -11,7 +11,7 @@ import { Button, Badge } from '@/components/ui';
 import { uid } from '@/lib/utils';
 import type { PipelinePhase } from '@/types/pipeline';
 import {
-  Bot, Send, Sparkles, Check, X, FileText, ListChecks, Loader2, Zap,
+  Bot, Send, Sparkles, Check, X, FileText, ListChecks, Loader2, Zap, Paperclip,
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<PipelinePhase, string> = {
@@ -220,7 +220,22 @@ function RequirementsView() {
             </Button>
           </div>
         ) : (
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <label className="p-2 rounded-cw-sm bg-surface-container text-on-surface-variant hover:text-primary border border-outline-variant/30 transition-colors cursor-pointer shrink-0" title="上传参考文件（图片/文档）">
+              <Paperclip className="w-4 h-4" />
+              <input type="file" className="hidden" accept="image/*,.md,.txt,.pdf"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const sid = useAgentStore.getState().requirementsSessionId;
+                  addMessage({ id: uid('m'), role: 'user', content: `📎 上传了参考文件：${file.name}`, timestamp: new Date().toISOString() });
+                  if (sid) {
+                    try { await requirementsApi.upload(sid, file); } catch { /* offline */ }
+                    sendChat(sid, `我刚上传了参考文件「${file.name}」，请结合它完善方案。`);
+                  }
+                  e.target.value = '';
+                }} />
+            </label>
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
