@@ -8,6 +8,7 @@ import { EASING_NAMES, interpolateProperties } from '@/features/timeline/engine/
 import type { Clip } from '@/types/timeline';
 import {
   SlidersHorizontal, Type, Diamond, Plus, Trash2, ChevronLeft, ChevronRight,
+  Move, RotateCcw,
 } from 'lucide-react';
 
 /**
@@ -91,6 +92,11 @@ export function PropertiesPanel() {
                 onChange={(v) => { pushHistory(); set({ opacity: v }); }} />
             </Section>
 
+            {/* Transform (video / image) */}
+            {(trackKind === 'video' || trackKind === 'image') && (
+              <TransformSection clip={clip} pushHistory={pushHistory} set={set} />
+            )}
+
             {/* Text properties */}
             {(trackKind === 'text' || trackKind === 'caption') && (
               <Section title="文字" icon={<Type className="w-3 h-3" />}>
@@ -143,6 +149,52 @@ export function PropertiesPanel() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * TransformSection — edit a video/image clip's static transform
+ * (position / scale / rotation), stored in metadata.transform and applied
+ * by the preview compositor.
+ */
+function TransformSection({ clip, pushHistory, set }: {
+  clip: Clip;
+  pushHistory: () => void;
+  set: (u: Partial<Clip>) => void;
+}) {
+  const t = (clip.metadata?.transform ?? {}) as { x?: number; y?: number; scale?: number; rotation?: number };
+  const x = t.x ?? 0;
+  const y = t.y ?? 0;
+  const scale = t.scale ?? 1;
+  const rotation = t.rotation ?? 0;
+
+  const setTransform = (patch: Partial<{ x: number; y: number; scale: number; rotation: number }>) => {
+    pushHistory();
+    set({ metadata: { ...clip.metadata, transform: { x, y, scale, rotation, ...patch } } });
+  };
+
+  const reset = () => {
+    pushHistory();
+    set({ metadata: { ...clip.metadata, transform: { x: 0, y: 0, scale: 1, rotation: 0 } } });
+  };
+
+  return (
+    <Section title="变换 Transform" icon={<Move className="w-3 h-3" />}>
+      <Slider label="位置 X" min={-1} max={1} step={0.01} value={round2(x)}
+        onChange={(v) => setTransform({ x: v })} />
+      <Slider label="位置 Y" min={-1} max={1} step={0.01} value={round2(y)}
+        onChange={(v) => setTransform({ y: v })} />
+      <Slider label="缩放" min={0.1} max={3} step={0.05} value={round2(scale)}
+        onChange={(v) => setTransform({ scale: v })} />
+      <Slider label="旋转 °" min={-180} max={180} step={1} value={rotation}
+        onChange={(v) => setTransform({ rotation: v })} />
+      <button onClick={reset}
+        className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-cw-xs
+          bg-surface-container-high text-on-surface-variant text-label-sm hover:text-on-surface
+          hover:bg-surface-container transition-colors cursor-pointer">
+        <RotateCcw className="w-3 h-3" /> 重置变换
+      </button>
+    </Section>
   );
 }
 

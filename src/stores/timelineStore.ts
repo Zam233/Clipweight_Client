@@ -30,6 +30,8 @@ interface TimelineState {
   trimClipEnd: (clipId: string, newEndSec: number) => void;
   /** Ripple delete: remove clip and close the gap by shifting later clips left. */
   rippleDelete: (clipId: string) => void;
+  /** Ripple insert: add a clip at a time, shifting later clips right to make room. */
+  rippleInsert: (trackId: string, clip: Partial<Clip> & { kind: ClipKind }, atSec: number) => string;
 
   // Keyframe actions
   addKeyframe: (clipId: string, time: number, properties: Record<string, number>) => void;
@@ -312,6 +314,29 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         isDirty: true,
       };
     }),
+
+  rippleInsert: (trackId, clipData, atSec) => {
+    const id = uid('clip');
+    set((state) => {
+      const newClip = createDefaultClip({ ...clipData, id, track_id: trackId, start_sec: atSec });
+      const insertedDur = newClip.duration_sec;
+      const tracks = state.timeline.tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        const clips = t.clips
+          .map((c) =>
+            c.start_sec >= atSec - 0.0001
+              ? { ...c, start_sec: c.start_sec + insertedDur }
+              : c,
+          );
+        return { ...t, clips: [...clips, newClip] };
+      });
+      return {
+        timeline: { ...state.timeline, tracks, duration_sec: computeTotalDuration(tracks) },
+        isDirty: true,
+      };
+    });
+    return id;
+  },
 
   addKeyframe: (clipId, time, properties) =>
     set((state) => ({

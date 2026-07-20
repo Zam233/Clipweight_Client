@@ -7,7 +7,7 @@ import type { Clip, Track } from '@/types/timeline';
 import { formatTimecode, clamp } from '@/lib/utils';
 import { mediaManager } from '@/services/media/mediaManager';
 import { interpolateProperties } from '@/features/timeline/engine/easing';
-import { Maximize, Shield, Volume2, VolumeX } from 'lucide-react';
+import { Maximize, Shield, Volume2, VolumeX, ZoomIn, ZoomOut } from 'lucide-react';
 import { Tooltip } from '@/components/ui';
 
 /**
@@ -26,6 +26,8 @@ export function PreviewPanel() {
   const toggleMute = usePreviewStore((s) => s.toggleMute);
   const toggleSafeArea = usePreviewStore((s) => s.toggleSafeArea);
   const setFullscreen = usePreviewStore((s) => s.setFullscreen);
+  const zoomLevel = usePreviewStore((s) => s.zoomLevel);
+  const setZoomLevel = usePreviewStore((s) => s.setZoomLevel);
 
   // Sync duration from timeline
   useEffect(() => {
@@ -107,12 +109,13 @@ export function PreviewPanel() {
       ctx.fillStyle = '#08090F';
       ctx.fillRect(0, 0, W, H);
 
-      // Fit video frame into panel (16:9 by default)
+      // Fit video frame into panel (16:9 by default), scaled by preview zoom
+      const zoom = usePreviewStore.getState().zoomLevel;
       const aspect = tl.width / tl.height;
-      let fw = W - 32;
+      let fw = (W - 32) * zoom;
       let fh = fw / aspect;
-      if (fh > H - 32) {
-        fh = H - 32;
+      if (fh > (H - 32) * zoom) {
+        fh = (H - 32) * zoom;
         fw = fh * aspect;
       }
       const fx = (W - fw) / 2;
@@ -166,7 +169,7 @@ export function PreviewPanel() {
     const ro = new ResizeObserver(draw);
     ro.observe(wrap);
     return () => ro.disconnect();
-  }, [currentTimeSec, timeline, showSafeArea]);
+  }, [currentTimeSec, timeline, showSafeArea, zoomLevel]);
 
   return (
     <div className="flex flex-col h-full bg-surface-dim">
@@ -176,6 +179,24 @@ export function PreviewPanel() {
           节目监视器
         </span>
         <div className="flex items-center gap-1">
+          {/* preview zoom */}
+          <Tooltip content="缩小预览">
+            <button onClick={() => setZoomLevel(Math.max(0.25, zoomLevel - 0.25))}
+              className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+          <button onClick={() => setZoomLevel(1)} title="重置为 100%"
+            className="px-1.5 py-0.5 rounded-cw-xs font-mono text-caption text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer min-w-[42px] text-center">
+            {Math.round(zoomLevel * 100)}%
+          </button>
+          <Tooltip content="放大预览">
+            <button onClick={() => setZoomLevel(Math.min(4, zoomLevel + 0.25))}
+              className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+          <div className="w-px h-4 bg-outline-variant/40 mx-0.5" />
           <Tooltip content={isMuted ? '取消静音' : '静音'}>
             <button onClick={toggleMute}
               className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
@@ -222,13 +243,16 @@ function drawClipToPreview(
   const localT = (t - clip.start_sec) / clip.duration_sec; // 0-1
   const color = TRACK_COLORS[track.kind] ?? '#4F8CFF';
 
-  // Apply keyframe interpolation for opacity/scale if present
+  // Apply keyframe interpolation for opacity/transform if present
   let opacity = clip.opacity;
-  let scale = 1;
+  const tf: Transform2D = { ...getClipTransform(clip) };
   if (clip.keyframes.length > 0) {
     const props = interpolateProperties(clip.keyframes, localT);
     opacity = props.opacity ?? opacity;
-    scale = props.scale ?? scale;
+    tf.scale = props.scale ?? tf.scale;
+    tf.x = props.position_x ?? tf.x;
+    tf.y = props.position_y ?? tf.y;
+    tf.rotation = props.rotation ?? tf.rotation;
   }
 
   ctx.save();
@@ -246,14 +270,14 @@ function drawClipToPreview(
         // Real image: draw via cached Image
         const img = getImageCached(entry.url);
         if (img && img.complete && img.naturalWidth > 0) {
-          drawCover(ctx, img, fx, fy, fw, fh, scale);
+          drawCover(ctx, img, fx, fy, fw, fh, tf);
           drewReal = true;
         }
       } else if (videoEl && videoEl.readyState >= 2) {
         // Real video frame: seek to clip-local time and draw
         const sourceT = localT * clip.speed + clip.source_offset_sec;
         mediaManager.seekVideo(clip.asset_id, sourceT);
-        drawCover(ctx, videoEl, fx, fy, fw, fh, scale);
+        drawCover(ctx, videoEl, fx, fy, fw, fh, tf);
         drewReal = true;
       }
 
@@ -285,7 +309,7 @@ function drawClipToPreview(
     case 'text':
     case 'caption': {
       const text = clip.text || '文字';
-      const fontSize = (clip.font_size ?? 48) * (fh / 1080) * scale;
+      const fontSize = (clip.font_size ?? 48) * (fh / 1080) * tf.scale;
       ctx.font = `600 ${fontSize}px 'Noto Sans SC','PingFang SC',sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -302,7 +326,7 @@ function drawClipToPreview(
       // Animated shape placeholder
       const cx = fx + fw / 2;
       const cy = fy + fh / 2;
-      const r = (fh * 0.15) * scale * (0.8 + 0.2 * Math.sin(localT * Math.PI * 2));
+      const r = (fh * 0.15) * tf.scale * (0.8 + 0.2 * Math.sin(localT * Math.PI * 2));
       ctx.fillStyle = color;
       ctx.globalAlpha = clamp(opacity, 0, 1) * 0.85;
       ctx.beginPath();
@@ -322,12 +346,37 @@ function drawClipToPreview(
   ctx.restore();
 }
 
-/** Draw an image/video source covering the frame rect (object-fit: cover), with scale. */
+export interface Transform2D {
+  /** Position offset from frame center, normalized (-1..1 of frame size) */
+  x: number;
+  y: number;
+  scale: number;
+  /** Rotation in degrees */
+  rotation: number;
+}
+
+export const IDENTITY_TRANSFORM: Transform2D = { x: 0, y: 0, scale: 1, rotation: 0 };
+
+/** Read a clip's base transform from metadata (static edit) — keyframes animate on top. */
+export function getClipTransform(clip: Clip): Transform2D {
+  const t = (clip.metadata?.transform ?? {}) as Partial<Transform2D>;
+  return {
+    x: t.x ?? 0,
+    y: t.y ?? 0,
+    scale: t.scale ?? 1,
+    rotation: t.rotation ?? 0,
+  };
+}
+
+/**
+ * Draw an image/video source covering the frame rect (object-fit: cover),
+ * applying position offset, scale and rotation about the frame center.
+ */
 function drawCover(
   ctx: CanvasRenderingContext2D,
   src: HTMLVideoElement | HTMLImageElement,
   fx: number, fy: number, fw: number, fh: number,
-  scale: number,
+  tf: Transform2D,
 ) {
   const sw = (src as HTMLVideoElement).videoWidth || (src as HTMLImageElement).naturalWidth;
   const sh = (src as HTMLVideoElement).videoHeight || (src as HTMLImageElement).naturalHeight;
@@ -343,12 +392,20 @@ function drawCover(
     ch = sw / dstAspect;
     cy = (sh - ch) / 2;
   }
-  // scale about center
+
+  // Apply transform about the frame center
+  const centerX = fx + fw / 2;
+  const centerY = fy + fh / 2;
+  const scale = tf.scale;
   const dw = fw * scale, dh = fh * scale;
-  const dx = fx + (fw - dw) / 2, dy = fy + (fh - dh) / 2;
+
+  ctx.save();
+  ctx.translate(centerX + tf.x * fw, centerY + tf.y * fh);
+  if (tf.rotation !== 0) ctx.rotate((tf.rotation * Math.PI) / 180);
   try {
-    ctx.drawImage(src, cx, cy, cw, ch, dx, dy, dw, dh);
+    ctx.drawImage(src, cx, cy, cw, ch, -dw / 2, -dh / 2, dw, dh);
   } catch { /* frame not ready */ }
+  ctx.restore();
 }
 
 /** Simple image cache for image assets. */

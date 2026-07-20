@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { TimelineEngine } from '../engine/TimelineEngine';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
@@ -6,10 +6,12 @@ import { usePreviewStore } from '@/stores/previewStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { Button, Tooltip } from '@/components/ui';
-import { formatTimecode } from '@/lib/utils';
+import { formatTimecode, cn } from '@/lib/utils';
 import type { ClipKind } from '@/types/timeline';
+import { TRACK_COLORS } from '@/types/timeline';
 import {
   Magnet, Plus, ZoomIn, ZoomOut, Maximize2, Trash2, Scissors, ChevronsLeft,
+  Layers, Lock, LockOpen, Volume2, VolumeX, ArrowUp, ArrowDown, X, Flag, FlagOff,
 } from 'lucide-react';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -33,6 +35,7 @@ export function TimelinePanel() {
   const setSnapEnabled = useSettingsStore((s) => s.setSnapEnabled);
   const currentTimeSec = usePreviewStore((s) => s.currentTimeSec);
   const fps = usePreviewStore((s) => s.fps);
+  const [trackMgrOpen, setTrackMgrOpen] = useState(false);
 
   // Instantiate engine
   useEffect(() => {
@@ -167,6 +170,34 @@ export function TimelinePanel() {
           </button>
         </Tooltip>
 
+        {/* Track manager */}
+        <div className="relative">
+          <Tooltip content="轨道管理">
+            <button onClick={() => setTrackMgrOpen(!trackMgrOpen)}
+              className={cn('p-1.5 rounded-cw-xs transition-colors cursor-pointer',
+                trackMgrOpen ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface')}>
+              <Layers className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+          {trackMgrOpen && (
+            <TrackManagerDropdown onClose={() => setTrackMgrOpen(false)} />
+          )}
+        </div>
+
+        {/* Marker controls */}
+        <Tooltip content="添加标记 (M)">
+          <button onClick={() => engineRef.current?.addMarkerAtPlayhead()}
+            className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-marker transition-colors cursor-pointer">
+            <Flag className="w-3.5 h-3.5" />
+          </button>
+        </Tooltip>
+        <Tooltip content="删除最近标记">
+          <button onClick={() => engineRef.current?.removeMarkerNearest()}
+            className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-marker transition-colors cursor-pointer">
+            <FlagOff className="w-3.5 h-3.5" />
+          </button>
+        </Tooltip>
+
         <div className="flex-1" />
 
         {/* Timecode readout */}
@@ -240,6 +271,78 @@ export function TimelinePanel() {
         </span>
       </div>
     </div>
+  );
+}
+
+/**
+ * TrackManagerDropdown — per-track controls: lock, mute, reorder, delete.
+ */
+function TrackManagerDropdown({ onClose }: { onClose: () => void }) {
+  const tracks = useTimelineStore((s) => s.timeline.tracks);
+  const toggleTrackLock = useTimelineStore((s) => s.toggleTrackLock);
+  const toggleTrackMute = useTimelineStore((s) => s.toggleTrackMute);
+  const reorderTrack = useTimelineStore((s) => s.reorderTrack);
+  const removeTrack = useTimelineStore((s) => s.removeTrack);
+
+  const handleRemove = (trackId: string) => {
+    useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'remove-track');
+    removeTrack(trackId);
+  };
+
+  return (
+    <>
+      {/* click-outside backdrop */}
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="absolute left-0 top-full mt-1.5 z-50 w-[260px] bg-surface-container-high border border-outline-variant/50
+        rounded-cw-md shadow-2xl shadow-black/50 overflow-hidden">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-outline-variant/30">
+          <span className="text-label font-medium text-on-surface-variant uppercase tracking-wide">轨道 ({tracks.length})</span>
+          <button onClick={onClose} className="p-1 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="max-h-[280px] overflow-y-auto p-1.5 space-y-1">
+          {tracks.length === 0 && (
+            <p className="text-label-sm text-on-surface-variant text-center py-4">暂无轨道</p>
+          )}
+          {tracks.map((track, i) => {
+            const color = TRACK_COLORS[track.kind] ?? '#4F8CFF';
+            return (
+              <div key={track.id}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-cw-sm bg-surface-container hover:bg-surface
+                  border border-outline-variant/20 transition-colors duration-short3 group">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+                <span className="text-label-sm text-on-surface truncate flex-1">{track.name}</span>
+
+                <button onClick={() => toggleTrackLock(track.id)} title={track.locked ? '解锁' : '锁定'}
+                  className={cn('p-1 rounded-cw-xs transition-colors cursor-pointer',
+                    track.locked ? 'text-track-text' : 'text-on-surface-variant/50 hover:text-on-surface')}>
+                  {track.locked ? <Lock className="w-3 h-3" /> : <LockOpen className="w-3 h-3" />}
+                </button>
+                <button onClick={() => toggleTrackMute(track.id)} title={track.muted ? '取消静音' : '静音'}
+                  className={cn('p-1 rounded-cw-xs transition-colors cursor-pointer',
+                    track.muted ? 'text-error' : 'text-on-surface-variant/50 hover:text-on-surface')}>
+                  {track.muted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                </button>
+                <button onClick={() => reorderTrack(track.id, i - 1)} disabled={i === 0} title="上移"
+                  className="p-1 rounded-cw-xs text-on-surface-variant/50 hover:text-on-surface disabled:opacity-20 transition-colors cursor-pointer">
+                  <ArrowUp className="w-3 h-3" />
+                </button>
+                <button onClick={() => reorderTrack(track.id, i + 1)} disabled={i === tracks.length - 1} title="下移"
+                  className="p-1 rounded-cw-xs text-on-surface-variant/50 hover:text-on-surface disabled:opacity-20 transition-colors cursor-pointer">
+                  <ArrowDown className="w-3 h-3" />
+                </button>
+                <button onClick={() => handleRemove(track.id)} title="删除轨道"
+                  className="p-1 rounded-cw-xs text-on-surface-variant/50 hover:text-error opacity-0 group-hover:opacity-100 transition-all cursor-pointer">
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
   );
 }
 

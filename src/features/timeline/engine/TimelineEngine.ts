@@ -544,6 +544,30 @@ export class TimelineEngine {
     }
   }
 
+  /** Remove the marker nearest to the playhead (within 0.5s). */
+  removeMarkerNearest() {
+    const t = usePreviewStore.getState().currentTimeSec;
+    let bestIdx = -1;
+    let bestDist = 0.5;
+    this.markers.forEach((m, i) => {
+      const d = Math.abs(m - t);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    });
+    if (bestIdx >= 0) {
+      this.markers.splice(bestIdx, 1);
+      this.requestRender();
+    }
+  }
+
+  clearMarkers() {
+    this.markers = [];
+    this.requestRender();
+  }
+
+  get markerCount() {
+    return this.markers.length;
+  }
+
   /**
    * Handle an asset dropped from the asset panel.
    * Computes the drop time/track from canvas coordinates and inserts a clip.

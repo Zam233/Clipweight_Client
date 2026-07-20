@@ -5,6 +5,7 @@ import { useSelectionStore } from '@/stores/selectionStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { createEmptyTimeline } from '@/types/timeline';
 import { TimelineDiffView } from './TimelineDiffView';
+import { Markdown } from '@/components/shared/Markdown';
 import { pipelineApi, requirementsApi, personaApi } from '@/services/api';
 import { Button, Badge } from '@/components/ui';
 import { uid } from '@/lib/utils';
@@ -271,11 +272,11 @@ function MessageBubble({ role, content }: { role: 'user' | 'assistant' | 'system
       <div
         className={`max-w-[85%] rounded-cw-md px-3 py-2 text-body-sm leading-relaxed ${
           isUser
-            ? 'bg-primary-container text-on-primary-container rounded-br-cw-xs'
+            ? 'bg-primary-container text-on-primary-container rounded-br-cw-xs whitespace-pre-wrap'
             : 'bg-surface-container text-on-surface rounded-bl-cw-xs border border-outline-variant/20'
         }`}
       >
-        {content}
+        {isUser ? content : <Markdown text={content} />}
       </div>
     </div>
   );
@@ -322,23 +323,52 @@ function BriefRow({ k, v }: { k: string; v: string }) {
 
 function PlanCard({ markdown, onConfirm, busy }: { markdown: string; onConfirm: () => void; busy: boolean }) {
   const [expanded, setExpanded] = useState(false);
-  const lines = markdown.split('\n');
-  const toc = lines.filter((l) => l.startsWith('#')).map((l) => l.replace(/^#+\s*/, ''));
+  const bodyRef = useRef<HTMLDivElement>(null);
+  // Build TOC from headings
+  const toc = markdown.split('\n')
+    .map((l) => l.match(/^(#{1,3})\s+(.*)$/))
+    .filter((m): m is RegExpMatchArray => !!m)
+    .map((m) => ({ level: m[1].length, title: m[2] }));
+
+  const scrollToHeading = (title: string) => {
+    setExpanded(true);
+    // Find the heading element by text content and scroll into view
+    requestAnimationFrame(() => {
+      const el = bodyRef.current;
+      if (!el) return;
+      const heads = Array.from(el.querySelectorAll('div'));
+      const target = heads.find((h) => h.textContent?.trim() === title);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
   return (
     <div className="bg-surface-container border border-primary/30 rounded-cw-md overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-primary/20">
         <ListChecks className="w-3.5 h-3.5 text-primary" />
         <span className="text-label font-medium text-primary">制作规划书</span>
+        <span className="ml-auto text-caption text-on-surface-variant font-mono">{toc.length} 节</span>
       </div>
-      <div className="p-3">
-        {/* TOC */}
-        <div className="flex flex-wrap gap-1 mb-2">
-          {toc.slice(0, 6).map((t, i) => <Badge key={i} variant="default">{t}</Badge>)}
+
+      {/* TOC nav sidebar */}
+      {toc.length > 0 && (
+        <div className="flex flex-wrap gap-1 px-3 pt-2.5">
+          {toc.map((t, i) => (
+            <button key={i} onClick={() => scrollToHeading(t.title)}
+              className="px-2 py-0.5 rounded-cw-full text-caption bg-surface-container-high text-on-surface-variant
+                border border-outline-variant/30 hover:border-primary/50 hover:text-primary transition-colors cursor-pointer"
+              style={{ marginLeft: (t.level - 1) * 8 }}>
+              {t.title}
+            </button>
+          ))}
         </div>
-        <pre className={`text-label-sm font-mono text-on-surface-variant whitespace-pre-wrap leading-relaxed ${expanded ? '' : 'max-h-28 overflow-hidden'}`}>
-          {markdown}
-        </pre>
-        <button onClick={() => setExpanded(!expanded)} className="text-label text-primary hover:underline mt-1 cursor-pointer">
+      )}
+
+      <div className="p-3">
+        <div ref={bodyRef} className={`${expanded ? 'max-h-[420px] overflow-y-auto' : 'max-h-32 overflow-hidden'} transition-all duration-medium2`}>
+          <Markdown text={markdown} />
+        </div>
+        <button onClick={() => setExpanded(!expanded)} className="text-label text-primary hover:underline mt-1.5 cursor-pointer">
           {expanded ? '收起' : '展开全文'}
         </button>
       </div>
