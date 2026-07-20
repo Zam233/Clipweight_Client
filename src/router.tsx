@@ -4,25 +4,49 @@ import {
   createRouter,
   Outlet,
 } from '@tanstack/react-router';
+import { lazy, Suspense } from 'react';
 import { HomePage } from './pages/HomePage';
-import { EditorPage } from './pages/EditorPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { ExportPage } from './pages/ExportPage';
-import { PersonaPage } from './pages/PersonaPage';
-import { PersonaDetailPage } from './pages/PersonaDetailPage';
-import { PersonaForgePage } from './pages/PersonaForgePage';
-import { HelpPage } from './pages/HelpPage';
-import { ModelsPage } from './pages/admin/ModelsPage';
-import { ToolsPage } from './pages/admin/ToolsPage';
-import { PluginsPage } from './pages/admin/PluginsPage';
-import { TypeMakerPage } from './pages/admin/TypeMakerPage';
-import { TemplatesPage } from './pages/admin/TemplatesPage';
-import { WebhooksPage } from './pages/admin/WebhooksPage';
-import { FontsPage } from './pages/admin/FontsPage';
-import { PipelineAdminPage } from './pages/admin/PipelineAdminPage';
+
+// Route-level code splitting: every page (except the landing HomePage) is
+// lazy-loaded into its own chunk to keep the initial bundle small.
+const lazyPage = <T extends Record<string, React.ComponentType>>(
+  factory: () => Promise<T>,
+  exportName: keyof T,
+) => lazy(() => factory().then((m) => ({ default: m[exportName] })));
+
+const EditorPage = lazyPage(() => import('./pages/EditorPage'), 'EditorPage');
+const SettingsPage = lazyPage(() => import('./pages/SettingsPage'), 'SettingsPage');
+const ExportPage = lazyPage(() => import('./pages/ExportPage'), 'ExportPage');
+const PersonaPage = lazyPage(() => import('./pages/PersonaPage'), 'PersonaPage');
+const PersonaDetailPage = lazyPage(() => import('./pages/PersonaDetailPage'), 'PersonaDetailPage');
+const PersonaForgePage = lazyPage(() => import('./pages/PersonaForgePage'), 'PersonaForgePage');
+const HelpPage = lazyPage(() => import('./pages/HelpPage'), 'HelpPage');
+const ModelsPage = lazyPage(() => import('./pages/admin/ModelsPage'), 'ModelsPage');
+const ToolsPage = lazyPage(() => import('./pages/admin/ToolsPage'), 'ToolsPage');
+const PluginsPage = lazyPage(() => import('./pages/admin/PluginsPage'), 'PluginsPage');
+const TypeMakerPage = lazyPage(() => import('./pages/admin/TypeMakerPage'), 'TypeMakerPage');
+const TemplatesPage = lazyPage(() => import('./pages/admin/TemplatesPage'), 'TemplatesPage');
+const WebhooksPage = lazyPage(() => import('./pages/admin/WebhooksPage'), 'WebhooksPage');
+const FontsPage = lazyPage(() => import('./pages/admin/FontsPage'), 'FontsPage');
+const PipelineAdminPage = lazyPage(() => import('./pages/admin/PipelineAdminPage'), 'PipelineAdminPage');
+
+function RouteFallback() {
+  return (
+    <div className="h-full w-full flex items-center justify-center bg-surface">
+      <div className="flex flex-col items-center gap-3">
+        <span className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <span className="font-mono text-caption text-on-surface-variant tracking-widest">LOADING…</span>
+      </div>
+    </div>
+  );
+}
 
 const rootRoute = createRootRoute({
-  component: () => <Outlet />,
+  component: () => (
+    <Suspense fallback={<RouteFallback />}>
+      <Outlet />
+    </Suspense>
+  ),
 });
 
 const indexRoute = createRoute({

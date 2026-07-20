@@ -149,13 +149,14 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     const id = uid('clip');
     set((state) => {
       const clip = createDefaultClip({ ...clipData, id, track_id: trackId });
+      const tracks = state.timeline.tracks.map((t) =>
+        t.id === trackId ? { ...t, clips: [...t.clips, clip] } : t,
+      );
       return {
         timeline: {
           ...state.timeline,
-          tracks: state.timeline.tracks.map((t) =>
-            t.id === trackId ? { ...t, clips: [...t.clips, clip] } : t,
-          ),
-          duration_sec: computeTotalDuration(state.timeline.tracks),
+          tracks,
+          duration_sec: computeTotalDuration(tracks),
         },
         isDirty: true,
       };
