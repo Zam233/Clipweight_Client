@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useProjectStore } from '@/stores/projectStore';
 import { healthApi } from '@/services/api';
+import { projectCache } from '@/services/storage/projectCache';
+import type { CachedProject } from '@/services/storage/projectCache';
+import { useTimelineStore } from '@/stores/timelineStore';
 import { Button, Badge } from '@/components/ui';
 import {
   Film, Settings, Sparkles, ArrowRight, Plus, Bot, ListChecks,
   PenLine, PackageCheck, Clock, Layers, Wand2, Mic, Image as ImageIcon,
+  History, Trash2, PlayCircle,
 } from 'lucide-react';
 
 /* ── demo data ─────────────────────────────────────────── */
@@ -45,12 +49,29 @@ export function HomePage() {
   const [pluginId, setPluginId] = useState('knowledge_longform');
   const [mode, setMode] = useState<'voiceover' | 'visual'>('voiceover');
   const [backend, setBackend] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [cached, setCached] = useState<CachedProject | null>(null);
 
   useEffect(() => {
     healthApi.check()
       .then(() => setBackend('online'))
       .catch(() => setBackend('offline'));
+    // Load last auto-saved project for "continue editing"
+    projectCache.load('current')
+      .then((p) => setCached(p && p.timeline?.tracks?.length ? p : null))
+      .catch(() => setCached(null));
   }, []);
+
+  const continueEditing = () => {
+    if (!cached) return;
+    useTimelineStore.getState().setTimeline(cached.timeline);
+    useProjectStore.getState().setProjectName(cached.name);
+    navigate({ to: '/editor' });
+  };
+
+  const discardCached = async () => {
+    await projectCache.remove('current').catch(() => {});
+    setCached(null);
+  };
 
   const launch = () => {
     const st = useProjectStore.getState();
@@ -288,6 +309,32 @@ export function HomePage() {
                 查看全部 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
+
+            {/* resume last session */}
+            {cached && (
+              <div className="mb-4 flex items-center gap-4 bg-primary-container/25 border border-primary/40 rounded-cw-md px-5 py-4
+                hover:border-primary/70 transition-colors duration-short3 group">
+                <span className="w-11 h-11 rounded-cw-sm bg-primary-container flex items-center justify-center shrink-0">
+                  <History className="w-5 h-5 text-on-primary-container" />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-body-sm font-semibold text-on-surface truncate">{cached.name}</p>
+                  <p className="text-caption text-on-surface-variant font-mono">
+                    上次编辑 {new Date(cached.updatedAt).toLocaleString()} · {cached.timeline.tracks.length} 轨 · 已自动保存
+                  </p>
+                </div>
+                <Button size="sm" onClick={continueEditing} className="group-hover:scale-105 transition-transform">
+                  <PlayCircle className="w-3.5 h-3.5" /> 继续编辑
+                </Button>
+                <button
+                  onClick={discardCached}
+                  className="p-2 rounded-cw-sm text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors cursor-pointer"
+                  title="放弃此草稿"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            )}
 
             <div className="grid grid-cols-12 gap-4">
               {DEMO_PROJECTS.map((proj) => (

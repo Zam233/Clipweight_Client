@@ -20,6 +20,7 @@ import {
 } from './renderers';
 import { collectSnapTargets, applySnap } from './snap';
 import { clamp } from '@/lib/utils';
+import { mediaManager } from '@/services/media/mediaManager';
 
 export class TimelineEngine {
   private canvas: HTMLCanvasElement;
@@ -86,6 +87,7 @@ export class TimelineEngine {
     this.unsubscribers.push(useSelectionStore.subscribe(mark));
     this.unsubscribers.push(usePreviewStore.subscribe(mark));
     this.unsubscribers.push(useSettingsStore.subscribe(mark));
+    this.unsubscribers.push(mediaManager.onChange(mark));
   }
 
   private layout(): TimelineLayout {
@@ -540,6 +542,49 @@ export class TimelineEngine {
       this.markers.sort((a, b) => a - b);
       this.requestRender();
     }
+  }
+
+  /**
+   * Handle an asset dropped from the asset panel.
+   * Computes the drop time/track from canvas coordinates and inserts a clip.
+   */
+  dropAssetAt(
+    canvasX: number,
+    canvasY: number,
+    asset: { id: string; kind: string; filename: string; duration: number },
+  ) {
+    const L = this.layout();
+    const store = useTimelineStore.getState();
+    const dropTime = Math.max(0, xToTime(canvasX, L));
+    const dropTrackIdx = yToTrackIndex(canvasY, L);
+
+    const clipKind = asset.kind as import('@/types/timeline').ClipKind;
+
+    // Prefer the dropped-on track if its kind matches; else find/create one
+    const tracks = store.timeline.tracks;
+    let targetTrack =
+      dropTrackIdx >= 0 && dropTrackIdx < tracks.length && tracks[dropTrackIdx].kind === clipKind
+        ? tracks[dropTrackIdx]
+        : tracks.find((t) => t.kind === clipKind);
+
+    if (!targetTrack) {
+      const tid = store.addTrack(clipKind);
+      targetTrack = store.timeline.tracks.find((t) => t.id === tid);
+    }
+    if (!targetTrack) return;
+
+    // Snap drop time to a sensible grid (0.1s)
+    const startSec = Math.round(dropTime * 10) / 10;
+    useHistoryStore.getState().pushState(store.timeline, 'drop');
+    store.addClip(targetTrack.id, {
+      kind: clipKind,
+      asset_id: asset.id,
+      start_sec: startSec,
+      duration_sec: asset.duration || 5,
+      metadata: { title: asset.filename },
+    });
+    useSelectionStore.getState().selectTrack(targetTrack.id);
+    this.requestRender();
   }
 
   scrollToPlayhead() {

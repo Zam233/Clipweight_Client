@@ -7,6 +7,7 @@ import { TRACK_COLORS } from '@/types/timeline';
 import type { TimelineLayout } from './types';
 import { timeToX, trackToY } from './types';
 import { formatTimecode } from '@/lib/utils';
+import { mediaManager } from '@/services/media/mediaManager';
 
 const MONO = "'JetBrains Mono','SF Mono','Consolas',monospace";
 const SANS = "'Inter','Noto Sans SC',sans-serif";
@@ -294,7 +295,7 @@ export function drawClip(
   if (track.kind === 'audio' || track.kind === 'waveform') {
     drawWaveform(ctx, clip, x, y, w, h, color);
   } else if (track.kind === 'video' || track.kind === 'image') {
-    drawFilmstrip(ctx, x, y, w, h);
+    drawVideoContent(ctx, clip, x, y, w, h);
   } else if (track.kind === 'text' || track.kind === 'caption') {
     drawTextLines(ctx, clip, x, y, w, h);
   }
@@ -381,33 +382,111 @@ function drawWaveform(
   ctx: CanvasRenderingContext2D, clip: Clip,
   x: number, y: number, w: number, h: number, color: string,
 ) {
-  const rand = seededRand(hashStr(clip.id));
   const barW = 2.5;
   const gap = 1.5;
   const mid = y + h / 2 + 4;
-  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  const maxAmp = h / 2 - 8;
+
+  // Try real decoded peaks first
+  const peaks = mediaManager.getCachedWaveform(clip.asset_id);
+  if (peaks && peaks.length > 0) {
+    // Kick off decode if this was a placeholder empty array
+    ctx.fillStyle = 'rgba(255,255,255,0.62)';
+    const n = peaks.length;
+    const usable = Math.max(1, Math.floor(w / (barW + gap)));
+    for (let i = 0; i < usable; i++) {
+      // Map visible bar index -> peak index, honoring source offset/speed window
+      const frac = usable > 1 ? i / (usable - 1) : 0;
+      const pIdx = Math.min(n - 1, Math.floor(frac * n));
+      const amp = Math.max(1.5, peaks[pIdx] * maxAmp);
+      ctx.fillRect(x + 4 + i * (barW + gap), mid - amp, barW, amp * 2);
+    }
+    return;
+  }
+
+  // Trigger async decode for next frame, fall back to pseudo waveform now
+  mediaManager.ensureWaveform(clip.asset_id);
+  const rand = seededRand(hashStr(clip.id));
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
   for (let bx = x + 4; bx < x + w - 3; bx += barW + gap) {
-    const amp = (0.15 + rand() * 0.75) * (h / 2 - 8);
+    const amp = (0.15 + rand() * 0.75) * maxAmp;
     ctx.fillRect(bx, mid - amp, barW, amp * 2);
   }
 }
 
-function drawFilmstrip(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
-  // Sprocket holes along bottom
-  ctx.fillStyle = 'rgba(0,0,0,0.28)';
-  const holeY = y + h - 9;
-  for (let hx = x + 5; hx < x + w - 6; hx += 14) {
-    roundRect(ctx, hx, holeY, 7, 5, 1);
-    ctx.fill();
+/** Image cache for thumbnail dataURLs (so drawImage can use them). */
+const thumbImageCache = new Map<string, HTMLImageElement>();
+function getThumbImage(dataUrl: string): HTMLImageElement {
+  let img = thumbImageCache.get(dataUrl);
+  if (!img) {
+    img = new Image();
+    img.src = dataUrl;
+    thumbImageCache.set(dataUrl, img);
   }
-  // Frame dividers
-  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+  return img;
+}
+
+/**
+ * Draw video clip content: real thumbnail frames tiled across the clip when
+ * decoded, filmstrip placeholder otherwise (kicks off async frame capture).
+ */
+function drawVideoContent(ctx: CanvasRenderingContext2D, clip: Clip, x: number, y: number, w: number, h: number) {
+  const tileW = 56;
+  const contentTop = y + 16;
+  const contentH = h - 26;
+  let anyReal = false;
+
+  // Tile thumbnails across the clip
+  for (let tx = x; tx < x + w; tx += tileW) {
+    const tw = Math.min(tileW, x + w - tx);
+    if (tw <= 0) break;
+    const frac = w > 0 ? (tx - x + tw / 2) / w : 0;
+    const clipLocalTime = frac * clip.duration_sec;
+    const sourceT = clip.source_offset_sec + clipLocalTime * clip.speed;
+
+    const dataUrl = mediaManager.getCachedThumbnailAt(clip.asset_id, sourceT);
+    if (dataUrl) {
+      const img = getThumbImage(dataUrl);
+      if (img.complete && img.naturalWidth > 0) {
+        // cover-fit the frame into the tile
+        const sa = img.naturalWidth / img.naturalHeight;
+        const da = tw / contentH;
+        let sw = img.naturalWidth, sh = img.naturalHeight, sx = 0, sy = 0;
+        if (sa > da) { sw = img.naturalHeight * da; sx = (img.naturalWidth - sw) / 2; }
+        else { sh = img.naturalWidth / da; sy = (img.naturalHeight - sh) / 2; }
+        ctx.save();
+        roundRect(ctx, tx, contentTop, tw, contentH, 2);
+        ctx.clip();
+        ctx.globalAlpha = 0.9;
+        ctx.drawImage(img, sx, sy, sw, sh, tx, contentTop, tw, contentH);
+        ctx.restore();
+        anyReal = true;
+        continue;
+      }
+    }
+
+    // Placeholder for this tile + kick off capture
+    mediaManager.ensureThumbnail(clip.asset_id, sourceT);
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(tx, contentTop, tw, contentH);
+  }
+
+  // Frame dividers between tiles
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
   ctx.lineWidth = 1;
-  for (let fx = x + 40; fx < x + w - 4; fx += 46) {
+  for (let fx = x + tileW; fx < x + w - 2; fx += tileW) {
     ctx.beginPath();
-    ctx.moveTo(fx + 0.5, y + 16);
-    ctx.lineTo(fx + 0.5, y + h - 12);
+    ctx.moveTo(fx + 0.5, contentTop);
+    ctx.lineTo(fx + 0.5, contentTop + contentH);
     ctx.stroke();
+  }
+
+  // Sprocket holes along bottom (film identity)
+  ctx.fillStyle = anyReal ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.28)';
+  const holeY = y + h - 8;
+  for (let hx = x + 5; hx < x + w - 6; hx += 14) {
+    roundRect(ctx, hx, holeY, 7, 4.5, 1);
+    ctx.fill();
   }
 }
 

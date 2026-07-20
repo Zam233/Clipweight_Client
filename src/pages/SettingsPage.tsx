@@ -1,15 +1,17 @@
 import { useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { healthApi } from '@/services/api';
 import { Button, Badge, Slider } from '@/components/ui';
-import { Server, Palette, Ruler, Save, RefreshCw } from 'lucide-react';
+import { Server, Palette, Ruler, Save, RefreshCw, Terminal, ChevronRight } from 'lucide-react';
 
 /**
  * SettingsPage — global configuration (API, theme, timeline defaults).
  */
 export function SettingsPage() {
   const s = useSettingsStore();
+  const navigate = useNavigate();
   const [health, setHealth] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
 
   const checkHealth = async () => {
@@ -135,6 +137,22 @@ export function SettingsPage() {
             </button>
           </div>
         </Card>
+
+        {/* system console entry */}
+        <button
+          onClick={() => navigate({ to: '/settings/models' })}
+          className="w-full flex items-center gap-4 bg-surface-container border border-outline-variant/30 rounded-cw-md px-5 py-4
+            hover:border-primary/50 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/10 transition-all duration-short3 cursor-pointer group text-left"
+        >
+          <span className="w-10 h-10 rounded-cw-sm bg-primary-container flex items-center justify-center shrink-0">
+            <Terminal className="w-5 h-5 text-on-primary-container" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-body-sm font-semibold text-on-surface group-hover:text-primary transition-colors">系统控制台</p>
+            <p className="text-caption text-on-surface-variant">模型测试 · 工具技能 · 插件 · 类型 · 模板 · Webhook · 字体 · 管线监控</p>
+          </div>
+          <ChevronRight className="w-4.5 h-4.5 text-on-surface-variant group-hover:text-primary group-hover:translate-x-1 transition-all shrink-0" />
+        </button>
       </div>
     </StandardLayout>
   );

@@ -1,10 +1,14 @@
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useHistoryStore } from '@/stores/historyStore';
+import { usePreviewStore } from '@/stores/previewStore';
 import { Slider, Badge } from '@/components/ui';
 import { TRACK_COLORS } from '@/types/timeline';
+import { EASING_NAMES, interpolateProperties } from '@/features/timeline/engine/easing';
 import type { Clip } from '@/types/timeline';
-import { SlidersHorizontal, Type, Film, Music, Diamond } from 'lucide-react';
+import {
+  SlidersHorizontal, Type, Diamond, Plus, Trash2, ChevronLeft, ChevronRight,
+} from 'lucide-react';
 
 /**
  * PropertiesPanel — inspects and edits the selected clip's attributes.
@@ -128,21 +132,7 @@ export function PropertiesPanel() {
             </Section>
 
             {/* Keyframes */}
-            <Section title="关键帧" icon={<Diamond className="w-3 h-3" />}>
-              {clip.keyframes.length === 0 ? (
-                <p className="text-label-sm text-on-surface-variant">无关键帧。在属性值旁点击菱形添加。</p>
-              ) : (
-                <div className="space-y-1">
-                  {clip.keyframes.map((kf, i) => (
-                    <div key={i} className="flex items-center gap-2 text-label-sm font-mono text-on-surface-variant bg-surface-container rounded-cw-xs px-2 py-1">
-                      <Diamond className="w-3 h-3 text-keyframe-dot" />
-                      <span>t={kf.time.toFixed(2)}</span>
-                      <span className="truncate flex-1">{Object.entries(kf.properties).map(([k, v]) => `${k}:${v}`).join(' ')}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Section>
+            <KeyframeEditor clip={clip} />
           </div>
         )}
       </div>
@@ -153,6 +143,126 @@ export function PropertiesPanel() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * KeyframeEditor — add/remove keyframes at the playhead, pick easing,
+ * and jump between keyframes. Writes through timelineStore with history.
+ */
+function KeyframeEditor({ clip }: { clip: Clip }) {
+  const addKeyframe = useTimelineStore((s) => s.addKeyframe);
+  const removeKeyframe = useTimelineStore((s) => s.removeKeyframe);
+  const updateClip = useTimelineStore((s) => s.updateClip);
+  const currentTimeSec = usePreviewStore((s) => s.currentTimeSec);
+  const setCurrentTime = usePreviewStore((s) => s.setCurrentTime);
+
+  // Normalized playhead position within this clip (0-1)
+  const localT = clip.duration_sec > 0
+    ? Math.min(1, Math.max(0, (currentTimeSec - clip.start_sec) / clip.duration_sec))
+    : 0;
+  const inClip = currentTimeSec >= clip.start_sec && currentTimeSec <= clip.start_sec + clip.duration_sec;
+
+  const pushHistory = () =>
+    useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'keyframe');
+
+  // Current interpolated values at playhead (for the "add keyframe" snapshot)
+  const liveProps = interpolateProperties(clip.keyframes, localT);
+  const snapshotProps: Record<string, number> = Object.keys(liveProps).length > 0
+    ? liveProps
+    : { opacity: clip.opacity };
+
+  const addAtPlayhead = () => {
+    if (!inClip) return;
+    pushHistory();
+    addKeyframe(clip.id, Math.round(localT * 1000) / 1000, snapshotProps);
+  };
+
+  const removeAt = (time: number) => {
+    pushHistory();
+    removeKeyframe(clip.id, time);
+  };
+
+  const setEasing = (time: number, easing: string) => {
+    pushHistory();
+    const kfs = clip.keyframes.map((k) => (Math.abs(k.time - time) < 0.001 ? { ...k, easing } : k));
+    updateClip(clip.id, { keyframes: kfs });
+  };
+
+  const jumpTo = (dir: 1 | -1) => {
+    const times = clip.keyframes.map((k) => k.time).sort((a, b) => a - b);
+    if (times.length === 0) return;
+    const target = dir === 1
+      ? times.find((t) => t > localT + 0.001)
+      : [...times].reverse().find((t) => t < localT - 0.001);
+    if (target !== undefined) {
+      setCurrentTime(clip.start_sec + target * clip.duration_sec);
+    }
+  };
+
+  return (
+    <Section title="关键帧动画" icon={<Diamond className="w-3 h-3" />}>
+      {/* add-at-playhead row */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={addAtPlayhead}
+          disabled={!inClip}
+          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-cw-xs
+            bg-primary-container text-on-primary-container text-label-sm font-medium
+            hover:opacity-90 disabled:opacity-30 transition-opacity cursor-pointer"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          {inClip ? `在播放头添加 (${localT.toFixed(2)})` : '播放头不在片段内'}
+        </button>
+        <button onClick={() => jumpTo(-1)} disabled={clip.keyframes.length === 0}
+          className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface disabled:opacity-30 transition-colors cursor-pointer"
+          title="上一个关键帧">
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+        <button onClick={() => jumpTo(1)} disabled={clip.keyframes.length === 0}
+          className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface disabled:opacity-30 transition-colors cursor-pointer"
+          title="下一个关键帧">
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {clip.keyframes.length === 0 ? (
+        <p className="text-label-sm text-on-surface-variant leading-relaxed">
+          无关键帧。将播放头移到片段内，点击「添加」记录当前属性值，即可创建动画。
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {clip.keyframes.map((kf, i) => (
+            <div key={i} className="flex items-center gap-2 bg-surface-container rounded-cw-xs px-2 py-1.5 group">
+              <Diamond className="w-3 h-3 text-keyframe-dot shrink-0" />
+              <button
+                onClick={() => setCurrentTime(clip.start_sec + kf.time * clip.duration_sec)}
+                className="font-mono text-label-sm text-primary hover:underline cursor-pointer shrink-0"
+                title="跳转到此关键帧"
+              >
+                {kf.time.toFixed(2)}
+              </button>
+              <select
+                value={kf.easing ?? 'linear'}
+                onChange={(e) => setEasing(kf.time, e.target.value)}
+                className="flex-1 min-w-0 bg-surface rounded-cw-xs px-1.5 py-0.5 text-caption font-mono text-on-surface-variant
+                  outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                title="缓动函数"
+              >
+                {EASING_NAMES.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <button
+                onClick={() => removeAt(kf.time)}
+                className="p-1 rounded-cw-xs text-on-surface-variant hover:text-error opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                title="删除关键帧"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Section>
   );
 }
 

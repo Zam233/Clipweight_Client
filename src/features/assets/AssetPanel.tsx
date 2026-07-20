@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useAssetStore } from '@/stores/assetStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { assetApi } from '@/services/api';
+import { mediaManager } from '@/services/media/mediaManager';
 import { Button, Badge } from '@/components/ui';
 import { uid } from '@/lib/utils';
 import type { Asset } from '@/types/api';
@@ -58,15 +59,21 @@ export function AssetPanel() {
       }
       await loadAssets();
     } catch {
-      // Offline: create local placeholder assets
-      const newAssets: Asset[] = Array.from(files).map((f) => ({
-        id: uid('asset'),
-        filename: f.name,
-        path: f.name,
-        kind: f.type.startsWith('video') ? 'video' : f.type.startsWith('audio') ? 'audio' : 'image',
-        tags: ['本地上传'],
-        created_at: new Date().toISOString(),
-      }));
+      // Offline: create local assets backed by real object URLs (playable media)
+      const newAssets: Asset[] = Array.from(files).map((f) => {
+        const id = uid('asset');
+        const kind = f.type.startsWith('video') ? 'video' : f.type.startsWith('audio') ? 'audio' : 'image';
+        // Register real media so preview/thumbnails/waveforms work
+        mediaManager.registerFile(id, f);
+        return {
+          id,
+          filename: f.name,
+          path: f.name,
+          kind,
+          tags: ['本地上传'],
+          created_at: new Date().toISOString(),
+        };
+      });
       setAssets([...newAssets, ...useAssetStore.getState().assets]);
     } finally {
       setLoading(false);
@@ -86,11 +93,14 @@ export function AssetPanel() {
     if (!track) return;
     // Append after last clip on that track
     const lastEnd = track.clips.reduce((m, c) => Math.max(m, c.start_sec + c.duration_sec), 0);
+    // Prefer real media duration when available
+    const realDur = mediaManager.getDuration(asset.id);
+    const duration = realDur > 0 ? realDur : (asset.duration_sec ?? 5);
     store.addClip(track.id, {
       kind,
-      asset_id: asset.filename,
+      asset_id: asset.id,
       start_sec: lastEnd,
-      duration_sec: asset.duration_sec ?? 5,
+      duration_sec: duration,
       metadata: { title: asset.filename },
     });
     useAssetStore.getState().addToHistory(asset);
@@ -174,26 +184,61 @@ export function AssetPanel() {
 
 function AssetCard({ asset, onAdd }: { asset: Asset; onAdd: () => void }) {
   const kindColor = asset.kind === 'video' ? '#4F8CFF' : asset.kind === 'audio' ? '#34D399' : '#A855F7';
+  const [thumb, setThumb] = useState<string | null>(null);
+  const [realDur, setRealDur] = useState(0);
+
+  // Load real thumbnail + duration when media becomes available
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const t = await mediaManager.captureThumbnail(asset.id, 0.1);
+      if (alive) setThumb(t);
+    };
+    if (mediaManager.hasRealMedia(asset.id)) {
+      load();
+      const un = mediaManager.onChange((id) => {
+        if (id === asset.id) {
+          if (alive) setRealDur(mediaManager.getDuration(asset.id));
+          load();
+        }
+      });
+      return () => { alive = false; un(); };
+    }
+    const un = mediaManager.onChange((id) => { if (id === asset.id) load(); });
+    return () => { alive = false; un(); };
+  }, [asset.id]);
+
+  const dur = realDur || asset.duration_sec;
+
   return (
     <div
       onDoubleClick={onAdd}
       draggable
-      onDragStart={(e) => e.dataTransfer.setData('text/asset-id', asset.id)}
+      onDragStart={(e) => {
+        e.dataTransfer.setData('application/x-clipwright-asset', JSON.stringify({
+          id: asset.id, kind: asset.kind, filename: asset.filename, duration: dur ?? 5,
+        }));
+        e.dataTransfer.effectAllowed = 'copy';
+      }}
       className="group bg-surface-container rounded-cw-sm overflow-hidden border border-outline-variant/20
         hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 transition-all duration-short3 cursor-grab active:cursor-grabbing"
       title="双击或拖拽到时间轴"
     >
-      {/* Thumbnail placeholder */}
+      {/* Thumbnail */}
       <div
-        className="relative h-16 flex items-center justify-center"
+        className="relative h-16 flex items-center justify-center overflow-hidden"
         style={{ background: `linear-gradient(135deg, ${kindColor}22, ${kindColor}0D)` }}
       >
-        <span className="text-2xl" style={{ color: kindColor }}>
-          {asset.kind === 'video' ? '🎬' : asset.kind === 'audio' ? '🎵' : '🖼'}
-        </span>
-        {asset.duration_sec && (
+        {thumb ? (
+          <img src={thumb} alt="" className="absolute inset-0 w-full h-full object-cover" />
+        ) : (
+          <span className="text-2xl" style={{ color: kindColor }}>
+            {asset.kind === 'video' ? '🎬' : asset.kind === 'audio' ? '🎵' : '🖼'}
+          </span>
+        )}
+        {dur != null && dur > 0 && (
           <span className="absolute bottom-1 right-1 text-caption font-mono bg-black/60 text-white px-1 rounded-cw-xs">
-            {asset.duration_sec.toFixed(1)}s
+            {dur.toFixed(1)}s
           </span>
         )}
         {/* Hover add button */}

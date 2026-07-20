@@ -4,11 +4,12 @@ import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { useHistoryStore } from '@/stores/historyStore';
 import { Button, Tooltip } from '@/components/ui';
 import { formatTimecode } from '@/lib/utils';
 import type { ClipKind } from '@/types/timeline';
 import {
-  Magnet, Plus, ZoomIn, ZoomOut, Maximize2, Trash2, Scissors,
+  Magnet, Plus, ZoomIn, ZoomOut, Maximize2, Trash2, Scissors, ChevronsLeft,
 } from 'lucide-react';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -22,6 +23,7 @@ export function TimelinePanel() {
 
   const addTrack = useTimelineStore((s) => s.addTrack);
   const removeClip = useTimelineStore((s) => s.removeClip);
+  const rippleDelete = useTimelineStore((s) => s.rippleDelete);
   const splitClip = useTimelineStore((s) => s.splitClip);
   const timeline = useTimelineStore((s) => s.timeline);
   const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
@@ -59,7 +61,12 @@ export function TimelinePanel() {
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const ids = useSelectionStore.getState().selectedClipIds;
-        ids.forEach((id) => removeClip(id));
+        if (e.shiftKey) {
+          // Ripple delete: close the gap
+          ids.forEach((id) => rippleDelete(id));
+        } else {
+          ids.forEach((id) => removeClip(id));
+        }
         useSelectionStore.getState().deselectAll();
       } else if (e.key.toLowerCase() === 's' && !e.ctrlKey && !e.metaKey) {
         // Split selected clips at playhead
@@ -87,6 +94,12 @@ export function TimelinePanel() {
 
   const handleDelete = () => {
     selectedClipIds.forEach((id) => removeClip(id));
+    useSelectionStore.getState().deselectAll();
+  };
+
+  const handleRippleDelete = () => {
+    useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'ripple-delete');
+    selectedClipIds.forEach((id) => rippleDelete(id));
     useSelectionStore.getState().deselectAll();
   };
 
@@ -147,6 +160,12 @@ export function TimelinePanel() {
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         </Tooltip>
+        <Tooltip content="波纹删除 (Shift+Del) — 删除并闭合间隙">
+          <button onClick={handleRippleDelete} disabled={selectedClipIds.length === 0}
+            className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-tertiary disabled:opacity-30 transition-colors cursor-pointer">
+            <ChevronsLeft className="w-3.5 h-3.5" />
+          </button>
+        </Tooltip>
 
         <div className="flex-1" />
 
@@ -177,7 +196,26 @@ export function TimelinePanel() {
       </div>
 
       {/* Canvas viewport */}
-      <div ref={containerRef} className="flex-1 relative overflow-hidden min-h-0">
+      <div
+        ref={containerRef}
+        className="flex-1 relative overflow-hidden min-h-0"
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes('application/x-clipwright-asset')) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+          }
+        }}
+        onDrop={(e) => {
+          const raw = e.dataTransfer.getData('application/x-clipwright-asset');
+          if (!raw || !engineRef.current || !containerRef.current) return;
+          e.preventDefault();
+          try {
+            const asset = JSON.parse(raw);
+            const rect = containerRef.current.getBoundingClientRect();
+            engineRef.current.dropAssetAt(e.clientX - rect.left, e.clientY - rect.top, asset);
+          } catch { /* malformed drag payload */ }
+        }}
+      >
         <canvas ref={canvasRef} className="absolute inset-0 block" />
       </div>
 

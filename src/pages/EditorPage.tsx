@@ -1,20 +1,61 @@
 import { useEffect } from 'react';
 import { EditorLayout } from '@/layouts/EditorLayout';
 import { useTimelineStore } from '@/stores/timelineStore';
+import { useProjectStore } from '@/stores/projectStore';
 import { createEmptyTimeline } from '@/types/timeline';
 import type { Timeline, Track, Clip } from '@/types/timeline';
 import { uid } from '@/lib/utils';
+import { projectCache, createAutoSaver } from '@/services/storage/projectCache';
+
+const AUTOSAVE_PROJECT_ID = 'current';
 
 /**
- * EditorPage — hosts the 4-panel editor. Seeds a starter timeline on first
- * load so the workspace is immediately alive and explorable.
+ * EditorPage — hosts the 4-panel editor. Restores the last auto-saved project
+ * from IndexedDB (or seeds a starter timeline), and continuously auto-saves
+ * timeline changes so a crash never loses work.
  */
 export function EditorPage() {
+  // Restore or seed on mount
   useEffect(() => {
-    const store = useTimelineStore.getState();
-    if (store.timeline.tracks.length === 0) {
-      store.setTimeline(buildStarterTimeline());
-    }
+    let alive = true;
+    (async () => {
+      const store = useTimelineStore.getState();
+      const cached = await projectCache.load(AUTOSAVE_PROJECT_ID).catch(() => undefined);
+      if (!alive) return;
+      if (cached && cached.timeline && cached.timeline.tracks.length > 0) {
+        store.setTimeline(cached.timeline);
+        if (cached.name) useProjectStore.getState().setProjectName(cached.name);
+      } else if (store.timeline.tracks.length === 0) {
+        store.setTimeline(buildStarterTimeline());
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // Auto-save on timeline change (debounced)
+  useEffect(() => {
+    const saver = createAutoSaver(1500);
+    const unsub = useTimelineStore.subscribe((state, prev) => {
+      if (state.timeline !== prev.timeline) {
+        saver.schedule({
+          id: AUTOSAVE_PROJECT_ID,
+          name: useProjectStore.getState().projectName,
+          timeline: state.timeline,
+          personaId: useProjectStore.getState().personaId,
+          pluginId: useProjectStore.getState().pluginId,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
+    });
+    // Flush on unload so the latest edit is persisted
+    const onUnload = () => { saver.flush(); };
+    window.addEventListener('beforeunload', onUnload);
+    return () => {
+      unsub();
+      window.removeEventListener('beforeunload', onUnload);
+      saver.flush();
+    };
   }, []);
 
   return <EditorLayout />;

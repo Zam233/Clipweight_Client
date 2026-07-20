@@ -28,6 +28,8 @@ interface TimelineState {
   splitClip: (clipId: string, splitTimeSec: number) => void;
   trimClipStart: (clipId: string, newStartSec: number) => void;
   trimClipEnd: (clipId: string, newEndSec: number) => void;
+  /** Ripple delete: remove clip and close the gap by shifting later clips left. */
+  rippleDelete: (clipId: string) => void;
 
   // Keyframe actions
   addKeyframe: (clipId: string, time: number, properties: Record<string, number>) => void;
@@ -281,6 +283,30 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
           return { ...c, duration_sec: newDuration };
         }),
       }));
+      return {
+        timeline: { ...state.timeline, tracks, duration_sec: computeTotalDuration(tracks) },
+        isDirty: true,
+      };
+    }),
+
+  rippleDelete: (clipId) =>
+    set((state) => {
+      const tracks = state.timeline.tracks.map((t) => {
+        const idx = t.clips.findIndex((c) => c.id === clipId);
+        if (idx === -1) return t;
+        const removed = t.clips[idx];
+        const gap = removed.duration_sec;
+        const removedStart = removed.start_sec;
+        // Drop the clip, then shift every later clip left by the gap
+        const clips = t.clips
+          .filter((c) => c.id !== clipId)
+          .map((c) =>
+            c.start_sec >= removedStart + gap - 0.0001
+              ? { ...c, start_sec: Math.max(0, c.start_sec - gap) }
+              : c,
+          );
+        return { ...t, clips };
+      });
       return {
         timeline: { ...state.timeline, tracks, duration_sec: computeTotalDuration(tracks) },
         isDirty: true,

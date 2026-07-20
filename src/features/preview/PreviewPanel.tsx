@@ -5,6 +5,8 @@ import { useSelectionStore } from '@/stores/selectionStore';
 import { TRACK_COLORS } from '@/types/timeline';
 import type { Clip, Track } from '@/types/timeline';
 import { formatTimecode, clamp } from '@/lib/utils';
+import { mediaManager } from '@/services/media/mediaManager';
+import { interpolateProperties } from '@/features/timeline/engine/easing';
 import { Maximize, Shield, Volume2, VolumeX } from 'lucide-react';
 import { Tooltip } from '@/components/ui';
 
@@ -30,6 +32,31 @@ export function PreviewPanel() {
     usePreviewStore.getState().setDuration(timeline.duration_sec);
     usePreviewStore.getState().setFps(timeline.fps);
   }, [timeline.duration_sec, timeline.fps]);
+
+  // Audio sync: play/pause/seek audio clips' media elements with the playhead
+  useEffect(() => {
+    const t = currentTimeSec;
+    const playing = isPlaying;
+    const muted = isMuted;
+    for (const track of timeline.tracks) {
+      if (track.kind !== 'audio' && track.kind !== 'waveform') continue;
+      for (const clip of track.clips) {
+        const entry = mediaManager.get(clip.asset_id);
+        const el = entry?.audioEl ?? entry?.videoEl;
+        if (!el) continue;
+        const inClip = t >= clip.start_sec && t < clip.start_sec + clip.duration_sec;
+        const localT = t - clip.start_sec + clip.source_offset_sec;
+        el.volume = clamp(clip.volume, 0, 1);
+        el.muted = muted || track.muted;
+        if (inClip && playing) {
+          if (Math.abs(el.currentTime - localT) > 0.25) { try { el.currentTime = localT; } catch {} }
+          if (el.paused) el.play().catch(() => {});
+        } else {
+          if (!el.paused) el.pause();
+        }
+      }
+    }
+  }, [currentTimeSec, isPlaying, isMuted, timeline]);
 
   // Playback loop
   useEffect(() => {
@@ -199,7 +226,7 @@ function drawClipToPreview(
   let opacity = clip.opacity;
   let scale = 1;
   if (clip.keyframes.length > 0) {
-    const props = interpolateKeyframes(clip.keyframes, localT);
+    const props = interpolateProperties(clip.keyframes, localT);
     opacity = props.opacity ?? opacity;
     scale = props.scale ?? scale;
   }
@@ -210,26 +237,49 @@ function drawClipToPreview(
   switch (track.kind) {
     case 'video':
     case 'image': {
-      // Placeholder gradient block representing media
-      const g = ctx.createLinearGradient(fx, fy, fx + fw, fy + fh);
-      g.addColorStop(0, shadeColor(color, -0.5));
-      g.addColorStop(0.5, shadeColor(color, -0.2));
-      g.addColorStop(1, shadeColor(color, -0.6));
-      ctx.fillStyle = g;
-      ctx.fillRect(fx, fy, fw, fh);
-      // Moving sheen to suggest motion
-      const sheenX = fx + ((localT * 2) % 1.4 - 0.2) * fw;
-      const sg = ctx.createLinearGradient(sheenX - 80, 0, sheenX + 80, 0);
-      sg.addColorStop(0, 'rgba(255,255,255,0)');
-      sg.addColorStop(0.5, 'rgba(255,255,255,0.08)');
-      sg.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = sg;
-      ctx.fillRect(fx, fy, fw, fh);
-      // Clip label
-      ctx.fillStyle = 'rgba(255,255,255,0.7)';
-      ctx.font = "500 14px 'Inter','Noto Sans SC',sans-serif";
-      ctx.textBaseline = 'top';
-      ctx.fillText(clip.asset_id || track.kind, fx + 16, fy + 14);
+      // Try real media first (uploaded video/image)
+      const entry = mediaManager.get(clip.asset_id);
+      const videoEl = entry?.videoEl;
+      let drewReal = false;
+
+      if (track.kind === 'image' && entry?.url) {
+        // Real image: draw via cached Image
+        const img = getImageCached(entry.url);
+        if (img && img.complete && img.naturalWidth > 0) {
+          drawCover(ctx, img, fx, fy, fw, fh, scale);
+          drewReal = true;
+        }
+      } else if (videoEl && videoEl.readyState >= 2) {
+        // Real video frame: seek to clip-local time and draw
+        const sourceT = localT * clip.speed + clip.source_offset_sec;
+        mediaManager.seekVideo(clip.asset_id, sourceT);
+        drawCover(ctx, videoEl, fx, fy, fw, fh, scale);
+        drewReal = true;
+      }
+
+      if (!drewReal) {
+        // Placeholder gradient block representing media
+        const g = ctx.createLinearGradient(fx, fy, fx + fw, fy + fh);
+        g.addColorStop(0, shadeColor(color, -0.5));
+        g.addColorStop(0.5, shadeColor(color, -0.2));
+        g.addColorStop(1, shadeColor(color, -0.6));
+        ctx.fillStyle = g;
+        ctx.fillRect(fx, fy, fw, fh);
+        // Moving sheen to suggest motion
+        const sheenX = fx + ((localT * 2) % 1.4 - 0.2) * fw;
+        const sg = ctx.createLinearGradient(sheenX - 80, 0, sheenX + 80, 0);
+        sg.addColorStop(0, 'rgba(255,255,255,0)');
+        sg.addColorStop(0.5, 'rgba(255,255,255,0.08)');
+        sg.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = sg;
+        ctx.fillRect(fx, fy, fw, fh);
+        // Clip label
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.font = "500 14px 'Inter','Noto Sans SC',sans-serif";
+        ctx.textBaseline = 'top';
+        const label = (clip.metadata?.title as string) || clip.asset_id || track.kind;
+        ctx.fillText(label, fx + 16, fy + 14);
+      }
       break;
     }
     case 'text':
@@ -272,32 +322,45 @@ function drawClipToPreview(
   ctx.restore();
 }
 
-/** Linear keyframe interpolation at progress (0-1). */
-function interpolateKeyframes(
-  keyframes: Clip['keyframes'],
-  progress: number,
-): Record<string, number> {
-  if (keyframes.length === 0) return {};
-  if (keyframes.length === 1) return { ...keyframes[0].properties };
-  const sorted = [...keyframes].sort((a, b) => a.time - b.time);
-  if (progress <= sorted[0].time) return { ...sorted[0].properties };
-  if (progress >= sorted[sorted.length - 1].time) return { ...sorted[sorted.length - 1].properties };
-  let lo = 0, hi = sorted.length - 1;
-  while (lo < hi - 1) {
-    const mid = (lo + hi) >> 1;
-    if (sorted[mid].time <= progress) lo = mid; else hi = mid;
+/** Draw an image/video source covering the frame rect (object-fit: cover), with scale. */
+function drawCover(
+  ctx: CanvasRenderingContext2D,
+  src: HTMLVideoElement | HTMLImageElement,
+  fx: number, fy: number, fw: number, fh: number,
+  scale: number,
+) {
+  const sw = (src as HTMLVideoElement).videoWidth || (src as HTMLImageElement).naturalWidth;
+  const sh = (src as HTMLVideoElement).videoHeight || (src as HTMLImageElement).naturalHeight;
+  if (!sw || !sh) return;
+  // cover fit
+  const srcAspect = sw / sh;
+  const dstAspect = fw / fh;
+  let cw = sw, ch = sh, cx = 0, cy = 0;
+  if (srcAspect > dstAspect) {
+    cw = sh * dstAspect;
+    cx = (sw - cw) / 2;
+  } else {
+    ch = sw / dstAspect;
+    cy = (sh - ch) / 2;
   }
-  const prev = sorted[lo], next = sorted[hi];
-  const seg = next.time - prev.time;
-  const lt = seg > 0 ? (progress - prev.time) / seg : 0;
-  const result: Record<string, number> = {};
-  const keys = new Set([...Object.keys(prev.properties), ...Object.keys(next.properties)]);
-  for (const k of keys) {
-    const a = prev.properties[k] ?? next.properties[k] ?? 0;
-    const b = next.properties[k] ?? prev.properties[k] ?? 0;
-    result[k] = a + (b - a) * lt;
+  // scale about center
+  const dw = fw * scale, dh = fh * scale;
+  const dx = fx + (fw - dw) / 2, dy = fy + (fh - dh) / 2;
+  try {
+    ctx.drawImage(src, cx, cy, cw, ch, dx, dy, dw, dh);
+  } catch { /* frame not ready */ }
+}
+
+/** Simple image cache for image assets. */
+const imageCache = new Map<string, HTMLImageElement>();
+function getImageCached(url: string): HTMLImageElement | undefined {
+  let img = imageCache.get(url);
+  if (!img) {
+    img = new Image();
+    img.src = url;
+    imageCache.set(url, img);
   }
-  return result;
+  return img;
 }
 
 function shadeColor(hex: string, amt: number): string {

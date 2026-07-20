@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAgentStore } from '@/stores/agentStore';
 import { useTimelineStore } from '@/stores/timelineStore';
+import { useSelectionStore } from '@/stores/selectionStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { createEmptyTimeline } from '@/types/timeline';
+import { TimelineDiffView } from './TimelineDiffView';
 import { pipelineApi, requirementsApi, personaApi } from '@/services/api';
 import { Button, Badge } from '@/components/ui';
 import { uid } from '@/lib/utils';
@@ -363,7 +365,50 @@ function PipelineView() {
   const setError = useAgentStore((s) => s.setError);
 
   const [topic, setTopic] = useState('');
+  const [localBusy, setLocalBusy] = useState(false);
   const esRef = useRef<EventSource | null>(null);
+
+  /**
+   * Local Agent call (P5-4): reprocess the currently selected clip / region.
+   * Uses the selection to derive a scene index, then asks the backend to
+   * regenerate just that scene. Falls back to a local demo offline.
+   */
+  const localRedo = async () => {
+    const sel = useSelectionStore.getState().selectedClipIds;
+    if (sel.length === 0) return;
+    setLocalBusy(true);
+    setError(null);
+    try {
+      const pid = useAgentStore.getState().pipelineId ?? uid('pl');
+      // Derive a scene index from the first selected clip's position
+      const tl = useTimelineStore.getState().timeline;
+      let sceneIdx = 0;
+      outer: for (const tr of tl.tracks) {
+        for (const c of tr.clips) {
+          if (c.id === sel[0]) { sceneIdx = tr.clips.indexOf(c); break outer; }
+        }
+      }
+      const res = await pipelineApi.regenerateScene(pid, sceneIdx);
+      if (res?.timeline) setAgentTimeline(res.timeline);
+      else updatePhase('completed', 100);
+    } catch {
+      // Offline demo: nudge the selected clips slightly as a "reprocess"
+      const tl = useTimelineStore.getState().timeline;
+      const demo = JSON.parse(JSON.stringify(tl));
+      for (const tr of demo.tracks) {
+        for (const c of tr.clips) {
+          if (sel.includes(c.id)) {
+            c.duration_sec = Math.max(1, c.duration_sec + (Math.random() * 2 - 1));
+            c.metadata = { ...c.metadata, agent_redone: true };
+          }
+        }
+      }
+      setAgentTimeline(demo);
+      updatePhase('completed', 100);
+    } finally {
+      setLocalBusy(false);
+    }
+  };
 
   const runPipeline = async () => {
     setError(null);
@@ -455,6 +500,9 @@ function PipelineView() {
         {running ? '管线执行中…' : '生成初稿'}
       </Button>
 
+      {/* Local Agent call — reprocess the selected clip/region */}
+      <LocalRedoButton busy={localBusy} disabled={running} onRedo={localRedo} />
+
       {/* Phase progress */}
       {(running || phase === 'completed' || phase === 'failed') && (
         <div className="space-y-1.5">
@@ -489,50 +537,34 @@ function PipelineView() {
         </div>
       )}
 
-      {/* Agent timeline diff / accept */}
+      {/* Agent timeline diff review (accept / merge / ignore) */}
       {agentTimeline && phase === 'completed' && (
-        <div className="bg-surface-container border border-track-audio/40 rounded-cw-md p-3 space-y-2">
-          <div className="flex items-center gap-2">
-            <Check className="w-4 h-4 text-track-audio" />
-            <span className="text-body-sm font-medium text-on-surface">初稿时间线已就绪</span>
-          </div>
-          <p className="text-label-sm text-on-surface-variant">
-            {agentTimeline.tracks.length} 条轨道 · {agentTimeline.duration_sec.toFixed(1)}s ·
-            共 {agentTimeline.tracks.reduce((n, t) => n + t.clips.length, 0)} 个片段
-          </p>
-          {/* Mini track preview */}
-          <div className="space-y-1">
-            {agentTimeline.tracks.slice(0, 4).map((t) => (
-              <div key={t.id} className="flex items-center gap-1.5">
-                <span className="text-caption text-on-surface-variant w-10 truncate">{t.kind}</span>
-                <div className="flex-1 h-3 bg-surface rounded-cw-xs overflow-hidden flex">
-                  {t.clips.map((c) => (
-                    <div
-                      key={c.id}
-                      className="h-full opacity-80"
-                      style={{
-                        width: `${(c.duration_sec / (agentTimeline.duration_sec || 1)) * 100}%`,
-                        background: '#4F8CFF',
-                        marginLeft: `${(c.start_sec / (agentTimeline.duration_sec || 1)) * 100}%`,
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <Button size="sm" onClick={acceptTimeline} className="flex-1">
-              <Check className="w-3.5 h-3.5" />
-              接受并载入时间轴
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setAgentTimeline(null)}>
-              <X className="w-3.5 h-3.5" />
-            </Button>
-          </div>
-        </div>
+        <TimelineDiffView agentTimeline={agentTimeline} onDone={() => setAgentTimeline(null)} />
       )}
     </div>
+  );
+}
+
+/**
+ * LocalRedoButton — surfaces the "select region → Agent reprocess" action.
+ * Live-updates with the current selection count.
+ */
+function LocalRedoButton({ busy, disabled, onRedo }: { busy: boolean; disabled: boolean; onRedo: () => void }) {
+  const selectedCount = useSelectionStore((s) => s.selectedClipIds.length);
+  return (
+    <button
+      onClick={onRedo}
+      disabled={disabled || busy || selectedCount === 0}
+      className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-cw-sm border text-body-sm font-medium
+        transition-all duration-short3 cursor-pointer
+        ${selectedCount > 0 && !disabled && !busy
+          ? 'border-tertiary/50 bg-tertiary/10 text-tertiary hover:bg-tertiary/20 hover:border-tertiary'
+          : 'border-outline-variant/30 bg-surface-container text-on-surface-variant/50 cursor-not-allowed'}`}
+      title={selectedCount === 0 ? '先在时间轴上选中一个片段或区域' : '让 Agent 重新处理选中片段'}
+    >
+      {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+      {selectedCount > 0 ? `Agent 重做选中片段 (${selectedCount})` : '选中片段后可局部重做'}
+    </button>
   );
 }
 
