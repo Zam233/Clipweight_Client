@@ -1,0 +1,63 @@
+import { create } from 'zustand';
+import type { Timeline } from '@/types/timeline';
+
+interface HistoryEntry {
+  timestamp: number;
+  label: string;
+  timeline: Timeline;
+}
+
+interface HistoryState {
+  undoStack: HistoryEntry[];
+  redoStack: HistoryEntry[];
+  maxSize: number;
+
+  // Actions
+  pushState: (timeline: Timeline, label?: string) => void;
+  undo: () => Timeline | null;
+  redo: () => Timeline | null;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+  clear: () => void;
+}
+
+export const useHistoryStore = create<HistoryState>((set, get) => ({
+  undoStack: [],
+  redoStack: [],
+  maxSize: 200,
+
+  pushState: (timeline, label = 'edit') =>
+    set((state) => ({
+      undoStack: [
+        ...state.undoStack.slice(-(state.maxSize - 1)),
+        { timestamp: Date.now(), label, timeline: JSON.parse(JSON.stringify(timeline)) },
+      ],
+      redoStack: [],
+    })),
+
+  undo: () => {
+    const { undoStack } = get();
+    if (undoStack.length === 0) return null;
+    const entry = undoStack[undoStack.length - 1];
+    set((state) => ({
+      undoStack: state.undoStack.slice(0, -1),
+      redoStack: [...state.redoStack, entry],
+    }));
+    return entry.timeline;
+  },
+
+  redo: () => {
+    const { redoStack } = get();
+    if (redoStack.length === 0) return null;
+    const entry = redoStack[redoStack.length - 1];
+    set((state) => ({
+      redoStack: state.redoStack.slice(0, -1),
+      undoStack: [...state.undoStack, entry],
+    }));
+    return entry.timeline;
+  },
+
+  canUndo: () => get().undoStack.length > 0,
+  canRedo: () => get().redoStack.length > 0,
+  clear: () => set({ undoStack: [], redoStack: [] }),
+}));

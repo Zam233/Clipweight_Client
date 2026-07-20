@@ -1,0 +1,231 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════
+   ClipWright Design Tokens — Material You + Premiere Pro
+   ═══════════════════════════════════════════════════════════ */
+
+@theme {
+  /* ── Font Families ── */
+  --font-sans: 'Inter', 'Noto Sans SC', -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  --font-display: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+
+  /* ── Font Sizes (Material 3 Type Scale, editor-tuned) ── */
+  --text-display: 36px;
+  --text-display--line-height: 44px;
+  --text-headline: 24px;
+  --text-headline--line-height: 32px;
+  --text-title: 20px;
+  --text-title--line-height: 28px;
+  --text-title-sm: 16px;
+  --text-title-sm--line-height: 24px;
+  --text-body: 14px;
+  --text-body--line-height: 20px;
+  --text-body-sm: 12px;
+  --text-body-sm--line-height: 16px;
+  --text-label: 11px;
+  --text-label--line-height: 16px;
+  --text-label-sm: 10px;
+  --text-label-sm--line-height: 14px;
+  --text-caption: 9px;
+  --text-caption--line-height: 12px;
+  --text-mono: 12px;
+  --text-mono--line-height: 18px;
+
+  /* ── Spacing (4px grid) ── */
+  --spacing-2xs: 2px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+  --spacing-3xl: 48px;
+
+  /* ── Border Radius ── */
+  --radius-cw-xs: 4px;
+  --radius-cw-sm: 8px;
+  --radius-cw-md: 12px;
+  --radius-cw-lg: 16px;
+  --radius-cw-full: 9999px;
+
+  /* ── Durations (Material 3 motion) ── */
+  --duration-short1: 50ms;
+  --duration-short3: 150ms;
+  --duration-short4: 200ms;
+  --duration-medium1: 250ms;
+  --duration-medium2: 300ms;
+  --duration-medium3: 350ms;
+  --duration-long1: 400ms;
+  --duration-long2: 450ms;
+  --duration-long3: 500ms;
+
+  /* ── Easing ── */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ease-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+
+  /* ── ClipWright Track Colors ── */
+  --color-track-video: #4F8CFF;
+  --color-track-audio: #34D399;
+  --color-track-text: #FBBF24;
+  --color-track-image: #A855F7;
+  --color-track-caption: #F59E0B;
+  --color-track-animation: #FF6B6B;
+  --color-playhead: #FF4444;
+  --color-marker: #FFD700;
+  --color-snap-guide: #00E5FF;
+  --color-selection: rgba(79, 140, 255, 0.33);
+  --color-ruler-bg: #1A1D29;
+  --color-ruler-tick: #46464F;
+  --color-cw-grid: #2A2A3A;
+  --color-keyframe-dot: #FBBF24;
+  --color-keyframe-selected: #4F8CFF;
+  --color-agent-bubble: #1A3074;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Dark Theme (Default) — Premiere Pro Aesthetic
+   ═══════════════════════════════════════════════════════════ */
+
+:root,
+.dark {
+  --color-surface: #0E101A;
+  --color-surface-dim: #11131D;
+  --color-surface-bright: #1A1D29;
+  --color-surface-container: #161824;
+  --color-surface-container-low: #12141E;
+  --color-surface-container-high: #1C1F2C;
+  --color-on-surface: #E2E2EC;
+  --color-on-surface-variant: #C4C4D0;
+  --color-primary: #B4C5FF;
+  --color-on-primary: #001C55;
+  --color-primary-container: #1A3074;
+  --color-on-primary-container: #DBE2FF;
+  --color-secondary: #BBBCD0;
+  --color-secondary-container: #3B3C50;
+  --color-tertiary: #D1708E;
+  --color-error: #FFB4AB;
+  --color-on-error: #690005;
+  --color-outline: #8D8D99;
+  --color-outline-variant: #46464F;
+  --color-inverse-surface: #E2E2EC;
+  --color-inverse-on-surface: #1B1B21;
+  --color-scrim: rgba(0, 0, 0, 0.6);
+
+  color-scheme: dark;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Light Theme — for docs/settings pages only
+   ═══════════════════════════════════════════════════════════ */
+
+.light {
+  --color-surface: #FDFBFF;
+  --color-surface-dim: #F0F1F5;
+  --color-surface-bright: #FFFFFF;
+  --color-surface-container: #EBECF0;
+  --color-surface-container-low: #F5F6FA;
+  --color-surface-container-high: #E0E2E8;
+  --color-on-surface: #1B1B21;
+  --color-on-surface-variant: #46464F;
+  --color-primary: #34448D;
+  --color-on-primary: #FFFFFF;
+  --color-primary-container: #DBE2FF;
+  --color-on-primary-container: #001C55;
+  --color-secondary: #535468;
+  --color-secondary-container: #D7D8EC;
+  --color-tertiary: #622B40;
+  --color-error: #BA1A1A;
+  --color-on-error: #FFFFFF;
+  --color-outline: #73737D;
+  --color-outline-variant: #C4C4D0;
+  --color-inverse-surface: #1B1B21;
+  --color-inverse-on-surface: #F0F1F5;
+  --color-scrim: rgba(0, 0, 0, 0.4);
+
+  color-scheme: light;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Base Styles
+   ═══════════════════════════════════════════════════════════ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--color-on-surface);
+  background-color: var(--color-surface);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling (Premiere-like thin scrollbars) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-outline-variant);
+  border-radius: var(--radius-cw-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-outline);
+}
+
+/* Selection */
+::selection {
+  background: var(--color-primary-container);
+  color: var(--color-on-primary-container);
+}
+
+/* Focus visible ring */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Utility: panel divider */
+.panel-divider {
+  width: 1px;
+  background: var(--color-outline-variant);
+  cursor: col-resize;
+  transition: background var(--duration-short3) var(--ease-standard);
+}
+
+.panel-divider:hover,
+.panel-divider:active {
+  background: var(--color-primary);
+}
+
+.panel-divider-h {
+  height: 1px;
+  background: var(--color-outline-variant);
+  cursor: row-resize;
+  transition: background var(--duration-short3) var(--ease-standard);
+}
+
+.panel-divider-h:hover,
+.panel-divider-h:active {
+  background: var(--color-primary);
+}
