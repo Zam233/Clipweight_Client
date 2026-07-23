@@ -20,11 +20,14 @@ export interface TimelineLayout {
   scrollX: number;
   /** Vertical scroll (px) */
   scrollY: number;
+  /** Horizontal scrollbar height (reserved at the bottom) */
+  scrollbarH: number;
 }
 
 export const HEADER_W = 152;
 export const RULER_H = 30;
 export const TRACK_H = 48;
+export const SCROLLBAR_H = 12;
 export const MIN_ZOOM = 4;
 export const MAX_ZOOM = 600;
 export const DEFAULT_ZOOM = 60;
@@ -36,7 +39,7 @@ export function makeLayout(
   scrollX: number,
   scrollY: number,
 ): TimelineLayout {
-  return { width, height, headerW: HEADER_W, rulerH: RULER_H, trackH: TRACK_H, zoom, scrollX, scrollY };
+  return { width, height, headerW: HEADER_W, rulerH: RULER_H, trackH: TRACK_H, zoom, scrollX, scrollY, scrollbarH: SCROLLBAR_H };
 }
 
 // ── Coordinate transforms ──────────────────────────────
@@ -60,7 +63,8 @@ export type DragMode =
   | 'move-clip'
   | 'trim-start'
   | 'trim-end'
-  | 'pan';
+  | 'pan'
+  | 'scrollbar';
 
 export interface DragState {
   mode: DragMode;
@@ -82,6 +86,8 @@ export interface DragState {
   snapX: number | null;
   /** Whether we pushed a history snapshot for this drag */
   historyPushed: boolean;
+  /** Offset from the scrollbar thumb's left edge to the grab point */
+  scrollbarGrabOffset: number;
 }
 
 export function makeDragState(): DragState {
@@ -97,8 +103,42 @@ export function makeDragState(): DragState {
     marquee: null,
     snapX: null,
     historyPushed: false,
+    scrollbarGrabOffset: 0,
   };
 }
 
 /** Hit-test edge zone width in px for trim handles */
 export const TRIM_HANDLE_PX = 7;
+
+// ── Horizontal scrollbar geometry ─────────────────────
+export interface ScrollbarGeom {
+  /** Scrollbar track (full scrollable area) */
+  trackX: number;
+  trackW: number;
+  /** Thumb (draggable knob) */
+  thumbX: number;
+  thumbW: number;
+  /** Vertical position & height */
+  y: number;
+  h: number;
+  /** Max horizontal scroll (px) */
+  maxX: number;
+}
+
+/**
+ * Compute the horizontal scrollbar geometry for a given layout and content
+ * width (timeline duration in px). The scrollbar spans the content area to
+ * the right of the track headers, pinned to the bottom of the canvas.
+ */
+export function scrollbarGeom(L: TimelineLayout, contentW: number): ScrollbarGeom {
+  const trackX = L.headerW;
+  const trackW = Math.max(0, L.width - L.headerW);
+  const maxX = Math.max(0, contentW - trackW);
+  const minThumb = 32;
+  const ratio = contentW > 0 ? Math.min(1, trackW / contentW) : 1;
+  const thumbW = Math.max(minThumb, Math.round(trackW * ratio));
+  const thumbX = maxX > 0
+    ? trackX + (L.scrollX / maxX) * Math.max(0, trackW - thumbW)
+    : trackX;
+  return { trackX, trackW, thumbX, thumbW, y: L.height - L.scrollbarH, h: L.scrollbarH, maxX };
+}

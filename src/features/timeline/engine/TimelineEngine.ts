@@ -11,12 +11,13 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import {
   makeLayout, xToTime, yToTrackIndex, timeToX, trackToY,
-  makeDragState, MIN_ZOOM, MAX_ZOOM, DEFAULT_ZOOM, TRIM_HANDLE_PX,
+  makeDragState, scrollbarGeom, MIN_ZOOM, MAX_ZOOM, DEFAULT_ZOOM, TRIM_HANDLE_PX,
   type TimelineLayout, type DragState,
 } from './types';
 import {
   drawBackground, drawTrackLanes, drawRuler, drawTrackHeaders,
   drawClip, drawPlayhead, drawMarkers, drawSnapGuide, drawMarquee, drawEmptyState,
+  drawHorizontalScrollbar,
 } from './renderers';
 import { collectSnapTargets, applySnap } from './snap';
 import { clamp } from '@/lib/utils';
@@ -38,6 +39,7 @@ export class TimelineEngine {
   private drag: DragState = makeDragState();
   private hoveredClipId: string | null = null;
   private hoveredTrackId: string | null = null;
+  private scrollbarHover = false;
   markers: number[] = [];
 
   private rafId = 0;
@@ -191,6 +193,10 @@ export class TimelineEngine {
     drawTrackHeaders(ctx, L, tracks, selection.selectedTrackId, this.hoveredTrackId);
     drawRuler(ctx, L, timeline.fps);
     drawPlayhead(ctx, L, playhead);
+
+    // Horizontal scrollbar — drawn last so it sits on top
+    const sbState = this.drag.mode === 'scrollbar' ? 'drag' : this.scrollbarHover ? 'hover' : 'idle';
+    drawHorizontalScrollbar(ctx, L, timeline.duration_sec * L.zoom, sbState);
   }
 
   // ── pointer interactions ─────────────────────────────
@@ -224,6 +230,23 @@ export class TimelineEngine {
       const tIdx = yToTrackIndex(y, L);
       if (tIdx >= 0 && tIdx < timeline.tracks.length) {
         selection.selectTrack(timeline.tracks[tIdx].id);
+      }
+      return;
+    }
+
+    // Horizontal scrollbar → drag to scroll
+    if (y >= L.height - L.scrollbarH && x >= L.headerW) {
+      const g = this.hScrollbar();
+      if (g.maxX > 0) {
+        this.drag.mode = 'scrollbar';
+        if (x >= g.thumbX && x <= g.thumbX + g.thumbW) {
+          // Grab the thumb directly
+          this.drag.scrollbarGrabOffset = x - g.thumbX;
+        } else {
+          // Click on the track → jump so the thumb centres on the click, then drag
+          this.drag.scrollbarGrabOffset = g.thumbW / 2;
+          this.applyScrollbarScroll(x);
+        }
       }
       return;
     }
@@ -316,6 +339,11 @@ export class TimelineEngine {
         this.drag.startMouse = { x, y };
         this.clampScroll();
         this.requestRender();
+        break;
+      }
+      case 'scrollbar': {
+        this.canvas.style.cursor = 'grabbing';
+        this.applyScrollbarScroll(x);
         break;
       }
       case 'marquee': {
@@ -480,9 +508,18 @@ export class TimelineEngine {
   }
 
   private updateHover(x: number, y: number) {
+    const L = this.layout();
+    // Don't highlight clips/tracks while the pointer is over the scrollbar
+    if (y >= L.height - L.scrollbarH && x >= L.headerW) {
+      if (this.hoveredClipId !== null || this.hoveredTrackId !== null) {
+        this.hoveredClipId = null;
+        this.hoveredTrackId = null;
+        this.requestRender();
+      }
+      return;
+    }
     const hit = this.hitTestClip(x, y);
     const newHover = hit?.clip.id ?? null;
-    const L = this.layout();
     const tIdx = yToTrackIndex(y, L);
     const tl = useTimelineStore.getState().timeline;
     const newTrackHover = tIdx >= 0 && tIdx < tl.tracks.length ? tl.tracks[tIdx].id : null;
@@ -496,6 +533,16 @@ export class TimelineEngine {
 
   private updateCursor(x: number, y: number) {
     const L = this.layout();
+    // Scrollbar hover → brighten thumb + grab cursor
+    const inScrollbar = y >= L.height - L.scrollbarH && x >= L.headerW && this.hScrollbar().maxX > 0;
+    if (inScrollbar !== this.scrollbarHover) {
+      this.scrollbarHover = inScrollbar;
+      this.requestRender();
+    }
+    if (inScrollbar) {
+      this.canvas.style.cursor = 'grab';
+      return;
+    }
     if (y < L.rulerH) {
       this.canvas.style.cursor = 'text';
       return;
@@ -532,9 +579,11 @@ export class TimelineEngine {
       const dx = e.deltaX || e.deltaY;
       this.scrollX = Math.max(0, this.scrollX + dx * 3);
     } else {
-      // Plain wheel → vertical scroll
-      const isTrackpad = Math.abs(e.deltaX) < 2 && Math.abs(e.deltaY) < 150;
-      this.scrollY = Math.max(0, this.scrollY + e.deltaY + (isTrackpad ? e.deltaX : 0));
+      // Plain wheel / trackpad pan: deltaX → horizontal, deltaY → vertical.
+      // A mouse wheel emits deltaX=0 (vertical only); a trackpad two-finger
+      // swipe emits real deltaX/deltaY, so horizontal swipes scroll sideways.
+      if (e.deltaX) this.scrollX = Math.max(0, this.scrollX + e.deltaX);
+      if (e.deltaY) this.scrollY = Math.max(0, this.scrollY + e.deltaY);
     }
     this.clampScroll();
     this.requestRender();
@@ -544,9 +593,27 @@ export class TimelineEngine {
     const tl = useTimelineStore.getState().timeline;
     const L = this.layout();
     const maxX = Math.max(0, tl.duration_sec * L.zoom - (L.width - L.headerW));
-    const maxY = Math.max(0, tl.tracks.length * L.trackH - (L.height - L.rulerH));
+    const maxY = Math.max(0, tl.tracks.length * L.trackH - (L.height - L.rulerH - L.scrollbarH));
     this.scrollX = clamp(this.scrollX, 0, maxX);
     this.scrollY = clamp(this.scrollY, 0, maxY);
+  }
+
+  /** Horizontal scrollbar geometry for the current viewport & timeline. */
+  private hScrollbar() {
+    const L = this.layout();
+    const contentW = useTimelineStore.getState().timeline.duration_sec * L.zoom;
+    return scrollbarGeom(L, contentW);
+  }
+
+  /** Map a mouse X position to scrollX while dragging the scrollbar thumb. */
+  private applyScrollbarScroll(mouseX: number) {
+    const g = this.hScrollbar();
+    const free = g.trackW - g.thumbW;
+    if (free <= 0 || g.maxX <= 0) return;
+    const thumbX = mouseX - this.drag.scrollbarGrabOffset - g.trackX;
+    this.scrollX = clamp((thumbX / free) * g.maxX, 0, g.maxX);
+    this.clampScroll();
+    this.requestRender();
   }
 
   // ── public API ───────────────────────────────────────

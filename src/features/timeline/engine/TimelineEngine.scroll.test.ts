@@ -13,7 +13,7 @@ vi.stubGlobal('ResizeObserver', MockResizeObserver);
 const mockCtx = {
   setTransform: vi.fn(), clearRect: vi.fn(), fillRect: vi.fn(), strokeRect: vi.fn(),
   beginPath: vi.fn(), closePath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(),
-  arc: vi.fn(), fill: vi.fn(), stroke: vi.fn(), rect: vi.fn(),
+  arc: vi.fn(), arcTo: vi.fn(), fill: vi.fn(), stroke: vi.fn(), rect: vi.fn(),
   fillText: vi.fn(), strokeText: vi.fn(), measureText: vi.fn(() => ({ width: 0 })),
   drawImage: vi.fn(), save: vi.fn(), restore: vi.fn(), clip: vi.fn(),
   translate: vi.fn(), rotate: vi.fn(), scale: vi.fn(), createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
@@ -24,7 +24,7 @@ const mockCtx = {
 vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(mockCtx as any);
 
 import { TimelineEngine } from './TimelineEngine';
-import { DEFAULT_ZOOM, HEADER_W, RULER_H, TRACK_H, MIN_ZOOM, MAX_ZOOM } from './types';
+import { DEFAULT_ZOOM, HEADER_W, RULER_H, TRACK_H, MIN_ZOOM, MAX_ZOOM, SCROLLBAR_H, makeLayout, scrollbarGeom } from './types';
 import { useTimelineStore } from '@/stores/timelineStore';
 
 vi.mock('@/stores/timelineStore', () => ({
@@ -162,5 +162,46 @@ describe('TimelineEngine clampScroll', () => {
     }
     expect(engine.scrollX).toBeLessThanOrEqual(maxX);
     expect(engine.scrollX).toBeGreaterThanOrEqual(0);
+  });
+
+  it('scrollbar drag: grabbing the thumb and dragging right scrolls the timeline', () => {
+    // Zoom in so content overflows the viewport and the scrollbar becomes active
+    engine.zoom = 200;
+    engine.scrollX = 0;
+    (canvas as any).setPointerCapture = vi.fn();
+
+    const g = (engine as any).hScrollbar();
+    expect(g.maxX).toBeGreaterThan(0);
+
+    const y = CSS_H - SCROLLBAR_H / 2; // vertical middle of the scrollbar
+    const grabX = g.thumbX + g.thumbW / 2;
+
+    (engine as any).onPointerDown(new PointerEvent('pointerdown', { clientX: grabX, clientY: y, bubbles: true }));
+    expect((engine as any).drag.mode).toBe('scrollbar');
+
+    (engine as any).onPointerMove(new PointerEvent('pointermove', { clientX: grabX + 200, clientY: y, bubbles: true }));
+    expect(engine.scrollX).toBeGreaterThan(0);
+    expect(engine.scrollX).toBeLessThanOrEqual(g.maxX);
+
+    (engine as any).onPointerUp(new PointerEvent('pointerup', { clientX: grabX + 200, clientY: y, bubbles: true }));
+    expect((engine as any).drag.mode).toBe('none');
+  });
+});
+
+describe('scrollbarGeom', () => {
+  it('thumb starts at trackX when scrollX=0 and reaches the right edge at scrollX=maxX', () => {
+    const contentW = 2000; // wider than the 1000px viewport
+    const g0 = scrollbarGeom(makeLayout(1000, 400, 60, 0, 0), contentW);
+    expect(g0.maxX).toBe(contentW - (1000 - HEADER_W));
+    expect(g0.thumbX).toBe(g0.trackX);
+
+    const g1 = scrollbarGeom(makeLayout(1000, 400, 60, g0.maxX, 0), contentW);
+    expect(g1.thumbX + g1.thumbW).toBeCloseTo(g1.trackX + g1.trackW, 5);
+  });
+
+  it('thumb fills the track when all content is visible (maxX=0)', () => {
+    const g = scrollbarGeom(makeLayout(1000, 400, 60, 0, 0), 100);
+    expect(g.maxX).toBe(0);
+    expect(g.thumbW).toBe(g.trackW);
   });
 });

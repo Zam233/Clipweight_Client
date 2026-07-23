@@ -5,7 +5,7 @@
 import type { Track, Clip, ClipKind } from '@/types/timeline';
 import { TRACK_COLORS } from '@/types/timeline';
 import type { TimelineLayout } from './types';
-import { timeToX, trackToY } from './types';
+import { timeToX, trackToY, scrollbarGeom } from './types';
 import { formatTimecode } from '@/lib/utils';
 import { mediaManager } from '@/services/media/mediaManager';
 
@@ -611,4 +611,42 @@ export function drawEmptyState(ctx: CanvasRenderingContext2D, L: TimelineLayout)
   ctx.fillStyle = '#46464F';
   ctx.fillText('点击下方「添加轨道」开始编辑', cx, cy + 10);
   ctx.textAlign = 'left';
+}
+
+// ── Horizontal scrollbar ───────────────────────────────
+export function drawHorizontalScrollbar(
+  ctx: CanvasRenderingContext2D,
+  L: TimelineLayout,
+  contentW: number,
+  state: 'idle' | 'hover' | 'drag',
+) {
+  const g = scrollbarGeom(L, contentW);
+  if (g.trackW <= 0) return;
+
+  // Track bed + top hairline separator
+  ctx.fillStyle = 'rgba(255,255,255,0.035)';
+  ctx.fillRect(g.trackX, g.y, g.trackW, g.h);
+  ctx.fillStyle = 'rgba(255,255,255,0.07)';
+  ctx.fillRect(g.trackX, g.y, g.trackW, 1);
+
+  // Thumb (fills the track when all content is visible)
+  const inset = 2;
+  const ty = g.y + inset;
+  const th = g.h - inset * 2;
+  const tw = Math.max(8, g.thumbW);
+
+  const grad = ctx.createLinearGradient(0, ty, 0, ty + th);
+  if (state === 'drag') {
+    grad.addColorStop(0, 'rgba(110,155,255,0.95)');
+    grad.addColorStop(1, 'rgba(79,140,255,0.95)');
+  } else if (state === 'hover') {
+    grad.addColorStop(0, 'rgba(150,165,205,0.85)');
+    grad.addColorStop(1, 'rgba(120,135,175,0.85)');
+  } else {
+    grad.addColorStop(0, 'rgba(125,135,165,0.55)');
+    grad.addColorStop(1, 'rgba(100,110,140,0.55)');
+  }
+  ctx.fillStyle = grad;
+  roundRect(ctx, g.thumbX, ty, tw, th, th / 2);
+  ctx.fill();
 }

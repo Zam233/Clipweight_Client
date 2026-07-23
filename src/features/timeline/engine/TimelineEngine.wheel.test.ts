@@ -13,7 +13,7 @@ vi.stubGlobal('ResizeObserver', MockResizeObserver);
 const mockCtx = {
   setTransform: vi.fn(), clearRect: vi.fn(), fillRect: vi.fn(), strokeRect: vi.fn(),
   beginPath: vi.fn(), closePath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(),
-  arc: vi.fn(), fill: vi.fn(), stroke: vi.fn(), rect: vi.fn(),
+  arc: vi.fn(), arcTo: vi.fn(), fill: vi.fn(), stroke: vi.fn(), rect: vi.fn(),
   fillText: vi.fn(), strokeText: vi.fn(), measureText: vi.fn(() => ({ width: 0 })),
   drawImage: vi.fn(), save: vi.fn(), restore: vi.fn(), clip: vi.fn(),
   translate: vi.fn(), rotate: vi.fn(), scale: vi.fn(), createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
@@ -132,6 +132,15 @@ describe('TimelineEngine onWheel modifier mapping', () => {
     (engine as any).onWheel(mkWheel({ deltaY: 50 }));
     expect(engine.zoom).toBe(prevZoom);
     expect(engine.scrollY).toBeGreaterThan(0);
+  });
+
+  it('Plain trackpad horizontal swipe (deltaX only) → scrollX increases, scrollY unchanged', () => {
+    const prevZoom = engine.zoom;
+    const prevScrollY = engine.scrollY;
+    (engine as any).onWheel(mkWheel({ deltaX: 80, deltaY: 0 }));
+    expect(engine.zoom).toBe(prevZoom);
+    expect(engine.scrollX).toBeGreaterThan(0);
+    expect(engine.scrollY).toBe(prevScrollY);
   });
 
   it('Ctrl+wheel deltaY<0 → zoom increases (zoom in)', () => {
