@@ -65,6 +65,6 @@ export const assetApi = {
   /** List material sources */
   async listSources() {
     const { data } = await getApiClient().get('/api/material/sources');
-    return data;
+    return data as { id: string; name: string }[];
   },
 };

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { Asset, MaterialSearchResult } from '@/types/api';
 import { loadPrefArray, savePref } from '@/services/storage/localPrefs';
 
-type AssetTab = 'ai' | 'library' | 'history';
+type AssetTab = 'ai' | 'library' | 'history' | 'dub';
 
 interface AssetState {
   activeTab: AssetTab;

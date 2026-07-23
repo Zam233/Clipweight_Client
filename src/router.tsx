@@ -29,6 +29,7 @@ const TemplatesPage = lazyPage(() => import('./pages/admin/TemplatesPage'), 'Tem
 const WebhooksPage = lazyPage(() => import('./pages/admin/WebhooksPage'), 'WebhooksPage');
 const FontsPage = lazyPage(() => import('./pages/admin/FontsPage'), 'FontsPage');
 const PipelineAdminPage = lazyPage(() => import('./pages/admin/PipelineAdminPage'), 'PipelineAdminPage');
+const VoicePage = lazyPage(() => import('./pages/VoicePage'), 'VoicePage');
 
 function RouteFallback() {
   return (
@@ -145,6 +146,12 @@ const pipelineAdminRoute = createRoute({
   component: PipelineAdminPage,
 });
 
+const voiceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/voice',
+  component: VoicePage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   editorRoute,
@@ -162,6 +169,7 @@ const routeTree = rootRoute.addChildren([
   webhooksRoute,
   fontsRoute,
   pipelineAdminRoute,
+  voiceRoute,
 ]);
 
 export const router = createRouter({ routeTree });

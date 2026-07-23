@@ -5,3 +5,4 @@ export { assetApi } from './asset';
 export { renderApi } from './render';
 export { requirementsApi } from './requirements';
 export { projectApi, healthApi, pluginApi, animationApi, toolApi, skillApi } from './project';
+export { voiceApi } from './voice';
