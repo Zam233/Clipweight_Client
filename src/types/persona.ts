@@ -115,10 +115,28 @@ export interface CreativeBrief {
   duration_estimate: string;
   key_elements: string[];
   special_requirements: string[];
+  production_plan?: string;
+  reference_style?: string;
+  bgm_requirement?: string;
+  era_background?: string;
+  material_requirements?: {
+    type?: string;
+    source?: string;
+    preference?: string;
+  };
+  animation_style?: {
+    style?: string;
+    tone?: string;
+  };
+  asset_ratio?: {
+    footage: string;
+    mg: string;
+  };
 }
 
 export interface ProductionPlan {
-  markdown: string;
+  markdown?: string;
+  markdown_content?: string;
   scenes?: unknown[];
   toc?: { level: number; title: string; anchor: string }[];
 }

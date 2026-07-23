@@ -59,13 +59,17 @@ export function PersonaPage() {
   const navigate = useNavigate();
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dataMode, setDataMode] = useState<'live' | 'demo'>('demo');
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         const list = await personaApi.list();
-        if (alive) setPersonas(Array.isArray(list) && list.length ? list : DEMO_PERSONAS);
+        if (alive) {
+          setDataMode('live');
+          setPersonas(Array.isArray(list) ? list : []);
+        }
       } catch {
         if (alive) setPersonas(DEMO_PERSONAS);
       } finally {
@@ -95,7 +99,10 @@ export function PersonaPage() {
                 人格是可训练、可迁移的创作者数字分身——从语言措辞到剪辑节奏，Agent 按它出初稿。
               </p>
             </div>
-            <div className="flex gap-2.5">
+            <div className="flex items-center gap-2.5">
+              <Badge variant={dataMode === 'live' ? 'success' : 'default'}>
+                {dataMode === 'live' ? '实时数据' : '演示数据'}
+              </Badge>
               <Button variant="outline" onClick={() => navigate({ to: '/persona/forge' })}>
                 <MessageSquare className="w-4 h-4" /> 对话创建
               </Button>
@@ -116,25 +123,39 @@ export function PersonaPage() {
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {personas.map((p) => (
-              <PersonaCard key={p.persona_id} persona={p}
-                onOpen={() => navigate({ to: '/persona/$personaId', params: { personaId: p.persona_id } })} />
-            ))}
-            {/* create tile */}
-            <button
-              onClick={() => navigate({ to: '/persona/forge' })}
-              className="group min-h-[280px] rounded-cw-md border-2 border-dashed border-outline-variant/40 hover:border-primary/60
-                flex flex-col items-center justify-center gap-3 transition-all duration-short3 cursor-pointer
-                hover:bg-primary/5 text-on-surface-variant hover:text-primary"
-            >
-              <span className="w-12 h-12 rounded-cw-full border border-current flex items-center justify-center group-hover:scale-110 transition-transform">
-                <Plus className="w-5 h-5" />
-              </span>
-              <span className="text-body-sm font-medium">创建新人格</span>
+          <>
+            {personas.length === 0 && dataMode === 'live' && (
+              <div className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-6 text-center mb-4">
+                <Layers className="w-8 h-8 text-on-surface-variant/40 mx-auto mb-2" />
+                <p className="text-body-sm text-on-surface font-medium">还没有创建人格</p>
+                <p className="text-label-sm text-on-surface-variant mt-1 mb-4">
+                  通过对话或参数表单，打造属于你的创作人格。
+                </p>
+                <Button size="sm" onClick={() => navigate({ to: '/persona/forge' })}>
+                  <Sparkles className="w-3.5 h-3.5" /> 新建人格
+                </Button>
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {personas.map((p) => (
+                <PersonaCard key={p.persona_id} persona={p}
+                  onOpen={() => navigate({ to: '/persona/$personaId', params: { personaId: p.persona_id } })} />
+              ))}
+              {/* create tile */}
+              <button
+                onClick={() => navigate({ to: '/persona/forge' })}
+                className="group min-h-[280px] rounded-cw-md border-2 border-dashed border-outline-variant/40 hover:border-primary/60
+                  flex flex-col items-center justify-center gap-3 transition-all duration-short3 cursor-pointer
+                  hover:bg-primary/5 text-on-surface-variant hover:text-primary"
+              >
+                <span className="w-12 h-12 rounded-cw-full border border-current flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Plus className="w-5 h-5" />
+                </span>
+                <span className="text-body-sm font-medium">创建新人格</span>
               <span className="text-caption opacity-70">描述风格 → 对话问答 → 生成</span>
             </button>
           </div>
+          </>
         )}
       </div>
     </div>

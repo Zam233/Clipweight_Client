@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
-import { personaApi } from '@/services/api';
+import { personaApi, voiceApi, getApiClient } from '@/services/api';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge, Slider } from '@/components/ui';
 import type { Persona } from '@/types/persona';
+import type { VoiceRecord } from '@/types/voice';
 import {
   ArrowLeft, Save, SlidersHorizontal, FileText, Database, GitBranch,
-  Fingerprint, MessageSquareText, Timer, Palette, Music, ShieldCheck,
+  Fingerprint, MessageSquareText, Timer, Palette, Music, ShieldCheck, ExternalLink,
+  Search,
 } from 'lucide-react';
 
 type Tab = 'params' | 'prompt' | 'knowledge' | 'versions';
@@ -29,6 +31,7 @@ export function PersonaDetailPage() {
   const [tab, setTab] = useState<Tab>('params');
   const [prompt, setPrompt] = useState('');
   const [saving, setSaving] = useState(false);
+  const [voices, setVoices] = useState<VoiceRecord[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -37,10 +40,10 @@ export function PersonaDetailPage() {
         const p = await personaApi.get(personaId);
         if (alive) { setPersona(p); setPrompt(p.prompt ?? ''); }
       } catch {
-        // Offline: construct an editable shell
         if (alive) setPersona(makeShell(personaId));
       }
     })();
+    voiceApi.list().then((v) => { if (alive) setVoices(v); }).catch(() => {});
     return () => { alive = false; };
   }, [personaId]);
 
@@ -135,8 +138,29 @@ export function PersonaDetailPage() {
             <Section icon={<Music className="w-4 h-4" />} title="音频 Audio">
               <Slider label="响度 LUFS" min={-24} max={-8} value={P.audio.loudness_target_lufs ?? -16}
                 onChange={(v) => setParam((p) => ({ ...p, parameter: { ...p.parameter, audio: { ...p.parameter.audio, loudness_target_lufs: v } } }))} />
-              <TextField label="声音克隆模型" value={P.audio.voice_clone_model_id ?? '（未绑定）'}
-                onChange={(v) => setParam((p) => ({ ...p, parameter: { ...p.parameter, audio: { ...p.parameter.audio, voice_clone_model_id: v } } }))} />
+              <div>
+                <label className="block text-label text-on-surface-variant mb-1">声音克隆模型</label>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={P.audio.voice_clone_model_id ?? ''}
+                    onChange={(e) => setParam((p) => ({ ...p, parameter: { ...p.parameter, audio: { ...p.parameter.audio, voice_clone_model_id: e.target.value || null } } }))}
+                    className="flex-1 bg-surface rounded-cw-xs px-2.5 py-1.5 text-body-sm text-on-surface
+                      outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                  >
+                    <option value="">（未绑定）</option>
+                    {voices.map((v) => (
+                      <option key={v.id} value={v.id}>{v.voice_name} ({v.provider})</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => navigate({ to: '/voice' })}
+                    className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                    title="管理音色"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
             </Section>
 
             <Section icon={<ShieldCheck className="w-4 h-4" />} title="约束 Constraints">
@@ -163,11 +187,19 @@ export function PersonaDetailPage() {
         )}
 
         {tab === 'knowledge' && (
-          <div className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-8 text-center">
-            <Database className="w-8 h-8 text-on-surface-variant/40 mx-auto mb-2" />
-            <p className="text-body-sm text-on-surface font-medium">RAG 知识库</p>
-            <p className="text-label-sm text-on-surface-variant mt-1 mb-4">上传 .md / .txt 文档，向量化后供 Agent 检索创作者私有知识。</p>
-            <Button variant="outline" size="sm">上传文档并建立索引</Button>
+          <div className="space-y-4">
+            <div className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-5">
+              <h4 className="text-body-sm font-medium text-on-surface mb-2">
+                <Search className="w-3.5 h-3.5 inline mr-1.5" />RAG 知识检索
+              </h4>
+              <p className="text-label-sm text-on-surface-variant mb-3">在已索引的知识库文档中检索相关内容。</p>
+              <RagSearch personaId={persona.persona_id} />
+            </div>
+            <div className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-5 text-center">
+              <Database className="w-6 h-6 text-on-surface-variant/40 mx-auto mb-1.5" />
+              <p className="text-label-sm text-on-surface-variant">上传 .md / .txt 文档，向量化后供 Agent 检索。</p>
+              <Button variant="outline" size="sm" className="mt-2">上传文档并建立索引</Button>
+            </div>
           </div>
         )}
 
@@ -243,4 +275,46 @@ function makeShell(personaId: string): Persona {
       constraints: { max_duration_sec: 900 },
     },
   };
+}
+
+function RagSearch({ personaId }: { personaId: string }) {
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<{ text: string; score: number }[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const search = async () => {
+    if (!query.trim()) return;
+    setLoading(true);
+    setError(null);
+    setResults(null);
+    try {
+      const { data } = await getApiClient().post(`/api/persona/${personaId}/rag/query`, {
+        query: query.trim(), top_k: 5, rerank: true,
+      });
+      if (data?.results) setResults(data.results);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '检索失败');
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <input value={query} onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && search()}
+          placeholder="搜索知识库…" className="flex-1 bg-surface rounded-cw-xs px-2.5 py-1.5 text-body-sm text-on-surface
+            outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50" />
+        <Button size="sm" onClick={search} disabled={loading || !query.trim()}>检索</Button>
+      </div>
+      {error && <p className="text-caption text-error">{error}</p>}
+      {results && results.length === 0 && <p className="text-caption text-on-surface-variant">无匹配结果。</p>}
+      {results && results.map((r, i) => (
+        <div key={i} className="bg-surface rounded-cw-xs border border-outline-variant/20 p-2">
+          <p className="text-label-sm text-on-surface leading-relaxed">{r.text.slice(0, 300)}</p>
+          <p className="text-caption text-on-surface-variant mt-0.5 font-mono">得分: {(r.score * 100).toFixed(0)}%</p>
+        </div>
+      ))}
+    </div>
+  );
 }

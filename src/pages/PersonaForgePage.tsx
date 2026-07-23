@@ -35,6 +35,8 @@ export function PersonaForgePage() {
   });
   const [draft, setDraft] = useState<Partial<ParameterLayer> | null>(null);
   const [personaName, setPersonaName] = useState('');
+  const [kbBusy, setKbBusy] = useState(false);
+  const [kbFile, setKbFile] = useState<{ name: string; total: number; current: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -50,6 +52,9 @@ export function PersonaForgePage() {
     try {
       const res = await personaApi.chatForgeStart();
       setSessionId(res.session_id);
+      if (res.persona_draft) setDraft(res.persona_draft);
+      const prog = res.progress;
+      if (prog) setProgress((p) => ({ ...p, ...normalizeProgress(prog) }));
     } catch {
       setSessionId(uid('forge')); // offline session
     } finally {
@@ -69,7 +74,11 @@ export function PersonaForgePage() {
         ? await personaApi.chatForgeMessage(sessionId, text)
         : null;
       if (res?.persona_draft) setDraft(res.persona_draft);
-      if (res?.progress) setProgress((p) => ({ ...p, ...res.progress }));
+      const prog = res?.progress;
+      if (prog) {
+        const scaled = normalizeProgress(prog);
+        setProgress((p) => ({ ...p, ...scaled }));
+      }
       addMsg('assistant', res?.reply ?? '收到，让我想想…');
     } catch {
       // Offline: simulate progressive persona building
@@ -91,6 +100,38 @@ export function PersonaForgePage() {
     } catch { /* offline */ }
     setBusy(false);
     navigate({ to: '/persona' });
+  };
+
+  const handleKnowledge = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !sessionId) { e.target.value = ''; return; }
+    const text = await file.text();
+    const sections = splitByH1(text);
+    setKbFile({ name: file.name, total: sections.length, current: 0 });
+    setKbBusy(true);
+    try {
+      for (let i = 0; i < sections.length; i++) {
+        setKbFile({ name: file.name, total: sections.length, current: i + 1 });
+        const res = await personaApi.chatForgeKnowledge(
+          sessionId,
+          sections[i].content,
+          file.name,
+        );
+        if (res.persona_draft) setDraft(res.persona_draft);
+        const prog = res.progress;
+        if (prog) {
+          const scaled = normalizeProgress(prog);
+          setProgress((p) => ({ ...p, ...scaled }));
+        }
+      }
+      addMsg('assistant', `参考文档分析完成，共 ${sections.length} 段。`);
+    } catch {
+      addMsg('assistant', '参考文档上传失败，请重试。');
+    } finally {
+      setKbBusy(false);
+      setTimeout(() => setKbFile(null), 2000);
+    }
+    e.target.value = '';
   };
 
   const overall = Math.round(DIMENSIONS.reduce((s, d) => s + progress[d.key], 0) / DIMENSIONS.length);
@@ -165,7 +206,7 @@ export function PersonaForgePage() {
               <div className="flex gap-2">
                 <label className="p-2.5 rounded-cw-sm bg-surface-container text-on-surface-variant hover:text-primary border border-outline-variant/30 transition-colors cursor-pointer" title="上传参考文档">
                   <FileUp className="w-4 h-4" />
-                  <input type="file" className="hidden" accept=".md,.txt" />
+                  <input type="file" className="hidden" accept=".md,.txt" onChange={handleKnowledge} disabled={kbBusy} />
                 </label>
                 <input
                   value={input}
@@ -200,6 +241,18 @@ export function PersonaForgePage() {
                   </div>
                 </div>
               ))}
+              {kbFile && (
+                <div>
+                  <div className="flex justify-between text-label-sm mb-1">
+                    <span className="text-on-surface-variant truncate max-w-[180px]">📖 {kbFile.name}</span>
+                    <span className="font-mono text-on-surface-variant">{kbFile.current}/{kbFile.total}</span>
+                  </div>
+                  <div className="h-1.5 bg-surface rounded-cw-full overflow-hidden">
+                    <div className="h-full rounded-cw-full transition-all duration-medium2 bg-track-audio animate-pulse"
+                      style={{ width: `${(kbFile.current / kbFile.total) * 100}%` }} />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -286,4 +339,37 @@ function simulateProgress(
     constraints: '约束已记录。人格画像基本完整了，给它起个名字就可以保存啦。',
   };
   return { progress: next, draft, reply: replies[bump] };
+}
+
+const KB_CHUNK_LIMIT = 6000;
+
+function normalizeProgress(prog: Record<string, number>): Record<string, number> {
+  const vals = Object.values(prog).filter((v) => v > 0);
+  if (vals.length === 0) return prog;
+  if (vals.every((v) => v <= 1)) {
+    const scaled: Record<string, number> = {};
+    for (const [k, v] of Object.entries(prog)) {
+      scaled[k] = Math.round(v * 100);
+    }
+    return scaled;
+  }
+  return prog;
+}
+
+function splitByH1(text: string): { heading: string; content: string }[] {
+  if (text.length <= KB_CHUNK_LIMIT) return [{ heading: '', content: text }];
+  const sections = text.split(/^# /m);
+  const chunks: { heading: string; content: string }[] = [];
+  for (const section of sections) {
+    if (!section.trim()) continue;
+    const lines = section.split('\n');
+    const heading = lines[0].trim();
+    const body = lines.slice(1).join('\n').trim();
+    const chunkContent = heading ? `# ${heading}\n\n${body}` : body;
+    chunks.push({
+      heading: heading || `section_${chunks.length + 1}`,
+      content: chunkContent.length > KB_CHUNK_LIMIT ? chunkContent.slice(0, KB_CHUNK_LIMIT) : chunkContent,
+    });
+  }
+  return chunks.length ? chunks : [{ heading: '', content: text.slice(0, KB_CHUNK_LIMIT) }];
 }

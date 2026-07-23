@@ -2,15 +2,25 @@ import { getApiClient } from './client';
 import type { Persona } from '@/types/persona';
 
 export const personaApi = {
-  /** List all personas */
-  async list() {
-    const { data } = await getApiClient().get('/api/persona/list');
-    return data as Persona[];
+  /** List all persona IDs */
+  async listIds() {
+    const { data } = await getApiClient().get<string[]>('/api/persona/list');
+    return data;
+  },
+
+  /** List all personas with full details (batch fetch) */
+  async list(): Promise<Persona[]> {
+    const ids = await personaApi.listIds();
+    if (ids.length === 0) return [];
+    const results = await Promise.allSettled(ids.map((id) => personaApi.get(id)));
+    return results
+      .filter((r): r is PromiseFulfilledResult<Persona> => r.status === 'fulfilled')
+      .map((r) => r.value);
   },
 
   /** Get a single persona */
   async get(personaId: string) {
-    const { data } = await getApiClient().get(`/api/persona/get/${personaId}`);
+    const { data } = await getApiClient().get(`/api/persona/${personaId}`);
     return data as Persona;
   },
 
@@ -45,7 +55,7 @@ export const personaApi = {
     const { data } = await getApiClient().post('/api/persona/forge/chat/start', {
       description,
     });
-    return data as { session_id: string };
+    return data as { session_id: string; persona_draft?: unknown; progress?: Record<string, number>; reply?: string };
   },
 
   /** Send a chat forge message */
@@ -54,19 +64,16 @@ export const personaApi = {
       session_id: sessionId,
       message,
     });
-    return data;
+    return data as { reply?: string; persona_draft?: unknown; progress?: Record<string, number>; missing_dimensions?: string[] };
   },
 
-  /** Upload knowledge file for chat forge */
-  async chatForgeKnowledge(sessionId: string, file: File) {
-    const formData = new FormData();
-    formData.append('file', file);
+  /** Upload knowledge content for chat forge (sends text content, chunked) */
+  async chatForgeKnowledge(sessionId: string, content: string, source?: string) {
     const { data } = await getApiClient().post(
-      `/api/persona/forge/chat/knowledge?session_id=${sessionId}`,
-      formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
+      '/api/persona/forge/chat/knowledge',
+      { session_id: sessionId, content, source: source || 'user_upload' },
     );
-    return data;
+    return data as { reply?: string; persona_draft?: unknown; progress?: Record<string, number> };
   },
 
   /** Commit/finalize the persona from chat forge */
