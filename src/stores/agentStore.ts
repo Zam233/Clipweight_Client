@@ -1,10 +1,14 @@
 import { create } from 'zustand';
+import { uid } from '@/lib/utils';
 import type { Timeline } from '@/types/timeline';
 import type {
   PipelinePhase,
   AgentSuggestion,
   AgentChatMessage,
   PipelineRequest,
+  LogEntry,
+  AgentStat,
+  PipelineSummary,
 } from '@/types/pipeline';
 import type {
   RequirementsStatus,
@@ -12,6 +16,13 @@ import type {
   CreativeBrief,
   ProductionPlan,
 } from '@/types/persona';
+
+interface Annotation {
+  id: string;
+  type: 'comment' | 'dislike' | 'like';
+  text: string;
+  note?: string;
+}
 
 interface AgentState {
   // Pipeline state
@@ -24,12 +35,23 @@ interface AgentState {
   error: string | null;
   isStreaming: boolean;
 
+  // Log entries
+  logEntries: LogEntry[];
+  agentStats: AgentStat[];
+  pipelineSummary: PipelineSummary | null;
+
   // Requirements Agent state
   requirementsSessionId: string | null;
   requirementsStatus: RequirementsStatus;
   requirementsMessages: RequirementMessage[];
   creativeBrief: CreativeBrief | null;
   productionPlan: ProductionPlan | null;
+
+  // Annotations for review mode
+  annotations: Annotation[];
+
+  // Full-screen review mode
+  reviewMode: 'brief' | 'plan' | null;
 
   // Pipeline actions
   setPipelineId: (id: string | null) => void;
@@ -42,6 +64,14 @@ interface AgentState {
   setStreaming: (streaming: boolean) => void;
   resetPipeline: () => void;
 
+  // Log actions
+  addLogEntry: (entry: Omit<LogEntry, 'id'>) => void;
+  addLogEntries: (entries: Omit<LogEntry, 'id'>[]) => void;
+  clearLogs: () => void;
+  toggleLogExpand: (id: string) => void;
+  setAgentStats: (stats: AgentStat[]) => void;
+  setPipelineSummary: (summary: PipelineSummary | null) => void;
+
   // Requirements actions
   setRequirementsSession: (sessionId: string | null) => void;
   setRequirementsStatus: (status: RequirementsStatus) => void;
@@ -49,6 +79,12 @@ interface AgentState {
   setCreativeBrief: (brief: CreativeBrief | null) => void;
   setProductionPlan: (plan: ProductionPlan | null) => void;
   resetRequirements: () => void;
+
+  // Annotation actions
+  addAnnotation: (ann: Omit<Annotation, 'id'>) => void;
+  removeAnnotation: (id: string) => void;
+  clearAnnotations: () => void;
+  setReviewMode: (mode: 'brief' | 'plan' | null) => void;
 }
 
 export const useAgentStore = create<AgentState>((set) => ({
@@ -61,11 +97,18 @@ export const useAgentStore = create<AgentState>((set) => ({
   error: null,
   isStreaming: false,
 
+  logEntries: [],
+  agentStats: [],
+  pipelineSummary: null,
+
   requirementsSessionId: null,
   requirementsStatus: 'idle',
   requirementsMessages: [],
   creativeBrief: null,
   productionPlan: null,
+
+  annotations: [],
+  reviewMode: null,
 
   setPipelineId: (id) => set({ pipelineId: id }),
 
@@ -102,7 +145,34 @@ export const useAgentStore = create<AgentState>((set) => ({
       suggestions: [],
       error: null,
       isStreaming: false,
+      logEntries: [],
+      agentStats: [],
+      pipelineSummary: null,
     }),
+
+  addLogEntry: (entry) =>
+    set((state) => ({
+      logEntries: [...state.logEntries, { ...entry, id: uid('log') }],
+    })),
+
+  addLogEntries: (entries) =>
+    set((state) => ({
+      logEntries: [
+        ...state.logEntries,
+        ...entries.map((e) => ({ ...e, id: uid('log') })),
+      ],
+    })),
+
+  clearLogs: () => set({ logEntries: [], agentStats: [], pipelineSummary: null }),
+  toggleLogExpand: (id) =>
+    set((state) => ({
+      logEntries: state.logEntries.map((e) =>
+        e.id === id ? { ...e, expanded: !e.expanded } : e,
+      ),
+    })),
+
+  setAgentStats: (stats) => set({ agentStats: stats }),
+  setPipelineSummary: (summary) => set({ pipelineSummary: summary }),
 
   setRequirementsSession: (sessionId) =>
     set({ requirementsSessionId: sessionId }),
@@ -110,14 +180,15 @@ export const useAgentStore = create<AgentState>((set) => ({
   setRequirementsStatus: (status) =>
     set({ requirementsStatus: status }),
 
-  addRequirementsMessage: (message) =>
-    set((state) => ({
-      requirementsMessages: [...state.requirementsMessages, message],
-    })),
+  addRequirementsMessage: (message) => {
+    const state = useAgentStore.getState();
+    const msgs = [...state.requirementsMessages, message];
+    saveDraft({ messages: msgs, brief: state.creativeBrief, plan: state.productionPlan, sessionId: state.requirementsSessionId, status: state.requirementsStatus });
+    set({ requirementsMessages: msgs });
+  },
 
-  setCreativeBrief: (brief) => set({ creativeBrief: brief }),
-
-  setProductionPlan: (plan) => set({ productionPlan: plan }),
+  setCreativeBrief: (brief) => { saveDraft({ brief, plan: useAgentStore.getState().productionPlan }); set({ creativeBrief: brief }); },
+  setProductionPlan: (plan) => { saveDraft({ plan, brief: useAgentStore.getState().creativeBrief }); set({ productionPlan: plan }); },
 
   resetRequirements: () =>
     set({
@@ -126,5 +197,51 @@ export const useAgentStore = create<AgentState>((set) => ({
       requirementsMessages: [],
       creativeBrief: null,
       productionPlan: null,
+      annotations: [],
+      reviewMode: null,
     }),
+
+  addAnnotation: (ann) =>
+    set((state) => ({ annotations: [...state.annotations, { ...ann, id: uid('ann') }] })),
+  removeAnnotation: (id) =>
+    set((state) => ({ annotations: state.annotations.filter((a) => a.id !== id) })),
+  clearAnnotations: () => set({ annotations: [] }),
+  setReviewMode: (mode) => set({ reviewMode: mode }),
 }));
+
+const DRAFT_KEY = 'clipwright_requirements_draft';
+
+function saveDraft(partial: {
+  messages?: RequirementMessage[];
+  brief?: CreativeBrief | null;
+  plan?: ProductionPlan | null;
+  sessionId?: string | null;
+  status?: RequirementsStatus;
+}) {
+  try {
+    const current = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}');
+    const merged = { ...current, ...partial, ts: Date.now() };
+    if (partial.messages) merged.messages = partial.messages.slice(-50);
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(merged));
+  } catch { /* ignore */ }
+}
+
+export function loadRequirementsDraft(): {
+  messages: RequirementMessage[];
+  brief: CreativeBrief | null;
+  plan: ProductionPlan | null;
+  sessionId: string | null;
+  status: RequirementsStatus;
+} | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const draft = JSON.parse(raw);
+    if (Date.now() - draft.ts > 86400000) { localStorage.removeItem(DRAFT_KEY); return null; }
+    return draft;
+  } catch { return null; }
+}
+
+export function clearRequirementsDraft() {
+  localStorage.removeItem(DRAFT_KEY);
+}

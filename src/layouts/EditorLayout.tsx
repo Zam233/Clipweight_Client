@@ -6,7 +6,9 @@ import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { TimelinePanel } from '@/features/timeline/components/TimelinePanel';
 import { PropertiesPanel } from '@/features/properties/PropertiesPanel';
 import { AgentPanel } from '@/features/agent/AgentPanel';
+import { ReviewPanel } from '@/features/agent/ReviewPanel';
 import { EditorToolbar } from '@/features/timeline/components/EditorToolbar';
+import { useAgentStore } from '@/stores/agentStore';
 
 /**
  * EditorLayout — 4-panel Premiere-style layout
@@ -29,6 +31,11 @@ import { EditorToolbar } from '@/features/timeline/components/EditorToolbar';
 export function EditorLayout() {
   const { panels, panelWidths, timelineHeight, setPanelWidth, setTimelineHeight } =
     useWorkspaceStore();
+  const reviewMode = useAgentStore((s) => s.reviewMode);
+  const setReviewMode = useAgentStore((s) => s.setReviewMode);
+  const creativeBrief = useAgentStore((s) => s.creativeBrief);
+  const productionPlan = useAgentStore((s) => s.productionPlan);
+  const handleCloseReview = useCallback(() => setReviewMode(null), [setReviewMode]);
 
   const [dragging, setDragging] = useState<'assets' | 'properties' | 'timeline' | null>(null);
   const dragStartRef = useRef({ x: 0, y: 0, w: 0, h: 0 });
@@ -144,6 +151,21 @@ export function EditorLayout() {
 
       {/* Status Bar */}
       <StatusBar />
+
+      {/* Full-screen Review Panel overlay */}
+      {reviewMode && (
+        <div
+          className="fixed inset-0 z-50 bg-surface flex flex-col"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ReviewPanel
+            brief={reviewMode === 'brief' ? creativeBrief : null}
+            planMarkdown={reviewMode === 'plan' ? (productionPlan?.markdown_content || productionPlan?.markdown || '') : undefined}
+            onBack={handleCloseReview}
+          />
+        </div>
+      )}
     </div>
   );
 }

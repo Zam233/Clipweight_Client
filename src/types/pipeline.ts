@@ -85,3 +85,45 @@ export interface AgentChatMessage {
   content: string;
   timestamp: string;
 }
+
+/** SSE log event types */
+export type LogEventType =
+  | 'agent_start'
+  | 'agent_end'
+  | 'llm'
+  | 'tool'
+  | 'skill'
+  | 'plugin'
+  | 'info'
+  | 'warning'
+  | 'error'
+  | 'timeline_snapshot';
+
+/** A single log entry from the pipeline execution log */
+export interface LogEntry {
+  id: string;
+  timestamp: number;
+  agent: string;
+  type: LogEventType;
+  summary: string;
+  detail?: Record<string, unknown> | null;
+  expanded?: boolean;
+}
+
+/** Per-agent timing stats */
+export interface AgentStat {
+  agent: string;
+  startTime: number;
+  endTime?: number;
+  durationMs?: number;
+}
+
+/** Pipeline run summary */
+export interface PipelineSummary {
+  totalTokens: number;
+  totalCost: string;
+  materialCount: number;
+  selfHealCount: number;
+  agentDurations: Record<string, number>;
+  timelineStats?: { tracks: number; clips: number; durationSec: number };
+}
