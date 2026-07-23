@@ -4,20 +4,22 @@ import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { usePreviewStore } from '@/stores/previewStore';
-import { assetApi } from '@/services/api';
+import { assetApi, getApiClient } from '@/services/api';
 import { mediaManager } from '@/services/media/mediaManager';
 import { Button, Badge } from '@/components/ui';
 import { uid } from '@/lib/utils';
+import { DubView } from './DubView';
 import type { Asset, MaterialSearchResult } from '@/types/api';
 import type { ClipKind } from '@/types/timeline';
-import { Sparkles, FolderOpen, History, Upload, Search, Plus } from 'lucide-react';
+import { Sparkles, FolderOpen, History, Upload, Search, Plus, Mic, AudioLines } from 'lucide-react';
 
-type Tab = 'ai' | 'library' | 'history';
+type Tab = 'ai' | 'library' | 'history' | 'dub';
 
 const TABS: { id: Tab; label: string; icon: typeof Sparkles }[] = [
   { id: 'ai', label: 'AI 匹配', icon: Sparkles },
   { id: 'library', label: '素材库', icon: FolderOpen },
   { id: 'history', label: '历史', icon: History },
+  { id: 'dub', label: '配音', icon: Mic },
 ];
 
 /**
@@ -166,6 +168,8 @@ export function AssetPanel() {
       <div className="flex-1 overflow-y-auto p-2 min-h-0">
         {activeTab === 'ai' && <AIMatchView />}
 
+        {activeTab === 'dub' && <DubView />}
+
         {(activeTab === 'library' || activeTab === 'history') && (
           <>
             {isLoading ? (
@@ -188,7 +192,7 @@ export function AssetPanel() {
   );
 }
 
-function AssetCard({ asset, onAdd }: { asset: Asset; onAdd: (opts?: { ripple?: boolean }) => void }) {
+export function AssetCard({ asset, onAdd }: { asset: Asset; onAdd: (opts?: { ripple?: boolean }) => void }) {
   const kindColor = asset.kind === 'video' ? '#4F8CFF' : asset.kind === 'audio' ? '#34D399' : '#A855F7';
   const [thumb, setThumb] = useState<string | null>(null);
   const [realDur, setRealDur] = useState(0);
@@ -221,9 +225,11 @@ function AssetCard({ asset, onAdd }: { asset: Asset; onAdd: (opts?: { ripple?: b
       onDoubleClick={(e) => onAdd({ ripple: e.shiftKey })}
       draggable
       onDragStart={(e) => {
-        e.dataTransfer.setData('application/x-clipwright-asset', JSON.stringify({
+        const payload = JSON.stringify({
           id: asset.id, kind: asset.kind, filename: asset.filename, duration: dur ?? 5,
-        }));
+        });
+        e.dataTransfer.setData('application/x-clipwright-asset', payload);
+        e.dataTransfer.setData('text/plain', payload);
         e.dataTransfer.effectAllowed = 'copy';
       }}
       className="group bg-surface-container rounded-cw-sm overflow-hidden border border-outline-variant/20
@@ -236,7 +242,7 @@ function AssetCard({ asset, onAdd }: { asset: Asset; onAdd: (opts?: { ripple?: b
         style={{ background: `linear-gradient(135deg, ${kindColor}22, ${kindColor}0D)` }}
       >
         {thumb ? (
-          <img src={thumb} alt="" className="absolute inset-0 w-full h-full object-cover" />
+          <img src={thumb} alt="" draggable={false} className="absolute inset-0 w-full h-full object-cover" />
         ) : (
           <span className="text-2xl" style={{ color: kindColor }}>
             {asset.kind === 'video' ? '🎬' : asset.kind === 'audio' ? '🎵' : '🖼'}
@@ -247,14 +253,14 @@ function AssetCard({ asset, onAdd }: { asset: Asset; onAdd: (opts?: { ripple?: b
             {dur.toFixed(1)}s
           </span>
         )}
-        {/* Hover add button (Shift+click = ripple insert at playhead) */}
+        {/* Hover overlay (visual only, no pointer events — preserves drag from thumbnail) */}
+        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-short3 pointer-events-none" />
+        {/* Add button (small badge, pointer-events-auto) — Shift+click = ripple insert at playhead */}
         <button
           onClick={(e) => onAdd({ ripple: e.shiftKey })}
-          className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-short3 cursor-pointer"
+          className="absolute bottom-1 left-1 w-7 h-7 rounded-cw-full bg-primary text-on-primary flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-short3 pointer-events-auto cursor-pointer"
         >
-          <span className="w-7 h-7 rounded-cw-full bg-primary text-on-primary flex items-center justify-center">
-            <Plus className="w-4 h-4" />
-          </span>
+          <Plus className="w-4 h-4" />
         </button>
       </div>
       <div className="px-2 py-1.5">
@@ -266,11 +272,18 @@ function AssetCard({ asset, onAdd }: { asset: Asset; onAdd: (opts?: { ripple?: b
 }
 
 function AIMatchView() {
-  const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<MaterialSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [sources, setSources] = useState<{ id: string; name: string }[]>([]);
+  const [selSources, setSelSources] = useState<string[]>([]);
+  const [visionOpen, setVisionOpen] = useState(false);
+  const [visionPath, setVisionPath] = useState('');
+  const [visionLoading, setVisionLoading] = useState(false);
+  const [visionResult, setVisionResult] = useState<string | null>(null);
+
+  useEffect(() => { assetApi.listSources().then(setSources).catch(() => {}); }, []);
 
   const doSearch = async (q: string) => {
     const queryText = q.trim() || '通用 B-roll 空镜';
@@ -280,11 +293,25 @@ function AIMatchView() {
       const res = await assetApi.searchMaterials({ query: queryText, limit: 12 });
       setResults(Array.isArray(res) ? res : []);
     } catch {
-      // Offline: synthesize plausible matches so the flow is demonstrable
       setResults(demoMatches(queryText));
-    } finally {
-      setSearching(false);
-    }
+    } finally { setSearching(false); }
+  };
+
+  const doVisionImport = async () => {
+    if (!visionPath.trim()) return;
+    setVisionLoading(true);
+    setVisionResult(null);
+    try {
+      const analyzeRes = await getApiClient().post('/api/vision/analyze', { image_path: visionPath.trim() });
+      const ad = analyzeRes.data;
+      const labels = ad.tags?.join(', ') || ad.description || JSON.stringify(ad).slice(0, 200);
+      setVisionResult(`分析结果: ${labels}`);
+      await getApiClient().post('/api/vision/import', { image_path: visionPath.trim() });
+      setVisionResult((prev) => `${prev} — 已导入素材库`);
+      assetApi.listSources().then(setSources).catch(() => {});
+    } catch (e: unknown) {
+      setVisionResult(`失败: ${e instanceof Error ? e.message : '未知错误'}`);
+    } finally { setVisionLoading(false); }
   };
 
   const addResult = (r: MaterialSearchResult) => {
@@ -305,29 +332,53 @@ function AIMatchView() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* query input */}
       <div className="flex gap-1.5 px-1 pb-2">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+        <input value={query} onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && doSearch(query)}
           placeholder="描述想要的画面，如「城市夜景延时」…"
           className="flex-1 bg-surface-container rounded-cw-sm px-2.5 py-1.5 text-body-sm text-on-surface
-            outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/40"
-        />
+            outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/40" />
         <button onClick={() => doSearch(query)} disabled={searching}
           className="px-2.5 rounded-cw-sm bg-primary-container text-on-primary-container hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer">
           <Sparkles className="w-3.5 h-3.5" />
         </button>
       </div>
 
-      {selectedClipIds.length > 0 && !searched && (
-        <p className="text-caption text-on-surface-variant px-1 pb-2">
-          已选中 {selectedClipIds.length} 个片段 — 描述需求即可检索匹配素材。
-        </p>
+      {sources.length > 0 && (
+        <div className="flex flex-wrap gap-1 pb-2 px-1">
+          {sources.map((s) => {
+            const sel = selSources.includes(s.id);
+            return (
+              <button key={s.id} onClick={() => setSelSources(sel ? selSources.filter((x) => x !== s.id) : [...selSources, s.id])}
+                className={`px-1.5 py-0.5 rounded-cw-full text-caption border transition-colors cursor-pointer ${
+                  sel ? 'bg-track-video/15 border-track-video/60 text-track-video' : 'bg-surface-container-high border-outline-variant/40 text-on-surface-variant/70 hover:text-on-surface'
+                }`}>
+                {s.name}
+              </button>
+            );
+          })}
+          <button onClick={() => setVisionOpen(!visionOpen)}
+            className="px-1.5 py-0.5 rounded-cw-full text-caption border border-outline-variant/40 bg-surface-container-high
+              text-on-surface-variant/70 hover:text-tertiary hover:border-tertiary/40 transition-colors cursor-pointer">
+            视觉识别
+          </button>
+        </div>
       )}
 
-      {/* results */}
+      {visionOpen && (
+        <div className="px-1 pb-2 border border-outline-variant/20 rounded-cw-sm p-2 mb-2 bg-surface-container">
+          <p className="text-caption text-on-surface-variant mb-1.5">视觉识别：输入图片路径，AI 分析后自动入库</p>
+          <div className="flex gap-1.5 mb-1.5">
+            <input value={visionPath} onChange={(e) => setVisionPath(e.target.value)}
+              placeholder="图片路径…" className="flex-1 bg-surface rounded-cw-xs px-2 py-1 text-label-sm text-on-surface outline-none border border-outline-variant/30 focus:border-primary" />
+            <Button size="sm" onClick={doVisionImport} disabled={visionLoading || !visionPath.trim()}>
+              {visionLoading ? '分析中…' : '导入'}
+            </Button>
+          </div>
+          {visionResult && <p className="text-caption text-on-surface-variant leading-relaxed">{visionResult}</p>}
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto space-y-1.5 min-h-0">
         {searching && (
           <div className="flex items-center gap-2 text-label-sm text-on-surface-variant py-4 justify-center">
@@ -339,7 +390,13 @@ function AIMatchView() {
           <button key={r.id} onClick={() => addResult(r)}
             className="w-full flex items-center gap-2.5 bg-surface-container border border-outline-variant/20 rounded-cw-sm px-2.5 py-2
               hover:border-primary/50 hover:bg-surface transition-all duration-short3 cursor-pointer group text-left">
-            <span className="w-9 h-9 rounded-cw-xs bg-track-video/15 text-track-video flex items-center justify-center shrink-0 text-body">🎬</span>
+            {r.thumbnail ? (
+              <span className="w-10 h-10 rounded-cw-xs bg-surface overflow-hidden shrink-0">
+                <img src={r.thumbnail} alt="" className="w-full h-full object-cover" />
+              </span>
+            ) : (
+              <span className="w-9 h-9 rounded-cw-xs bg-track-video/15 text-track-video flex items-center justify-center shrink-0 text-body">🎬</span>
+            )}
             <span className="flex-1 min-w-0">
               <span className="block text-label-sm text-on-surface truncate group-hover:text-primary transition-colors">{r.title}</span>
               <span className="flex items-center gap-1.5 text-caption text-on-surface-variant">
