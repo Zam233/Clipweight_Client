@@ -293,6 +293,7 @@ export class TimelineEngine {
         this.scrollX = Math.max(0, this.scrollX - dx);
         this.scrollY = Math.max(0, this.scrollY - dy);
         this.drag.startMouse = { x, y };
+        this.clampScroll();
         this.requestRender();
         break;
       }
@@ -492,7 +493,7 @@ export class TimelineEngine {
     }
   }
 
-  // ── zoom ─────────────────────────────────────────────
+  // ── zoom / scroll ─────────────────────────────────────
   private onWheel = (e: WheelEvent) => {
     e.preventDefault();
     const L = this.layout();
@@ -500,22 +501,32 @@ export class TimelineEngine {
     const x = e.clientX - rect.left;
 
     if (e.ctrlKey || e.metaKey) {
-      // Zoom centered on cursor
+      // Ctrl/Cmd+wheel → zoom to cursor (README: Ctrl+滚轮=缩放)
       const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
       const timeAtCursor = xToTime(x, L);
       this.zoom = clamp(this.zoom * factor, MIN_ZOOM, MAX_ZOOM);
-      // Keep time under cursor stable
-      this.scrollX = timeAtCursor * this.zoom - (x - L.headerW);
-      this.scrollX = Math.max(0, this.scrollX);
+      this.scrollX = Math.max(0, timeAtCursor * this.zoom - (x - L.headerW));
     } else if (e.shiftKey) {
-      this.scrollX = Math.max(0, this.scrollX + e.deltaY);
+      // Shift+wheel → horizontal scroll (browser puts delta in deltaX for Shift+wheel)
+      const dx = e.deltaX || e.deltaY;
+      this.scrollX = Math.max(0, this.scrollX + dx * 3);
     } else {
-      // Vertical scroll = track scroll, horizontal delta = time scroll
-      this.scrollX = Math.max(0, this.scrollX + e.deltaX);
-      this.scrollY = Math.max(0, this.scrollY + e.deltaY);
+      // Plain wheel → vertical scroll
+      const isTrackpad = Math.abs(e.deltaX) < 2 && Math.abs(e.deltaY) < 150;
+      this.scrollY = Math.max(0, this.scrollY + e.deltaY + (isTrackpad ? e.deltaX : 0));
     }
+    this.clampScroll();
     this.requestRender();
   };
+
+  private clampScroll() {
+    const tl = useTimelineStore.getState().timeline;
+    const L = this.layout();
+    const maxX = Math.max(0, tl.duration_sec * L.zoom - (L.width - L.headerW));
+    const maxY = Math.max(0, tl.tracks.length * L.trackH - (L.height - L.rulerH));
+    this.scrollX = clamp(this.scrollX, 0, maxX);
+    this.scrollY = clamp(this.scrollY, 0, maxY);
+  }
 
   // ── public API ───────────────────────────────────────
   zoomIn() { this.setZoom(this.zoom * 1.3); }
@@ -526,12 +537,14 @@ export class TimelineEngine {
     const avail = L.width - L.headerW - 40;
     this.setZoom(avail / durationSec);
     this.scrollX = 0;
+    this.clampScroll();
   }
   private setZoom(z: number) {
     const L = this.layout();
     const centerTime = xToTime(L.headerW + (L.width - L.headerW) / 2, L);
     this.zoom = clamp(z, MIN_ZOOM, MAX_ZOOM);
     this.scrollX = Math.max(0, centerTime * this.zoom - (L.width - L.headerW) / 2);
+    this.clampScroll();
     this.requestRender();
   }
 
@@ -617,6 +630,7 @@ export class TimelineEngine {
     const x = timeToX(t, L);
     if (x < L.headerW || x > L.width) {
       this.scrollX = Math.max(0, t * this.zoom - (L.width - L.headerW) / 3);
+      this.clampScroll();
       this.requestRender();
     }
   }
