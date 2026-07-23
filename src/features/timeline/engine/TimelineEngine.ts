@@ -44,6 +44,7 @@ export class TimelineEngine {
   private dirty = true;
   private disposed = false;
   private unsubscribers: (() => void)[] = [];
+  private resizeObserver: ResizeObserver | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -53,6 +54,7 @@ export class TimelineEngine {
     this.bindStoreSubscriptions();
     this.bindPointerEvents();
     this.bindWheelEvent();
+    this.bindResizeObserver();
     this.loop();
   }
 
@@ -62,6 +64,8 @@ export class TimelineEngine {
     cancelAnimationFrame(this.rafId);
     this.unsubscribers.forEach((u) => u());
     this.removePointerEvents();
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
   }
 
   requestRender() {
@@ -77,7 +81,18 @@ export class TimelineEngine {
     this.canvas.height = Math.round(this.cssH * this.dpr);
     this.canvas.style.width = `${this.cssW}px`;
     this.canvas.style.height = `${this.cssH}px`;
+    this.clampScroll();
     this.dirty = true;
+  }
+
+  private bindResizeObserver() {
+    const parent = this.canvas.parentElement;
+    if (!parent) return;
+    this.resizeObserver = new ResizeObserver(() => {
+      if (this.disposed) return;
+      this.resize();
+    });
+    this.resizeObserver.observe(parent);
   }
 
   // ── store subscriptions ──────────────────────────────
