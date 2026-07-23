@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { healthApi } from '@/services/api';
+import { healthApi, assetApi } from '@/services/api';
 import { Button, Badge, Slider } from '@/components/ui';
-import { Server, Palette, Ruler, Save, RefreshCw, Terminal, ChevronRight } from 'lucide-react';
+import { Server, Palette, Ruler, Save, RefreshCw, Terminal, ChevronRight, FolderOpen } from 'lucide-react';
 
 /**
  * SettingsPage — global configuration (API, theme, timeline defaults).
@@ -13,6 +13,16 @@ export function SettingsPage() {
   const s = useSettingsStore();
   const navigate = useNavigate();
   const [health, setHealth] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
+  const [matSources, setMatSources] = useState<{ id: string; name: string }[]>([]);
+  const [matLoading, setMatLoading] = useState(false);
+
+  const loadMatSources = async () => {
+    setMatLoading(true);
+    try { setMatSources(await assetApi.listSources()); } catch { /* offline */ }
+    setMatLoading(false);
+  };
+
+  useEffect(() => { loadMatSources(); }, []);
 
   const checkHealth = async () => {
     setHealth('checking');
@@ -136,6 +146,23 @@ export function SettingsPage() {
               />
             </button>
           </div>
+        </Card>
+
+        {/* Material Sources */}
+        <Card icon={<FolderOpen className="w-4 h-4" />} title="素材源">
+          {matSources.length === 0 && !matLoading && (
+            <p className="text-label-sm text-on-surface-variant">暂无注册素材源。启动后端后将自动发现可用源（如 Pexels、本地素材库）。</p>
+          )}
+          {matLoading && <p className="text-label-sm text-on-surface-variant">加载中…</p>}
+          {matSources.map((src) => (
+            <div key={src.id} className="flex items-center justify-between bg-surface rounded-cw-xs px-3 py-2 border border-outline-variant/20">
+              <span className="text-body-sm text-on-surface">{src.name}</span>
+              <span className="font-mono text-caption text-on-surface-variant">{src.id}</span>
+            </div>
+          ))}
+          <Button size="sm" variant="outline" onClick={loadMatSources} disabled={matLoading}>
+            <RefreshCw className={`w-3.5 h-3.5 ${matLoading ? 'animate-spin' : ''}`} /> 刷新素材源
+          </Button>
         </Card>
 
         {/* system console entry */}

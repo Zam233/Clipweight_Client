@@ -41,12 +41,40 @@ export function ExportPage() {
   const [settings, setSettings] = useState<ExportSettings>({
     preset: 'bilibili', width: 1920, height: 1080, fps: 30, bitrate: '6M',
   });
+  const [apiPresets, setApiPresets] = useState<Record<string, any> | null>(null);
+  const [loadingPresets, setLoadingPresets] = useState(true);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const esRefs = useRef<Map<string, EventSource>>(new Map());
 
+  useEffect(() => {
+    renderApi.getPresets()
+      .then((presets) => {
+        if (Array.isArray(presets)) {
+          const mapped: Record<string, any> = {};
+          for (const p of presets) {
+            mapped[p.id || p.name] = {
+              name: p.name || p.label,
+              width: p.width || 1920,
+              height: p.height || 1080,
+              fps: p.fps || 30,
+              bitrate: p.bitrate || '5M',
+              icon: p.icon || '⚙️',
+            };
+          }
+          setApiPresets(mapped);
+        }
+      })
+      .catch(() => {
+        setApiPresets(null);
+      })
+      .finally(() => setLoadingPresets(false));
+  }, []);
+
+  const presets = apiPresets && Object.keys(apiPresets).length > 0 ? { ...PRESETS, ...apiPresets } : PRESETS;
+
   const applyPreset = (id: string) => {
-    const p = PRESETS[id];
+    const p = presets[id];
     setPresetId(id);
     setSettings({ preset: id, width: p.width, height: p.height, fps: p.fps, bitrate: p.bitrate });
   };
@@ -58,7 +86,7 @@ export function ExportPage() {
     const filename = `${projectName.replace(/\s+/g, '_')}_${settings.width}x${settings.height}.mp4`;
     const item: QueueItem = {
       task_id: taskId, status: 'pending', progress: 0,
-      label: projectName, presetName: PRESETS[presetId].name,
+      label: projectName, presetName: presets[presetId].name,
       startedAt: new Date().toLocaleTimeString(), filename,
     };
     setQueue((q) => [item, ...q]);
@@ -154,8 +182,8 @@ export function ExportPage() {
             <h3 className="flex items-center gap-2 text-label font-medium text-on-surface-variant uppercase tracking-wide mb-2.5">
               <Film className="w-3.5 h-3.5" /> 导出预设
             </h3>
-            <div className="grid grid-cols-2 gap-2">
-              {Object.entries(PRESETS).map(([id, p]) => (
+            <div className="grid grid-cols-2 gap-2" aria-busy={loadingPresets}>
+              {Object.entries(presets).map(([id, p]) => (
                 <button
                   key={id}
                   onClick={() => applyPreset(id)}

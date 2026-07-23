@@ -9,7 +9,10 @@ export function getApiClient(): AxiosInstance {
     const baseURL = useSettingsStore.getState().apiBaseUrl || 'http://localhost:8000';
     client = axios.create({
       baseURL,
-      timeout: 300_000, // 5 min for long operations
+      // 普通请求 60s 上限：后端一旦 hang 住能尽快失败，避免挂起连接越堆越多。
+      // 真正的长任务（渲染/管线/聊天流）走 SSE(EventSource)，不受 axios timeout 约束；
+      // 个别确需更久的 axios 调用可在该请求上单独传 { timeout: ... } 覆盖。
+      timeout: 60_000,
       headers: { 'Content-Type': 'application/json' },
     });
 

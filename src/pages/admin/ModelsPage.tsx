@@ -18,11 +18,12 @@ export function ModelsPage() {
   const runTest = async (
     endpoint: string,
     setter: (r: TestResult) => void,
+    body?: Record<string, unknown>,
   ) => {
     setter({ status: 'running' });
     const t0 = performance.now();
     try {
-      const { data } = await getApiClient().post(endpoint, { prompt: 'ping' });
+      const { data } = await getApiClient().post(endpoint, body ?? { prompt: 'ping' });
       const latencyMs = Math.round(performance.now() - t0);
       setter({ status: 'ok', latencyMs, detail: summarize(data) });
     } catch (e: unknown) {
@@ -42,9 +43,9 @@ export function ModelsPage() {
   };
 
   const MODELS = [
-    { key: 'llm', label: 'LLM 推理', desc: '大语言模型 · 脚本/结构/质检', icon: Cpu, endpoint: '/api/test/llm', state: llm, set: setLlm, color: '#4F8CFF' },
-    { key: 'embed', label: 'Embedding', desc: '向量化 · 素材语义检索', icon: Database, endpoint: '/api/test/embed', state: embed, set: setEmbed, color: '#A855F7' },
-    { key: 'rerank', label: 'Rerank', desc: '重排序 · 检索结果精排', icon: Layers, endpoint: '/api/test/rerank', state: rerank, set: setRerank, color: '#34D399' },
+    { key: 'llm', label: 'LLM 推理', desc: '大语言模型 · 脚本/结构/质检', icon: Cpu, endpoint: '/api/test/llm', state: llm, set: setLlm, color: '#4F8CFF', body: { prompt: '你好，请回复 ping' } },
+    { key: 'embed', label: 'Embedding', desc: '向量化 · 素材语义检索', icon: Database, endpoint: '/api/test/embed', state: embed, set: setEmbed, color: '#A855F7', body: { text: '这是一个测试句子。' } },
+    { key: 'rerank', label: 'Rerank', desc: '重排序 · 检索结果精排', icon: Layers, endpoint: '/api/test/rerank', state: rerank, set: setRerank, color: '#34D399', body: { query: '测试', candidates: ['选项A', '选项B', '选项C'] } },
   ];
 
   return (
@@ -75,7 +76,7 @@ export function ModelsPage() {
             )}
 
             <Button size="sm" variant="outline" className="w-full"
-              onClick={() => runTest(m.endpoint, m.set)} disabled={m.state.status === 'running'}>
+              onClick={() => runTest(m.endpoint, m.set, m.body)} disabled={m.state.status === 'running'}>
               {m.state.status === 'running' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
               {m.state.status === 'running' ? '探测中…' : '测试'}
             </Button>

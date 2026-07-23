@@ -3,30 +3,34 @@ import { ConsoleShell, ConsoleHeading, StatusPill } from './ConsoleShell';
 import { pluginApi } from '@/services/api';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import { Puzzle, Power, Loader2, RefreshCw, Zap } from 'lucide-react';
+import type { PluginConfigField, PluginConfigResponse } from '@/types/api';
+import { Puzzle, Power, Loader2, RefreshCw, Zap, Settings, X, Save, Trash2 } from 'lucide-react';
 
 interface PluginItem {
   id: string;
   name: string;
   description?: string;
   version?: string;
+  kind?: string;
   loaded: boolean;
 }
 
-/**
- * PluginsPage — the module rack. Each plugin is a rack unit with a power
- * toggle (load/unload) and a status LED.
- */
 export function PluginsPage() {
   const [plugins, setPlugins] = useState<PluginItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loadingAll, setLoadingAll] = useState(false);
 
+  const [configId, setConfigId] = useState<string | null>(null);
+  const [configFields, setConfigFields] = useState<Record<string, PluginConfigField>>({});
+  const [configLoading, setConfigLoading] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+
   const load = async () => {
     setLoading(true);
     try {
-      const list = await pluginApi.discover();
+      const list = await pluginApi.list();
       setPlugins(normalize(list));
     } catch {
       setPlugins(DEMO_PLUGINS);
@@ -42,7 +46,7 @@ export function PluginsPage() {
     try {
       if (p.loaded) await pluginApi.unload(p.id);
       else await pluginApi.load(p.id);
-    } catch { /* offline: flip locally */ }
+    } catch { /* offline */ }
     setPlugins((ps) => ps.map((x) => (x.id === p.id ? { ...x, loaded: !x.loaded } : x)));
     setBusyId(null);
   };
@@ -54,14 +58,82 @@ export function PluginsPage() {
     setLoadingAll(false);
   };
 
+  const openConfig = async (p: PluginItem) => {
+    setConfigId(p.id);
+    setConfigFields({});
+    setConfigError(null);
+    setConfigLoading(true);
+    try {
+      const cfg = await pluginApi.getConfig(p.id) as unknown as PluginConfigResponse;
+      setConfigFields(cfg.fields || {});
+    } catch (e: unknown) {
+      setConfigError(e instanceof Error ? e.message : '读取配置失败');
+    } finally {
+      setConfigLoading(false);
+    }
+  };
+
+  const updateField = (key: string, value: unknown) => {
+    setConfigFields((prev) => ({
+      ...prev,
+      [key]: { ...prev[key], value },
+    }));
+    setConfigError(null);
+  };
+
+  const saveConfig = async () => {
+    if (!configId) return;
+    const yaml = buildConfigYaml(configFields);
+    if (!yaml) return;
+    setConfigSaving(true);
+    setConfigError(null);
+    try {
+      await pluginApi.saveConfig(configId, yaml);
+      closeConfig();
+    } catch (e: unknown) {
+      const resp = (e as { response?: { status?: number; data?: { detail?: { message?: string; errors?: string[] } | string } } }).response;
+      if (resp?.status === 400) {
+        const detail = resp.data?.detail;
+        const errors = typeof detail === 'object' && detail !== null
+          ? (detail as { errors?: string[] }).errors?.join('\n') || (detail as { message?: string }).message
+          : String(detail || '');
+        setConfigError(`校验失败:\n${errors}`);
+      } else {
+        setConfigError(e instanceof Error ? e.message : '保存失败');
+      }
+    } finally {
+      setConfigSaving(false);
+    }
+  };
+
+  const deleteConfig = async () => {
+    if (!configId) return;
+    setConfigSaving(true);
+    setConfigError(null);
+    try {
+      await pluginApi.deleteConfig(configId);
+      const cfg = await pluginApi.getConfig(configId) as unknown as PluginConfigResponse;
+      setConfigFields(cfg.fields || {});
+    } catch (e: unknown) {
+      setConfigError(e instanceof Error ? e.message : '恢复默认失败');
+    } finally {
+      setConfigSaving(false);
+    }
+  };
+
+  const closeConfig = () => {
+    setConfigId(null);
+    setConfigFields({});
+    setConfigError(null);
+  };
+
   const loadedCount = plugins.filter((p) => p.loaded).length;
 
   return (
     <ConsoleShell>
       <ConsoleHeading kicker="Extensions / Plugins" title="插件管理"
-        desc="类型插件决定不同视频品类的剪辑逻辑。加载后 Agent 管线即可调用对应能力。" />
+        desc="加载/卸载插件并编辑运行时配置。配置写入后即时生效，无需重启。" />
 
-      {/* rack summary strip */}
       <div className="flex items-center gap-4 mb-6 bg-surface-container border border-outline-variant/30 rounded-cw-md px-5 py-3.5">
         <span className="w-10 h-10 rounded-cw-sm bg-primary-container flex items-center justify-center">
           <Puzzle className="w-5 h-5 text-on-primary-container" />
@@ -78,7 +150,6 @@ export function PluginsPage() {
         </Button>
       </div>
 
-      {/* rack units */}
       <div className="space-y-2.5 max-w-[820px]">
         {loading ? (
           Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-20 bg-surface-container rounded-cw-md animate-pulse" />)
@@ -88,7 +159,6 @@ export function PluginsPage() {
               className={cn('relative flex items-center gap-4 bg-surface-container border rounded-cw-md px-5 py-4 overflow-hidden transition-all duration-short3 group hover:-translate-y-0.5',
                 p.loaded ? 'border-track-audio/35 hover:shadow-lg hover:shadow-track-audio/5' : 'border-outline-variant/30 opacity-80')}
               style={{ animationDelay: `${i * 40}ms` }}>
-              {/* status LED rail */}
               <span className={cn('absolute left-0 top-0 bottom-0 w-1 transition-colors duration-medium2',
                 p.loaded ? 'bg-track-audio' : 'bg-outline-variant/40')} />
 
@@ -101,13 +171,21 @@ export function PluginsPage() {
                 <div className="flex items-center gap-2.5">
                   <p className="font-mono text-body-sm font-semibold text-on-surface truncate">{p.id}</p>
                   {p.version && <span className="font-mono text-caption text-on-surface-variant shrink-0">v{p.version}</span>}
+                  {p.kind && <span className="text-caption text-on-surface-variant/50 font-mono">{p.kind}</span>}
                 </div>
                 {p.description && <p className="text-caption text-on-surface-variant truncate mt-0.5">{p.description}</p>}
               </div>
 
               <StatusPill ok={p.loaded} label={p.loaded ? 'ACTIVE' : 'OFF'} />
 
-              {/* power toggle */}
+              {p.loaded && (
+                <button onClick={() => openConfig(p)}
+                  className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer shrink-0"
+                  title="配置">
+                  <Settings className="w-3.5 h-3.5" />
+                </button>
+              )}
+
               <button onClick={() => toggle(p)} disabled={busyId === p.id}
                 className={cn('relative w-12 h-[26px] rounded-cw-full transition-colors duration-short3 cursor-pointer shrink-0',
                   p.loaded ? 'bg-track-audio' : 'bg-outline-variant/50')}
@@ -125,6 +203,59 @@ export function PluginsPage() {
           ))
         )}
       </div>
+
+      {configId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={closeConfig}>
+          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-surface-container border border-outline-variant/40 rounded-cw-lg p-5 space-y-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-title-sm font-semibold text-on-surface">插件配置 · {configId}</h2>
+              <button onClick={closeConfig} className="p-1 rounded-cw-xs text-on-surface-variant hover:text-on-surface cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {configLoading ? (
+              <div className="flex items-center gap-2 text-label-sm text-on-surface-variant py-4">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> 读取配置…
+              </div>
+            ) : Object.keys(configFields).length === 0 ? (
+              <p className="text-label-sm text-on-surface-variant text-center py-4">该插件暂无配置项。</p>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  {Object.entries(configFields).map(([key, field]) => (
+                    <div key={key}>
+                      <label className="block text-label font-medium text-on-surface-variant mb-1">
+                        {field.label || key}
+                        {field.description && (
+                          <span className="block text-caption text-on-surface-variant/60 font-normal mt-0.5">{field.description}</span>
+                        )}
+                      </label>
+                      {renderFieldControl(key, field, updateField)}
+                    </div>
+                  ))}
+                </div>
+
+                {configError && (
+                  <div className="bg-error/10 border border-error/30 rounded-cw-xs px-3 py-2 text-label-sm text-error whitespace-pre-wrap">{configError}</div>
+                )}
+
+                <div className="flex gap-2">
+                  <Button onClick={saveConfig} disabled={configSaving} className="flex-1">
+                    {configSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    保存配置
+                  </Button>
+                  <Button variant="outline" onClick={deleteConfig} disabled={configSaving} className="flex-1">
+                    <Trash2 className="w-4 h-4" />
+                    恢复默认
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </ConsoleShell>
   );
 }
@@ -132,23 +263,122 @@ export function PluginsPage() {
 function normalize(data: unknown): PluginItem[] {
   if (Array.isArray(data)) {
     return data.map((d) => {
-      const o = (typeof d === 'string' ? { id: d } : d) as Record<string, unknown>;
+      const o = d as Record<string, unknown>;
+      const m = (o.manifest ?? o) as Record<string, unknown>;
       return {
-        id: String(o.id ?? o.name ?? 'plugin'),
-        name: String(o.name ?? o.id ?? 'plugin'),
-        description: o.description ? String(o.description) : undefined,
-        version: o.version ? String(o.version) : undefined,
-        loaded: Boolean(o.loaded ?? true),
+        id: String(m.id ?? o.id ?? ''),
+        name: String(m.name ?? o.name ?? m.id ?? ''),
+        description: m.description ? String(m.description) : undefined,
+        version: m.version ? String(m.version) : undefined,
+        kind: m.kind ? String(m.kind) : undefined,
+        loaded: Boolean(o.enabled ?? o.loaded ?? true),
       };
     });
   }
   return [];
 }
 
-const DEMO_PLUGINS: PluginItem[] = [
-  { id: 'knowledge_longform', name: '知识区长片', description: '5-15s 镜头 · 硬切为主 · 关键词标注动画', version: '1.2.0', loaded: true },
-  { id: 'kichiku_fastcut', name: '鬼畜快剪', description: '0.3-2s 镜头 · 闪白/Jump Cut · 极高动画密度', version: '1.0.3', loaded: true },
-  { id: 'digital_review', name: '数码评测', description: '3-8s 镜头 · 缓入缓出 · 数据图表动画', version: '1.1.0', loaded: false },
-  { id: 'vlog_daily', name: 'Vlog 日常', description: '3-10s 镜头 · 混合转场 · 字幕为主', version: '0.9.5', loaded: false },
-  { id: 'llm_mg', name: 'LLM MG 动画', description: 'LLM 驱动的动态 MG 动画生成', version: '0.5.0', loaded: false },
-];
+function renderFieldControl(
+  key: string,
+  field: PluginConfigField,
+  onChange: (key: string, value: unknown) => void,
+) {
+  switch (field.type) {
+    case 'bool':
+      return (
+        <button
+          onClick={() => onChange(key, !field.value)}
+          className={`relative w-11 h-6 rounded-cw-full transition-colors duration-short3 cursor-pointer ${
+            field.value ? 'bg-track-audio' : 'bg-outline-variant/50'
+          }`}
+        >
+          <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-short3 ${
+            field.value ? 'left-[22px]' : 'left-0.5'
+          }`} />
+        </button>
+      );
+    case 'int':
+      return (
+        <input
+          type="number" step={1}
+          value={field.value as number ?? 0}
+          onChange={(e) => onChange(key, parseInt(e.target.value) || 0)}
+          className="w-full bg-surface rounded-cw-xs px-2.5 py-1.5 text-body-sm text-on-surface
+            outline-none border border-outline-variant/30 focus:border-primary"
+        />
+      );
+    case 'float':
+      return (
+        <input
+          type="number" step={0.1}
+          value={field.value as number ?? 0}
+          onChange={(e) => onChange(key, parseFloat(e.target.value) || 0)}
+          className="w-full bg-surface rounded-cw-xs px-2.5 py-1.5 text-body-sm text-on-surface
+            outline-none border border-outline-variant/30 focus:border-primary"
+        />
+      );
+    case 'dict':
+    case 'list':
+      return (
+        <textarea
+          value={JSON.stringify(field.value, null, 2)}
+          onChange={(e) => {
+            try { onChange(key, JSON.parse(e.target.value)); } catch { /* ignore */ }
+          }}
+          rows={4}
+          spellCheck={false}
+          className="w-full bg-surface rounded-cw-xs border border-outline-variant/30 p-2.5 text-label-sm text-on-surface
+            outline-none focus:border-primary resize-y font-mono placeholder:text-on-surface-variant/50"
+        />
+      );
+    default:
+      return (
+        <input
+          type="text"
+          value={String(field.value ?? '')}
+          onChange={(e) => onChange(key, e.target.value)}
+          className="w-full bg-surface rounded-cw-xs px-2.5 py-1.5 text-body-sm text-on-surface
+            outline-none border border-outline-variant/30 focus:border-primary"
+        />
+      );
+  }
+}
+
+function buildConfigYaml(fields: Record<string, PluginConfigField>): string | null {
+  const keys = Object.keys(fields);
+  if (keys.length === 0) return null;
+  const lines = ['fields:'];
+  for (const key of keys) {
+    const f = fields[key];
+    lines.push(`  ${key}:`);
+    lines.push(`    type: ${f.type}`);
+    lines.push(`    label: "${String(f.label).replace(/"/g, '\\"')}"`);
+    if (f.description) lines.push(`    description: "${String(f.description).replace(/"/g, '\\"')}"`);
+    if (f.type === 'string') {
+      lines.push(`    value: "${String(f.value ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+    } else if (f.type === 'int' || f.type === 'float') {
+      lines.push(`    value: ${f.value ?? (f.type === 'int' ? 0 : 0.0)}`);
+    } else if (f.type === 'bool') {
+      lines.push(`    value: ${f.value ? 'true' : 'false'}`);
+    } else {
+      lines.push(`    value: ${JSON.stringify(f.value)}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function jsonToYaml(obj: Record<string, unknown> | null, depth = 0): string {
+  if (!obj || Object.keys(obj).length === 0) return '';
+  const indent = '  '.repeat(depth);
+  return Object.entries(obj)
+    .map(([k, v]) => {
+      if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+        return `${indent}${k}:\n${jsonToYaml(v as Record<string, unknown>, depth + 1)}`;
+      }
+      if (typeof v === 'string') return `${indent}${k}: "${v}"`;
+      return `${indent}${k}: ${v}`;
+    })
+    .join('\n');
+}
+
+const DEMO_PLUGINS: PluginItem[] = [];

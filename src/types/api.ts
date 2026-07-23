@@ -50,6 +50,10 @@ export interface AssetUploadResponse {
   filename: string;
   path: string;
   kind: string;
+  asset_id?: string;
+  file_path?: string;
+  media_type?: string;
+  duration_sec?: number;
 }
 
 export interface MaterialSearchRequest {
@@ -96,11 +100,14 @@ export interface RenderProgress {
 }
 
 export interface RenderPreset {
+  id?: string;
   name: string;
+  label?: string;
   width: number;
   height: number;
   fps: number;
   bitrate: string;
+  icon?: string;
 }
 
 // ── Plugin ──
@@ -168,3 +175,15 @@ export interface EditHistoryEntry {
 
 // ── Re-export for convenience ──
 export type { Timeline, PipelineRequest, PipelineState, Persona };
+
+// ── Plugin Config ──
+export interface PluginConfigField {
+  type: 'string' | 'int' | 'float' | 'bool' | 'dict' | 'list';
+  value: unknown;
+  label: string;
+  description?: string;
+}
+
+export interface PluginConfigResponse {
+  fields: Record<string, PluginConfigField>;
+}
