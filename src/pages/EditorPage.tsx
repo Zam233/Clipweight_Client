@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { EditorLayout } from '@/layouts/EditorLayout';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -6,6 +6,7 @@ import { createEmptyTimeline } from '@/types/timeline';
 import type { Timeline, Track, Clip } from '@/types/timeline';
 import { uid } from '@/lib/utils';
 import { projectCache, createAutoSaver } from '@/services/storage/projectCache';
+import { projectApi } from '@/services/api';
 import { useGlobalKeybindings } from '@/features/keyboard/useGlobalKeybindings';
 import { ShortcutCheatSheet } from '@/features/keyboard/ShortcutCheatSheet';
 
@@ -60,6 +61,29 @@ export function EditorPage() {
       unsub();
       window.removeEventListener('beforeunload', onUnload);
       saver.flush();
+    };
+  }, []);
+
+  // Server-side auto-save (debounced, only when project has an ID)
+  const serverSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const unsub = useTimelineStore.subscribe((_state, _prev) => {
+      const st = useProjectStore.getState();
+      if (!st.projectId) return;
+      if (serverSaveTimer.current) clearTimeout(serverSaveTimer.current);
+      serverSaveTimer.current = setTimeout(() => {
+        projectApi.save({
+          id: st.projectId!,
+          name: st.projectName,
+          timeline: useTimelineStore.getState().timeline,
+          persona_id: st.personaId ?? undefined,
+          plugin_id: st.pluginId ?? undefined,
+        }).catch(() => { /* offline */ });
+      }, 10000);
+    });
+    return () => {
+      unsub();
+      if (serverSaveTimer.current) clearTimeout(serverSaveTimer.current);
     };
   }, []);
 

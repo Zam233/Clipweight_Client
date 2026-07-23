@@ -10,6 +10,19 @@ interface ProjectState {
   isSaving: boolean;
   lastSavedAt: string | null;
 
+  voiceId: string | null;
+  autoDub: boolean;
+  scriptText: string;
+  videoMode: string;
+  splitMode: string;
+  audioPath: string;
+  audioDurationSec: number;
+
+  requirementsTopic: string;
+  requirementsScript: string;
+  requirementsAudioDuration: number;
+  materialSourceIds: string[];
+
   // Actions
   setProjectId: (id: string | null) => void;
   setProjectName: (name: string) => void;
@@ -18,6 +31,17 @@ interface ProjectState {
   setPersonas: (personas: Persona[]) => void;
   setSaving: (saving: boolean) => void;
   setLastSaved: (at: string | null) => void;
+  setVoiceId: (id: string | null) => void;
+  setAutoDub: (v: boolean) => void;
+  setScriptText: (v: string) => void;
+  setVideoMode: (v: string) => void;
+  setSplitMode: (v: string) => void;
+  setAudioPath: (v: string) => void;
+  setAudioDurationSec: (v: number) => void;
+  setRequirementsTopic: (v: string) => void;
+  setRequirementsScript: (v: string) => void;
+  setRequirementsAudioDuration: (v: number) => void;
+  setMaterialSourceIds: (ids: string[]) => void;
   resetProject: () => void;
 }
 
@@ -30,6 +54,19 @@ export const useProjectStore = create<ProjectState>((set) => ({
   isSaving: false,
   lastSavedAt: null,
 
+  voiceId: null,
+  autoDub: true,
+  scriptText: '',
+  videoMode: 'voiceover',
+  splitMode: 'period',
+  audioPath: '',
+  audioDurationSec: 0,
+
+  requirementsTopic: '',
+  requirementsScript: '',
+  requirementsAudioDuration: 0,
+  materialSourceIds: [],
+
   setProjectId: (id) => set({ projectId: id }),
   setProjectName: (name) => set({ projectName: name }),
   setPersonaId: (id) => set({ personaId: id }),
@@ -37,6 +74,17 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setPersonas: (personas) => set({ personas }),
   setSaving: (saving) => set({ isSaving: saving }),
   setLastSaved: (at) => set({ lastSavedAt: at }),
+  setVoiceId: (id) => set({ voiceId: id }),
+  setAutoDub: (v) => set({ autoDub: v }),
+  setScriptText: (v) => set({ scriptText: v }),
+  setVideoMode: (v) => set({ videoMode: v }),
+  setSplitMode: (v) => set({ splitMode: v }),
+  setAudioPath: (v) => set({ audioPath: v }),
+  setAudioDurationSec: (v) => set({ audioDurationSec: v }),
+  setRequirementsTopic: (v) => set({ requirementsTopic: v }),
+  setRequirementsScript: (v) => set({ requirementsScript: v }),
+  setRequirementsAudioDuration: (v) => set({ requirementsAudioDuration: v }),
+  setMaterialSourceIds: (ids) => set({ materialSourceIds: ids }),
   resetProject: () =>
     set({
       projectId: null,
@@ -45,5 +93,16 @@ export const useProjectStore = create<ProjectState>((set) => ({
       pluginId: null,
       isSaving: false,
       lastSavedAt: null,
+      voiceId: null,
+      autoDub: true,
+      scriptText: '',
+      videoMode: 'voiceover',
+      splitMode: 'period',
+      audioPath: '',
+      audioDurationSec: 0,
+      requirementsTopic: '',
+      requirementsScript: '',
+      requirementsAudioDuration: 0,
+      materialSourceIds: [],
     }),
 }));

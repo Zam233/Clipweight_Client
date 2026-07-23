@@ -32,12 +32,17 @@ export const healthApi = {
 
 export const pluginApi = {
   async discover() {
-    const { data } = await getApiClient().get<PluginInfo[]>('/api/plugin/discover');
+    const { data } = await getApiClient().get<string[]>('/api/plugin/discover');
     return data;
   },
 
+  async list() {
+    const { data } = await getApiClient().get('/api/plugin/list');
+    return data as { manifest: { id: string; name: string; description?: string; version?: string; kind?: string }; enabled: boolean }[];
+  },
+
   async loadAll() {
-    const { data } = await getApiClient().post('/api/plugin/load-all');
+    const { data } = await getApiClient().post<string[]>('/api/plugin/load-all');
     return data;
   },
 
@@ -53,6 +58,23 @@ export const pluginApi = {
 
   async capabilities() {
     const { data } = await getApiClient().get('/api/plugin/capabilities');
+    return data;
+  },
+
+  async getConfig(pluginId: string) {
+    const { data } = await getApiClient().get(`/api/plugin/${pluginId}/config`);
+    return data as { fields: Record<string, { type: string; value: unknown; label: string; description?: string }> };
+  },
+
+  async saveConfig(pluginId: string, yaml: string) {
+    const { data } = await getApiClient().put(`/api/plugin/${pluginId}/config`, yaml, {
+      headers: { 'Content-Type': 'text/plain' },
+    });
+    return data;
+  },
+
+  async deleteConfig(pluginId: string) {
+    const { data } = await getApiClient().delete(`/api/plugin/${pluginId}/config`);
     return data;
   },
 };
