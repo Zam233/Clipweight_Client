@@ -11,6 +11,8 @@ interface PreviewState {
   zoomLevel: number;
   showSafeArea: boolean;
   loopRegion: { start: number; end: number } | null;
+  isLooping: boolean;
+  shuttleSpeed: number;
 
   // Actions
   setPlaying: (playing: boolean) => void;
@@ -24,10 +26,16 @@ interface PreviewState {
   setZoomLevel: (zoom: number) => void;
   toggleSafeArea: () => void;
   setLoopRegion: (region: { start: number; end: number } | null) => void;
+  toggleLoop: () => void;
   stepForward: () => void;
   stepBackward: () => void;
   seekToStart: () => void;
   seekToEnd: () => void;
+  shuttleReverse: () => void;
+  shuttleForward: () => void;
+  shuttleStop: () => void;
+  setMarkerIn: () => void;
+  setMarkerOut: () => void;
 }
 
 export const usePreviewStore = create<PreviewState>((set, get) => ({
@@ -41,6 +49,8 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
   zoomLevel: 1,
   showSafeArea: false,
   loopRegion: null,
+  isLooping: false,
+  shuttleSpeed: 0,
 
   setPlaying: (playing) => set({ isPlaying: playing }),
   togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
@@ -69,4 +79,16 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
 
   seekToStart: () => set({ currentTimeSec: 0 }),
   seekToEnd: () => set((state) => ({ currentTimeSec: state.durationSec })),
+  toggleLoop: () => set((state) => ({ isLooping: !state.isLooping })),
+  shuttleReverse: () => set({ isPlaying: true, shuttleSpeed: -1 }),
+  shuttleForward: () => set({ isPlaying: true, shuttleSpeed: 1 }),
+  shuttleStop: () => set({ isPlaying: false, shuttleSpeed: 0 }),
+  setMarkerIn: () => {
+    const { currentTimeSec, loopRegion } = get();
+    set({ loopRegion: { start: currentTimeSec, end: loopRegion?.end ?? get().durationSec } });
+  },
+  setMarkerOut: () => {
+    const { currentTimeSec, loopRegion } = get();
+    set({ loopRegion: { start: loopRegion?.start ?? 0, end: currentTimeSec } });
+  },
 }));

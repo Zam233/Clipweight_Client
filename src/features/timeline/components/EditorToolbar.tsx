@@ -4,10 +4,11 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { Button, Tooltip } from '@/components/ui';
-import { formatTimecode } from '@/lib/utils';
+import { formatTimecode, uid } from '@/lib/utils';
 import {
   Play, Pause, SkipBack, SkipForward, StepBack, StepForward,
   Undo2, Redo2, Save, PanelLeft, PanelRight, Bot, Settings, Film,
+  FileText,
 } from 'lucide-react';
 
 /**
@@ -40,6 +41,44 @@ export function EditorToolbar() {
   const handleRedo = () => {
     const tl = redo();
     if (tl) useTimelineStore.getState().setTimeline(tl);
+  };
+
+  const handleSrtImport = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.srt,.vtt';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const text = await file.text();
+      const entries = parseSrt(text);
+      if (entries.length === 0) return;
+      const store = useTimelineStore.getState();
+      useHistoryStore.getState().pushState(store.timeline, 'import srt');
+      let subTrack = store.timeline.tracks.find((t) => t.kind === 'caption' || t.kind === 'text');
+      if (!subTrack) {
+        const tid = store.addTrack('caption', '字幕');
+        subTrack = store.timeline.tracks.find((t) => t.id === tid)!;
+      }
+      for (const e of entries) {
+        store.addClip(subTrack!.id, {
+          kind: 'caption' as const,
+          asset_id: '',
+          start_sec: e.start,
+          duration_sec: e.end - e.start,
+          source_offset_sec: 0,
+          speed: 1,
+          volume: 1,
+          opacity: 1,
+          text: e.text,
+          font_size: 28,
+          font_color: '#FFFFFF',
+          keyframes: [],
+          metadata: { title: `字幕 ${e.index}` },
+        });
+      }
+    };
+    input.click();
   };
 
   return (
@@ -116,6 +155,12 @@ export function EditorToolbar() {
 
       {/* Panel toggles */}
       <div className="flex items-center gap-1">
+        <Tooltip content="导入字幕 (SRT)">
+          <button onClick={handleSrtImport}
+            className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+            <FileText className="w-4 h-4" />
+          </button>
+        </Tooltip>
         <Tooltip content="素材面板">
           <button onClick={() => togglePanel('assets')}
             className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panels.assets ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
@@ -147,4 +192,24 @@ export function EditorToolbar() {
       </div>
     </div>
   );
+}
+
+interface SrtEntry { index: number; start: number; end: number; text: string; }
+
+function parseSrt(raw: string): SrtEntry[] {
+  const normalized = raw.replace(/\r\n/g, '\n').trim();
+  const blocks = normalized.split(/\n\n+/);
+  const entries: SrtEntry[] = [];
+  for (const block of blocks) {
+    const lines = block.trim().split('\n');
+    if (lines.length < 2) continue;
+    const timeLine = lines[1];
+    const timeMatch = timeLine.match(/(\d+):(\d+):(\d+)[.,](\d+)\s*-->\s*(\d+):(\d+):(\d+)[.,](\d+)/);
+    if (!timeMatch) continue;
+    const start = +timeMatch[1] * 3600 + +timeMatch[2] * 60 + +timeMatch[3] + +timeMatch[4] / 1000;
+    const end = +timeMatch[5] * 3600 + +timeMatch[6] * 60 + +timeMatch[7] + +timeMatch[8] / 1000;
+    const text = lines.slice(2).join('\n').replace(/<[^>]+>/g, '').trim();
+    if (text) entries.push({ index: +lines[0] || entries.length + 1, start, end, text });
+  }
+  return entries;
 }

@@ -231,13 +231,14 @@ export function TimelinePanel() {
         ref={containerRef}
         className="flex-1 relative overflow-hidden min-h-0"
         onDragOver={(e) => {
-          if (e.dataTransfer.types.includes('application/x-clipwright-asset')) {
+          const types = e.dataTransfer.types;
+          if (types.includes('application/x-clipwright-asset') || types.includes('text/plain')) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
           }
         }}
         onDrop={(e) => {
-          const raw = e.dataTransfer.getData('application/x-clipwright-asset');
+          const raw = e.dataTransfer.getData('application/x-clipwright-asset') || e.dataTransfer.getData('text/plain');
           if (!raw || !engineRef.current || !containerRef.current) return;
           e.preventDefault();
           try {
@@ -247,7 +248,7 @@ export function TimelinePanel() {
           } catch { /* malformed drag payload */ }
         }}
       >
-        <canvas ref={canvasRef} className="absolute inset-0 block" />
+        <canvas ref={canvasRef} className="absolute inset-0 block" style={{ pointerEvents: 'auto' }} />
       </div>
 
       {/* Add track bar */}
