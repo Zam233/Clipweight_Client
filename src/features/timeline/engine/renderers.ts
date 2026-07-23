@@ -21,6 +21,11 @@ function hexToRgb(hex: string): [number, number, number] {
     parseInt(h.slice(4, 6), 16),
   ];
 }
+function rgbToHex(r: number, g: number, b: number): string {
+  const c = (v: number) =>
+    Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+  return `#${c(r)}${c(g)}${c(b)}`;
+}
 function rgba(hex: string, a: number): string {
   const [r, g, b] = hexToRgb(hex);
   return `rgba(${r},${g},${b},${a})`;
@@ -28,12 +33,12 @@ function rgba(hex: string, a: number): string {
 function lighten(hex: string, amt: number): string {
   const [r, g, b] = hexToRgb(hex);
   const f = (v: number) => Math.min(255, Math.round(v + (255 - v) * amt));
-  return `rgb(${f(r)},${f(g)},${f(b)})`;
+  return rgbToHex(f(r), f(g), f(b));
 }
 function shade(hex: string, amt: number): string {
   const [r, g, b] = hexToRgb(hex);
   const f = (v: number) => Math.round(v * (1 - amt));
-  return `rgb(${f(r)},${f(g)},${f(b)})`;
+  return rgbToHex(f(r), f(g), f(b));
 }
 
 function roundRect(

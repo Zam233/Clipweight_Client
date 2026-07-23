@@ -114,7 +114,13 @@ export class TimelineEngine {
     if (this.disposed) return;
     if (this.dirty) {
       this.dirty = false;
-      this.render();
+      try {
+        this.render();
+      } catch (err) {
+        // A single bad frame must never kill the render loop permanently —
+        // log it and keep the loop alive so the next frame can recover.
+        console.error('[TimelineEngine] render error:', err);
+      }
     }
     this.rafId = requestAnimationFrame(this.loop);
   };
