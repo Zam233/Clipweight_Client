@@ -12,6 +12,8 @@ import { useAgentStore } from '@/stores/agentStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useTimelineStore } from '@/stores/timelineStore';
+import { useSelectionStore } from '@/stores/selectionStore';
+import type { SelectionMode } from '@/stores/selectionStore';
 import { formatTimecode } from '@/lib/utils';
 
 /**
@@ -201,6 +203,7 @@ function StatusBar() {
   const duration = useTimelineStore((s) => s.timeline.duration_sec);
   const loopRegion = usePreviewStore((s) => s.loopRegion);
   const isLooping = usePreviewStore((s) => s.isLooping);
+  const toolMode = useSelectionStore((s) => s.toolMode);
   const [showFrames, setShowFrames] = useState(false);
 
   let statusText = 'Ready';
@@ -218,6 +221,7 @@ function StatusBar() {
     <div className="flex items-center justify-between px-3 py-1 bg-surface-dim border-t border-outline-variant/30 text-caption text-on-surface-variant shrink-0">
       <div className="flex items-center gap-3">
         <span>ClipWright v0.1.0</span>
+        <span className="text-primary font-medium">{toolLabel(toolMode)}</span>
         {isLooping && loopRegion && (
           <span className="text-track-video">
             循环: {formatTimecode(loopRegion.start, fps)} – {formatTimecode(loopRegion.end, fps)}
@@ -236,4 +240,13 @@ function StatusBar() {
       </div>
     </div>
   );
+}
+
+function toolLabel(mode: SelectionMode): string {
+  switch (mode) {
+    case 'select': return '选择';
+    case 'razor': return '剃刀';
+    case 'range': return '范围';
+    default: return mode;
+  }
 }
