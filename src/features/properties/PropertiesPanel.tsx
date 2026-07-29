@@ -91,6 +91,11 @@ export function PropertiesPanel() {
                   {clipLabel(clip, trackKind)}
                 </p>
                 <p className="text-caption text-on-surface-variant font-mono">{clip.id}</p>
+                {clip.asset_id && (
+                  <p className="text-caption text-on-surface-variant/60 font-mono truncate" title={clip.asset_id}>
+                    源: {clip.asset_id.length > 20 ? clip.asset_id.slice(0, 20) + '…' : clip.asset_id}
+                  </p>
+                )}
               </div>
               <Badge variant="info">{trackKind}</Badge>
               <Tooltip content={clip.enabled !== false ? '禁用片段' : '启用片段'}>
