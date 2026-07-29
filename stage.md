@@ -1,7 +1,32 @@
 # ClipWright Optimization — Stage Log
 
-## Stage 12: API 客户端补齐与代码规范化
-**Timestamp**: 2026-07-29T19:05:00+08:00
+## Stage 13: E2E 测试扩展 + 代码质量收尾
+**Timestamp**: 2026-07-29T19:15:00+08:00
+
+### 新增 E2E 测试
+- + `e2e/editor-features.spec.ts` — 6 个编辑器功能回归测试：
+  - 工具栏基本 UI 验证（保存/导出/轨道按钮/状态栏）
+  - Ctrl+S 快捷键触发保存请求
+  - Ctrl+A 全选 + Escape 取消选择
+  - V/C 工具切换不崩溃
+  - 空格键播放/暂停不崩溃
+  - Backspace 在无选中时不会触发浏览器后退
+
+### 代码清理
+- - 移除 TypeMakerPage/TemplatesPage/WebhooksPage/FontsPage/EditorToolbar/TimelinePanel 中未使用的导入
+- - 移除 TemplatesPage 未使用变量 result
+
+### 审计确认项
+- tsc: 0 errors
+- E2E: 11 passed（5 原始 + 6 新增）
+- vitest: 58 passed
+- ESLint: 0 errors
+- Backend: 310 passed / 1 skipped / 0 failed
+
+### 评价
+E2E 覆盖从 5 项扩展到 11 项，新增了快捷键、工具切换、页面崩溃防护等回归测试。代码清理消除了阶段 10-12 引入的多余导入。可交付程度：高。
+
+- - -
 
 ### 重构
 - + 新增 `fontApi` 类型化 API 客户端（list/default/resolve/clearCache）
