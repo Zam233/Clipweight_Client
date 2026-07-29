@@ -87,6 +87,14 @@ export function TimelinePanel() {
         handler: () => engineRef.current?.jumpToPrevMarker(),
       },
       {
+        id: 'timeline-next-edit', combo: 'arrowdown', label: '跳到下一编辑点', category: '时间轴',
+        handler: () => engineRef.current?.jumpToNextEdit(),
+      },
+      {
+        id: 'timeline-prev-edit', combo: 'arrowup', label: '跳到上一编辑点', category: '时间轴',
+        handler: () => engineRef.current?.jumpToPrevEdit(),
+      },
+      {
         id: 'timeline-ripple-delete', combo: 'shift+delete', label: '波纹删除', category: '编辑',
         handler: () => {
           const ids = useSelectionStore.getState().selectedClipIds;

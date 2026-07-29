@@ -696,6 +696,36 @@ export class TimelineEngine {
     if (prev) usePreviewStore.getState().setCurrentTime(prev.time);
   }
 
+  /** Jump to the next clip edge (start or end). */
+  jumpToNextEdit() {
+    const t = usePreviewStore.getState().currentTimeSec;
+    const tl = useTimelineStore.getState().timeline;
+    let best = Infinity;
+    for (const tr of tl.tracks) {
+      for (const c of tr.clips) {
+        if (c.start_sec > t + 0.001 && c.start_sec < best) best = c.start_sec;
+        const end = c.start_sec + c.duration_sec;
+        if (end > t + 0.001 && end < best) best = end;
+      }
+    }
+    if (best < Infinity) usePreviewStore.getState().setCurrentTime(best);
+  }
+
+  /** Jump to the previous clip edge. */
+  jumpToPrevEdit() {
+    const t = usePreviewStore.getState().currentTimeSec;
+    const tl = useTimelineStore.getState().timeline;
+    let best = -Infinity;
+    for (const tr of tl.tracks) {
+      for (const c of tr.clips) {
+        if (c.start_sec < t - 0.001 && c.start_sec > best) best = c.start_sec;
+        const end = c.start_sec + c.duration_sec;
+        if (end < t - 0.001 && end > best) best = end;
+      }
+    }
+    if (best > -Infinity) usePreviewStore.getState().setCurrentTime(best);
+  }
+
   get markerCount() {
     return this.markers.length;
   }
