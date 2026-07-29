@@ -287,7 +287,8 @@ export function drawClip(
     ghostDeltaTrack?: number;
   },
 ) {
-  const color = TRACK_COLORS[track.kind] ?? '#4F8CFF';
+  const baseColor = clip.label_color || (TRACK_COLORS[track.kind] ?? '#4F8CFF');
+  const color = baseColor;
   const dt = opts.ghostDeltaTime ?? 0;
   const dtr = opts.ghostDeltaTrack ?? 0;
 

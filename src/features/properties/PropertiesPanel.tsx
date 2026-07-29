@@ -62,7 +62,15 @@ export function PropertiesPanel() {
           <div className="p-3 space-y-4">
             {/* Clip identity */}
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-cw-full shrink-0" style={{ background: color }} />
+              <label title="点击更换标签颜色" className="cursor-pointer">
+                <span className="block w-2.5 h-2.5 rounded-cw-full shrink-0" style={{ background: clip.label_color || color }} />
+                <input
+                  type="color"
+                  value={clip.label_color || color}
+                  onChange={(e) => { pushHistory(); set({ label_color: e.target.value }); }}
+                  className="sr-only"
+                />
+              </label>
               <div className="flex-1 min-w-0">
                 <p className="text-body-sm font-medium text-on-surface truncate">
                   {clipLabel(clip, trackKind)}

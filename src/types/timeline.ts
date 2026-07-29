@@ -56,6 +56,7 @@ export interface Clip {
   blend_mode?: string | null;
   enabled?: boolean;
   eq_preset?: string | null;
+  label_color?: string | null;
 
   // Layout (video / image only)
   image_fit?: ImageFit | null;
