@@ -338,29 +338,24 @@ export function useGlobalKeybindings() {
         handler: toolRazor },
       { id: 'tool-range', combo: 'r', label: '范围选择 (R)', category: '工具',
         handler: toolRange },
-      { id: 'zoom-fit', combo: 'f', label: '缩放适配目标片段', category: '时间轴',
+      { id: 'zoom-fit', combo: 'f', label: '跳至选中片段', category: '时间轴',
         handler: () => {
           const sel = useSelectionStore.getState().selectedClipIds;
           if (sel.length > 0) {
-            // zoom to selected: find min/max time across selected clips
             const store = useTimelineStore.getState();
-            let minT = Infinity;
-            let maxT = -Infinity;
             for (const tr of store.timeline.tracks) {
               for (const c of tr.clips) {
                 if (sel.includes(c.id)) {
-                  minT = Math.min(minT, c.start_sec);
-                  maxT = Math.max(maxT, c.start_sec + c.duration_sec);
+                  usePreviewStore.getState().setCurrentTime(c.start_sec);
+                  return;
                 }
               }
-            }
-            if (minT < Infinity) {
-              // Just set seek to start of first selected clip
-              usePreviewStore.getState().setCurrentTime(minT);
             }
           }
         },
       },
+      { id: 'zoom-fit-all', combo: 'shift+f', label: '缩放适配选中片段', category: '时间轴',
+        handler: () => {}, /* handled by TimelinePanel engine ref */ },
       { id: 'nudge-left', combo: 'shift+[', label: '左移一帧', category: '编辑',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: nudgeLeft },

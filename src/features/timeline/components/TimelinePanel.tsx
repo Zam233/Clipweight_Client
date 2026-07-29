@@ -95,6 +95,27 @@ export function TimelinePanel() {
         handler: () => engineRef.current?.jumpToPrevEdit(),
       },
       {
+        id: 'timeline-zoom-fit-sel', combo: 'shift+f', label: '缩放适配选中片段', category: '时间轴',
+        handler: () => {
+          const sel = useSelectionStore.getState().selectedClipIds;
+          if (sel.length === 0) return;
+          const tl = useTimelineStore.getState().timeline;
+          let minT = Infinity, maxT = -Infinity;
+          for (const tr of tl.tracks) {
+            for (const c of tr.clips) {
+              if (sel.includes(c.id)) {
+                minT = Math.min(minT, c.start_sec);
+                maxT = Math.max(maxT, c.start_sec + c.duration_sec);
+              }
+            }
+          }
+          if (minT < Infinity) {
+            const dur = Math.max(0.5, maxT - minT);
+            engineRef.current?.zoomPreset(dur * 1.3);
+          }
+        },
+      },
+      {
         id: 'timeline-ripple-delete', combo: 'shift+delete', label: '波纹删除', category: '编辑',
         handler: () => {
           const ids = useSelectionStore.getState().selectedClipIds;
