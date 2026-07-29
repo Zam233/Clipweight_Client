@@ -38,4 +38,16 @@ export const webhookApi = {
     const { data } = await getApiClient().post(`/api/webhook/${id}/test`);
     return data;
   },
+
+  async notify(event: string, payload?: Record<string, unknown>): Promise<{ delivered: number; failed: number }> {
+    const { data } = await getApiClient().post('/api/webhook/notify', { event, payload: payload ?? {} });
+    return data;
+  },
+
+  async deliveries(limit?: number): Promise<Record<string, unknown>[]> {
+    const { data } = await getApiClient().get('/api/webhook/deliveries', {
+      params: limit ? { limit } : {},
+    });
+    return data;
+  },
 };
