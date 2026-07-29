@@ -398,10 +398,12 @@ export class TimelineEngine {
         this.drag.deltaTime = Math.max(minDelta, snapped.deltaTime);
         this.drag.snapX = snapped.snapX;
 
-        // Vertical track delta
-        const startTrackIdx = this.trackIndexOf(this.drag.origClips.values().next().value?.track_id);
-        const curTrackIdx = yToTrackIndex(y, L);
-        this.drag.deltaTrack = curTrackIdx - startTrackIdx;
+        // Vertical track delta (Shift constrains horizontal-only)
+        if (!e.shiftKey) {
+          const startTrackIdx = this.trackIndexOf(this.drag.origClips.values().next().value?.track_id);
+          const curTrackIdx = yToTrackIndex(y, L);
+          this.drag.deltaTrack = curTrackIdx - startTrackIdx;
+        }
 
         this.requestRender();
         break;
