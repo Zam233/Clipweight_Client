@@ -1,25 +1,28 @@
 # ClipWright Optimization — Stage Log
 
 ## Stage 52: 后端 Schema 对齐 + 渲染管线接入新字段
-**Timestamp**: 2026-07-30T00:10:00+08:00
+**Timestamp**: 2026-07-30T00:30:00+08:00
 
 ### 后端变更
 - + `schema/timeline.py` Clip 模型新增 10 个字段：blend_mode / enabled / label_color / notes / eq_preset / fx_brightness / fx_contrast / fx_saturation / fx_blur / fx_hue
 - + Clip model_config 设置 `extra="allow"`，防止 pipeline 合并时静默丢弃前端编辑的字段
 - + `agents/edit_agent.py` _make_clip 新增 enabled=True 默认值 + 按类型自动设置 label_color（与前端 TRACK_COLORS 一致）
+- + `agents/audio_agent.py` 旁白 clip 设置 eq_preset="voice"
 - + `services/render.py` _extract_segments 跳过 enabled=False 的片段 + 传递 fx_* 字段到 segment dict
 - + `services/render.py` _trim_one 构建 FFmpeg 滤镜链：eq(brightness/contrast/saturation) + hue + gblur
+- + `tests/test_schema.py` 新增 5 个 round-trip 测试（默认值/序列化/反序列化/extra保留/Timeline完整往返）
+- + `docs/api_reference.md` 新增 Timeline 数据模型章节（Clip 全字段文档）
 
-### 前端变更（Stage 51 已提交）
-- + Clip 类型 5 个 fx_* 字段 + PropertiesPanel 效果区域 + PreviewPanel CSS filter 渲染
-- + mediaManager AnalyserNode + AudioLevelMeter 双声道电平条
+### 前端变更
+- + `types/timeline.ts` createDefaultClip 补全 10 个新字段默认值(null)
+- + Stage 51 已提交: Clip fx_* 字段 + PropertiesPanel 效果区域 + PreviewPanel CSS filter + AudioLevelMeter
 
 ### 审计确认
-- 后端: pytest 310 passed / 1 skipped / 0 errors
+- 后端: pytest 315 passed / 1 skipped / 0 errors
 - 前端: tsc 0 / vitest 59 / E2E 11
 
 ### 评价
-前后端 Clip schema 完全对齐（10/10 新字段），pipeline 合并不再丢失前端编辑数据，渲染管线正确应用视频特效滤镜并跳过禁用片段。AI Agent 生成的片段现在自带 label_color 和 enabled 默认值。可交付程度：极高。
+前后端 Clip schema 完全对齐（10/10 新字段），pipeline 合并不再丢失前端编辑数据，渲染管线正确应用视频特效滤镜并跳过禁用片段。AI Agent（EditAgent/AudioAgent）生成的片段自带 label_color、enabled、eq_preset 默认值。文档已更新。可交付程度：极高。
 
 - - -
 
