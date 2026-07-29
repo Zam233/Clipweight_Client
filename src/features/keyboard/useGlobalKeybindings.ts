@@ -382,6 +382,10 @@ export function useGlobalKeybindings() {
       { id: 'add-keyframe', combo: 'ctrl+shift+k', label: '在播放头添加关键帧', category: '编辑',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: addKeyframeAtPlayhead },
+      { id: 'export-page', combo: 'ctrl+e', label: '打开导出页面', category: '通用',
+        handler: () => {
+          import('@/router').then((m) => m.router.navigate({ to: '/export' }));
+        } },
     ]);
 
     keybindingEngine.attach();
