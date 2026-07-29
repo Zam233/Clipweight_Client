@@ -10,7 +10,7 @@ import { usePreviewStore } from '@/stores/previewStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import {
-  makeLayout, xToTime, yToTrackIndex, timeToX, trackToY,
+  makeLayout, xToTime, yToTrackIndex, timeToX,
   makeDragState, scrollbarGeom, MIN_ZOOM, MAX_ZOOM, DEFAULT_ZOOM, TRIM_HANDLE_PX,
   type TimelineLayout, type DragState, type Marker,
 } from './types';
@@ -401,7 +401,6 @@ export class TimelineEngine {
 
   private onPointerUp = (e: PointerEvent) => {
     const L = this.layout();
-    const { x, y } = this.localPos(e);
     const store = useTimelineStore.getState();
 
     switch (this.drag.mode) {

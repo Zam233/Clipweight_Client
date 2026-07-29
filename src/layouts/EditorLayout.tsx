@@ -204,6 +204,7 @@ function StatusBar() {
   const currentTime = usePreviewStore((s) => s.currentTimeSec);
   const fps = useTimelineStore((s) => s.timeline.fps);
   const duration = useTimelineStore((s) => s.timeline.duration_sec);
+  const tracks = useTimelineStore((s) => s.timeline.tracks);
   const loopRegion = usePreviewStore((s) => s.loopRegion);
   const isLooping = usePreviewStore((s) => s.isLooping);
   const toolMode = useSelectionStore((s) => s.toolMode);
@@ -228,6 +229,9 @@ function StatusBar() {
     <div className="flex items-center justify-between px-3 py-1 bg-surface-dim border-t border-outline-variant/30 text-caption text-on-surface-variant shrink-0">
       <div className="flex items-center gap-3">
         <span>ClipWright v0.1.0</span>
+        <span className="text-on-surface-variant/60">
+          {tracks.length} 轨 · {tracks.reduce((s, tr) => s + tr.clips.length, 0)} 片段
+        </span>
         {undoCount > 0 && <span className="text-on-surface-variant/60">撤销 {undoCount}</span>}
         {redoCount > 0 && <span className="text-on-surface-variant/60">重做 {redoCount}</span>}
         <span className="text-primary font-medium">{toolLabel(toolMode)}</span>

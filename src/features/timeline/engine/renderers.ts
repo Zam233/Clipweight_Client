@@ -6,7 +6,6 @@ import type { Track, Clip, ClipKind } from '@/types/timeline';
 import { TRACK_COLORS } from '@/types/timeline';
 import type { TimelineLayout, Marker } from './types';
 import { timeToX, trackToY, scrollbarGeom } from './types';
-import { formatTimecode } from '@/lib/utils';
 import { mediaManager } from '@/services/media/mediaManager';
 import { useSettingsStore } from '@/stores/settingsStore';
 
