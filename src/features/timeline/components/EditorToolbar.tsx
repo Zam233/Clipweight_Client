@@ -10,7 +10,7 @@ import { formatTimecode, uid } from '@/lib/utils';
 import {
   Play, Pause, SkipBack, SkipForward, StepBack, StepForward,
   Undo2, Redo2, Save, PanelLeft, PanelRight, Bot, Settings, Film,
-  FileText, ArrowLeft, Check, Loader2,
+  FileText, ArrowLeft, Check, Loader2, Mic,
 } from 'lucide-react';
 
 /**
@@ -82,6 +82,62 @@ export function EditorToolbar() {
           keyframes: [],
           metadata: { title: `字幕 ${e.index}` },
         });
+      }
+    };
+    input.click();
+  };
+
+  const handleAudioTranscribe = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.mp3,.wav,.m4a,.mp4';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const { getApiClient } = await import('@/services/api');
+        const form = new FormData();
+        form.append('file', file);
+        const uploadRes = await getApiClient().post('/api/asset/upload', form, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        const assetPath: string = uploadRes.data?.file_path || uploadRes.data?.local_path;
+        if (!assetPath) return;
+
+        const { data } = await getApiClient().post('/api/subtitle/transcribe', {
+          audio_path: assetPath,
+          language: '',
+          model_size: 'base',
+        });
+        const clips: Record<string, unknown>[] = data?.clips ?? [];
+        if (clips.length === 0) return;
+
+        const store = useTimelineStore.getState();
+        useHistoryStore.getState().pushState(store.timeline, 'transcribe');
+        let subTrack = store.timeline.tracks.find((t) => t.kind === 'caption' || t.kind === 'text');
+        if (!subTrack) {
+          const tid = store.addTrack('caption', '字幕');
+          subTrack = store.timeline.tracks.find((t) => t.id === tid)!;
+        }
+        for (const c of clips) {
+          store.addClip(subTrack!.id, {
+            kind: 'caption' as const,
+            asset_id: '',
+            start_sec: (c.start_sec as number) ?? 0,
+            duration_sec: Math.max(0.5, (c.duration_sec as number) ?? 1),
+            source_offset_sec: 0,
+            speed: 1,
+            volume: 1,
+            opacity: 1,
+            text: (c.text as string) ?? '',
+            font_size: 28,
+            font_color: '#FFFFFF',
+            keyframes: [],
+            metadata: { title: '字幕' },
+          });
+        }
+      } catch {
+        /* 离线或后端不可达时静默失败 */
       }
     };
     input.click();
@@ -195,6 +251,12 @@ export function EditorToolbar() {
           <button onClick={handleSrtImport}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <FileText className="w-4 h-4" />
+          </button>
+        </Tooltip>
+        <Tooltip content="音频转字幕">
+          <button onClick={handleAudioTranscribe}
+            className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+            <Mic className="w-4 h-4" />
           </button>
         </Tooltip>
         <Tooltip content="素材面板">

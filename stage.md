@@ -1,5 +1,10 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 10: 编辑器 UX 功能补齐
+**Timestamp**: 2026-07-29T17:25:00+08:00
+
+- + EditorToolbar 新增「音频转字幕」按钮：选择音频文件 → 上传素材库 → POST /api/subtitle/transcribe → 自动生成字幕轨道与 caption clip（接已就绪的后端 STT 能力，此前 UI 完全缺失）
+
 ## Stage 9: 功能缺口补齐（前后端 API 对齐）
 **Timestamp**: 2026-07-29T17:10:00+08:00
 
