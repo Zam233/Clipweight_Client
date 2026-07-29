@@ -1,58 +1,106 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
-import { getApiClient } from '@/services/api';
+import { getApiClient, projectApi } from '@/services/api';
 import { Button, Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import { LayoutTemplate, Plus, Braces, Play, Trash2, Film } from 'lucide-react';
+import { createEmptyTimeline } from '@/types/timeline';
+import { LayoutTemplate, Plus, Play, Trash2, Clock, Layers } from 'lucide-react';
 
 interface Template {
   id: string;
   name: string;
-  content: string;
-  variables: string[];
-  kind: 'script' | 'intro' | 'outro';
+  description: string;
+  category: string;
+  tags: string[];
+  trackCount: number;
+  durationSec: number;
+  updatedAt: string;
 }
 
 /**
- * TemplatesPage — author reusable {{variable}} templates, inspect their
- * variables, and trigger render / pipeline runs.
+ * TemplatesPage — manage reusable timeline templates. Backed by
+ * /api/template/* (list/create/delete/apply). Applying a template creates a
+ * new project from the template timeline and opens it in the editor.
  */
 export function TemplatesPage() {
+  const navigate = useNavigate();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
-  const [inspecting, setInspecting] = useState<string | null>(null);
+  const [notice, setNotice] = useState('');
+  const [applyingId, setApplyingId] = useState<string | null>(null);
+
+  const reload = async () => {
+    try {
+      const { data } = await getApiClient().get('/api/template/list');
+      setTemplates(normalize(data));
+      setNotice('');
+    } catch {
+      setNotice('无法连接后端模板服务');
+    }
+  };
 
   useEffect(() => {
     let alive = true;
     (async () => {
-      try {
-        const { data } = await getApiClient().get('/api/template/list');
-        if (alive) setTemplates(normalize(data));
-      } catch {
-        if (alive) setTemplates(DEMO_TEMPLATES);
-      } finally {
-        if (alive) setLoading(false);
-      }
+      await reload();
+      if (alive) setLoading(false);
     })();
     return () => { alive = false; };
   }, []);
 
-  const addNew = () => {
-    const id = `tpl_${Date.now().toString(36)}`;
-    setTemplates((ts) => [{
-      id, name: '新模板', kind: 'script',
-      content: '大家好，今天我们来聊聊{{topic}}。\n\n{{intro}}\n\n首先是{{point_1}}……',
-      variables: ['topic', 'intro', 'point_1'],
-    }, ...ts]);
-    setInspecting(id);
+  const addNew = async () => {
+    try {
+      await getApiClient().post('/api/template/create', {
+        name: '新模板',
+        description: '',
+        timeline: createEmptyTimeline(),
+      });
+      await reload();
+    } catch {
+      setNotice('新建失败：后端不可达');
+    }
   };
 
-  const remove = (id: string) => setTemplates((ts) => ts.filter((t) => t.id !== id));
+  const remove = async (id: string) => {
+    try {
+      await getApiClient().delete(`/api/template/${id}`);
+      setTemplates((ts) => ts.filter((t) => t.id !== id));
+    } catch {
+      setNotice('删除失败：后端不可达');
+    }
+  };
+
+  const apply = async (t: Template) => {
+    setApplyingId(t.id);
+    setNotice('');
+    try {
+      const { data } = await getApiClient().post<{ status: string; timeline: unknown }>(
+        `/api/template/${t.id}/apply`,
+        { topic: '', overrides: {} },
+      );
+      const project = await projectApi.create({
+        name: `${t.name} · 副本`,
+        timeline: (data.timeline as never) ?? null,
+      });
+      navigate({ to: '/editor/$projectId', params: { projectId: project.id } });
+    } catch {
+      setNotice('应用模板失败：后端不可达');
+    } finally {
+      setApplyingId(null);
+    }
+  };
 
   return (
     <ConsoleShell>
       <ConsoleHeading kicker="Authoring / Templates" title="模板管理"
-        desc="用 {{变量}} 编写可复用的脚本/片头/片尾模板，批量渲染或一键触发管线。" />
+        desc="时间线模板封装了可复用的轨道结构与节奏。应用模板会基于它创建一个新项目并进入编辑器。" />
+
+      {notice && (
+        <div className="bg-error/10 border border-error/30 rounded-cw-sm px-3.5 py-2 mb-4 max-w-[900px]">
+          <span className="font-mono text-caption text-error">{notice}</span>
+        </div>
+      )}
 
       <div className="flex items-center justify-between mb-5 max-w-[900px]">
         <p className="font-mono text-caption text-on-surface-variant">{templates.length} TEMPLATES</p>
@@ -62,28 +110,25 @@ export function TemplatesPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-[900px]">
         {loading ? (
           Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-40 bg-surface-container rounded-cw-md animate-pulse" />)
+        ) : templates.length === 0 ? (
+          <div className="col-span-2 bg-surface-container border border-dashed border-outline-variant/40 rounded-cw-md p-10 text-center">
+            <LayoutTemplate className="w-7 h-7 text-on-surface-variant/40 mx-auto mb-2" />
+            <p className="text-body-sm text-on-surface-variant">暂无模板</p>
+          </div>
         ) : (
           templates.map((t) => (
             <div key={t.id}
               className="relative bg-surface-container border border-outline-variant/30 rounded-cw-md overflow-hidden
                 hover:border-outline/60 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/20 transition-all duration-short3 group">
-              <span className={cn('absolute top-0 left-0 w-full h-[3px]',
-                t.kind === 'script' ? 'bg-gradient-to-r from-track-video to-transparent'
-                  : t.kind === 'intro' ? 'bg-gradient-to-r from-track-text to-transparent'
-                  : 'bg-gradient-to-r from-track-audio to-transparent')} />
+              <span className={cn('absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-track-video to-transparent')} />
 
               <div className="px-4 pt-4 pb-3">
                 <div className="flex items-start justify-between mb-2">
-                  <span className={cn('w-9 h-9 rounded-cw-sm flex items-center justify-center',
-                    t.kind === 'script' ? 'bg-track-video/15 text-track-video'
-                      : t.kind === 'intro' ? 'bg-track-text/15 text-track-text'
-                      : 'bg-track-audio/15 text-track-audio')}>
-                    {t.kind === 'script' ? <LayoutTemplate className="w-4.5 h-4.5" /> : <Film className="w-4.5 h-4.5" />}
+                  <span className="w-9 h-9 rounded-cw-sm flex items-center justify-center bg-track-video/15 text-track-video">
+                    <LayoutTemplate className="w-4.5 h-4.5" />
                   </span>
                   <div className="flex items-center gap-1.5">
-                    <Badge variant={t.kind === 'script' ? 'info' : t.kind === 'intro' ? 'warning' : 'success'}>
-                      {t.kind === 'script' ? '脚本' : t.kind === 'intro' ? '片头' : '片尾'}
-                    </Badge>
+                    {t.category && <Badge variant="info">{t.category}</Badge>}
                     <button onClick={() => remove(t.id)}
                       className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-error hover:bg-error/10 opacity-0 group-hover:opacity-100 transition-all cursor-pointer">
                       <Trash2 className="w-3.5 h-3.5" />
@@ -94,28 +139,28 @@ export function TemplatesPage() {
                 <p className="font-mono text-caption text-on-surface-variant mt-0.5">{t.id}</p>
               </div>
 
-              {/* variables */}
               <div className="px-4 pb-3">
-                <button onClick={() => setInspecting(inspecting === t.id ? null : t.id)}
-                  className="flex items-center gap-1.5 text-label-sm text-primary hover:underline cursor-pointer mb-2">
-                  <Braces className="w-3.5 h-3.5" /> {t.variables.length} 个变量 {inspecting === t.id ? '▾' : '▸'}
-                </button>
-                {inspecting === t.id && (
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {t.variables.map((v) => (
-                      <span key={v} className="font-mono text-caption px-2 py-0.5 rounded-cw-xs bg-primary/10 text-primary border border-primary/30">
-                        {'{{'}{v}{'}}'}
+                {t.description && (
+                  <p className="text-caption text-on-surface-variant leading-relaxed mb-2">{t.description}</p>
+                )}
+                <div className="flex items-center gap-4 font-mono text-caption text-on-surface-variant">
+                  <span className="flex items-center gap-1"><Layers className="w-3 h-3" /> {t.trackCount} 轨</span>
+                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {t.durationSec.toFixed(1)}s</span>
+                </div>
+                {t.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {t.tags.map((tag) => (
+                      <span key={tag} className="font-mono text-caption px-2 py-0.5 rounded-cw-xs bg-primary/10 text-primary border border-primary/30">
+                        {tag}
                       </span>
                     ))}
                   </div>
                 )}
-                <pre className="bg-surface rounded-cw-xs border border-outline-variant/20 px-3 py-2 font-mono text-caption
-                  text-on-surface-variant leading-relaxed max-h-20 overflow-hidden whitespace-pre-wrap">{t.content}</pre>
               </div>
 
               <div className="px-4 pb-4">
-                <Button size="sm" variant="outline" className="w-full">
-                  <Play className="w-3.5 h-3.5" /> 渲染模板
+                <Button size="sm" variant="outline" className="w-full" onClick={() => apply(t)} disabled={applyingId === t.id}>
+                  <Play className="w-3.5 h-3.5" /> {applyingId === t.id ? '应用中…' : '应用为新项目'}
                 </Button>
               </div>
             </div>
@@ -130,36 +175,17 @@ function normalize(data: unknown): Template[] {
   if (Array.isArray(data)) {
     return data.map((d, i) => {
       const o = d as Record<string, unknown>;
-      const content = String(o.content ?? o.template ?? '');
-      const vars = Array.isArray(o.variables)
-        ? (o.variables as unknown[]).map(String)
-        : [...content.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]);
       return {
-        id: String(o.id ?? `tpl_${i}`),
+        id: String(o.template_id ?? o.id ?? `tpl_${i}`),
         name: String(o.name ?? '模板'),
-        content,
-        variables: vars,
-        kind: (o.kind as Template['kind']) ?? 'script',
+        description: String(o.description ?? ''),
+        category: String(o.category ?? ''),
+        tags: Array.isArray(o.tags) ? (o.tags as unknown[]).map(String) : [],
+        trackCount: Number(o.track_count ?? 0),
+        durationSec: Number(o.duration_sec ?? 0),
+        updatedAt: String(o.updated_at ?? ''),
       };
     });
   }
   return [];
 }
-
-const DEMO_TEMPLATES: Template[] = [
-  {
-    id: 'tpl_knowledge_hook', name: '知识区开场钩子', kind: 'script',
-    content: '你有没有想过，{{topic}}背后真正的逻辑是什么？\n\n今天这期视频，我们用 {{point_count}} 个角度把它讲透。',
-    variables: ['topic', 'point_count'],
-  },
-  {
-    id: 'tpl_standard_intro', name: '标准片头', kind: 'intro',
-    content: '大家好，我是{{persona_name}}，欢迎回到我的频道。\n\n今天我们来聊聊{{topic}}。',
-    variables: ['persona_name', 'topic'],
-  },
-  {
-    id: 'tpl_triple_outro', name: '三连引导片尾', kind: 'outro',
-    content: '如果这期视频对你有帮助，别忘了{{cta}}。\n\n我们下期再见！',
-    variables: ['cta'],
-  },
-];
