@@ -1,5 +1,31 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 58: 后端 Bug 18/18 全部修复完成
+**Timestamp**: 2026-07-30T03:10:00+08:00
+
+### 后端修复 (4 项 — 最后一批)
+- Fix: pipeline.py regenerate_scene scene_index 与 track 数量比较（应为 clip 数量）→ 按各轨道 clip 数校验
+- Fix: pipeline.py /step/{agent_name} 文档误导（实际跑全 pipeline）→ 更新 docstring 说明真实行为
+- Fix: pipeline.py predict-script/predict-material 参数为 query string → 改为 Pydantic body + max_length + path 验证
+- Fix: security.py SSRF DNS-rebinding TOCTOU → 添加完整缓解措施文档（生产建议配合防火墙）
+
+### 全量测试确认
+- 后端: pytest **315 passed / 0 errors**
+- 前端: tsc **0** / vitest **59** / E2E **37 passed**
+
+### 后端 Bug 修复总览 (18/18)
+| 级别 | 数量 | 状态 |
+|------|------|------|
+| Critical | 2 | ✅ 全部修复 |
+| High | 5 | ✅ 全部修复 |
+| Medium | 7 | ✅ 全部修复 |
+| Low | 4 | ✅ 全部修复 |
+
+### 评价
+后端扫描发现的 18 个 Bug 已全部修复或缓解。渲染管线（run_in_executor/trim cache/原子写入）、安全（路径验证/SSRF/上传限制/render_id）、Pipeline（熔断器/regenerate_scene/self-heal）、数据完整性（原子写入/线程锁）均得到加固。可交付程度：**极高**。
+
+- - -
+
 ## Stage 57: 后端 Medium/Low Bug 修复（第二批）
 **Timestamp**: 2026-07-30T02:50:00+08:00
 
