@@ -14,6 +14,8 @@ interface MediaEntry {
   durationSec: number;
   waveform?: number[];
   thumbnails: Map<number, string>;
+  /** true when url is a blob: object URL that must be revoked on unregister */
+  isObjectUrl?: boolean;
 }
 
 class MediaManager {
@@ -28,7 +30,7 @@ class MediaManager {
       : file.type.startsWith('audio')
         ? 'audio'
         : 'image';
-    const entry: MediaEntry = { url, kind, durationSec: 0, thumbnails: new Map() };
+    const entry: MediaEntry = { url, kind, durationSec: 0, thumbnails: new Map(), isObjectUrl: true };
 
     if (kind === 'video') {
       const v = document.createElement('video');
@@ -84,6 +86,31 @@ class MediaManager {
 
   get(assetId: string): MediaEntry | undefined {
     return this.entries.get(assetId);
+  }
+
+  /** Unregister an asset and release its resources (object URL, media elements, caches). */
+  unregister(assetId: string): void {
+    const e = this.entries.get(assetId);
+    if (!e) return;
+    if (e.videoEl) {
+      e.videoEl.pause();
+      e.videoEl.removeAttribute('src');
+      e.videoEl.load();
+    }
+    if (e.audioEl) {
+      e.audioEl.pause();
+      e.audioEl.removeAttribute('src');
+      e.audioEl.load();
+    }
+    e.thumbnails.clear();
+    if (e.isObjectUrl) URL.revokeObjectURL(e.url);
+    this.entries.delete(assetId);
+    this.notify(assetId);
+  }
+
+  /** Release all registered assets (e.g. on project switch / editor unmount). */
+  clear(): void {
+    for (const id of [...this.entries.keys()]) this.unregister(id);
   }
 
   hasRealMedia(assetId: string): boolean {

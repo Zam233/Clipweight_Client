@@ -50,7 +50,11 @@ export class TimelineEngine {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('TimelineEngine: Canvas 2D context unavailable');
+    }
+    this.ctx = ctx;
 
     this.resize();
     this.bindStoreSubscriptions();
@@ -75,7 +79,9 @@ export class TimelineEngine {
   }
 
   resize() {
-    const rect = this.canvas.parentElement!.getBoundingClientRect();
+    const parent = this.canvas.parentElement;
+    if (!parent) return;
+    const rect = parent.getBoundingClientRect();
     this.dpr = window.devicePixelRatio || 1;
     this.cssW = Math.max(1, rect.width);
     this.cssH = Math.max(1, rect.height);
@@ -458,6 +464,12 @@ export class TimelineEngine {
     this.requestRender();
   };
 
+  private onPointerCancel = () => {
+    // 系统手势/中断：放弃当前拖拽，不提交任何变更，避免 drag 状态卡死
+    this.drag = makeDragState();
+    this.requestRender();
+  };
+
   private computeTrimGhost(): Clip | null {
     const orig = this.drag.trimOrig;
     if (!orig) return null;
@@ -741,11 +753,13 @@ export class TimelineEngine {
     this.canvas.addEventListener('pointerdown', this.onPointerDown);
     this.canvas.addEventListener('pointermove', this.onPointerMove);
     this.canvas.addEventListener('pointerup', this.onPointerUp);
+    this.canvas.addEventListener('pointercancel', this.onPointerCancel);
   }
   private removePointerEvents() {
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
     this.canvas.removeEventListener('pointermove', this.onPointerMove);
     this.canvas.removeEventListener('pointerup', this.onPointerUp);
+    this.canvas.removeEventListener('pointercancel', this.onPointerCancel);
   }
   private bindWheelEvent() {
     this.canvas.addEventListener('wheel', this.onWheel, { passive: false });

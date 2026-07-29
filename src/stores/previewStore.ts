@@ -56,7 +56,11 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
   togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
   setCurrentTime: (timeSec) =>
     set((state) => ({
-      currentTimeSec: Math.max(0, Math.min(timeSec, state.durationSec)),
+      // duration 尚未同步时不做上限钳位，避免 playhead 卡在 0
+      currentTimeSec:
+        state.durationSec > 0
+          ? Math.max(0, Math.min(timeSec, state.durationSec))
+          : Math.max(0, timeSec),
     })),
   setDuration: (durationSec) => set({ durationSec }),
   setFps: (fps) => set({ fps }),

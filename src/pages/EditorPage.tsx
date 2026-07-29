@@ -8,6 +8,7 @@ import { useHistoryStore } from '@/stores/historyStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { projectApi, getApiClient } from '@/services/api';
+import { mediaManager } from '@/services/media/mediaManager';
 import { useGlobalKeybindings } from '@/features/keyboard/useGlobalKeybindings';
 import { ShortcutCheatSheet } from '@/features/keyboard/ShortcutCheatSheet';
 import { createEmptyTimeline } from '@/types/timeline';
@@ -40,6 +41,8 @@ export function EditorPage() {
         useSelectionStore.getState().deselectAll();
         usePreviewStore.getState().setPlaying(false);
         usePreviewStore.getState().setCurrentTime(0);
+        // 释放上一个项目的媒体资源（object URL / media element / 缓存）
+        mediaManager.clear();
 
         const project = await projectApi.load(projectId);
         if (!alive) return;
@@ -109,7 +112,7 @@ export function EditorPage() {
       if (!dirtyRef.current) return;
       const st = useProjectStore.getState();
       if (!st.projectId) return;
-      const base = getApiClient().defaults.baseURL || 'http://localhost:8080';
+      const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
       const payload = JSON.stringify({
         name: st.projectName,
         timeline: useTimelineStore.getState().timeline,

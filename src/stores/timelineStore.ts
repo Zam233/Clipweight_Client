@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import type { Timeline, Track, Clip, ClipKind } from '@/types/timeline';
 import { createEmptyTimeline, createDefaultClip, computeTotalDuration } from '@/types/timeline';
 import { uid } from '@/lib/utils';
+import { useSelectionStore } from './selectionStore';
+import { usePreviewStore } from './previewStore';
 
 interface TimelineState {
   timeline: Timeline;
@@ -49,17 +51,31 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
   timeline: createEmptyTimeline(),
   isDirty: false,
 
-  setTimeline: (timeline) =>
-    set({ timeline, isDirty: false }),
+  setTimeline: (timeline) => {
+    set({ timeline, isDirty: false });
+    // 同步预览/选择状态，避免 playhead 钳位失效与悬空选择
+    usePreviewStore.getState().setDuration(timeline.duration_sec);
+    usePreviewStore.getState().setFps(timeline.fps);
+    useSelectionStore.getState().deselectAll();
+  },
 
-  resetTimeline: () =>
-    set({ timeline: createEmptyTimeline(), isDirty: false }),
+  resetTimeline: () => {
+    set({ timeline: createEmptyTimeline(), isDirty: false });
+    usePreviewStore.getState().setDuration(0);
+    useSelectionStore.getState().deselectAll();
+  },
 
   updateTimelineMeta: (meta) =>
-    set((state) => ({
-      timeline: { ...state.timeline, ...meta },
-      isDirty: true,
-    })),
+    set((state) => {
+      const timeline = { ...state.timeline, ...meta };
+      if (meta.duration_sec !== undefined) {
+        usePreviewStore.getState().setDuration(meta.duration_sec);
+      }
+      if (meta.fps !== undefined) {
+        usePreviewStore.getState().setFps(meta.fps);
+      }
+      return { timeline, isDirty: true };
+    }),
 
   addTrack: (kind, name) => {
     const id = uid('track');
@@ -85,7 +101,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     return id;
   },
 
-  removeTrack: (trackId) =>
+  removeTrack: (trackId) => {
+    const track = get().timeline.tracks.find((t) => t.id === trackId);
     set((state) => ({
       timeline: {
         ...state.timeline,
@@ -94,7 +111,16 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
           .map((t, i) => ({ ...t, index: i })),
       },
       isDirty: true,
-    })),
+    }));
+    // 清理该轨道及其 clip 的选择，避免悬空引用
+    if (track) {
+      const removedIds = new Set(track.clips.map((c) => c.id));
+      useSelectionStore.setState((s) => ({
+        selectedClipIds: s.selectedClipIds.filter((id) => !removedIds.has(id)),
+        selectedTrackId: s.selectedTrackId === trackId ? null : s.selectedTrackId,
+      }));
+    }
+  },
 
   reorderTrack: (trackId, newIndex) =>
     set((state) => {
@@ -164,7 +190,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     return id;
   },
 
-  removeClip: (clipId) =>
+  removeClip: (clipId) => {
     set((state) => {
       const tracks = state.timeline.tracks.map((t) => ({
         ...t,
@@ -178,7 +204,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         },
         isDirty: true,
       };
-    }),
+    });
+    useSelectionStore.setState((s) => ({
+      selectedClipIds: s.selectedClipIds.filter((id) => id !== clipId),
+    }));
+  },
 
   updateClip: (clipId, updates) =>
     set((state) => {
@@ -292,7 +322,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
       };
     }),
 
-  rippleDelete: (clipId) =>
+  rippleDelete: (clipId) => {
     set((state) => {
       const tracks = state.timeline.tracks.map((t) => {
         const idx = t.clips.findIndex((c) => c.id === clipId);
@@ -314,7 +344,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         timeline: { ...state.timeline, tracks, duration_sec: computeTotalDuration(tracks) },
         isDirty: true,
       };
-    }),
+    });
+    useSelectionStore.setState((s) => ({
+      selectedClipIds: s.selectedClipIds.filter((id) => id !== clipId),
+    }));
+  },
 
   rippleInsert: (trackId, clipData, atSec) => {
     const id = uid('clip');

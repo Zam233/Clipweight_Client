@@ -35,8 +35,18 @@ export function PreviewPanel() {
     usePreviewStore.getState().setFps(timeline.fps);
   }, [timeline.duration_sec, timeline.fps]);
 
-  // Audio sync: play/pause/seek audio clips' media elements with the playhead
+  // Audio sync: play/pause/seek audio clips' media elements with the playhead.
+  // 播放期间节流至 ~10fps，避免每帧遍历全部 clip（seek 阈值本身为 0.25s）
+  const lastAudioSyncRef = useRef(0);
+  const audioStateRef = useRef({ playing: false, muted: false, tl: timeline as unknown });
   useEffect(() => {
+    const prev = audioStateRef.current;
+    const structural = prev.playing !== isPlaying || prev.muted !== isMuted || prev.tl !== timeline;
+    audioStateRef.current = { playing: isPlaying, muted: isMuted, tl: timeline };
+    const now = performance.now();
+    if (!structural && now - lastAudioSyncRef.current < 100) return;
+    lastAudioSyncRef.current = now;
+
     const t = currentTimeSec;
     const playing = isPlaying;
     const muted = isMuted;
@@ -91,34 +101,47 @@ export function PreviewPanel() {
     return () => cancelAnimationFrame(raf);
   }, [isPlaying]);
 
-  // Composite render
+  // Composite render — 持久 RAF 循环 + 单次 ResizeObserver。
+  // 不依赖 currentTimeSec，避免播放期间每帧重建 observer；仅在状态变化时重绘。
   useEffect(() => {
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     const dpr = window.devicePixelRatio || 1;
+
+    let raf = 0;
+    let lastW = 0;
+    let lastH = 0;
+    const last = { t: -1, tl: null as unknown, safe: false, zoom: -1 };
 
     const draw = () => {
       const rect = wrap.getBoundingClientRect();
       const W = rect.width;
       const H = rect.height;
-      canvas.width = Math.round(W * dpr);
-      canvas.height = Math.round(H * dpr);
-      canvas.style.width = `${W}px`;
-      canvas.style.height = `${H}px`;
+      if (W !== lastW || H !== lastH) {
+        lastW = W;
+        lastH = H;
+        canvas.width = Math.round(W * dpr);
+        canvas.height = Math.round(H * dpr);
+        canvas.style.width = `${W}px`;
+        canvas.style.height = `${H}px`;
+      }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+      const pst = usePreviewStore.getState();
       const tl = useTimelineStore.getState().timeline;
-      const t = usePreviewStore.getState().currentTimeSec;
+      const t = pst.currentTimeSec;
+      const showSafe = pst.showSafeArea;
 
       // Letterbox background
       ctx.fillStyle = '#08090F';
       ctx.fillRect(0, 0, W, H);
 
       // Fit video frame into panel (16:9 by default), scaled by preview zoom
-      const zoom = usePreviewStore.getState().zoomLevel;
-      const aspect = tl.width / tl.height;
+      const zoom = pst.zoomLevel;
+      const aspect = tl.height > 0 ? tl.width / tl.height : 16 / 9;
       let fw = (W - 32) * zoom;
       let fh = fw / aspect;
       if (fh > (H - 32) * zoom) {
@@ -154,7 +177,7 @@ export function PreviewPanel() {
       }
 
       // Safe area overlay
-      if (showSafeArea) {
+      if (showSafe) {
         ctx.strokeStyle = 'rgba(255,68,68,0.5)';
         ctx.lineWidth = 1;
         ctx.setLineDash([5, 4]);
@@ -172,11 +195,31 @@ export function PreviewPanel() {
       ctx.strokeRect(fx + 0.5, fy + 0.5, fw - 1, fh - 1);
     };
 
+    const loop = () => {
+      const pst = usePreviewStore.getState();
+      const tl = useTimelineStore.getState().timeline;
+      const t = pst.currentTimeSec;
+      const safe = pst.showSafeArea;
+      const zoom = pst.zoomLevel;
+      if (t !== last.t || tl !== last.tl || safe !== last.safe || zoom !== last.zoom) {
+        last.t = t;
+        last.tl = tl;
+        last.safe = safe;
+        last.zoom = zoom;
+        draw();
+      }
+      raf = requestAnimationFrame(loop);
+    };
     draw();
-    const ro = new ResizeObserver(draw);
+    raf = requestAnimationFrame(loop);
+
+    const ro = new ResizeObserver(() => draw());
     ro.observe(wrap);
-    return () => ro.disconnect();
-  }, [currentTimeSec, timeline, showSafeArea, zoomLevel]);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, []);
 
   return (
     <div className="flex flex-col h-full bg-surface-dim">
@@ -415,14 +458,23 @@ function drawCover(
   ctx.restore();
 }
 
-/** Simple image cache for image assets. */
+/** Image cache with LRU eviction (prevents unbounded memory growth). */
+const IMAGE_CACHE_MAX = 64;
 const imageCache = new Map<string, HTMLImageElement>();
 function getImageCached(url: string): HTMLImageElement | undefined {
   let img = imageCache.get(url);
-  if (!img) {
-    img = new Image();
-    img.src = url;
+  if (img) {
+    // refresh LRU order
+    imageCache.delete(url);
     imageCache.set(url, img);
+    return img;
+  }
+  img = new Image();
+  img.src = url;
+  imageCache.set(url, img);
+  if (imageCache.size > IMAGE_CACHE_MAX) {
+    const oldest = imageCache.keys().next().value;
+    if (oldest !== undefined) imageCache.delete(oldest);
   }
   return img;
 }

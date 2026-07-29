@@ -112,3 +112,55 @@ describe('timelineStore', () => {
     expect(track!.kind).toBe('video');
   });
 });
+
+describe('timelineStore × selectionStore 联动', () => {
+  beforeEach(() => {
+    useTimelineStore.getState().resetTimeline();
+  });
+
+  it('removeClip 清理对应选择，不遗留悬空引用', async () => {
+    const { useSelectionStore } = await import('./selectionStore');
+    const tid = useTimelineStore.getState().addTrack('video');
+    const cid = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 0, duration_sec: 5 });
+    useSelectionStore.getState().selectClip(cid);
+    expect(useSelectionStore.getState().selectedClipIds).toContain(cid);
+
+    useTimelineStore.getState().removeClip(cid);
+    expect(useSelectionStore.getState().selectedClipIds).not.toContain(cid);
+  });
+
+  it('removeTrack 清理该轨道全部 clip 的选择与 selectedTrackId', async () => {
+    const { useSelectionStore } = await import('./selectionStore');
+    const tid = useTimelineStore.getState().addTrack('video');
+    const cid = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 0, duration_sec: 5 });
+    useSelectionStore.getState().selectClip(cid);
+    useSelectionStore.getState().selectTrack(tid);
+
+    useTimelineStore.getState().removeTrack(tid);
+    expect(useSelectionStore.getState().selectedClipIds).toHaveLength(0);
+    expect(useSelectionStore.getState().selectedTrackId).toBeNull();
+  });
+
+  it('rippleDelete 清理对应选择', async () => {
+    const { useSelectionStore } = await import('./selectionStore');
+    const tid = useTimelineStore.getState().addTrack('video');
+    const cid = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 0, duration_sec: 5 });
+    useSelectionStore.getState().selectClip(cid);
+
+    useTimelineStore.getState().rippleDelete(cid);
+    expect(useSelectionStore.getState().selectedClipIds).not.toContain(cid);
+  });
+
+  it('setTimeline 同步预览时长并清空选择', async () => {
+    const { useSelectionStore } = await import('./selectionStore');
+    const { usePreviewStore } = await import('./previewStore');
+    const tid = useTimelineStore.getState().addTrack('video');
+    const cid = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 0, duration_sec: 5 });
+    useSelectionStore.getState().selectClip(cid);
+
+    const tl = useTimelineStore.getState().timeline;
+    useTimelineStore.getState().setTimeline({ ...tl, duration_sec: 42 });
+    expect(usePreviewStore.getState().durationSec).toBe(42);
+    expect(useSelectionStore.getState().selectedClipIds).toHaveLength(0);
+  });
+});

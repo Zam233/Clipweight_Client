@@ -427,6 +427,7 @@ function BottomBar() {
   const [launching, setLaunching] = useState(false);
   const esRef = useRef<EventSource | null>(null);
   const lastTimelineRef = useRef<Timeline | null>(null);
+  const simTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   const running = pipelineId !== null && phase !== 'completed' && phase !== 'failed' && phase !== 'idle';
 
@@ -436,7 +437,11 @@ function BottomBar() {
     }
   }, [pipelineId, running]);
 
-  useEffect(() => () => esRef.current?.close(), []);
+  useEffect(() => () => {
+    esRef.current?.close();
+    simTimersRef.current.forEach((t) => clearTimeout(t));
+    simTimersRef.current.clear();
+  }, []);
 
   const openSSE = (pid: string) => {
     esRef.current?.close();
@@ -445,40 +450,54 @@ function BottomBar() {
 
     const startTimes: Record<string, number> = {};
 
+    // 畸形 JSON 不应中断后续事件处理
+    const safeParse = (e: Event): Record<string, unknown> | null => {
+      try {
+        return JSON.parse((e as MessageEvent).data);
+      } catch {
+        return null;
+      }
+    };
+
     es.addEventListener('agent_start', (e) => {
-      const d = JSON.parse((e as MessageEvent).data);
-      const name = d.agent_name || d.agent;
+      const d = safeParse(e);
+      if (!d) return;
+      const name = (d.agent_name || d.agent) as string;
       startTimes[name] = Date.now();
       updatePhase(normalizePhase(name));
       addLogEntry({ timestamp: Date.now(), agent: name, type: 'agent_start', summary: `${name} 启动` });
     });
 
     es.addEventListener('agent_end', (e) => {
-      const d = JSON.parse((e as MessageEvent).data);
-      const name = d.agent_name || d.agent;
+      const d = safeParse(e);
+      if (!d) return;
+      const name = (d.agent_name || d.agent) as string;
       const dur = startTimes[name] ? ((Date.now() - startTimes[name]) / 1000).toFixed(1) + 's' : '';
       addLogEntry({ timestamp: Date.now(), agent: name, type: 'agent_end', summary: `${name} 完成${dur ? ` (${dur})` : ''}` });
     });
 
     es.addEventListener('agent_complete', (e) => {
-      const d = JSON.parse((e as MessageEvent).data);
-      const name = d.agent_name || d.agent;
+      const d = safeParse(e);
+      if (!d) return;
+      const name = (d.agent_name || d.agent) as string;
       const dur = startTimes[name] ? ((Date.now() - startTimes[name]) / 1000).toFixed(1) + 's' : '';
       addLogEntry({ timestamp: Date.now(), agent: name, type: 'agent_end', summary: `${name} 完成${dur ? ` (${dur})` : ''}` });
     });
 
     es.addEventListener('agent_error', (e) => {
-      const d = JSON.parse((e as MessageEvent).data);
-      const name = d.agent_name || d.agent || 'unknown';
-      addLogEntry({ timestamp: Date.now(), agent: name, type: 'error', summary: d.error || d.summary || `${name} 失败` });
+      const d = safeParse(e);
+      if (!d) return;
+      const name = (d.agent_name || d.agent || 'unknown') as string;
+      addLogEntry({ timestamp: Date.now(), agent: name, type: 'error', summary: (d.error || d.summary || `${name} 失败`) as string });
     });
 
     es.addEventListener('timeline_snapshot', (e) => {
-      const d = JSON.parse((e as MessageEvent).data);
+      const d = safeParse(e);
+      if (!d) return;
       if (d.timeline) {
-        const tl = d.timeline;
+        const tl = d.timeline as Timeline;
         lastTimelineRef.current = tl;
-        addLogEntry({ timestamp: Date.now(), agent: d.agent || 'system', type: 'timeline_snapshot',
+        addLogEntry({ timestamp: Date.now(), agent: (d.agent as string) || 'system', type: 'timeline_snapshot',
           summary: `时间线: ${tl.tracks?.length || 0}轨, ${tl.duration_sec?.toFixed(0) || 0}s` });
       }
     });
@@ -556,6 +575,13 @@ function BottomBar() {
   const simulatePipeline = () => {
     setPipelineId(uid('pl'));
     let i = 0;
+    const schedule = (fn: () => void, ms: number) => {
+      const t = setTimeout(() => {
+        simTimersRef.current.delete(t);
+        fn();
+      }, ms);
+      simTimersRef.current.add(t);
+    };
     const step = () => {
       if (i >= PHASE_ORDER.length) {
         updatePhase('completed', 100);
@@ -564,12 +590,12 @@ function BottomBar() {
       }
       const p = PHASE_ORDER[i];
       addLogEntry({ timestamp: Date.now(), agent: PHASE_LABELS[p], type: 'agent_start', summary: `${PHASE_LABELS[p]} 启动` });
-      setTimeout(() => {
+      schedule(() => {
         addLogEntry({ timestamp: Date.now(), agent: PHASE_LABELS[p], type: 'agent_end', summary: `${PHASE_LABELS[p]} 完成 (0.7s)` });
       }, 600);
       updatePhase(p, Math.round(((i + 1) / PHASE_ORDER.length) * 90));
       i++;
-      setTimeout(step, 700);
+      schedule(step, 700);
     };
     step();
   };
