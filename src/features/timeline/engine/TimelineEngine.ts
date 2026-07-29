@@ -70,6 +70,7 @@ export class TimelineEngine {
     cancelAnimationFrame(this.rafId);
     this.unsubscribers.forEach((u) => u());
     this.removePointerEvents();
+    this.canvas.removeEventListener('wheel', this.onWheel);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
   }
@@ -575,6 +576,7 @@ export class TimelineEngine {
 
   // ── zoom / scroll ─────────────────────────────────────
   private onWheel = (e: WheelEvent) => {
+    if (this.disposed) return;
     e.preventDefault();
     const L = this.layout();
     const rect = this.canvas.getBoundingClientRect();
