@@ -22,7 +22,7 @@ ClipWright 前端是一个**独立完整的 Web 视频编辑器**，基础能力
 |----|------|
 | 框架 | React 19 + TypeScript 5.5 |
 | 构建 | Vite 6 |
-| 状态 | Zustand 5（9 个 store） |
+| 状态 | Zustand 5（10 个 store） |
 | 路由 | TanStack Router |
 | 数据 | TanStack Query + Axios |
 | UI | Radix UI + 自建 shadcn 风格组件 + Tailwind CSS 4 |
@@ -49,23 +49,54 @@ ClipWright 前端是一个**独立完整的 Web 视频编辑器**，基础能力
 ```
 src/
 ├── main.tsx / App.tsx / providers.tsx / router.tsx   # 入口与路由
-├── pages/            # HomePage(项目工作台) · EditorPage · SettingsPage
+├── pages/            # HomePage(项目工作台) · EditorPage · ProjectsPage
+│                     # ExportPage · SettingsPage · PersonaPage(×3)
+│                     # VoicePage · HelpPage · admin/(Models · Tools · Plugins · Fonts · ...)
 ├── layouts/          # EditorLayout(四面板) · StandardLayout
 ├── features/
 │   ├── timeline/     # ★ Canvas 2D 时间轴引擎 + 面板
-│   │   ├── engine/   #   TimelineEngine · renderers · snap · types
+│   │   ├── engine/   #   TimelineEngine · renderers · snap · easing · types
 │   │   └── components/  # TimelinePanel · EditorToolbar
-│   ├── preview/      # Canvas 合成预览 + 播放循环
-│   ├── assets/       # 素材面板（AI匹配/素材库/历史）
-│   ├── properties/   # 属性面板（关键帧/转场/文字）
-│   └── agent/        # ★ Agent 副驾驶（需求工作流 + 管线）
+│   ├── preview/      # Canvas 合成预览 + 播放控制
+│   ├── assets/       # 素材面板（AI匹配/素材库/配音视图）
+│   ├── properties/   # 属性面板（关键帧/转场/动效预设）
+│   ├── agent/        # ★ Agent 副驾驶（需求工作流 + 管线 + 时间线Diff）
+│   └── keyboard/     # 全局快捷键引擎 + 速查表
 ├── stores/           # timeline · selection · agent · asset · preview
-│                     # workspace · settings · project · history(Undo/Redo)
-├── services/         # api/(Axios 各端点) · ws/(WebSocket)
+│                     # workspace · settings · project · history · voice
+├── services/         # api/(Axios各端点) · ws/(WebSocket) · storage/ · media/
 ├── types/            # 与后端 Schema 对齐的 TS 类型
-├── components/ui/    # Button · Panel · Tooltip · Badge · Slider
+├── components/       # ui/(Button·Panel·Tooltip·Badge·Slider) · shared/(ProjectCard·AudioPlayer·Markdown)
+├── lib/              # 工具函数
 └── styles/globals.css # 设计令牌 + 主题
 ```
+
+> Vite dev server 代理：`/api` → `http://localhost:8000`，`/ws` → `ws://localhost:8000`（见 `vite.config.ts`）。
+
+### 路由表
+
+| 路径 | 页面 | 懒加载 |
+|------|------|:------:|
+| `/` | HomePage | |
+| `/editor/$projectId` | EditorPage | ✓ |
+| `/projects` | ProjectsPage | ✓ |
+| `/export` | ExportPage | ✓ |
+| `/persona` | PersonaPage | ✓ |
+| `/persona/$personaId` | PersonaDetailPage | ✓ |
+| `/persona/forge` | PersonaForgePage | ✓ |
+| `/voice` | VoicePage | ✓ |
+| `/settings` | SettingsPage | ✓ |
+| `/settings/models` | ModelsPage | ✓ |
+| `/settings/tools` | ToolsPage | ✓ |
+| `/settings/plugins` | PluginsPage | ✓ |
+| `/settings/type-maker` | TypeMakerPage | ✓ |
+| `/settings/templates` | TemplatesPage | ✓ |
+| `/settings/webhooks` | WebhooksPage | ✓ |
+| `/settings/fonts` | FontsPage | ✓ |
+| `/pipeline-admin` | PipelineAdminPage | ✓ |
+| `/help` | HelpPage | ✓ |
+
+所有页面（除 HomePage 外）均通过 `React.lazy()` 实现路由级代码分割。
 
 ---
 
@@ -128,6 +159,10 @@ VITE_WS_URL=ws://localhost:8000/ws
 | `←` / `→` | 逐帧步进 | | `Del` | 删除选中 |
 | `M` | 添加标记 | | `Ctrl+滚轮` | 缩放时间轴 |
 | `V` / `B` | 选择/剃刀工具 | | `+` / `-` | 缩放 |
+| `Ctrl+Z` | 撤销 | | `Ctrl+Shift+Z` | 重做 |
+| `J` / `K` / `L` | 倒放/暂停/播放 | | `Home` / `End` | 跳到开头/结尾 |
+| `I` / `O` | 设置入点/出点 | | `M` | 静音轨道 |
+| `Shift+L` | 锁定轨道 | | `Ctrl+/` | 快捷键速查表 |
 
 ---
 
@@ -137,7 +172,8 @@ VITE_WS_URL=ws://localhost:8000/ws
 - ✅ Phase 2 核心时间轴（Canvas 引擎/刻度尺/片段/播放头/缩放/选择/移动/裁剪/吸附/标记）
 - ✅ Phase 3 预览与素材（Canvas 合成/播放控制/素材面板/拖入时间轴）
 - ✅ Phase 4 属性面板 + Agent 副驾驶（需求工作流/管线/SSE）
-- 🔄 Phase 5 Persona 管理 / 导出渲染队列 / WebCodecs 真实解码（后续）
+- ✅ Phase 5 Persona 管理（列表/详情/Forge 交互式创建）/ 语音克隆 / 键盘快捷键系统
+- 🔄 导出渲染队列 / WebCodecs 真实解码 / 插件系统（后续）
 
 ---
 
