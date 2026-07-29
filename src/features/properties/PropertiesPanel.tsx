@@ -25,12 +25,14 @@ export function PropertiesPanel() {
   // Resolve first selected clip
   let clip: Clip | null = null;
   let trackKind = 'video';
+  let trackName = '';
   if (selectedClipIds.length > 0) {
     outer: for (const track of timeline.tracks) {
       for (const c of track.clips) {
         if (c.id === selectedClipIds[0]) {
           clip = c;
           trackKind = track.kind;
+          trackName = track.name;
           break outer;
         }
       }
@@ -66,6 +68,11 @@ export function PropertiesPanel() {
         <span className="text-label font-medium text-on-surface-variant uppercase tracking-wide">
           属性
         </span>
+        {trackName && (
+          <span className="text-caption text-on-surface-variant/60 ml-auto truncate">
+            {trackName}
+          </span>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
