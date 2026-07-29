@@ -93,11 +93,11 @@ function createCanvas(w = 1000, h = 400) {
   return canvas;
 }
 
-function mkWheel(opts: { deltaY?: number; deltaX?: number; ctrlKey?: boolean; shiftKey?: boolean; metaKey?: boolean; clientX?: number }) {
+function mkWheel(opts: { deltaY?: number; deltaX?: number; ctrlKey?: boolean; shiftKey?: boolean; metaKey?: boolean; altKey?: boolean; clientX?: number }) {
   return new WheelEvent('wheel', {
     deltaY: opts.deltaY ?? 0, deltaX: opts.deltaX ?? 0,
     ctrlKey: opts.ctrlKey ?? false, shiftKey: opts.shiftKey ?? false,
-    metaKey: opts.metaKey ?? false, clientX: opts.clientX ?? 500, clientY: 200, bubbles: true,
+    metaKey: opts.metaKey ?? false, altKey: opts.altKey ?? false, clientX: opts.clientX ?? 500, clientY: 200, bubbles: true,
   });
 }
 
@@ -158,6 +158,12 @@ describe('TimelineEngine onWheel modifier mapping', () => {
   it('Cmd+wheel (metaKey) → also zooms', () => {
     const prevZoom = engine.zoom;
     (engine as any).onWheel(mkWheel({ metaKey: true, deltaY: -100 }));
+    expect(engine.zoom).toBeGreaterThan(prevZoom);
+  });
+
+  it('Alt+wheel → also zooms', () => {
+    const prevZoom = engine.zoom;
+    (engine as any).onWheel(mkWheel({ altKey: true, deltaY: -100 }));
     expect(engine.zoom).toBeGreaterThan(prevZoom);
   });
 

@@ -582,8 +582,8 @@ export class TimelineEngine {
     const rect = this.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
 
-    if (e.ctrlKey || e.metaKey) {
-      // Ctrl/Cmd+wheel → zoom to cursor (README: Ctrl+滚轮=缩放)
+    if (e.ctrlKey || e.metaKey || e.altKey) {
+      // Ctrl/Cmd/Alt+wheel → zoom to cursor
       const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
       const timeAtCursor = xToTime(x, L);
       this.zoom = clamp(this.zoom * factor, MIN_ZOOM, MAX_ZOOM);
