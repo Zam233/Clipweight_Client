@@ -212,6 +212,8 @@ function StatusBar() {
   const setShowFramesInRuler = useSettingsStore((s) => s.setShowFramesInRuler);
   const undoCount = useHistoryStore((s) => s.undoStack.length);
   const redoCount = useHistoryStore((s) => s.redoStack.length);
+  const undoLabel = useHistoryStore((s) => s.undoStack.length > 0 ? s.undoStack[s.undoStack.length - 1].label : '');
+  const redoLabel = useHistoryStore((s) => s.redoStack.length > 0 ? s.redoStack[s.redoStack.length - 1].label : '');
   const [showFrames, setShowFrames] = useState(false);
 
   let statusText = 'Ready';
@@ -232,8 +234,8 @@ function StatusBar() {
         <span className="text-on-surface-variant/60">
           {formatTimecode(duration, fps)} · {tracks.length} 轨 · {tracks.reduce((s, tr) => s + tr.clips.length, 0)} 片段
         </span>
-        {undoCount > 0 && <span className="text-on-surface-variant/60">撤销 {undoCount}</span>}
-        {redoCount > 0 && <span className="text-on-surface-variant/60">重做 {redoCount}</span>}
+        {undoCount > 0 && <span className="text-on-surface-variant/60">撤销 {undoCount} ({undoLabel})</span>}
+        {redoCount > 0 && <span className="text-on-surface-variant/60">重做 {redoCount} ({redoLabel})</span>}
         <span className="text-primary font-medium">{toolLabel(toolMode)}</span>
         {isLooping && loopRegion && (
           <span className="text-track-video">
