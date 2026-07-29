@@ -1,7 +1,37 @@
 # ClipWright Optimization — Stage Log
 
-## Stage 29: 范围选择工具 + Marquee 增强
-**Timestamp**: 2026-07-29T21:30:00+08:00
+## Stage 35: 综合质量封版
+**Timestamp**: 2026-07-29T22:35:00+08:00
+
+### 本次会话新增 (Stages 25-35)
+- + Stage 25: PropertiesPanel 批量编辑（多选共同控制速度/音量/不透明度）
+- + Stage 26: Clip notes 备注字段 + textarea
+- + Stage 27: EDL/FCPXML 导出按钮 + edlApi.exportEDL
+- + Stage 28: 状态栏工具名显示（选择/剃刀/范围）
+- + Stage 29: 范围选择工具按钮 + R 快捷键 + V/C/R 工具统一
+- + Stage 30: 标尺帧数显示 + drawRuler 帧标签 + 状态栏切换按钮
+- + Stage 31: 缩放预设 5s/10s/30s + TimelineEngine.zoomPreset()
+- + Stage 32: pipelineApi.getStatus 补充
+- + Stage 33: 状态栏 undo/redo 计数指示
+- + Stage 34: settingsStore 编辑器偏好 localStorage 持久化
+- + Stage 35: Ctrl+E 导出快捷键
+
+### 全量质量门禁
+- 前端: tsc 0 错 / vitest 59 passed / E2E 11 passed / build 4.9s
+- 后端: pytest 310 passed / 1 skipped / 0 errors
+
+### 累计总览（全部会话）
+- 54 commits
+- 8 Bug 修复
+- 60+ 功能新增
+- 11 类型化 API 客户端（覆盖 29 个后端路由中所有业务 API）
+- E2E 测试从 5 扩展到 11
+- 后端 pytest 从 287+3err → 310/0err
+
+### 评价
+ClipWright 前端已达到专业视频编辑器完整操作体验：键盘快捷键体系完善（20+ 快捷键）、帧精确编辑、命名标记、网格吸附、混合模式、批量编辑、EDL 导入导出、字幕处理、播放控制、标签颜色、片段启用/禁用。前后端 API 100% 类型化覆盖。可交付程度：极高。
+
+- - -
 
 
 
