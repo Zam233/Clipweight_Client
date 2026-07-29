@@ -261,7 +261,7 @@ export function TimelinePanel() {
         <canvas
           ref={canvasRef}
           className="absolute inset-0 block"
-          style={{ pointerEvents: 'none' }}
+          style={{ pointerEvents: 'auto' }}
         />
       </div>
 

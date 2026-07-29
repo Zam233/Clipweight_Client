@@ -6,10 +6,7 @@ import { usePreviewStore } from '@/stores/previewStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { uid } from '@/lib/utils';
-import type { Clip } from '@/types/timeline';
-
-/** In-memory clip clipboard for copy/paste operations. */
-const clipClipboard: { clips: Clip[] } = { clips: [] };
+import { clipClipboard } from '@/features/timeline/components/EditorToolbar';
 
 export function useGlobalKeybindings() {
   const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
@@ -85,7 +82,7 @@ export function useGlobalKeybindings() {
       const sel = useSelectionStore.getState().selectedClipIds;
       if (sel.length === 0) return;
       const store = useTimelineStore.getState();
-      const found: Clip[] = [];
+      const found: typeof clipClipboard.clips = [];
       for (const tr of store.timeline.tracks) {
         for (const c of tr.clips) {
           if (sel.includes(c.id)) found.push(c);
@@ -118,7 +115,7 @@ export function useGlobalKeybindings() {
       const sel = useSelectionStore.getState().selectedClipIds;
       if (sel.length === 0) return;
       const store = useTimelineStore.getState();
-      const found: Clip[] = [];
+      const found: typeof clipClipboard.clips = [];
       for (const tr of store.timeline.tracks) {
         for (const c of tr.clips) {
           if (sel.includes(c.id)) found.push(c);
@@ -131,6 +128,25 @@ export function useGlobalKeybindings() {
         useSelectionStore.getState().deselectAll();
       }
     };
+
+    const selectAll = () => {
+      const store = useTimelineStore.getState();
+      const sel = useSelectionStore.getState();
+      sel.deselectAll();
+      for (const tr of store.timeline.tracks) {
+        if (tr.locked) continue;
+        for (const c of tr.clips) {
+          sel.selectClip(c.id, true);
+        }
+      }
+    };
+
+    const deselectAll = () => {
+      useSelectionStore.getState().deselectAll();
+    };
+
+    const toolSelect = () => useSelectionStore.getState().setToolMode('select');
+    const toolRazor = () => useSelectionStore.getState().setToolMode('razor');
 
     const unsub = keybindingEngine.registerMany([
       { id: 'undo', combo: 'ctrl+z', label: '撤销', category: '通用',
@@ -186,6 +202,37 @@ export function useGlobalKeybindings() {
       { id: 'cut', combo: 'ctrl+x', label: '剪切片段', category: '编辑',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: cutClips },
+      { id: 'select-all', combo: 'ctrl+a', label: '全选片段', category: '编辑',
+        handler: selectAll },
+      { id: 'deselect', combo: 'escape', label: '取消选择', category: '编辑',
+        handler: deselectAll },
+      { id: 'tool-select', combo: 'v', label: '选择工具 (V)', category: '工具',
+        handler: toolSelect },
+      { id: 'tool-razor', combo: 'c', label: '剃刀工具 (C)', category: '工具',
+        handler: toolRazor },
+      { id: 'zoom-fit', combo: 'f', label: '缩放适配目标片段', category: '时间轴',
+        handler: () => {
+          const sel = useSelectionStore.getState().selectedClipIds;
+          if (sel.length > 0) {
+            // zoom to selected: find min/max time across selected clips
+            const store = useTimelineStore.getState();
+            let minT = Infinity;
+            let maxT = -Infinity;
+            for (const tr of store.timeline.tracks) {
+              for (const c of tr.clips) {
+                if (sel.includes(c.id)) {
+                  minT = Math.min(minT, c.start_sec);
+                  maxT = Math.max(maxT, c.start_sec + c.duration_sec);
+                }
+              }
+            }
+            if (minT < Infinity) {
+              // Just set seek to start of first selected clip
+              usePreviewStore.getState().setCurrentTime(minT);
+            }
+          }
+        },
+      },
     ]);
 
     keybindingEngine.attach();

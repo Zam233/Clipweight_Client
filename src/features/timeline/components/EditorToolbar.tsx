@@ -5,17 +5,24 @@ import { usePreviewStore } from '@/stores/previewStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { useTimelineStore } from '@/stores/timelineStore';
+import { useSelectionStore } from '@/stores/selectionStore';
 import { Button, Tooltip } from '@/components/ui';
 import { formatTimecode, uid } from '@/lib/utils';
+import type { Clip } from '@/types/timeline';
 import {
   Play, Pause, SkipBack, SkipForward, StepBack, StepForward,
   Undo2, Redo2, Save, PanelLeft, PanelRight, Bot, Settings, Film,
   FileText, ArrowLeft, Check, Loader2, Mic, Download,
+  Copy, ClipboardPaste,
 } from 'lucide-react';
 
 /**
  * EditorToolbar — top transport + panel toggles + project actions.
  */
+
+/** In-memory clip clipboard (shared with keyboard shortcuts). */
+export const clipClipboard: { clips: Clip[] } = { clips: [] };
+
 export function EditorToolbar() {
   const navigate = useNavigate();
   const projectName = useProjectStore((s) => s.projectName);
@@ -47,6 +54,39 @@ export function EditorToolbar() {
   const handleRedo = () => {
     const tl = redo();
     if (tl) useTimelineStore.getState().setTimeline(tl);
+  };
+
+  const handleCopy = () => {
+    const sel = useSelectionStore.getState().selectedClipIds;
+    if (sel.length === 0) return;
+    const store = useTimelineStore.getState();
+    const found: Clip[] = [];
+    for (const tr of store.timeline.tracks) {
+      for (const c of tr.clips) {
+        if (sel.includes(c.id)) found.push(c);
+      }
+    }
+    if (found.length > 0) clipClipboard.clips = found;
+  };
+
+  const handlePaste = () => {
+    if (clipClipboard.clips.length === 0) return;
+    const store = useTimelineStore.getState();
+    const t = usePreviewStore.getState().currentTimeSec;
+    useHistoryStore.getState().pushState(store.timeline, 'paste');
+    for (const src of clipClipboard.clips) {
+      const newId = uid('clip');
+      const track = store.timeline.tracks.find((tr) => tr.id === src.track_id || tr.kind === src.kind);
+      if (!track || track.locked) continue;
+      store.addClip(track.id, {
+        ...src,
+        id: newId,
+        start_sec: t + (src.start_sec - clipClipboard.clips[0].start_sec),
+        asset_id: src.asset_id,
+        kind: src.kind,
+        keyframes: src.keyframes?.map((kf) => ({ ...kf })),
+      });
+    }
   };
 
   const handleSrtImport = () => {
@@ -225,6 +265,18 @@ export function EditorToolbar() {
         <button onClick={handleRedo} disabled={!canRedo}
           className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface disabled:opacity-30 transition-colors cursor-pointer">
           <Redo2 className="w-4 h-4" />
+        </button>
+      </Tooltip>
+      <Tooltip content="复制 (Ctrl+C)">
+        <button onClick={handleCopy}
+          className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+          <Copy className="w-3.5 h-3.5" />
+        </button>
+      </Tooltip>
+      <Tooltip content="粘贴 (Ctrl+V)">
+        <button onClick={handlePaste} disabled={clipClipboard.clips.length === 0}
+          className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface disabled:opacity-30 transition-colors cursor-pointer">
+          <ClipboardPaste className="w-3.5 h-3.5" />
         </button>
       </Tooltip>
 
