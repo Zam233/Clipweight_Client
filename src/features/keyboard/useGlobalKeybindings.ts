@@ -1,15 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { keybindingEngine } from './KeybindingEngine';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useProjectStore } from '@/stores/projectStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { uid } from '@/lib/utils';
 import { clipClipboard } from '@/features/timeline/components/EditorToolbar';
 
 export function useGlobalKeybindings() {
-  const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
 
   useEffect(() => {
     const undo = () => {
@@ -312,7 +312,10 @@ export function useGlobalKeybindings() {
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: toggleLockSelectedTrack },
       { id: 'cheatsheet', combo: 'ctrl+/', label: '快捷键速查表', category: '通用',
-        handler: () => setCheatSheetOpen((v) => !v) },
+        handler: () => {
+          const s = useSettingsStore.getState();
+          s.setCheatSheetOpen(!s.cheatSheetOpen);
+        } },
       { id: 'save', combo: 'ctrl+s', label: '保存项目', category: '通用',
         handler: saveProject },
       { id: 'copy', combo: 'ctrl+c', label: '复制片段', category: '编辑',
@@ -382,5 +385,7 @@ export function useGlobalKeybindings() {
     return () => { unsub(); keybindingEngine.detach(); };
   }, []);
 
-  return { cheatSheetOpen, setCheatSheetOpen };
+  const cheatSheetOpen = useSettingsStore((s) => s.cheatSheetOpen);
+
+  return { cheatSheetOpen, setCheatSheetOpen: (v: boolean) => useSettingsStore.getState().setCheatSheetOpen(v) };
 }

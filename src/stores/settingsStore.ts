@@ -13,6 +13,7 @@ interface SettingsState {
   snapThresholdPx: number;
   snapToGrid: boolean;
   snapGridSec: number;
+  cheatSheetOpen: boolean;
   defaultFps: number;
   defaultResolution: { width: number; height: number };
 
@@ -27,6 +28,7 @@ interface SettingsState {
   setSnapThreshold: (px: number) => void;
   setSnapToGrid: (enabled: boolean) => void;
   setSnapGridSec: (sec: number) => void;
+  setCheatSheetOpen: (open: boolean) => void;
   setDefaultFps: (fps: number) => void;
   setDefaultResolution: (res: { width: number; height: number }) => void;
 }
@@ -44,6 +46,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   snapThresholdPx: 8,
   snapToGrid: false,
   snapGridSec: 1,
+  cheatSheetOpen: false,
   defaultFps: 30,
   defaultResolution: { width: 1920, height: 1080 },
 
@@ -61,6 +64,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   setSnapThreshold: (px) => set({ snapThresholdPx: px }),
   setSnapToGrid: (enabled) => set({ snapToGrid: enabled }),
   setSnapGridSec: (sec) => set({ snapGridSec: sec }),
+  setCheatSheetOpen: (open) => set({ cheatSheetOpen: open }),
   setDefaultFps: (fps) => set({ defaultFps: fps }),
   setDefaultResolution: (res) => set({ defaultResolution: res }),
 }));

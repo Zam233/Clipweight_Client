@@ -6,6 +6,7 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { Button, Tooltip } from '@/components/ui';
 import { formatTimecode, uid } from '@/lib/utils';
 import type { Clip } from '@/types/timeline';
@@ -14,7 +15,7 @@ import {
   Play, Pause, SkipBack, SkipForward, StepBack, StepForward,
   Undo2, Redo2, Save, PanelLeft, PanelRight, Bot, Film,
   FileText, ArrowLeft, Check, Loader2, Mic, Download,
-  Copy, ClipboardPaste, FileUp,
+  Copy, ClipboardPaste, FileUp, Keyboard,
 } from 'lucide-react';
 
 /**
@@ -416,6 +417,15 @@ export function EditorToolbar() {
         </Tooltip>
 
         <div className="w-px h-6 bg-outline-variant/40 mx-1" />
+
+        <div className="w-px h-6 bg-outline-variant/40 mx-1" />
+
+        <Tooltip content="快捷键速查 (Ctrl+/)">
+          <button onClick={() => useSettingsStore.getState().setCheatSheetOpen(true)}
+            className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+            <Keyboard className="w-4 h-4" />
+          </button>
+        </Tooltip>
 
         {/* Save status indicator */}
         <SaveStatusIndicator />
