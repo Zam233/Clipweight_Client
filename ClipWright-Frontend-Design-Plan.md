@@ -1,4 +1,6 @@
-﻿# ClipWright - Frontend Client Design & Implementation Plan
+﻿> ⚠️ **Document type**: Architecture & Design Plan. The actual implementation may differ in structural details from the planned design described below. Sections marked [VERIFIED] have been cross-checked against current code.
+
+# ClipWright - Frontend Client Design & Implementation Plan
 
 > **Date**: 2026-07-20
 > **Project Phase**: Phase 5 - Full Timeline Editor
@@ -95,18 +97,17 @@ User Interface Layer (Pages)
          |             |            |            |             |
 Layout Layer
     EditorLayout (4-panel: Assets | Preview+Timeline | Properties | Agent)
-    StandardLayout   FullscreenLayout
+    StandardLayout
          |             |            |            |             |
 Feature Module Layer
     Timeline Engine  Preview Engine  Asset Library  Agent Panel
     Property Panel   Animation Editor  Persona Mgr  Export/Render
     Keyboard System  History (Undo/Redo)  Plugin System  Project Mgr
          |             |            |            |             |
-State Management Layer (Zustand Stores)
-    projectStore  timelineStore  selectionStore  agentStore
-    assetStore    previewStore   personaStore    pluginStore
-    exportStore   historyStore   workspaceStore  settingsStore
-    animationStore  viewportStore  keyboardStore
+State Management Layer (Zustand Stores) [VERIFIED]
+    timelineStore  selectionStore  agentStore  assetStore
+    previewStore   historyStore   workspaceStore  settingsStore
+    projectStore   voiceStore
          |             |            |            |             |
 Data Access Layer (API & Services)
     TanStack Query (cache)  WebSocket Client  REST API
@@ -117,7 +118,7 @@ Core Infrastructure
     DnD Core  Keybinding Engine  i18n  Telemetry (Sentry)
 ```
 
-### 2.2 Monorepo Directory Structure
+### 2.2 Monorepo Directory Structure [VERIFIED]
 
 ```
 clipwright-web/
@@ -128,21 +129,11 @@ clipwright-web/
 鈹?  鈹溾攢鈹€ main.tsx                    # App entry
 鈹?  鈹溾攢鈹€ App.tsx                     # Root + Router
 鈹?  鈹溾攢鈹€ providers.tsx               # Global Provider composition
-鈹?  鈹?鈹?  鈹溾攢鈹€ routes/                     # File-system routes (TanStack Router)
-鈹?  鈹?  鈹溾攢鈹€ __root.tsx              # Root layout
-鈹?  鈹?  鈹溾攢鈹€ index.tsx               # Home / Project list
-鈹?  鈹?  鈹溾攢鈹€ editor.$projectId.tsx   # Editor main page
-鈹?  鈹?  鈹溾攢鈹€ persona.tsx             # Persona management
-鈹?  鈹?  鈹溾攢鈹€ persona.$personaId.tsx
-鈹?  鈹?  鈹溾攢鈹€ persona.forge.tsx       # PersonaForge interactive creation
-鈹?  鈹?  鈹溾攢鈹€ export.$projectId.tsx   # Export settings
-鈹?  鈹?  鈹溾攢鈹€ plugin-market.tsx       # Plugin marketplace
-鈹?  鈹?  鈹溾攢鈹€ settings.tsx            # Global settings
-鈹?  鈹?  鈹斺攢鈹€ help.tsx                # Help/tutorials
+鈹?  鈹?鈹?  鈹溾攢鈹€ router.tsx                  # Flat createRoute() API (TanStack Router)
+鈹?  鈹?  鈹?  鈹溾攢鈹€ (HomePage at `/`, lazy pages for all other routes)
 鈹?  鈹?鈹?  鈹溾攢鈹€ layouts/                    # Layout components
 鈹?  鈹?  鈹溾攢鈹€ EditorLayout.tsx        # 4-panel editor layout
-鈹?  鈹?  鈹溾攢鈹€ StandardLayout.tsx      # Standard page layout
-鈹?  鈹?  鈹斺攢鈹€ FullscreenLayout.tsx
+鈹?  鈹?  鈹斺攢鈹€ StandardLayout.tsx      # Standard page layout
 鈹?  鈹?鈹?  鈹溾攢鈹€ features/                   # Feature modules (independent directories)
 鈹?  鈹?  鈹溾攢鈹€ timeline/               # Timeline core
 鈹?  鈹?  鈹?  鈹溾攢鈹€ components/
@@ -508,29 +499,34 @@ export interface Timeline {
 
 ---
 
-## 3 Pages & Routes
+## 3 Pages & Routes [VERIFIED]
 
 ### 3.1 Route Table
 
+All pages except the landing page are lazy-loaded via `React.lazy()` for route-level code splitting (see `src/router.tsx` which uses flat `createRoute()` API).
+
 | Route | Page | Layout | Description |
 |-------|------|--------|-------------|
-| `/` | Project List | StandardLayout | All projects, create/open |
-| `/editor/:projectId` | Main Editor | EditorLayout | 4-panel editor, app core; embeds RequirementsAgent (Brief鈫扨lan鈫扨ipeline) and post-pipeline dialogue editing |
-| `/persona` | Persona Management | StandardLayout | List, create, version mgmt |
-| `/persona/:personaId` | Persona Detail | StandardLayout | Single persona editing (YAML/Prompt/RAG/Exemplar tabs) |
-| `/persona/forge` | PersonaForge Wizard | StandardLayout | 3-step wizard (describe鈫抭uestions鈫抮eview) |
-| `/persona/forge/chat` | Chat Forge | StandardLayout | Conversational Persona creation with live preview & progress bars |
-| `/export/:projectId` | Export Settings | StandardLayout | Render params, render queue with SSE progress |
-| `/settings` | Global Settings | StandardLayout | Shortcuts, appearance, i18n, account |
-| `/settings/models` | Model Test | StandardLayout | LLM/Embed/Rerank test panel |
-| `/settings/fonts` | Font Config | StandardLayout | System font list, resolve, default |
-| `/settings/tools` | Tool & Skill Admin | StandardLayout | List/execute tools & skills |
-| `/settings/plugins` | Plugin Admin | StandardLayout | List/load/unload/discover plugins, capabilities |
-| `/settings/type-maker` | Type Maker | StandardLayout | Create/edit/duplicate video types |
-| `/settings/templates` | Template Manager | StandardLayout | Template CRUD, variable inspection, batch render |
-| `/settings/webhooks` | Webhook Settings | StandardLayout | Subscribe/unsubscribe webhooks |
-| `/pipeline-admin` | Pipeline Monitor | StandardLayout | Task queue, batch, stats, LLM cost, span traces (Gantt) |
-| `/help` | Help/Tutorials | StandardLayout | Usage guide, video tutorials |
+| Route | Page | Layout | Lazy | Description |
+|-------|------|--------|:----:|-------------|
+| `/` | HomePage | StandardLayout | | All projects, create/open |
+| `/editor/$projectId` | EditorPage | EditorLayout | ✓ | 4-panel editor, app core; embeds RequirementsAgent (Brief→Plan→Pipeline) and post-pipeline dialogue editing |
+| `/projects` | ProjectsPage | StandardLayout | ✓ | Project list |
+| `/export` | ExportPage | StandardLayout | ✓ | Render params, render queue with SSE progress |
+| `/persona` | PersonaPage | StandardLayout | ✓ | List, create, version mgmt |
+| `/persona/$personaId` | PersonaDetailPage | StandardLayout | ✓ | Single persona editing (YAML/Prompt/RAG/Exemplar tabs) |
+| `/persona/forge` | PersonaForgePage | StandardLayout | ✓ | 3-step wizard (describe→questions→review) |
+| `/voice` | VoicePage | StandardLayout | ✓ | Voice cloning & records |
+| `/settings` | SettingsPage | StandardLayout | ✓ | Shortcuts, appearance, i18n, account |
+| `/settings/models` | ModelsPage | StandardLayout | ✓ | LLM/Embed/Rerank test panel |
+| `/settings/fonts` | FontsPage | StandardLayout | ✓ | System font list, resolve, default |
+| `/settings/tools` | ToolsPage | StandardLayout | ✓ | Tool & Skill Admin |
+| `/settings/plugins` | PluginsPage | StandardLayout | ✓ | Plugin Admin |
+| `/settings/type-maker` | TypeMakerPage | StandardLayout | ✓ | Create/edit/duplicate video types |
+| `/settings/templates` | TemplatesPage | StandardLayout | ✓ | Template Manager |
+| `/settings/webhooks` | WebhooksPage | StandardLayout | ✓ | Webhook Settings |
+| `/pipeline-admin` | PipelineAdminPage | StandardLayout | ✓ | Pipeline Monitor |
+| `/help` | HelpPage | StandardLayout | ✓ | Usage guide, video tutorials |
 
 ### 3.2 EditorLayout Wireframe
 
@@ -578,29 +574,24 @@ export interface Timeline {
 
 ---
 
-## 4 State Management
+## 4 State Management [VERIFIED]
 
 ### 4.1 Zustand Store Overview
 
-| Store | Responsibility | Persist | Key State |
-|-------|---------------|:------:|-----------|
-| `projectStore` | Project info, settings | IndexedDB | projectId, name, personaId, pluginId |
-| `timelineStore` | Timeline core data | IndexedDB | tracks[], clips[], duration, fps |
-| `selectionStore` | Current selection | No | selectedClipIds[], playheadSec |
-| `viewportStore` | Viewport state | sessionStorage | zoom, scrollX, scrollY |
-| `assetStore` | Asset library data | IndexedDB | assets[], searchQuery, filters, selectedSources[] |
-| `previewStore` | Preview playback | No | isPlaying, currentTime, volume |
-| `personaStore` | Persona configs + ChatForge | No | personas[], selectedPersona, chatForge: { sessionId, messages[], draft, progress{} } |
-| `requirementsStore` | Requirements Agent workflow | localStorage | sessionId, status, messages[], creativeBrief, productionPlan |
-| `agentStore` | Agent status + SSE stream | No | pipelineStatus, phase, suggestions[], agentTimeline, intermediateSnapshots[] |
-| `animationStore` | Animation editing | No | selectedKeyframe, easingCurves |
-| `exportStore` | Export/render state | sessionStorage | preset, settings, renderQueue[], videoMode, splitMode |
-| `historyStore` | Undo/redo stack | sessionStorage | undoStack[], redoStack[] |
-| `workspaceStore` | Panel layout | localStorage | panelWidths, visiblePanels |
-| `pluginStore` | Plugin management | localStorage | installedPlugins[] |
-| `settingsStore` | Global settings | localStorage | theme, language, shortcuts, apiBaseUrl, authToken |
-| `pipelineAdminStore` | Pipeline monitoring | No | tasks[], stats, llmUsage, traceSpans[] |
-| `settingsStore` | Global settings | localStorage | theme, language, shortcuts |
+10 stores defined in `src/stores/`, all using `create<T>()`:
+
+| Store | Responsibility | Key State |
+|-------|---------------|-----------|
+| `timelineStore` | Timeline core data | tracks[], clips[], duration, fps |
+| `selectionStore` | Current selection | selectedClipIds[], playheadSec |
+| `agentStore` | Agent co-pilot state | pipelineStatus, phase, suggestions[], agentTimeline |
+| `assetStore` | Asset library data | assets[], searchQuery, filters |
+| `previewStore` | Preview playback | isPlaying, currentTime, volume, loop, shuttle |
+| `workspaceStore` | Panel layout (localStorage persisted) | panelWidths, visiblePanels |
+| `settingsStore` | Global settings (localStorage) | theme, language, shortcuts, apiBaseUrl |
+| `projectStore` | Project metadata | projectId, name, personaId, pluginId |
+| `historyStore` | Undo/redo (deep-clone based) | undoStack[], redoStack[] |
+| `voiceStore` | Voice cloning | upload state, clone progress, records[] |
 
 ### 4.2 timelineStore Detailed Design
 
