@@ -1,5 +1,35 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 56: 后端深度 Bug 扫描与修复
+**Timestamp**: 2026-07-30T02:30:00+08:00
+
+### 后端 Critical 修复 (2 项)
+- Fix: render.py _ff() 将 **kwargs 传给 run_in_executor() 导致 TypeError → functools.partial 绑定
+- Fix: render.py /api/render/start output_path 无验证可任意文件写入 → 强制 renders/ 目录
+
+### 后端 High 修复 (3 项)
+- Fix: render.py serve_video 先检查文件存在再验证路径（信息泄露）→ 调换顺序
+- Fix: pipeline_v2.py 熔断器 per-instance 永不触发 → 改为类级变量跨实例共享
+- Fix: voice.py 上传无大小限制（OOM DoS）→ 1MB 分块读取 + 100MB 上限
+
+### 后端 Medium 修复 (3 项)
+- Fix: pipeline.py v2 失败返回 HTTP 200 → 改为 500
+- Fix: animation_agent.py trace 事件空 pipeline_id 内存泄漏 → 存储 self._pid
+- Fix: animation_agent.py _add_trace_warning static→instance 方法
+
+### 前端 Medium 修复 (2 项)
+- Fix: PreviewPanel DPR 只捕获一次（多显示器 DPI 变化模糊）→ draw() 内每帧读取
+- Fix: PreviewPanel 音频同步节流失效（timeline 引用变化绕过）→ 仅 playing/muted 触发
+
+### 测试确认
+- 后端: pytest 315 passed / 0 errors
+- 前端: tsc 0 / vitest 59
+
+### 评价
+修复 10 个 Bug（2 Critical + 3 High + 5 Medium），覆盖渲染管线、安全漏洞、熔断器、资源泄漏等核心路径。后端安全性和稳定性显著提升。可交付程度：极高。
+
+- - -
+
 ## Stage 55: 全量前后端测试报告
 **Timestamp**: 2026-07-30T02:05:00+08:00
 
