@@ -13,6 +13,7 @@ import { TRACK_COLORS } from '@/types/timeline';
 import {
   Magnet, Plus, ZoomIn, ZoomOut, Maximize2, Trash2, Scissors, ChevronsLeft,
   Layers, Lock, LockOpen, Volume2, VolumeX, ArrowUp, ArrowDown, X, Flag, FlagOff,
+  Grid3x3,
 } from 'lucide-react';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -36,6 +37,10 @@ export function TimelinePanel() {
   const setToolMode = useSelectionStore((s) => s.setToolMode);
   const snapEnabled = useSettingsStore((s) => s.snapEnabled);
   const setSnapEnabled = useSettingsStore((s) => s.setSnapEnabled);
+  const snapToGrid = useSettingsStore((s) => s.snapToGrid);
+  const setSnapToGrid = useSettingsStore((s) => s.setSnapToGrid);
+  const snapGridSec = useSettingsStore((s) => s.snapGridSec);
+  const setSnapGridSec = useSettingsStore((s) => s.setSnapGridSec);
   const currentTimeSec = usePreviewStore((s) => s.currentTimeSec);
   const fps = usePreviewStore((s) => s.fps);
   const [trackMgrOpen, setTrackMgrOpen] = useState(false);
@@ -148,7 +153,7 @@ export function TimelinePanel() {
         </div>
 
         {/* Snap toggle */}
-        <Tooltip content={snapEnabled ? '吸附：开 (S)' : '吸附：关'}>
+        <Tooltip content={snapEnabled ? '吸附：开' : '吸附：关'}>
           <button
             onClick={() => setSnapEnabled(!snapEnabled)}
             className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${
@@ -156,6 +161,17 @@ export function TimelinePanel() {
             }`}
           >
             <Magnet className="w-3.5 h-3.5" />
+          </button>
+        </Tooltip>
+        {/* Grid snap toggle */}
+        <Tooltip content={snapToGrid ? `吸附到网格: ${snapGridSec}s` : '网格吸附：关'}>
+          <button
+            onClick={() => setSnapToGrid(!snapToGrid)}
+            className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${
+              snapToGrid ? 'text-snap-guide bg-snap-guide/10' : 'text-on-surface-variant hover:text-on-surface'
+            }`}
+          >
+            <Grid3x3 className="w-3.5 h-3.5" />
           </button>
         </Tooltip>
 

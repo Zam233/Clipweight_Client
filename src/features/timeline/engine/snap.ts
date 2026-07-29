@@ -1,9 +1,10 @@
 /**
- * Snap system — aligns clip edges to nearby clip edges, playhead, markers, and zero.
+ * Snap system — aligns clip edges to nearby clip edges, playhead, markers, zero, and grid.
  */
 import type { Track } from '@/types/timeline';
 import type { TimelineLayout, Marker } from './types';
 import { timeToX } from './types';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 export interface SnapResult {
   /** Adjusted delta time (seconds) after snapping */
@@ -25,6 +26,18 @@ export function collectSnapTargets(
   targets.add(0);
   targets.add(playheadSec);
   for (const m of markers) targets.add(m.time);
+
+  const settings = useSettingsStore.getState();
+  if (settings.snapToGrid && settings.snapGridSec > 0) {
+    const dur = tracks.reduce((m, tr) => {
+      for (const c of tr.clips) m = Math.max(m, c.start_sec + c.duration_sec);
+      return m;
+    }, 0);
+    for (let t = settings.snapGridSec; t <= Math.max(dur, 60); t += settings.snapGridSec) {
+      targets.add(t);
+    }
+  }
+
   for (const track of tracks) {
     for (const clip of track.clips) {
       if (excludeClipIds.has(clip.id)) continue;

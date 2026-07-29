@@ -11,6 +11,8 @@ interface SettingsState {
   maxUndoHistory: number;
   snapEnabled: boolean;
   snapThresholdPx: number;
+  snapToGrid: boolean;
+  snapGridSec: number;
   defaultFps: number;
   defaultResolution: { width: number; height: number };
 
@@ -23,6 +25,8 @@ interface SettingsState {
   setAutoSave: (enabled: boolean) => void;
   setSnapEnabled: (enabled: boolean) => void;
   setSnapThreshold: (px: number) => void;
+  setSnapToGrid: (enabled: boolean) => void;
+  setSnapGridSec: (sec: number) => void;
   setDefaultFps: (fps: number) => void;
   setDefaultResolution: (res: { width: number; height: number }) => void;
 }
@@ -38,6 +42,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   maxUndoHistory: 200,
   snapEnabled: true,
   snapThresholdPx: 8,
+  snapToGrid: false,
+  snapGridSec: 1,
   defaultFps: 30,
   defaultResolution: { width: 1920, height: 1080 },
 
@@ -53,6 +59,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   setAutoSave: (enabled) => set({ autoSave: enabled }),
   setSnapEnabled: (enabled) => set({ snapEnabled: enabled }),
   setSnapThreshold: (px) => set({ snapThresholdPx: px }),
+  setSnapToGrid: (enabled) => set({ snapToGrid: enabled }),
+  setSnapGridSec: (sec) => set({ snapGridSec: sec }),
   setDefaultFps: (fps) => set({ defaultFps: fps }),
   setDefaultResolution: (res) => set({ defaultResolution: res }),
 }));
