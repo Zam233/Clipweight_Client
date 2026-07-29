@@ -116,6 +116,19 @@ export function PropertiesPanel() {
               </Row>
             </Section>
 
+            {/* Notes */}
+            <Section title="备注">
+              <textarea
+                value={clip.notes ?? ''}
+                onChange={(e) => set({ notes: e.target.value || null })}
+                rows={3}
+                placeholder="添加备注…"
+                className="w-full bg-surface-container rounded-cw-xs px-2 py-1.5 text-body-sm text-on-surface
+                  outline-none border border-outline-variant/30 focus:border-primary resize-none
+                  placeholder:text-on-surface-variant/40"
+              />
+            </Section>
+
             {/* Playback */}
             <Section title="播放">
               <Slider label="速度" min={0.25} max={4} step={0.25} value={clip.speed}
