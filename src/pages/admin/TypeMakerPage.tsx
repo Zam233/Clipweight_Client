@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
-import { getApiClient } from '@/services/api';
+import { typeMakerApi } from '@/services/api';
+import type { TypeDefinition } from '@/services/api/typeMaker';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { Shapes, Plus, Copy, Trash2, Pencil, Film } from 'lucide-react';
@@ -29,8 +30,8 @@ export function TypeMakerPage() {
 
   const reload = async () => {
     try {
-      const { data } = await getApiClient().get('/api/type-maker/list');
-      setTypes(normalize(data));
+      const list = await typeMakerApi.list();
+      setTypes(normalize(list));
       setNotice('');
     } catch {
       setNotice('无法连接后端类型服务');
@@ -48,14 +49,13 @@ export function TypeMakerPage() {
 
   const duplicate = async (t: VideoType) => {
     try {
-      const { data } = await getApiClient().get<Record<string, unknown>>(`/api/type-maker/${t.id}`);
-      const definition = (data.definition ?? data) as Record<string, unknown>;
+      const definition = await typeMakerApi.get(t.id) as unknown as Record<string, unknown>;
       const newId = `${t.id}_copy_${Date.now().toString(36).slice(-4)}`;
-      await getApiClient().post('/api/type-maker/create', {
+      await typeMakerApi.create({
         ...definition,
         id: newId,
         name: `${t.name} 副本`,
-      });
+      } as never);
       await reload();
     } catch {
       setNotice('复制失败：后端不可达或 ID 冲突');
@@ -64,7 +64,7 @@ export function TypeMakerPage() {
 
   const remove = async (id: string) => {
     try {
-      await getApiClient().delete(`/api/type-maker/${id}`);
+      await typeMakerApi.remove(id);
       setTypes((ts) => ts.filter((t) => t.id !== id));
     } catch {
       setNotice('删除失败：后端不可达或内置类型受保护');
@@ -74,12 +74,12 @@ export function TypeMakerPage() {
   const addNew = async () => {
     const id = `custom_${Date.now().toString(36)}`;
     try {
-      await getApiClient().post('/api/type-maker/create', {
+      await typeMakerApi.create({
         id,
         name: '新视频类型',
         description: '',
-        shot_params: { min_shot_sec: 1, max_shot_sec: 3, transition_type: 'cut' },
-      });
+        shot_params: { min_shot_sec: 1, max_shot_sec: 3, transition_type: 'cut', transition_duration_sec: 0.5, cut_on_beat: false },
+      } as never);
       await reload();
       setEditing(id);
     } catch {
@@ -90,11 +90,10 @@ export function TypeMakerPage() {
   const commitEdit = async (t: VideoType) => {
     setEditing(null);
     try {
-      const { data } = await getApiClient().get<Record<string, unknown>>(`/api/type-maker/${t.id}`);
-      const definition = (data.definition ?? data) as Record<string, unknown>;
+      const definition = await typeMakerApi.get(t.id) as unknown as Record<string, unknown>;
       const maxShot = Math.max(0.5, t.cut_interval_ms / 1000);
       const prevShot = (definition.shot_params ?? {}) as Record<string, unknown>;
-      await getApiClient().put(`/api/type-maker/${t.id}`, {
+      await typeMakerApi.update(t.id, {
         ...definition,
         id: t.id,
         name: t.name,
@@ -103,7 +102,7 @@ export function TypeMakerPage() {
           min_shot_sec: Math.max(0.3, maxShot / 3),
           max_shot_sec: maxShot,
         },
-      });
+      } as never);
       await reload();
     } catch {
       setNotice('保存失败：后端不可达');

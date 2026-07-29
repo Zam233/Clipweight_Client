@@ -8,3 +8,5 @@ export { projectApi, healthApi, pluginApi, animationApi, toolApi, skillApi } fro
 export { voiceApi } from './voice';
 export { fontApi } from './font';
 export { webhookApi } from './webhook';
+export { typeMakerApi } from './typeMaker';
+export { templateApi } from './template';

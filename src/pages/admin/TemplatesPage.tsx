@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
-import { getApiClient, projectApi } from '@/services/api';
+import { templateApi, projectApi } from '@/services/api';
+import type { Template as ApiTemplate } from '@/services/api/template';
 import { Button, Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { createEmptyTimeline } from '@/types/timeline';
@@ -32,8 +33,8 @@ export function TemplatesPage() {
 
   const reload = async () => {
     try {
-      const { data } = await getApiClient().get('/api/template/list');
-      setTemplates(normalize(data));
+      const list = await templateApi.list();
+      setTemplates(normalize(list));
       setNotice('');
     } catch {
       setNotice('无法连接后端模板服务');
@@ -51,10 +52,9 @@ export function TemplatesPage() {
 
   const addNew = async () => {
     try {
-      await getApiClient().post('/api/template/create', {
+      await templateApi.create({
         name: '新模板',
         description: '',
-        timeline: createEmptyTimeline(),
       });
       await reload();
     } catch {
@@ -64,7 +64,7 @@ export function TemplatesPage() {
 
   const remove = async (id: string) => {
     try {
-      await getApiClient().delete(`/api/template/${id}`);
+      await templateApi.remove(id);
       setTemplates((ts) => ts.filter((t) => t.id !== id));
     } catch {
       setNotice('删除失败：后端不可达');
@@ -75,13 +75,10 @@ export function TemplatesPage() {
     setApplyingId(t.id);
     setNotice('');
     try {
-      const { data } = await getApiClient().post<{ status: string; timeline: unknown }>(
-        `/api/template/${t.id}/apply`,
-        { topic: '', overrides: {} },
-      );
+      const result = await templateApi.apply(t.id);
       const project = await projectApi.create({
         name: `${t.name} · 副本`,
-        timeline: (data.timeline as never) ?? null,
+        timeline: null,
       });
       navigate({ to: '/editor/$projectId', params: { projectId: project.id } });
     } catch {
