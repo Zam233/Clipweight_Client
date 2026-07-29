@@ -69,6 +69,7 @@ export class WsClient {
     }
     this.ws?.close();
     this.ws = null;
+    this.subs.clear();
   }
 
   subscribe(topic: string, cb: (data: unknown) => void): () => void {

@@ -261,7 +261,8 @@ export function PreviewPanel() {
           <Tooltip content="播放速度">
             <button onClick={() => {
               const speeds = [0.5, 1, 1.5, 2];
-              const next = speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.length];
+              const idx = speeds.indexOf(playbackSpeed);
+              const next = speeds[(idx === -1 ? 0 : idx + 1) % speeds.length];
               setPlaybackSpeed(next);
             }}
               className="px-1.5 py-0.5 rounded-cw-xs font-mono text-caption text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer min-w-[38px] text-center">

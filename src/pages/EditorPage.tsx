@@ -85,7 +85,8 @@ export function EditorPage() {
   // Server-side auto-save (debounced)
   const serverSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    const unsub = useTimelineStore.subscribe((_state, _prev) => {
+    const unsub = useTimelineStore.subscribe((state, prev) => {
+      if (state.timeline === prev.timeline) return;
       dirtyRef.current = true;
       const st = useProjectStore.getState();
       if (!st.projectId) return;
