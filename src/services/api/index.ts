@@ -10,3 +10,4 @@ export { fontApi } from './font';
 export { webhookApi } from './webhook';
 export { typeMakerApi } from './typeMaker';
 export { templateApi } from './template';
+export { edlApi } from './edl';

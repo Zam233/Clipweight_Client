@@ -12,6 +12,11 @@
   - 空格键播放/暂停不崩溃
   - Backspace 在无选中时不会触发浏览器后退
 
+### 新增功能
+- + `edlApi` 类型化 API 客户端（importEDL/importFCPXML/exportEDL/exportFCPXML）
+- + EditorToolbar 新增「导入 EDL/FCPXML」按钮：选择 .edl/.fcpxml/.xml 文件 → 解析为 clips → 自动创建轨道并添加到时间轴（连接后端 parse_edl/parse_fcpxml）
+- + edlApi 通过 index.ts barrel 导出
+
 ### 代码清理
 - - 移除 TypeMakerPage/TemplatesPage/WebhooksPage/FontsPage/EditorToolbar/TimelinePanel 中未使用的导入
 - - 移除 TemplatesPage 未使用变量 result

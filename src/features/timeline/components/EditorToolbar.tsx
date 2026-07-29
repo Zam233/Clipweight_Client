@@ -9,11 +9,12 @@ import { useSelectionStore } from '@/stores/selectionStore';
 import { Button, Tooltip } from '@/components/ui';
 import { formatTimecode, uid } from '@/lib/utils';
 import type { Clip } from '@/types/timeline';
+import type { ClipKind } from '@/types/timeline';
 import {
   Play, Pause, SkipBack, SkipForward, StepBack, StepForward,
   Undo2, Redo2, Save, PanelLeft, PanelRight, Bot, Film,
   FileText, ArrowLeft, Check, Loader2, Mic, Download,
-  Copy, ClipboardPaste,
+  Copy, ClipboardPaste, FileUp,
 } from 'lucide-react';
 
 /**
@@ -183,6 +184,52 @@ export function EditorToolbar() {
     input.click();
   };
 
+  const handleEdlImport = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.edl,.fcpxml,.xml';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const isFcp = file.name.endsWith('.fcpxml') || text.trim().startsWith('<?xml');
+        const { edlApi } = await import('@/services/api/edl');
+        const result = isFcp ? await edlApi.importFCPXML(text) : await edlApi.importEDL(text);
+        const clips = result.clips ?? [];
+        if (clips.length === 0) return;
+
+        const store = useTimelineStore.getState();
+        useHistoryStore.getState().pushState(store.timeline, `import ${isFcp ? 'fcpxml' : 'edl'}`);
+        for (const c of clips) {
+          const kind = (c.kind as ClipKind) || 'video';
+          let track = store.timeline.tracks.find((t) => t.kind === kind);
+          if (!track) {
+            const tid = store.addTrack(kind);
+            track = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
+          }
+          if (!track) continue;
+          const start = (c.start_sec as number) ?? (c.start as number) ?? 0;
+          const dur = (c.duration_sec as number) ?? (c.duration as number) ?? 5;
+          store.addClip(track.id, {
+            kind,
+            asset_id: (c.asset_id as string) ?? '',
+            start_sec: start,
+            duration_sec: Math.max(0.1, dur),
+            source_offset_sec: 0,
+            speed: 1,
+            volume: 1,
+            opacity: 1,
+            metadata: { title: (c.title as string) ?? (c.name as string) ?? `${kind} clip` },
+          });
+        }
+      } catch {
+        /* 后端不可达时静默失败 */
+      }
+    };
+    input.click();
+  };
+
   const handleSrtExport = () => {
     const store = useTimelineStore.getState();
     const captions = store.timeline.tracks
@@ -341,6 +388,12 @@ export function EditorToolbar() {
           <button onClick={handleAudioTranscribe}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <Mic className="w-4 h-4" />
+          </button>
+        </Tooltip>
+        <Tooltip content="导入 EDL/FCPXML">
+          <button onClick={handleEdlImport}
+            className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+            <FileUp className="w-4 h-4" />
           </button>
         </Tooltip>
         <Tooltip content="素材面板">
