@@ -10,6 +10,9 @@ import { ReviewPanel } from '@/features/agent/ReviewPanel';
 import { EditorToolbar } from '@/features/timeline/components/EditorToolbar';
 import { useAgentStore } from '@/stores/agentStore';
 import { useProjectStore } from '@/stores/projectStore';
+import { usePreviewStore } from '@/stores/previewStore';
+import { useTimelineStore } from '@/stores/timelineStore';
+import { formatTimecode } from '@/lib/utils';
 
 /**
  * EditorLayout — 4-panel Premiere-style layout
@@ -193,6 +196,12 @@ function StatusBar() {
   const isSaving = useProjectStore((s) => s.isSaving);
   const lastSavedAt = useProjectStore((s) => s.lastSavedAt);
   const saveError = useProjectStore((s) => s.saveError);
+  const currentTime = usePreviewStore((s) => s.currentTimeSec);
+  const fps = useTimelineStore((s) => s.timeline.fps);
+  const duration = useTimelineStore((s) => s.timeline.duration_sec);
+  const loopRegion = usePreviewStore((s) => s.loopRegion);
+  const isLooping = usePreviewStore((s) => s.isLooping);
+  const [showFrames, setShowFrames] = useState(false);
 
   let statusText = 'Ready';
   if (isSaving) statusText = '保存中…';
@@ -202,10 +211,29 @@ function StatusBar() {
     statusText = `已保存 ${t}`;
   }
 
+  const currentFrame = Math.floor(currentTime * fps);
+  const totalFrames = Math.floor(duration * fps);
+
   return (
     <div className="flex items-center justify-between px-3 py-1 bg-surface-dim border-t border-outline-variant/30 text-caption text-on-surface-variant shrink-0">
-      <span>ClipWright v0.1.0</span>
-      <span className="font-mono">{statusText}</span>
+      <div className="flex items-center gap-3">
+        <span>ClipWright v0.1.0</span>
+        {isLooping && loopRegion && (
+          <span className="text-track-video">
+            循环: {formatTimecode(loopRegion.start, fps)} – {formatTimecode(loopRegion.end, fps)}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => setShowFrames(!showFrames)}
+          className="font-mono hover:text-primary transition-colors cursor-pointer"
+          title="点击切换时间码/帧显示"
+        >
+          {showFrames ? `帧 ${currentFrame} / ${totalFrames}` : formatTimecode(currentTime, fps)}
+        </button>
+        <span className="font-mono">{statusText}</span>
+      </div>
     </div>
   );
 }

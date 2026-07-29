@@ -1,6 +1,20 @@
 # ClipWright Optimization — Stage Log
 
-## Stage 14: 预览面板与属性面板增强
+## Stage 15: 状态栏增强 — 帧/时间码切换 + 循环区域指示
+**Timestamp**: 2026-07-29T19:50:00+08:00
+
+### 功能新增
+- + 状态栏新增时间码/帧数切换按钮：点击可在 `HH:MM:SS.FF` 与 `帧 N / Total` 间切换
+- + 状态栏显示循环区域：当 loopRegion 存在且循环开启时显示起止时间
+- + 帧数实时计算基于 timeline.fps
+
+### 审计确认
+- tsc: 0 errors / vitest: 58 passed / E2E: 11 passed
+
+### 评价
+状态栏从极简版升级为信息密集型，增加帧精确显示和循环区域可视化。可交付程度：高。
+
+- - -
 **Timestamp**: 2026-07-29T19:45:00+08:00
 
 ### 功能新增
