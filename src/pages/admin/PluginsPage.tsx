@@ -30,8 +30,18 @@ export function PluginsPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const list = await pluginApi.list();
-      setPlugins(normalize(list));
+      const [loaded, discovered] = await Promise.allSettled([
+        pluginApi.list(),
+        pluginApi.discover(),
+      ]);
+      const loadedList = loaded.status === 'fulfilled' ? normalize(loaded.value) : [];
+      const discoveredIds = discovered.status === 'fulfilled' ? (discovered.value as string[]) : [];
+      // 合并：已加载的 + 发现但未加载的
+      const loadedIds = new Set(loadedList.map((p) => p.id));
+      const unloadedPlugins: PluginItem[] = discoveredIds
+        .filter((id) => !loadedIds.has(id))
+        .map((id) => ({ id, name: id, kind: 'capability', loaded: false, description: '未加载' }));
+      setPlugins([...loadedList, ...unloadedPlugins]);
     } catch {
       setPlugins(DEMO_PLUGINS);
     } finally {
