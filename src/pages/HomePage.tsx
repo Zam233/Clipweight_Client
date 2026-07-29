@@ -4,7 +4,7 @@ import { useProjectStore } from '@/stores/projectStore';
 import { useAgentStore, clearRequirementsDraft } from '@/stores/agentStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import {
-  healthApi, personaApi, projectApi, assetApi, pipelineApi,
+  healthApi, personaApi, projectApi, assetApi, pipelineApi, typeMakerApi,
   getApiClient,
 } from '@/services/api';
 import { Button, Badge } from '@/components/ui';
@@ -168,7 +168,7 @@ export function HomePage() {
 
     const loadPlugins = async () => {
       try {
-        const { data } = await getApiClient().get('/api/type-maker/list');
+        const data = await typeMakerApi.list();
         if (Array.isArray(data) && data.length > 0) {
           return data.map(
             (t: { id: string; name: string; description?: string }, i: number) => ({

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
-import { personaApi, voiceApi, getApiClient } from '@/services/api';
+import { personaApi, voiceApi } from '@/services/api';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge, Slider } from '@/components/ui';
 import type { Persona } from '@/types/persona';
@@ -81,7 +81,7 @@ export function PersonaDetailPage() {
     try {
       const content = await file.text();
       // 后端 add_knowledge_doc 会自动触发向量化索引，无需额外调用 /rag/index
-      await getApiClient().post(`/api/persona/${persona.persona_id}/knowledge`, {
+      await personaApi.addKnowledge(persona.persona_id, {
         title: file.name,
         content,
         source: 'upload',
@@ -331,10 +331,8 @@ function RagSearch({ personaId }: { personaId: string }) {
     setError(null);
     setResults(null);
     try {
-      const { data } = await getApiClient().post(`/api/persona/${personaId}/rag/query`, {
-        query: query.trim(), top_k: 5, rerank: true,
-      });
-      setResults(data?.chunks ?? []);
+      const data = await personaApi.ragQuery(personaId, query.trim());
+      setResults((data?.chunks ?? []).map((c) => ({ text: c.content, score: c.score })));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '检索失败');
     } finally { setLoading(false); }

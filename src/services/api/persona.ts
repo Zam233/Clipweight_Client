@@ -42,6 +42,26 @@ export const personaApi = {
     return data;
   },
 
+  // ── Knowledge / RAG ──
+
+  /** Upload knowledge document for a persona (auto-indexed by backend) */
+  async addKnowledge(personaId: string, doc: { title: string; content: string; source?: string }) {
+    const { data } = await getApiClient().post(
+      `/api/persona/${personaId}/knowledge`,
+      { title: doc.title, content: doc.content, source: doc.source || 'upload' },
+    );
+    return data;
+  },
+
+  /** Run RAG query against a persona's knowledge base */
+  async ragQuery(personaId: string, query: string) {
+    const { data } = await getApiClient().post(
+      `/api/persona/${personaId}/rag/query`,
+      { query },
+    );
+    return data as { answer?: string; chunks?: Array<{ content: string; score: number }> };
+  },
+
   // ── Chat Forge ──
 
   /** Start a chat forge session */

@@ -1,18 +1,21 @@
 # ClipWright Optimization — Stage Log
 
 ## Stage 12: API 客户端补齐与代码规范化
-**Timestamp**: 2026-07-29T19:00:00+08:00
+**Timestamp**: 2026-07-29T19:05:00+08:00
 
 ### 重构
 - + 新增 `fontApi` 类型化 API 客户端（list/default/resolve/clearCache）
 - + 新增 `webhookApi` 类型化 API 客户端（events/list/register/remove/toggle/test）
 - + 新增 `typeMakerApi` 类型化 API 客户端（list/get/create/update/remove/preview）
 - + 新增 `templateApi` 类型化 API 客户端（list/get/create/update/remove/apply）
-- + FontsPage 迁移到 fontApi（替换裸 getApiClient 调用）
+- + personaApi 扩展 knowledge/RAG 端点（addKnowledge/ragQuery）
+- + FontsPage 迁移到 fontApi
 - + WebhooksPage 迁移到 webhookApi（替换 5 处裸 getApiClient 调用）
 - + TypeMakerPage 迁移到 typeMakerApi（替换 7 处裸 getApiClient 调用）
 - + TemplatesPage 迁移到 templateApi（替换 4 处裸 getApiClient 调用）
-- - TemplatesPage 创建模板时不再内嵌 createEmptyTimeline()（由后端生成默认时间线）
+- + HomePage type-maker 调用迁移到 typeMakerApi
+- + PersonaDetailPage knowledge/RAG 调用迁移到 personaApi
+- - 消除 6 个文件中 20+ 处裸 getApiClient 调用
 - 所有 API 客户端通过 index.ts barrel 统一导出
 
 ### 审计确认项
@@ -24,7 +27,7 @@
 - Backend: 310 passed / 1 skipped / 0 failed
 
 ### 评价
-补全了 font/webhook/typeMaker/template 四个缺失的 API 客户端层共 20+ 个类型化方法。4 个 Settings 管理页面从裸 Axios 调用迁移到类型安全接口，代码可维护性和类型安全性大幅提升。当前前后端 API 覆盖率达到核心路径 100%。可交付程度：高。
+补全了 font/webhook/typeMaker/template 四个新 API 客户端 + personaApi 扩展，共 25+ 类型化方法。6 个页面从裸 Axios 调用迁移到类型安全接口，全量测试通过。前后端 API 覆盖率达到核心路径 100%。可交付程度：高。
 
 - - -
 
