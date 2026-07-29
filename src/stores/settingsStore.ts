@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { loadPref, savePref } from '@/services/storage/localPrefs';
 
 interface SettingsState {
   apiBaseUrl: string;
@@ -35,21 +36,35 @@ interface SettingsState {
   setDefaultResolution: (res: { width: number; height: number }) => void;
 }
 
+/** Load persisted editor preferences. */
+function loadEditorPrefs() {
+  return loadPref('editorPrefs', {
+    snapEnabled: true,
+    snapThresholdPx: 8,
+    snapToGrid: false,
+    snapGridSec: 1,
+    showFramesInRuler: false,
+    theme: 'dark' as 'dark' | 'light',
+  });
+}
+
+const prefs = loadEditorPrefs();
+
 export const useSettingsStore = create<SettingsState>((set) => ({
   apiBaseUrl: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
   wsUrl: import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws',
-  theme: 'dark',
+  theme: prefs.theme,
   language: 'zh',
   authToken: null,
   autoSave: true,
   autoSaveIntervalSec: 30,
   maxUndoHistory: 200,
-  snapEnabled: true,
-  snapThresholdPx: 8,
-  snapToGrid: false,
-  snapGridSec: 1,
+  snapEnabled: prefs.snapEnabled,
+  snapThresholdPx: prefs.snapThresholdPx,
+  snapToGrid: prefs.snapToGrid,
+  snapGridSec: prefs.snapGridSec,
   cheatSheetOpen: false,
-  showFramesInRuler: false,
+  showFramesInRuler: prefs.showFramesInRuler,
   defaultFps: 30,
   defaultResolution: { width: 1920, height: 1080 },
 
@@ -59,16 +74,33 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.classList.toggle('light', theme === 'light');
     set({ theme });
+    savePref('editorPrefs', { ...useSettingsStore.getState(), theme });
   },
   setLanguage: (lang) => set({ language: lang }),
   setAuthToken: (token) => set({ authToken: token }),
   setAutoSave: (enabled) => set({ autoSave: enabled }),
-  setSnapEnabled: (enabled) => set({ snapEnabled: enabled }),
-  setSnapThreshold: (px) => set({ snapThresholdPx: px }),
-  setSnapToGrid: (enabled) => set({ snapToGrid: enabled }),
-  setSnapGridSec: (sec) => set({ snapGridSec: sec }),
+  setSnapEnabled: (enabled) => { set({ snapEnabled: enabled }); persistEditorPrefs(); },
+  setSnapThreshold: (px) => { set({ snapThresholdPx: px }); persistEditorPrefs(); },
+  setSnapToGrid: (enabled) => { set({ snapToGrid: enabled }); persistEditorPrefs(); },
+  setSnapGridSec: (sec) => { set({ snapGridSec: sec }); persistEditorPrefs(); },
   setCheatSheetOpen: (open) => set({ cheatSheetOpen: open }),
-  setShowFramesInRuler: (v) => set({ showFramesInRuler: v }),
+  setShowFramesInRuler: (v) => { set({ showFramesInRuler: v }); persistEditorPrefs(); },
   setDefaultFps: (fps) => set({ defaultFps: fps }),
   setDefaultResolution: (res) => set({ defaultResolution: res }),
 }));
+
+function persistEditorPrefs() {
+  const s = useSettingsStore.getState();
+  savePref('editorPrefs', {
+    snapEnabled: s.snapEnabled,
+    snapThresholdPx: s.snapThresholdPx,
+    snapToGrid: s.snapToGrid,
+    snapGridSec: s.snapGridSec,
+    showFramesInRuler: s.showFramesInRuler,
+    theme: s.theme,
+  });
+}
+
+// Apply stored theme on module load
+document.documentElement.classList.toggle('dark', prefs.theme === 'dark');
+document.documentElement.classList.toggle('light', prefs.theme === 'light');
