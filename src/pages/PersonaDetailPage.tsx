@@ -31,6 +31,7 @@ export function PersonaDetailPage() {
   const [tab, setTab] = useState<Tab>('params');
   const [prompt, setPrompt] = useState('');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [voices, setVoices] = useState<VoiceRecord[]>([]);
 
   useEffect(() => {
@@ -50,8 +51,13 @@ export function PersonaDetailPage() {
   const save = async () => {
     if (!persona) return;
     setSaving(true);
-    try { await personaApi.update(persona.persona_id, { ...persona, prompt }); } catch { /* offline */ }
-    setTimeout(() => setSaving(false), 400);
+    setSaveError('');
+    try {
+      await personaApi.update(persona.persona_id, { ...persona, prompt });
+    } catch {
+      setSaveError('保存失败：后端未连接或请求被拒绝');
+    }
+    setSaving(false);
   };
 
   const setParam = (updater: (p: Persona) => Persona) => {
@@ -221,7 +227,8 @@ export function PersonaDetailPage() {
           </div>
         )}
 
-        <div className="mt-7 flex justify-end">
+        <div className="mt-7 flex items-center justify-end gap-3">
+          {saveError && <span className="text-caption text-error">{saveError}</span>}
           <Button onClick={save} disabled={saving}>
             <Save className="w-4 h-4" /> {saving ? '保存中…' : '保存人格'}
           </Button>

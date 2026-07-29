@@ -20,6 +20,12 @@ export const renderApi = {
     return data;
   },
 
+  /** List all queue tasks (for restoring in-flight renders after page reload) */
+  async listQueue() {
+    const { data } = await getApiClient().get<{ tasks: RenderProgress[] }>('/api/render/queue');
+    return data.tasks ?? [];
+  },
+
   /** Get SSE stream URL for render progress */
   getQueueStreamUrl(taskId: string): string {
     const base = getApiClient().defaults.baseURL || 'http://localhost:8000';

@@ -32,19 +32,13 @@ export const personaApi = {
 
   /** Update a persona */
   async update(personaId: string, updates: Partial<Persona>) {
-    const { data } = await getApiClient().put(`/api/persona/update/${personaId}`, updates);
+    const { data } = await getApiClient().put(`/api/persona/${personaId}`, updates);
     return data;
   },
 
   /** Delete a persona */
   async remove(personaId: string) {
-    const { data } = await getApiClient().delete(`/api/persona/delete/${personaId}`);
-    return data;
-  },
-
-  /** Analyze videos to auto-generate persona */
-  async analyze(videoDir: string) {
-    const { data } = await getApiClient().post('/api/persona/analyze', { video_dir: videoDir });
+    const { data } = await getApiClient().delete(`/api/persona/${personaId}`);
     return data;
   },
 

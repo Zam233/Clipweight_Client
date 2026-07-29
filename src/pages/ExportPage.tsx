@@ -71,6 +71,35 @@ export function ExportPage() {
       .finally(() => setLoadingPresets(false));
   }, []);
 
+  // 刷新后从后端恢复在途渲染任务并重新挂接进度流
+  useEffect(() => {
+    let alive = true;
+    renderApi.listQueue()
+      .then((tasks) => {
+        if (!alive) return;
+        const active = tasks.filter((t) => t.status === 'queued' || t.status === 'rendering');
+        if (active.length === 0) return;
+        setQueue((q) => {
+          const known = new Set(q.map((it) => it.task_id));
+          const restored: QueueItem[] = active
+            .filter((t) => !known.has(t.task_id))
+            .map((t) => ({
+              task_id: t.task_id,
+              status: t.status,
+              progress: t.progress ?? 0,
+              label: '恢复的任务',
+              presetName: '—',
+              startedAt: new Date().toLocaleTimeString(),
+            }));
+          return [...restored, ...q];
+        });
+        active.forEach((t) => openSSE(t.task_id));
+      })
+      .catch(() => { /* offline：跳过恢复 */ });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const presets = apiPresets && Object.keys(apiPresets).length > 0 ? { ...PRESETS, ...apiPresets } : PRESETS;
 
   const applyPreset = (id: string) => {
@@ -107,20 +136,38 @@ export function ExportPage() {
   };
 
   const openSSE = (taskId: string) => {
+    if (esRefs.current.has(taskId)) return;
     const es = new EventSource(renderApi.getQueueStreamUrl(taskId));
     esRefs.current.set(taskId, es);
-    es.addEventListener('progress', (e) => {
-      const d = JSON.parse((e as MessageEvent).data);
-      updateQueue(taskId, { progress: d.progress, phase: d.phase, detail: d.detail, status: 'rendering' });
-    });
-    es.addEventListener('complete', () => {
-      updateQueue(taskId, { status: 'completed', progress: 100 });
+    // 后端发送的是未命名 data 消息（{type: progress/completed/failed/timeout}）
+    es.onmessage = (e) => {
+      let d: { type?: string; progress?: number; phase?: string; detail?: string };
+      try {
+        d = JSON.parse((e as MessageEvent).data);
+      } catch {
+        return;
+      }
+      if (d.type === 'progress') {
+        updateQueue(taskId, { progress: d.progress ?? 0, phase: d.phase, detail: d.detail, status: 'rendering' });
+      } else if (d.type === 'completed') {
+        updateQueue(taskId, { status: 'completed', progress: 100 });
+        es.close();
+        esRefs.current.delete(taskId);
+      } else if (d.type === 'failed') {
+        updateQueue(taskId, { status: 'failed' });
+        es.close();
+        esRefs.current.delete(taskId);
+      } else if (d.type === 'timeout') {
+        updateQueue(taskId, { status: 'failed', detail: '进度流超时' });
+        es.close();
+        esRefs.current.delete(taskId);
+      }
+    };
+    es.onerror = () => {
+      // 连接错误：若任务仍在本地队列中显示为进行中，保留状态等待下次恢复
       es.close();
-    });
-    es.addEventListener('error', () => {
-      updateQueue(taskId, { status: 'failed' });
-      es.close();
-    });
+      esRefs.current.delete(taskId);
+    };
   };
 
   const simulateRender = (taskId: string) => {

@@ -13,30 +13,45 @@ interface Subscription {
   lastDelivery?: string;
 }
 
-const EVENT_TYPES = ['pipeline', 'render', 'asset', 'persona'];
+const FALLBACK_EVENT_TYPES = ['pipeline.completed', 'pipeline.failed', 'render.completed'];
 
 /**
  * WebhooksPage — manage outbound event subscriptions and fire test payloads.
+ * Backed by /api/webhook/* (list/register/delete/toggle/test/events).
  */
 export function WebhooksPage() {
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState('');
+  const [eventTypes, setEventTypes] = useState<string[]>(FALLBACK_EVENT_TYPES);
   const [newUrl, setNewUrl] = useState('');
-  const [newEvents, setNewEvents] = useState<string[]>(['pipeline']);
+  const [newEvents, setNewEvents] = useState<string[]>(['pipeline.completed']);
   const [firingId, setFiringId] = useState<string | null>(null);
   const [lastFire, setLastFire] = useState<string | null>(null);
+
+  const reload = async () => {
+    try {
+      const { data } = await getApiClient().get('/api/webhook/list');
+      setSubs(normalize(data));
+      setNotice('');
+    } catch {
+      setNotice('无法连接后端 Webhook 服务');
+    }
+  };
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const { data } = await getApiClient().get('/api/webhook/subscriptions');
-        if (alive) setSubs(normalize(data));
-      } catch {
-        if (alive) setSubs(DEMO_SUBS);
-      } finally {
-        if (alive) setLoading(false);
-      }
+        const { data } = await getApiClient().get<{ events: string[] }>('/api/webhook/events');
+        if (alive && Array.isArray(data?.events) && data.events.length > 0) {
+          setEventTypes(data.events);
+          setNewEvents([data.events[0]]);
+        }
+      } catch { /* keep fallback events */ }
+      if (!alive) return;
+      await reload();
+      if (alive) setLoading(false);
     })();
     return () => { alive = false; };
   }, []);
@@ -46,22 +61,50 @@ export function WebhooksPage() {
 
   const subscribe = async () => {
     if (!newUrl.trim() || newEvents.length === 0) return;
-    try { await getApiClient().post('/api/webhook/subscribe', { url: newUrl, events: newEvents }); } catch { /* offline */ }
-    setSubs((s) => [{ id: `sub_${Date.now().toString(36)}`, url: newUrl, events: [...newEvents], active: true }, ...s]);
-    setNewUrl('');
+    try {
+      await getApiClient().post('/api/webhook/register', { url: newUrl, events: newEvents });
+      setNewUrl('');
+      await reload();
+    } catch (err) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setNotice(detail || '订阅失败（后端不可达或 URL 被安全策略拒绝）');
+    }
   };
 
   const unsubscribe = async (id: string) => {
-    try { await getApiClient().post('/api/webhook/unsubscribe', { id }); } catch { /* offline */ }
-    setSubs((s) => s.filter((x) => x.id !== id));
+    try {
+      await getApiClient().delete(`/api/webhook/${id}`);
+      setSubs((s) => s.filter((x) => x.id !== id));
+    } catch {
+      setNotice('删除失败：后端不可达');
+    }
+  };
+
+  const toggleActive = async (s: Subscription) => {
+    try {
+      await getApiClient().put(`/api/webhook/${s.id}/toggle`);
+      setSubs((subs2) => subs2.map((x) => (x.id === s.id ? { ...x, active: !x.active } : x)));
+    } catch {
+      setNotice('切换状态失败：后端不可达');
+    }
   };
 
   const fireTest = async (s: Subscription) => {
     setFiringId(s.id);
-    try { await getApiClient().post(`/api/webhook/test/${s.events[0] ?? 'pipeline'}`, { url: s.url }); } catch { /* offline */ }
-    await new Promise((r) => setTimeout(r, 500));
-    setLastFire(`${s.events[0] ?? 'pipeline'} → ${s.url} (202 Accepted)`);
-    setSubs((subs2) => subs2.map((x) => (x.id === s.id ? { ...x, lastDelivery: new Date().toLocaleTimeString() } : x)));
+    setLastFire(null);
+    try {
+      const { data } = await getApiClient().post<{ status: string; response_code?: number; error?: string }>(
+        `/api/webhook/${s.id}/test`,
+      );
+      if (data.status === 'sent') {
+        setLastFire(`webhook.test → ${s.url} (HTTP ${data.response_code})`);
+      } else {
+        setLastFire(`发送失败：${data.error || '未知错误'}`);
+      }
+      setSubs((subs2) => subs2.map((x) => (x.id === s.id ? { ...x, lastDelivery: new Date().toLocaleTimeString() } : x)));
+    } catch {
+      setLastFire(`发送失败：后端不可达 (${s.url})`);
+    }
     setFiringId(null);
   };
 
@@ -83,7 +126,7 @@ export function WebhooksPage() {
           <Button size="sm" onClick={subscribe} disabled={!newUrl.trim() || newEvents.length === 0}>订阅</Button>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {EVENT_TYPES.map((ev) => (
+          {eventTypes.map((ev) => (
             <button key={ev} onClick={() => toggleEvent(ev)}
               className={cn('px-2.5 py-1 rounded-cw-full font-mono text-caption border transition-all duration-short3 cursor-pointer',
                 newEvents.includes(ev)
@@ -94,6 +137,13 @@ export function WebhooksPage() {
           ))}
         </div>
       </div>
+
+      {/* backend notice */}
+      {notice && (
+        <div className="flex items-center gap-2 bg-error/10 border border-error/30 rounded-cw-sm px-3.5 py-2 mb-4 max-w-[760px]">
+          <span className="font-mono text-caption text-error">{notice}</span>
+        </div>
+      )}
 
       {/* last fire readout */}
       {lastFire && (
@@ -129,7 +179,9 @@ export function WebhooksPage() {
                   {s.lastDelivery && <span className="text-caption text-on-surface-variant/60 ml-1">上次 {s.lastDelivery}</span>}
                 </div>
               </div>
-              <StatusPill ok={s.active} label={s.active ? 'LIVE' : 'OFF'} />
+              <button onClick={() => toggleActive(s)} title="启用/禁用" className="cursor-pointer">
+                <StatusPill ok={s.active} label={s.active ? 'LIVE' : 'OFF'} />
+              </button>
               <Button size="sm" variant="outline" onClick={() => fireTest(s)} disabled={firingId === s.id}>
                 <Send className="w-3.5 h-3.5" /> {firingId === s.id ? '发送中' : '测试'}
               </Button>
@@ -150,17 +202,12 @@ function normalize(data: unknown): Subscription[] {
     return data.map((d, i) => {
       const o = d as Record<string, unknown>;
       return {
-        id: String(o.id ?? `sub_${i}`),
+        id: String(o.webhook_id ?? o.id ?? `sub_${i}`),
         url: String(o.url ?? ''),
-        events: Array.isArray(o.events) ? (o.events as unknown[]).map(String) : ['pipeline'],
+        events: Array.isArray(o.events) ? (o.events as unknown[]).map(String) : [],
         active: Boolean(o.active ?? true),
       };
     });
   }
   return [];
 }
-
-const DEMO_SUBS: Subscription[] = [
-  { id: 'sub_ci', url: 'https://ci.internal/hooks/clipwright', events: ['pipeline', 'render'], active: true, lastDelivery: '14:22:01' },
-  { id: 'sub_notify', url: 'https://api.example.com/notify', events: ['render'], active: true },
-];

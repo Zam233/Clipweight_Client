@@ -1,5 +1,16 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 9: 功能缺口补齐（前后端 API 对齐）
+**Timestamp**: 2026-07-29T17:10:00+08:00
+
+- Fix: PersonaDetailPage「保存人格」静默失败 — personaApi.update 端点错误 `/update/{id}` → `PUT /api/persona/{id}`；保存失败现显示错误提示
+- Fix: personaApi.remove 端点错误 `/delete/{id}` → `DELETE /api/persona/{id}`；移除指向不存在端点的死方法 analyze()
+- + 后端新增 `DELETE /api/persona/{persona_id}` 端点（前端删除能力此前完全缺失）
+- Fix: WebhooksPage 整页调用不存在端点（subscriptions/subscribe/unsubscribe/test/{event}）→ 全部映射真实 API（list/register/DELETE/toggle/test/events）；移除误导性 DEMO_SUBS 假数据回退；事件类型改从后端 /events 动态获取；新增启用/禁用切换与错误提示
+- Fix: ExportPage 渲染进度从不更新 — SSE 监听命名事件但后端发未命名 data 消息 → 改 onmessage 解析 {type}（progress/completed/failed/timeout）+ JSON.parse 保护
+- + ExportPage 刷新后从 GET /api/render/queue 恢复在途任务并重挂进度流（renderApi.listQueue）
+- + RenderProgress 类型补充 'queued' 状态（与后端一致）
+
 ## Stage 8: 终审与交付验收
 **Timestamp**: 2026-07-29T16:30:00+08:00
 
