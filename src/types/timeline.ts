@@ -59,6 +59,13 @@ export interface Clip {
   label_color?: string | null;
   notes?: string | null;
 
+  // Video effects (video / image only)
+  fx_brightness?: number | null;   // 0-2, default 1
+  fx_contrast?: number | null;     // 0-2, default 1
+  fx_saturation?: number | null;   // 0-2, default 1
+  fx_blur?: number | null;         // 0-10 px, default 0
+  fx_hue?: number | null;          // 0-360 deg, default 0
+
   // Layout (video / image only)
   image_fit?: ImageFit | null;
   image_rect?: { x: number; y: number; w: number; h: number } | null;

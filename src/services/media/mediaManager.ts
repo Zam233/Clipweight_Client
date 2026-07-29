@@ -21,6 +21,8 @@ interface MediaEntry {
 class MediaManager {
   private entries = new Map<string, MediaEntry>();
   private audioCtx: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private analyserSource: MediaElementAudioSourceNode | null = null;
 
   /** Register an uploaded File so its real media becomes available. */
   registerFile(assetId: string, file: File): void {
@@ -265,6 +267,52 @@ class MediaManager {
   }
   private notify(assetId: string) {
     this.listeners.forEach((cb) => cb(assetId));
+  }
+
+  // ── audio level metering ─────────────────────────────
+  private ensureAudioCtx(): AudioContext {
+    if (!this.audioCtx) {
+      this.audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    return this.audioCtx;
+  }
+
+  /** Attach analyser to an audio-capable media entry for level metering. */
+  attachAnalyser(assetId: string): AnalyserNode | null {
+    const e = this.entries.get(assetId);
+    if (!e || (e.kind !== 'audio' && e.kind !== 'video')) return null;
+    const el = e.audioEl ?? e.videoEl;
+    if (!el) return null;
+    if (!this.analyser) {
+      const ctx = this.ensureAudioCtx();
+      this.analyser = ctx.createAnalyser();
+      this.analyser.fftSize = 256;
+      this.analyser.smoothingTimeConstant = 0.8;
+    }
+    if (this.analyserSource) {
+      try { this.analyserSource.disconnect(); } catch { /* ignore */ }
+    }
+    this.analyserSource = this.ensureAudioCtx().createMediaElementSource(el);
+    this.analyserSource.connect(this.analyser);
+    return this.analyser;
+  }
+
+  /** Get current audio levels (0-1) — simplified peak detection. */
+  getAudioLevels(): [number, number] {
+    if (!this.analyser) return [0, 0];
+    const data = new Uint8Array(this.analyser.frequencyBinCount);
+    this.analyser.getByteTimeDomainData(data);
+    let leftMax = 0;
+    let rightMax = 0;
+    for (let i = 0; i < data.length; i += 2) {
+      const v = Math.abs(data[i] / 128 - 1);
+      if (v > leftMax) leftMax = v;
+    }
+    for (let i = 1; i < data.length; i += 2) {
+      const v = Math.abs(data[i] / 128 - 1);
+      if (v > rightMax) rightMax = v;
+    }
+    return [Math.min(1, leftMax), Math.min(1, rightMax)];
   }
 }
 

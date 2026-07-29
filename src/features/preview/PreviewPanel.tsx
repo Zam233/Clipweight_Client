@@ -64,9 +64,12 @@ export function PreviewPanel() {
         const localT = t - clip.start_sec + clip.source_offset_sec;
         el.volume = clamp(clip.volume, 0, 1);
         el.muted = muted || track.muted;
-        if (inClip && playing) {
+          if (inClip && playing) {
           if (Math.abs(el.currentTime - localT) > 0.25) { try { el.currentTime = localT; } catch { /* seek not available */ } }
-          if (el.paused) el.play().catch(() => {});
+          if (el.paused) {
+            mediaManager.attachAnalyser(clip.asset_id);
+            el.play().catch(() => {});
+          }
         } else {
           if (!el.paused) el.pause();
         }
@@ -310,7 +313,10 @@ export function PreviewPanel() {
 
       {/* Resolution / info bar */}
       <div className="flex items-center justify-between px-3 py-1 border-t border-outline-variant/30 text-caption text-on-surface-variant font-mono shrink-0">
-        <span>{timeline.width}×{timeline.height} · {timeline.fps}fps</span>
+        <div className="flex items-center gap-2">
+          <span>{timeline.width}×{timeline.height} · {timeline.fps}fps</span>
+          <AudioLevelMeter />
+        </div>
         <span>{formatTimecode(currentTimeSec, timeline.fps)}</span>
       </div>
     </div>
@@ -344,6 +350,11 @@ function drawClipToPreview(
   ctx.globalAlpha = clamp(opacity, 0, 1);
   if (clip.blend_mode && clip.blend_mode !== 'normal') {
     (ctx as CanvasRenderingContext2D).globalCompositeOperation = clip.blend_mode as GlobalCompositeOperation;
+  }
+
+  const fxStr = buildFilter(clip);
+  if (fxStr) {
+    ctx.filter = fxStr;
   }
 
   switch (track.kind) {
@@ -517,6 +528,16 @@ function getImageCached(url: string): HTMLImageElement | undefined {
   return img;
 }
 
+function buildFilter(clip: Clip): string {
+  const parts: string[] = [];
+  if (clip.fx_brightness != null && clip.fx_brightness !== 1) parts.push(`brightness(${clip.fx_brightness})`);
+  if (clip.fx_contrast != null && clip.fx_contrast !== 1) parts.push(`contrast(${clip.fx_contrast})`);
+  if (clip.fx_saturation != null && clip.fx_saturation !== 1) parts.push(`saturate(${clip.fx_saturation})`);
+  if (clip.fx_blur != null && clip.fx_blur > 0) parts.push(`blur(${clip.fx_blur}px)`);
+  if (clip.fx_hue != null && clip.fx_hue !== 0) parts.push(`hue-rotate(${clip.fx_hue}deg)`);
+  return parts.join(' ');
+}
+
 function shadeColor(hex: string, amt: number): string {
   const h = hex.replace('#', '');
   const r = parseInt(h.slice(0, 2), 16);
@@ -524,4 +545,54 @@ function shadeColor(hex: string, amt: number): string {
   const b = parseInt(h.slice(4, 6), 16);
   const f = (v: number) => clamp(Math.round(amt > 0 ? v + (255 - v) * amt : v * (1 + amt)), 0, 255);
   return `rgb(${f(r)},${f(g)},${f(b)})`;
+}
+
+import { useEffect as useEffect2, useRef as useRef2 } from 'react';
+
+function AudioLevelMeter() {
+  const canvasRef = useRef2<HTMLCanvasElement>(null);
+  const rafRef = useRef2(0);
+
+  useEffect2(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const tick = () => {
+      const [left, right] = mediaManager.getAudioLevels();
+      const w = canvas.width;
+      const h = canvas.height;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Background
+      ctx.fillStyle = '#1a1a24';
+      ctx.fillRect(0, 0, w, h);
+
+      // Left channel (upper half)
+      const lw = Math.round(left * (w - 2));
+      ctx.fillStyle = left > 0.9 ? '#ef4444' : left > 0.6 ? '#f59e0b' : '#34D399';
+      ctx.fillRect(1, 1, lw, h / 2 - 2);
+
+      // Right channel (lower half)
+      const rw = Math.round(right * (w - 2));
+      ctx.fillStyle = right > 0.9 ? '#ef4444' : right > 0.6 ? '#f59e0b' : '#34D399';
+      ctx.fillRect(1, h / 2 + 1, rw, h / 2 - 2);
+
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={80}
+      height={16}
+      className="rounded-cw-xs border border-outline-variant/20"
+      style={{ imageRendering: 'pixelated' }}
+    />
+  );
 }

@@ -181,7 +181,21 @@ export function PropertiesPanel() {
 
             {/* Transform (video / image) */}
             {(trackKind === 'video' || trackKind === 'image') && (
-              <TransformSection clip={clip} pushHistory={pushHistory} set={set} />
+              <>
+                <TransformSection clip={clip} pushHistory={pushHistory} set={set} />
+                <Section title="效果">
+                  <Slider label="亮度" min={0} max={2} step={0.05} value={round2(clip.fx_brightness ?? 1)}
+                    onChange={(v) => { pushHistory(); set({ fx_brightness: v }); }} />
+                  <Slider label="对比度" min={0} max={2} step={0.05} value={round2(clip.fx_contrast ?? 1)}
+                    onChange={(v) => { pushHistory(); set({ fx_contrast: v }); }} />
+                  <Slider label="饱和度" min={0} max={2} step={0.05} value={round2(clip.fx_saturation ?? 1)}
+                    onChange={(v) => { pushHistory(); set({ fx_saturation: v }); }} />
+                  <Slider label="模糊 (px)" min={0} max={10} step={0.5} value={round2(clip.fx_blur ?? 0)}
+                    onChange={(v) => { pushHistory(); set({ fx_blur: v }); }} />
+                  <Slider label="色相 (°)" min={0} max={360} step={5} value={round2(clip.fx_hue ?? 0)}
+                    onChange={(v) => { pushHistory(); set({ fx_hue: v }); }} />
+                </Section>
+              </>
             )}
 
             {/* Text properties */}
