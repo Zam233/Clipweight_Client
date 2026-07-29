@@ -1,5 +1,22 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 8: 终审与交付验收
+**Timestamp**: 2026-07-29T16:30:00+08:00
+
+- 审计 agent 两轮独立审计：第一轮发现 1 致命 + 4 高危（遍历遗漏端点/静态挂载/SSRF/任务引用），全部修复
+- 第二轮复核确认原 6 项修复有效，追加发现并修复：
+  - Fix: voice clone audio_path 任意文件读（base64 外泄通道）→ 白名单校验
+  - Fix: voice synthesize output_path 任意文件写 + mkdir → 强制 TTS 输出目录内
+  - Fix: preprocess submit/batch-submit 任意路径喂 ffmpeg/whisper → 白名单
+  - Fix: SSRF 判定改 is_global（覆盖 CGNAT 100.64/10）
+  - Fix: 媒体 ?token= 校验后从 query string 抹除（防访问日志/Referer 泄露）
+  - Fix: TimelineEngine wheel 监听器泄漏（dispose 移除 + disposed 守卫）
+- + docs/security.md 补充残余风险说明（DNS rebinding、媒体令牌）
+- 验收基线：
+  - 前端：tsc 0 错 / lint 0 错 106 警告 / vitest 58 passed / playwright E2E 5 passed / build 成功
+  - 后端：pytest 296 passed + RAG 14 passed / 1 skipped（isobase 离线不可装）/ 0 failed
+  - 安全测试：19 项回归用例全部通过
+
 ## Stage 6: 性能优化与后端审计遗留项
 **Timestamp**: 2026-07-29T15:45:00+08:00
 
