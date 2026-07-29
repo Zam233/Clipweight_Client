@@ -48,6 +48,7 @@ export interface PersonaConstraints {
 
 /** Parameter Layer — human-readable YAML/JSON style constraints */
 export interface ParameterLayer {
+  persona_id?: string;
   identity: PersonaIdentity;
   language: PersonaLanguage;
   rhythm: PersonaRhythm;

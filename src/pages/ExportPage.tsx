@@ -126,7 +126,10 @@ export function ExportPage() {
         output_path: `renders/${filename}`,
         settings,
       });
-      openSSE(res.task_id ?? taskId);
+      // 后端返回真实 task_id（render_N_ts）；替换本地占位 ID 后再挂接进度流
+      const realId = res.task_id ?? taskId;
+      if (realId !== taskId) updateQueue(taskId, { task_id: realId });
+      openSSE(realId);
     } catch {
       // Offline: simulate render progress
       simulateRender(taskId);

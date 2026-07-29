@@ -56,7 +56,12 @@ export function PersonaDetailPage() {
     setSaving(true);
     setSaveError('');
     try {
-      await personaApi.update(persona.persona_id, { ...persona, prompt });
+      // 后端 PersonaManifest.parameter 要求顶层 persona_id；补齐后整体回传
+      await personaApi.update(persona.persona_id, {
+        ...persona,
+        prompt,
+        parameter: { ...persona.parameter, persona_id: persona.persona_id },
+      });
     } catch {
       setSaveError('保存失败：后端未连接或请求被拒绝');
     }
@@ -75,12 +80,12 @@ export function PersonaDetailPage() {
     setKbStatus('');
     try {
       const content = await file.text();
+      // 后端 add_knowledge_doc 会自动触发向量化索引，无需额外调用 /rag/index
       await getApiClient().post(`/api/persona/${persona.persona_id}/knowledge`, {
         title: file.name,
         content,
         source: 'upload',
       });
-      await getApiClient().post(`/api/persona/${persona.persona_id}/rag/index`, { force_rebuild: false });
       setKbStatus(`已上传「${file.name}」并完成向量索引`);
     } catch {
       setKbStatus('上传失败：后端不可达或索引服务异常');
@@ -329,7 +334,7 @@ function RagSearch({ personaId }: { personaId: string }) {
       const { data } = await getApiClient().post(`/api/persona/${personaId}/rag/query`, {
         query: query.trim(), top_k: 5, rerank: true,
       });
-      if (data?.results) setResults(data.results);
+      setResults(data?.chunks ?? []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '检索失败');
     } finally { setLoading(false); }

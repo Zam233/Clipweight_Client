@@ -93,11 +93,13 @@ export function TypeMakerPage() {
       const { data } = await getApiClient().get<Record<string, unknown>>(`/api/type-maker/${t.id}`);
       const definition = (data.definition ?? data) as Record<string, unknown>;
       const maxShot = Math.max(0.5, t.cut_interval_ms / 1000);
+      const prevShot = (definition.shot_params ?? {}) as Record<string, unknown>;
       await getApiClient().put(`/api/type-maker/${t.id}`, {
         ...definition,
         id: t.id,
         name: t.name,
         shot_params: {
+          ...prevShot,
           min_shot_sec: Math.max(0.3, maxShot / 3),
           max_shot_sec: maxShot,
         },
