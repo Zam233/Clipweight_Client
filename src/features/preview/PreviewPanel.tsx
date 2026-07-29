@@ -45,10 +45,10 @@ export function PreviewPanel() {
   const audioStateRef = useRef({ playing: false, muted: false, tl: timeline as unknown });
   useEffect(() => {
     const prev = audioStateRef.current;
-    const structural = prev.playing !== isPlaying || prev.muted !== isMuted || prev.tl !== timeline;
+    const stateChanged = prev.playing !== isPlaying || prev.muted !== isMuted;
     audioStateRef.current = { playing: isPlaying, muted: isMuted, tl: timeline };
     const now = performance.now();
-    if (!structural && now - lastAudioSyncRef.current < 100) return;
+    if (!stateChanged && now - lastAudioSyncRef.current < 100) return;
     lastAudioSyncRef.current = now;
 
     const t = currentTimeSec;
@@ -119,7 +119,6 @@ export function PreviewPanel() {
     if (!canvas || !wrap) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
 
     let raf = 0;
     let lastW = 0;
@@ -127,6 +126,7 @@ export function PreviewPanel() {
     const last = { t: -1, tl: null as unknown, safe: false, zoom: -1 };
 
     const draw = () => {
+      const dpr = window.devicePixelRatio || 1;
       const rect = wrap.getBoundingClientRect();
       const W = rect.width;
       const H = rect.height;
