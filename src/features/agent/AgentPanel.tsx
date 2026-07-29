@@ -1,16 +1,15 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAgentStore, loadRequirementsDraft, clearRequirementsDraft } from '@/stores/agentStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { Markdown } from '@/components/shared/Markdown';
-import { ReviewPanel } from './ReviewPanel';
 import { TimelineDiffView } from './TimelineDiffView';
 import { pipelineApi, requirementsApi } from '@/services/api';
-import { Button, Badge } from '@/components/ui';
+import { Button } from '@/components/ui';
 import { uid } from '@/lib/utils';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline } from '@/types/timeline';
 import {
-  Bot, Send, Sparkles, Check, X, FileText, ListChecks, Loader2, Zap,
+  Bot, Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
   MessageSquareText, Play, ChevronDown, ChevronRight,
 } from 'lucide-react';
 

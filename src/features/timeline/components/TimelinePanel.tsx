@@ -87,6 +87,10 @@ export function TimelinePanel() {
         handler: () => engineRef.current?.jumpToPrevMarker(),
       },
       {
+        id: 'timeline-clear-markers', combo: 'ctrl+shift+delete', label: '清除所有标记', category: '时间轴',
+        handler: () => engineRef.current?.clearMarkers(),
+      },
+      {
         id: 'timeline-next-edit', combo: 'arrowdown', label: '跳到下一编辑点', category: '时间轴',
         handler: () => engineRef.current?.jumpToNextEdit(),
       },
