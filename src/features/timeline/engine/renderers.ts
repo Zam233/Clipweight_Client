@@ -8,6 +8,7 @@ import type { TimelineLayout, Marker } from './types';
 import { timeToX, trackToY, scrollbarGeom } from './types';
 import { formatTimecode } from '@/lib/utils';
 import { mediaManager } from '@/services/media/mediaManager';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 const MONO = "'JetBrains Mono','SF Mono','Consolas',monospace";
 const SANS = "'Inter','Noto Sans SC',sans-serif";
@@ -162,6 +163,22 @@ export function drawRuler(
         ? `${t.toFixed(0)}s`
         : `${t.toFixed(1)}s`;
     ctx.fillText(label, x + 4, 6);
+  }
+
+  // Grid lines (when snapToGrid is enabled)
+  const settings = useSettingsStore.getState();
+  if (settings.snapToGrid && settings.snapGridSec > 0) {
+    ctx.strokeStyle = 'rgba(79,139,237,0.18)';
+    ctx.setLineDash([2, 6]);
+    ctx.beginPath();
+    for (let t = settings.snapGridSec; t <= t1; t += settings.snapGridSec) {
+      const x = Math.round(timeToX(t, L)) + 0.5;
+      if (x < L.headerW) continue;
+      ctx.moveTo(x, L.rulerH);
+      ctx.lineTo(x, L.height);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 }
 
