@@ -129,6 +129,36 @@ export function useGlobalKeybindings() {
       }
     };
 
+    const duplicateClips = () => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      if (sel.length === 0) return;
+      const store = useTimelineStore.getState();
+      const found: typeof clipClipboard.clips = [];
+      for (const tr of store.timeline.tracks) {
+        for (const c of tr.clips) {
+          if (sel.includes(c.id)) found.push(c);
+        }
+      }
+      if (found.length === 0) return;
+      // Sort by start time to preserve relative positions
+      found.sort((a, b) => a.start_sec - b.start_sec);
+      const offset = 1; // 1 second offset for pasted duplicates
+      useHistoryStore.getState().pushState(store.timeline, 'duplicate');
+      for (const src of found) {
+        const newId = uid('clip');
+        const track = store.timeline.tracks.find((tr) => tr.id === src.track_id || tr.kind === src.kind);
+        if (!track || track.locked) continue;
+        store.addClip(track.id, {
+          ...src,
+          id: newId,
+          start_sec: src.start_sec + offset,
+          asset_id: src.asset_id,
+          kind: src.kind,
+          keyframes: src.keyframes?.map((kf) => ({ ...kf })),
+        });
+      }
+    };
+
     const selectAll = () => {
       const store = useTimelineStore.getState();
       const sel = useSelectionStore.getState();
@@ -328,6 +358,9 @@ export function useGlobalKeybindings() {
       { id: 'cut', combo: 'ctrl+x', label: '剪切片段', category: '编辑',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: cutClips },
+      { id: 'duplicate', combo: 'ctrl+d', label: '复制片段到后方', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: duplicateClips },
       { id: 'select-all', combo: 'ctrl+a', label: '全选片段', category: '编辑',
         handler: selectAll },
       { id: 'deselect', combo: 'escape', label: '取消选择', category: '编辑',
