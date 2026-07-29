@@ -8,6 +8,7 @@ import type { TimelineLayout, Marker } from './types';
 import { timeToX, trackToY, scrollbarGeom } from './types';
 import { mediaManager } from '@/services/media/mediaManager';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { usePreviewStore } from '@/stores/previewStore';
 
 const MONO = "'JetBrains Mono','SF Mono','Consolas',monospace";
 const SANS = "'Inter','Noto Sans SC',sans-serif";
@@ -181,6 +182,15 @@ export function drawRuler(
     }
     ctx.stroke();
     ctx.setLineDash([]);
+  }
+
+  // Loop region highlight
+  const pst = usePreviewStore.getState();
+  if (pst.isLooping && pst.loopRegion) {
+    const lx0 = timeToX(pst.loopRegion.start, L);
+    const lx1 = timeToX(pst.loopRegion.end, L);
+    ctx.fillStyle = 'rgba(79,139,237,0.08)';
+    ctx.fillRect(Math.max(L.headerW, lx0), 0, Math.min(L.width, lx1) - Math.max(L.headerW, lx0), L.rulerH);
   }
 }
 
