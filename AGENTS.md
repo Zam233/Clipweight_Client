@@ -176,6 +176,11 @@ Coding conventions:
 
 ## Testing
 
-- **Unit tests**: Vitest (`npm run test`). Files co-located as `*.test.ts`/`*.test.tsx`.
-- **E2E tests**: Playwright (`npm run test:e2e`).
+- **Unit tests**: Vitest (`npm run test`). Files co-located as `*.test.ts`/`*.test.tsx`. Config: `vitest.config.ts` (excludes `e2e/`).
+- **E2E tests**: Playwright (`npm run test:e2e`). Specs in `e2e/` (chromium, headless). `e2e/helpers.ts` mocks all backend requests via route interception — E2E runs are hermetic (no real backend needed). Route patterns must be path-anchored regexes (`/https?:\/\/[^/]+\/api\//`) to avoid intercepting Vite module URLs like `/src/services/api/*.ts`. Project IDs in E2E must match the router guard `^proj_[A-Za-z0-9_-]{1,63}$`.
 - Test examples: `timelineStore.test.ts`, `TimelineEngine.scroll.test.ts`, `TimelineEngine.wheel.test.ts`, `AssetCard.test.tsx`, `timelineDiff.test.ts`, `snap.test.ts`, `easing.test.ts`.
+
+## Security Notes
+
+- Backend API base URL fallbacks must use port **8000** (not 8080) — see `src/services/api/*.ts` SSE/URL builders.
+- Backend supports optional API token auth (`CLIPWRIGHT_API_TOKEN`); see backend `docs/security.md`.
