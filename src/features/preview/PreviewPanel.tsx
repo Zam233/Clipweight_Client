@@ -7,7 +7,7 @@ import type { Clip, Track } from '@/types/timeline';
 import { formatTimecode, clamp } from '@/lib/utils';
 import { mediaManager } from '@/services/media/mediaManager';
 import { interpolateProperties } from '@/features/timeline/engine/easing';
-import { Maximize, Shield, Volume2, VolumeX, ZoomIn, ZoomOut, Camera } from 'lucide-react';
+import { Maximize, Shield, Volume2, VolumeX, ZoomIn, ZoomOut, Camera, Repeat } from 'lucide-react';
 import { Tooltip } from '@/components/ui';
 
 /**
@@ -30,6 +30,8 @@ export function PreviewPanel() {
   const setZoomLevel = usePreviewStore((s) => s.setZoomLevel);
   const playbackSpeed = usePreviewStore((s) => s.playbackSpeed);
   const setPlaybackSpeed = usePreviewStore((s) => s.setPlaybackSpeed);
+  const isLooping = usePreviewStore((s) => s.isLooping);
+  const toggleLoop = usePreviewStore((s) => s.toggleLoop);
 
   // Sync duration from timeline
   useEffect(() => {
@@ -258,6 +260,12 @@ export function PreviewPanel() {
             }}
               className="px-1.5 py-0.5 rounded-cw-xs font-mono text-caption text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer min-w-[38px] text-center">
               {playbackSpeed}×
+            </button>
+          </Tooltip>
+          <Tooltip content={isLooping ? '关闭循环 (/)' : '开启循环 (/)'}>
+            <button onClick={toggleLoop}
+              className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${isLooping ? 'text-track-video bg-track-video/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
+              <Repeat className="w-3.5 h-3.5" />
             </button>
           </Tooltip>
           <div className="w-px h-4 bg-outline-variant/40 mx-0.5" />
