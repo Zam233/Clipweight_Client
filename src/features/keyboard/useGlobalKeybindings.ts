@@ -147,6 +147,7 @@ export function useGlobalKeybindings() {
 
     const toolSelect = () => useSelectionStore.getState().setToolMode('select');
     const toolRazor = () => useSelectionStore.getState().setToolMode('razor');
+    const toolRange = () => useSelectionStore.getState().setToolMode('range');
 
     const nudgeLeft = () => {
       const sel = useSelectionStore.getState().selectedClipIds;
@@ -335,6 +336,8 @@ export function useGlobalKeybindings() {
         handler: toolSelect },
       { id: 'tool-razor', combo: 'c', label: '剃刀工具 (C)', category: '工具',
         handler: toolRazor },
+      { id: 'tool-range', combo: 'r', label: '范围选择 (R)', category: '工具',
+        handler: toolRange },
       { id: 'zoom-fit', combo: 'f', label: '缩放适配目标片段', category: '时间轴',
         handler: () => {
           const sel = useSelectionStore.getState().selectedClipIds;

@@ -1,7 +1,9 @@
 # ClipWright Optimization — Stage Log
 
-## Stage 25: 属性面板多选批量编辑
-**Timestamp**: 2026-07-29T21:00:00+08:00
+## Stage 29: 范围选择工具 + Marquee 增强
+**Timestamp**: 2026-07-29T21:30:00+08:00
+
+
 
 ### 计划
 - PropertiesPanel 批量编辑：多选片段时显示共同属性滑块（速度/音量/不透明度）

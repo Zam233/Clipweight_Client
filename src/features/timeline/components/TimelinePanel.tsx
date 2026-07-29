@@ -140,7 +140,7 @@ export function TimelinePanel() {
               <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M4 2l12 16-4.5-1.5L9 22l-2.5-1 2.5-5.5L4 14V2z"/></svg>
             </button>
           </Tooltip>
-          <Tooltip content="剃刀工具 (B) — 点击片段分割">
+          <Tooltip content="剃刀工具 (C)">
             <button
               onClick={() => setToolMode('razor')}
               className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${
@@ -148,6 +148,16 @@ export function TimelinePanel() {
               }`}
             >
               <Scissors className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+          <Tooltip content="范围选择 (R)">
+            <button
+              onClick={() => setToolMode('range')}
+              className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${
+                toolMode === 'range' ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:text-on-surface'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" strokeDasharray="3 2"/></svg>
             </button>
           </Tooltip>
         </div>
