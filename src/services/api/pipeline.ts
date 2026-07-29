@@ -59,7 +59,7 @@ export const pipelineApi = {
 
   /** Create SSE stream URL for pipeline trace */
   getTraceStreamUrl(pipelineId: string): string {
-    const base = getApiClient().defaults.baseURL || 'http://localhost:8080';
+    const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
     return `${base}/api/pipeline/trace/stream/${pipelineId}`;
   },
 };

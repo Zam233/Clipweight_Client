@@ -61,14 +61,14 @@ export const projectApi = {
 
   /** Get thumbnail URL for a project */
   getThumbnailUrl(projectId: string, version?: string): string {
-    const base = getApiClient().defaults.baseURL || 'http://localhost:8080';
+    const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
     const v = encodeURIComponent(version || String(Date.now()));
     return `${base}/api/project/${projectId}/thumbnail?v=${v}`;
   },
 
   /** Refresh (force-regenerate) thumbnail */
   refreshThumbnailUrl(projectId: string): string {
-    const base = getApiClient().defaults.baseURL || 'http://localhost:8080';
+    const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
     return `${base}/api/project/${projectId}/thumbnail?force=1&v=${Date.now()}`;
   },
 

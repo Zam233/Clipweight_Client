@@ -687,7 +687,7 @@ export function HomePage() {
                         : backend === 'offline' ? 'text-error'
                         : 'text-track-text'
                     }>
-                      {backend === 'online' ? '已连接 localhost:8080'
+                      {backend === 'online' ? `已连接 ${(() => { try { return new URL(getApiClient().defaults.baseURL || 'http://localhost:8000').host; } catch { return 'localhost:8000'; } })()}`
                         : backend === 'offline' ? '离线 · 演示模式'
                         : '检测中…'}
                     </span>
