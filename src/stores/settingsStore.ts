@@ -14,6 +14,7 @@ interface SettingsState {
   snapToGrid: boolean;
   snapGridSec: number;
   cheatSheetOpen: boolean;
+  showFramesInRuler: boolean;
   defaultFps: number;
   defaultResolution: { width: number; height: number };
 
@@ -29,6 +30,7 @@ interface SettingsState {
   setSnapToGrid: (enabled: boolean) => void;
   setSnapGridSec: (sec: number) => void;
   setCheatSheetOpen: (open: boolean) => void;
+  setShowFramesInRuler: (v: boolean) => void;
   setDefaultFps: (fps: number) => void;
   setDefaultResolution: (res: { width: number; height: number }) => void;
 }
@@ -47,6 +49,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   snapToGrid: false,
   snapGridSec: 1,
   cheatSheetOpen: false,
+  showFramesInRuler: false,
   defaultFps: 30,
   defaultResolution: { width: 1920, height: 1080 },
 
@@ -65,6 +68,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   setSnapToGrid: (enabled) => set({ snapToGrid: enabled }),
   setSnapGridSec: (sec) => set({ snapGridSec: sec }),
   setCheatSheetOpen: (open) => set({ cheatSheetOpen: open }),
+  setShowFramesInRuler: (v) => set({ showFramesInRuler: v }),
   setDefaultFps: (fps) => set({ defaultFps: fps }),
   setDefaultResolution: (res) => set({ defaultResolution: res }),
 }));

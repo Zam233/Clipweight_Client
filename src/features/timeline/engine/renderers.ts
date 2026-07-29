@@ -150,6 +150,7 @@ export function drawRuler(
   // Major ticks + labels
   ctx.strokeStyle = 'rgba(141,141,153,0.8)';
   ctx.fillStyle = '#8D8D99';
+  const showFrames = useSettingsStore.getState().showFramesInRuler;
   for (let t = Math.floor(t0 / major) * major; t <= t1; t += major) {
     const x = Math.round(timeToX(t, L)) + 0.5;
     if (x < L.headerW) continue;
@@ -157,11 +158,13 @@ export function drawRuler(
     ctx.moveTo(x, L.rulerH - 12);
     ctx.lineTo(x, L.rulerH);
     ctx.stroke();
-    const label = major >= 60
-      ? `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}`
-      : major >= 1
-        ? `${t.toFixed(0)}s`
-        : `${t.toFixed(1)}s`;
+    const label = showFrames
+      ? `${Math.round(t * fps)}`
+      : major >= 60
+        ? `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}`
+        : major >= 1
+          ? `${t.toFixed(0)}s`
+          : `${t.toFixed(1)}s`;
     ctx.fillText(label, x + 4, 6);
   }
 

@@ -1,5 +1,6 @@
 import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { Tooltip } from '@/components/ui';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { AssetPanel } from '@/features/assets/AssetPanel';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
@@ -13,6 +14,7 @@ import { useProjectStore } from '@/stores/projectStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import type { SelectionMode } from '@/stores/selectionStore';
 import { formatTimecode } from '@/lib/utils';
 
@@ -204,6 +206,8 @@ function StatusBar() {
   const loopRegion = usePreviewStore((s) => s.loopRegion);
   const isLooping = usePreviewStore((s) => s.isLooping);
   const toolMode = useSelectionStore((s) => s.toolMode);
+  const showFramesInRuler = useSettingsStore((s) => s.showFramesInRuler);
+  const setShowFramesInRuler = useSettingsStore((s) => s.setShowFramesInRuler);
   const [showFrames, setShowFrames] = useState(false);
 
   let statusText = 'Ready';
@@ -229,6 +233,14 @@ function StatusBar() {
         )}
       </div>
       <div className="flex items-center gap-3">
+        <Tooltip content="标尺显示">
+          <button
+            onClick={() => setShowFramesInRuler(!showFramesInRuler)}
+            className="font-mono hover:text-primary transition-colors cursor-pointer"
+          >
+            {showFramesInRuler ? '帧' : '时间码'}
+          </button>
+        </Tooltip>
         <button
           onClick={() => setShowFrames(!showFrames)}
           className="font-mono hover:text-primary transition-colors cursor-pointer"
