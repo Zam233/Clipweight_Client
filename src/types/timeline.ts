@@ -53,6 +53,7 @@ export interface Clip {
   speed: number;
   volume: number;
   opacity: number;
+  blend_mode?: string | null;
 
   // Layout (video / image only)
   image_fit?: ImageFit | null;

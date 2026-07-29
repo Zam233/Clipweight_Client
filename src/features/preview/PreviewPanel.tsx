@@ -28,6 +28,8 @@ export function PreviewPanel() {
   const setFullscreen = usePreviewStore((s) => s.setFullscreen);
   const zoomLevel = usePreviewStore((s) => s.zoomLevel);
   const setZoomLevel = usePreviewStore((s) => s.setZoomLevel);
+  const playbackSpeed = usePreviewStore((s) => s.playbackSpeed);
+  const setPlaybackSpeed = usePreviewStore((s) => s.setPlaybackSpeed);
 
   // Sync duration from timeline
   useEffect(() => {
@@ -79,7 +81,7 @@ export function PreviewPanel() {
       const dt = (now - last) / 1000;
       last = now;
       const st = usePreviewStore.getState();
-      let next = st.currentTimeSec + dt;
+      let next = st.currentTimeSec + dt * st.playbackSpeed;
       const dur = useTimelineStore.getState().timeline.duration_sec;
       const region = st.loopRegion;
       const looping = st.isLooping;
@@ -247,6 +249,17 @@ export function PreviewPanel() {
             </button>
           </Tooltip>
           <div className="w-px h-4 bg-outline-variant/40 mx-0.5" />
+          <Tooltip content="播放速度">
+            <button onClick={() => {
+              const speeds = [0.5, 1, 1.5, 2];
+              const next = speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.length];
+              setPlaybackSpeed(next);
+            }}
+              className="px-1.5 py-0.5 rounded-cw-xs font-mono text-caption text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer min-w-[38px] text-center">
+              {playbackSpeed}×
+            </button>
+          </Tooltip>
+          <div className="w-px h-4 bg-outline-variant/40 mx-0.5" />
           <Tooltip content={isMuted ? '取消静音' : '静音'}>
             <button onClick={toggleMute}
               className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
@@ -307,6 +320,9 @@ function drawClipToPreview(
 
   ctx.save();
   ctx.globalAlpha = clamp(opacity, 0, 1);
+  if (clip.blend_mode && clip.blend_mode !== 'normal') {
+    (ctx as CanvasRenderingContext2D).globalCompositeOperation = clip.blend_mode as GlobalCompositeOperation;
+  }
 
   switch (track.kind) {
     case 'video':

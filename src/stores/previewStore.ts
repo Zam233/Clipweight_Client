@@ -13,6 +13,7 @@ interface PreviewState {
   loopRegion: { start: number; end: number } | null;
   isLooping: boolean;
   shuttleSpeed: number;
+  playbackSpeed: number;
 
   // Actions
   setPlaying: (playing: boolean) => void;
@@ -36,6 +37,7 @@ interface PreviewState {
   shuttleStop: () => void;
   setMarkerIn: () => void;
   setMarkerOut: () => void;
+  setPlaybackSpeed: (speed: number) => void;
 }
 
 export const usePreviewStore = create<PreviewState>((set, get) => ({
@@ -51,6 +53,7 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
   loopRegion: null,
   isLooping: false,
   shuttleSpeed: 0,
+  playbackSpeed: 1,
 
   setPlaying: (playing) => set({ isPlaying: playing }),
   togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
@@ -98,4 +101,5 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
     const { currentTimeSec, loopRegion } = get();
     set({ loopRegion: { start: loopRegion?.start ?? 0, end: currentTimeSec } });
   },
+  setPlaybackSpeed: (speed) => set({ playbackSpeed: Math.max(0.25, Math.min(4, speed)) }),
 }));

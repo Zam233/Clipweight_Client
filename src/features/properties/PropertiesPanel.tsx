@@ -92,6 +92,20 @@ export function PropertiesPanel() {
                 onChange={(v) => { pushHistory(); set({ volume: v }); }} />
               <Slider label="不透明度" min={0} max={1} step={0.05} value={round2(clip.opacity)}
                 onChange={(v) => { pushHistory(); set({ opacity: v }); }} />
+              {(trackKind === 'video' || trackKind === 'image') && (
+                <Row label="混合模式">
+                  <select
+                    value={clip.blend_mode ?? 'normal'}
+                    onChange={(e) => { pushHistory(); set({ blend_mode: e.target.value || null }); }}
+                    className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
+                      outline-none border border-outline-variant/30 focus:border-primary"
+                  >
+                    {BLEND_MODES.map((m) => (
+                      <option key={m} value={m}>{m === 'normal' ? '正常' : m}</option>
+                    ))}
+                  </select>
+                </Row>
+              )}
             </Section>
 
             {/* Transform (video / image) */}
@@ -467,6 +481,8 @@ function NumberInput({ value, onChange }: { value: number; onChange: (v: number)
 }
 
 const TRANSITIONS = ['', 'hard_cut', 'fade', 'dissolve', 'glitch', 'pixel_dissolve', 'slide', 'wipe'];
+
+const BLEND_MODES = ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion'];
 function TransitionSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <select

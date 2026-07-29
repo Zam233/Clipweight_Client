@@ -1,6 +1,24 @@
 # ClipWright Optimization — Stage Log
 
-## Stage 13: E2E 测试扩展 + 代码质量收尾
+## Stage 14: 预览面板与属性面板增强
+**Timestamp**: 2026-07-29T19:45:00+08:00
+
+### 功能新增
+- + 预览面板播放速度控制：点击速度按钮循环切换 0.5×/1×/1.5×/2×，RAF 播放循环实时应用速度倍率
+- + previewStore 新增 playbackSpeed 状态 + setPlaybackSpeed action（范围 0.25-4）
+- + PropertiesPanel 新增「混合模式」下拉选择器（normal/multiply/screen/overlay/darken/lighten 等 12 种）
+- + Clip 类型新增 blend_mode 字段
+- + PreviewPanel 画布合成应用 globalCompositeOperation 实现混合模式渲染
+
+### 审计确认
+- tsc: 0 errors
+- vitest: 58 passed
+- E2E: 11 passed
+
+### 评价
+新增播放速度控制和混合模式两项专业级视频编辑器功能。可交付程度：高。
+
+- - -
 **Timestamp**: 2026-07-29T19:15:00+08:00
 
 ### 新增 E2E 测试
