@@ -131,4 +131,88 @@ ClipWright 前端已达到专业视频编辑器完整操作体验：键盘快捷
 
 - - -
 
-(Historical stages 1-13 preserved below.)
+## Stage 13: E2E 测试扩展 + EDL/FCPXML 导入
+**Timestamp**: 2026-07-29T19:15:00+08:00
+- + `e2e/editor-features.spec.ts` — 6 个编辑器功能回归测试
+- + `edlApi` 类型化 API 客户端 + EditorToolbar 导入 EDL/FCPXML 按钮
+- + 代码清理（移除未使用导入）
+
+## Stage 12: API 客户端补齐与代码规范化
+**Timestamp**: 2026-07-29T18:50:00+08:00
+- + 新增 fontApi / webhookApi / typeMakerApi / templateApi 类型化客户端
+- + personaApi 扩展 knowledge/RAG 端点
+- + FontsPage / WebhooksPage / TypeMakerPage / TemplatesPage / HomePage / PersonaDetailPage 迁移到类型化 API
+- - 消除 6 个文件中 20+ 处裸 getApiClient 调用
+
+## Stage 11: 高级编辑器功能与交互打磨
+**Timestamp**: 2026-07-29T18:40:00+08:00
+- + 帧精度微移：Shift+[ / Shift+]（选中片段整体平移一帧）
+- + 帧精度修剪：[ 修剪入点 / ] 修剪出点
+- + Ctrl+↑/↓ 上移/下移轨道
+- + Backspace 删除片段（与 Delete 等效）
+- 所有新操作均推送 history，支持撤销
+
+## Stage 10: 编辑器 UX 功能补齐
+**Timestamp**: 2026-07-29T17:25:00+08:00
+
+### Bug 修复（8 项关键）
+- Fix: AssetPanel 滥用 useState 执行副作用 → useEffect
+- Fix: TimelinePanel 本地 keydown 与全局 KeybindingEngine 双重触发 → 统一迁入
+- Fix: M 键双绑定冲突 → 全局静音改 Shift+M，M 统一为添加标记
+- Fix: handleDelete / handleSplitAtPlayhead 缺少 history push → 补齐
+- Fix: EditorLayout drag 监听器内存泄漏 → ref 追踪 + cleanup
+- Fix: canvas onDrop 双触发 → 仅 container 处理
+- Fix: workspaceStore 布局加载无防护 → loadLayout() 类型校验 + try-catch
+
+### 功能新增（12 项）
+- + Ctrl+S 保存 / Ctrl+C/V/X 复制粘贴剪切 / Ctrl+A 全选 / Escape 取消
+- + V 选择工具 / C 剃刀工具 / F 定位选中片段
+- + SRT 字幕导出按钮 / 复制粘贴可见按钮 / 共享剪贴板
+- + 缩放/标记/波纹删除快捷键迁入全局引擎
+
+## Stage 9: 功能缺口补齐（前后端 API 对齐）
+**Timestamp**: 2026-07-29T17:10:00+08:00
+- Fix: PersonaDetailPage 保存端点错误 → PUT /api/persona/{id}
+- Fix: personaApi.remove 端点错误 → DELETE /api/persona/{id}
+- + 后端新增 DELETE /api/persona/{persona_id}
+- Fix: WebhooksPage 全部映射真实 API + 移除假数据
+- Fix: ExportPage SSE 解析 + task_id 匹配 + 刷新恢复
+- Fix: TypeMakerPage / TemplatesPage 接入真实 CRUD
+- Fix: PersonaDetailPage 知识库上传 + RAG 检索
+- 审计复核修复 4 项（ExportPage/PersonaDetailPage/TypeMakerPage/RagSearch）
+
+## Stage 8: 终审与交付验收
+**Timestamp**: 2026-07-29T16:30:00+08:00
+- 两轮安全审计：修复任意文件读/写、路径遍历、SSRF、SSE 泄漏等
+- + security.py 安全模块 + API 令牌中间件
+- 验收：前端 tsc 0 / vitest 58 / E2E 5 / 后端 pytest 296+14 / 安全测试 19 项
+
+## Stage 6: 性能优化与后端审计遗留项
+**Timestamp**: 2026-07-29T15:45:00+08:00
+- + 深拷贝 JSON→structuredClone
+- + proxy/asset 路径加固
+
+## Stage 5: E2E 无头浏览器测试基础设施
+**Timestamp**: 2026-07-29T14:50:00+08:00
+- Fix: API 服务 8080→8000 端口修复
+- + Playwright 配置 + helpers.ts mock + 5 个冒烟用例
+
+## Stage 4: 前端审计高危项修复
+**Timestamp**: 2026-07-29T14:35:00+08:00
+- Fix: WsClient 重连竞态 / selection 悬空 / playhead 卡 0 / SSE 解析 / 定时器泄漏
+- Fix: TimelineEngine pointercancel / ctx 守卫 / PreviewPanel RAF / aspect 除零
+- Fix: imageCache LRU / mediaManager URL 释放 / 端口遗留
+
+## Stage 3: 后端安全与资源泄漏修复
+**Timestamp**: 2026-07-29T14:25:00+08:00
+- Fix: serve_video 任意文件读 / Persona 路径遍历 / video_editor 路径遍历（致命）
+- + security.py + API 令牌中间件
+- Fix: SSE 泄漏 / pipeline status 404 / retry AttributeError / 内存增长
+
+## Stage 2: 后端测试可运行性与依赖修复
+**Timestamp**: 2026-07-29T14:05:00+08:00
+- Fix: isobase 惰性导入 / pymongo 依赖 / embedder 优先级 / test_rag 本地化
+
+## Stage 1: Critical Bug Fixes
+**Timestamp**: 2026-07-29T13:45:00+08:00
+- Fix: ESLint 9 flat config / 端口 8080→8000 / previewStore 越界 / 循环播放 / undo 上限
