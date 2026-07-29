@@ -14,6 +14,7 @@ import { useProjectStore } from '@/stores/projectStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
+import { useHistoryStore } from '@/stores/historyStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { SelectionMode } from '@/stores/selectionStore';
 import { formatTimecode } from '@/lib/utils';
@@ -208,6 +209,8 @@ function StatusBar() {
   const toolMode = useSelectionStore((s) => s.toolMode);
   const showFramesInRuler = useSettingsStore((s) => s.showFramesInRuler);
   const setShowFramesInRuler = useSettingsStore((s) => s.setShowFramesInRuler);
+  const undoCount = useHistoryStore((s) => s.undoStack.length);
+  const redoCount = useHistoryStore((s) => s.redoStack.length);
   const [showFrames, setShowFrames] = useState(false);
 
   let statusText = 'Ready';
@@ -225,6 +228,8 @@ function StatusBar() {
     <div className="flex items-center justify-between px-3 py-1 bg-surface-dim border-t border-outline-variant/30 text-caption text-on-surface-variant shrink-0">
       <div className="flex items-center gap-3">
         <span>ClipWright v0.1.0</span>
+        {undoCount > 0 && <span className="text-on-surface-variant/60">撤销 {undoCount}</span>}
+        {redoCount > 0 && <span className="text-on-surface-variant/60">重做 {redoCount}</span>}
         <span className="text-primary font-medium">{toolLabel(toolMode)}</span>
         {isLooping && loopRegion && (
           <span className="text-track-video">
