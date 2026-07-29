@@ -283,7 +283,8 @@ export function drawClip(
   if (x + w < L.headerW || x > L.width) return;
 
   // Clip body
-  const bodyAlpha = opts.isDragGhost ? 0.55 : 1;
+  const dimmed = clip.enabled === false ? 0.35 : 1;
+  const bodyAlpha = (opts.isDragGhost ? 0.55 : 1) * dimmed;
   const grad = ctx.createLinearGradient(0, y, 0, y + h);
   grad.addColorStop(0, rgba(lighten(color, 0.12), 0.95 * bodyAlpha));
   grad.addColorStop(0.12, rgba(color, 0.88 * bodyAlpha));

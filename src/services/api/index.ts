@@ -11,3 +11,6 @@ export { webhookApi } from './webhook';
 export { typeMakerApi } from './typeMaker';
 export { templateApi } from './template';
 export { edlApi } from './edl';
+export { waveformApi } from './waveform';
+export { proxyApi } from './proxy';
+export { preprocessApi } from './preprocess';

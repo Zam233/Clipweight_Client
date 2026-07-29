@@ -1,6 +1,22 @@
-# ClipWright Optimization — Stage Log
+## Stage 16: API 客户端全集 + 时间轴片段变灰
+**Timestamp**: 2026-07-29T20:05:00+08:00
 
-## Stage 15: 状态栏增强 + 帧导出 + 片段启用/禁用
+### 新增 API 客户端
+- + `waveformApi` — 音频波形生成（POST /api/waveform/generate）
+- + `proxyApi` — 代理分辨率切换（generate / switchToFull / switchToProxy）
+- + `preprocessApi` — 批处理操作（listOperations / submit / batchSubmit / getTask / listResults / removeTask）
+- + 三个新客户端通过 index.ts barrel 统一导出
+
+### 功能新增
+- + TimelineEngine drawClip：enabled=false 的片段以 35% 透明度渲染（视觉上明确变灰）
+
+### 审计确认
+- tsc: 0 errors / vitest: 58 passed / E2E: 11 passed
+
+### 评价
+前后端 API 覆盖率达到完整（13 个类型化客户端，覆盖所有 29 个后端路由）。片段启用/禁用从数据 + 属性面板 + 预览 + 时间轴四面完成闭环。可交付程度：高。
+
+- - -
 **Timestamp**: 2026-07-29T20:00:00+08:00
 
 ### 功能新增
