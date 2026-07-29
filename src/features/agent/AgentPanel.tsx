@@ -303,7 +303,11 @@ function RequirementsView() {
         <div className="p-3 border-t border-outline-variant/20 shrink-0">
           <div className="flex gap-2">
             <input value={input} onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && sendChat(useAgentStore.getState().requirementsSessionId!, input)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                const sid = useAgentStore.getState().requirementsSessionId;
+                if (input.trim() && sid) { const m = input; setInput(''); sendChat(sid, m); }
+              }}
               placeholder="继续与需求 Agent 对话…"
               className="flex-1 bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm text-on-surface
                 outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50" />
@@ -507,6 +511,7 @@ function BottomBar() {
         useAgentStore.getState().setAgentTimeline(lastTimelineRef.current);
       }
       es.close();
+      esRef.current = null;
     });
     es.addEventListener('done', () => {
       updatePhase('completed', 100);
@@ -514,6 +519,7 @@ function BottomBar() {
         useAgentStore.getState().setAgentTimeline(lastTimelineRef.current);
       }
       es.close();
+      esRef.current = null;
     });
 
     es.onmessage = (e) => {
@@ -535,6 +541,7 @@ function BottomBar() {
     es.onerror = () => {
       addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'warning', summary: 'SSE 连接中断' });
       es.close();
+      esRef.current = null;
     };
   };
 

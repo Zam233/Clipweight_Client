@@ -1,5 +1,36 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 53: 全量 Bug 检测与修复
+**Timestamp**: 2026-07-30T01:06:00+08:00
+
+### Critical 修复 (3 项)
+- Fix: historyStore undo/redo 系统 — redo 返回与 undo 相同状态，撤销后的状态永久丢失 → undo/redo 时捕获当前 timeline 推入对方栈
+- Fix: mediaManager attachAnalyser 重复调用 createMediaElementSource 导致 InvalidStateError 崩溃 → WeakMap 缓存已连接的 source node
+- Fix: mediaManager analyser 未连接 audioCtx.destination 导致音频静音 → analyser.connect(ctx.destination)
+
+### High 修复 (5 项)
+- Fix: PreviewPanel 视频 seek 计算错误 — localT(0-1) × speed 应为 (t-start)×speed → 修正为秒级计算
+- Fix: Shuttle(J/K/L) 速度从未应用到播放循环 — playbackSpeed 未读取 shuttleSpeed → 合并计算 + 反向播放边界
+- Fix: EditorPage pagehide sendBeacon 发 POST 但 API 期望 PUT → 改用 fetch+keepalive+PUT
+- Fix: AgentPanel Enter 键非空断言 requirementsSessionId! → 添加 null 守卫
+- Fix: AgentPanel SSE EventSource 关闭后 ref 未置空 → 3 处 es.close() 后添加 esRef.current=null
+
+### Medium 修复 (3 项)
+- Fix: settingsStore setTheme 泄露 authToken 到 localStorage → 改用 persistEditorPrefs()
+- Fix: timelineStore splitClip 未重算 duration_sec → 添加 computeTotalDuration
+- Fix: TimelineEngine onPointerUp 未释放 pointer capture → 添加 releasePointerCapture
+
+### Low 修复 (1 项)
+- Fix: KeybindingEngine match() 永不返回 null → 过滤修饰键(Control/Shift/Alt/Meta)
+
+### 测试确认
+- tsc: 0 errors / vitest: 59 passed / E2E: 11 passed
+
+### 评价
+修复 12 个 Bug（3 Critical + 5 High + 3 Medium + 1 Low），覆盖 undo/redo 核心逻辑、音频管线、视频 seek、页面保存、SSE 生命周期等关键路径。编辑器稳定性和数据安全性显著提升。可交付程度：极高。
+
+- - -
+
 ## Stage 52: 后端 Schema 对齐 + 渲染管线接入新字段
 **Timestamp**: 2026-07-30T00:30:00+08:00
 

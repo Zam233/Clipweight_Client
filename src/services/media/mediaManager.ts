@@ -23,6 +23,7 @@ class MediaManager {
   private audioCtx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private analyserSource: MediaElementAudioSourceNode | null = null;
+  private sourceNodes = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
 
   /** Register an uploaded File so its real media becomes available. */
   registerFile(assetId: string, file: File): void {
@@ -283,17 +284,23 @@ class MediaManager {
     if (!e || (e.kind !== 'audio' && e.kind !== 'video')) return null;
     const el = e.audioEl ?? e.videoEl;
     if (!el) return null;
+    const ctx = this.ensureAudioCtx();
     if (!this.analyser) {
-      const ctx = this.ensureAudioCtx();
       this.analyser = ctx.createAnalyser();
       this.analyser.fftSize = 256;
       this.analyser.smoothingTimeConstant = 0.8;
+      this.analyser.connect(ctx.destination);
     }
-    if (this.analyserSource) {
+    let src = this.sourceNodes.get(el);
+    if (!src) {
+      src = ctx.createMediaElementSource(el);
+      this.sourceNodes.set(el, src);
+    }
+    if (this.analyserSource && this.analyserSource !== src) {
       try { this.analyserSource.disconnect(); } catch { /* ignore */ }
     }
-    this.analyserSource = this.ensureAudioCtx().createMediaElementSource(el);
-    this.analyserSource.connect(this.analyser);
+    this.analyserSource = src;
+    src.connect(this.analyser);
     return this.analyser;
   }
 

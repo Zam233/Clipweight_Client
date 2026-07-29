@@ -120,10 +120,12 @@ export function EditorPage() {
         plugin_id: st.pluginId ?? undefined,
       });
       try {
-        navigator.sendBeacon(
-          `${base}/api/project/${st.projectId}`,
-          new Blob([payload], { type: 'application/json' }),
-        );
+        fetch(`${base}/api/project/${st.projectId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+          keepalive: true,
+        }).catch(() => {});
       } catch { /* best effort */ }
     };
     window.addEventListener('pagehide', flush);

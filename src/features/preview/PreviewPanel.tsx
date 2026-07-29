@@ -86,17 +86,20 @@ export function PreviewPanel() {
       const dt = (now - last) / 1000;
       last = now;
       const st = usePreviewStore.getState();
-      let next = st.currentTimeSec + dt * st.playbackSpeed;
+      const speed = st.shuttleSpeed !== 0 ? st.shuttleSpeed * Math.abs(st.playbackSpeed) : st.playbackSpeed;
+      let next = st.currentTimeSec + dt * speed;
       const dur = useTimelineStore.getState().timeline.duration_sec;
       const region = st.loopRegion;
       const looping = st.isLooping;
 
       if (looping && region) {
-        if (next >= region.end) {
-          next = region.start;
-        }
+        if (next >= region.end) next = region.start;
+        if (next < region.start) next = region.end;
       } else if (next >= dur) {
         next = dur;
+        st.setPlaying(false);
+      } else if (next < 0) {
+        next = 0;
         st.setPlaying(false);
       }
       st.setCurrentTime(next);
@@ -374,7 +377,7 @@ function drawClipToPreview(
         }
       } else if (videoEl && videoEl.readyState >= 2) {
         // Real video frame: seek to clip-local time and draw
-        const sourceT = localT * clip.speed + clip.source_offset_sec;
+        const sourceT = (t - clip.start_sec) * clip.speed + clip.source_offset_sec;
         mediaManager.seekVideo(clip.asset_id, sourceT);
         drawCover(ctx, videoEl, fx, fy, fw, fh, tf);
         drewReal = true;

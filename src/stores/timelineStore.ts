@@ -280,7 +280,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         return { ...t, clips };
       });
       return {
-        timeline: { ...state.timeline, tracks },
+        timeline: { ...state.timeline, tracks, duration_sec: computeTotalDuration(tracks) },
         isDirty: true,
       };
     }),

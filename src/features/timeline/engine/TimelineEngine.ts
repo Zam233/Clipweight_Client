@@ -418,6 +418,7 @@ export class TimelineEngine {
   };
 
   private onPointerUp = (e: PointerEvent) => {
+    try { this.canvas.releasePointerCapture(e.pointerId); } catch { /* already released */ }
     const L = this.layout();
     const store = useTimelineStore.getState();
 

@@ -74,7 +74,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.classList.toggle('light', theme === 'light');
     set({ theme });
-    savePref('editorPrefs', { ...useSettingsStore.getState(), theme });
+    persistEditorPrefs();
   },
   setLanguage: (lang) => set({ language: lang }),
   setAuthToken: (token) => set({ authToken: token }),

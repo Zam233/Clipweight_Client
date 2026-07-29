@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Timeline } from '@/types/timeline';
+import { useTimelineStore } from './timelineStore';
 
 interface HistoryEntry {
   timestamp: number;
@@ -40,9 +41,10 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     const { undoStack } = get();
     if (undoStack.length === 0) return null;
     const entry = undoStack[undoStack.length - 1];
+    const current = useTimelineStore.getState().timeline;
     set((state) => ({
       undoStack: state.undoStack.slice(0, -1),
-      redoStack: [...state.redoStack, entry],
+      redoStack: [...state.redoStack, { timestamp: Date.now(), label: 'redo', timeline: structuredClone(current) }],
     }));
     return entry.timeline;
   },
@@ -51,9 +53,10 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     const { redoStack } = get();
     if (redoStack.length === 0) return null;
     const entry = redoStack[redoStack.length - 1];
+    const current = useTimelineStore.getState().timeline;
     set((state) => ({
       redoStack: state.redoStack.slice(0, -1),
-      undoStack: [...state.undoStack, entry],
+      undoStack: [...state.undoStack, { timestamp: Date.now(), label: 'undo', timeline: structuredClone(current) }],
     }));
     return entry.timeline;
   },

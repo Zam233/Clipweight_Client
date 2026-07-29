@@ -93,6 +93,7 @@ export class KeybindingEngine {
   };
 
   private match(e: KeyboardEvent): { key: string } | null {
+    if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return null;
     return { key: normalizeKey(e) };
   }
 
