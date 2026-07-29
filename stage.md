@@ -1,5 +1,32 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 60: 官方插件扩展 — 新增 4 个插件
+**Timestamp**: 2026-07-30T03:30:00+08:00
+
+### 新增插件
+
+| # | 插件 ID | 类型 | 功能 | 复杂度 |
+|---|---------|------|------|--------|
+| 1 | `pixabay_material` | material | Pixabay 免费视频/图片搜索（每日 10K 免费） | 低 |
+| 2 | `unsplash_material` | material | Unsplash 高质量图片（含署名追踪） | 低 |
+| 3 | `whisper_stt` | capability | 语音转文字 Tool + 字幕对齐 Skill（包装 STTService） | 低 |
+| 4 | `tutorial_category` | category | 教程视频类型（长镜头/步骤结构/代码高亮/章节标记） | 低 |
+
+### 插件总览（11 个）
+- 素材源: pexels_material / pixabay_material / unsplash_material / my_material_lib
+- 能力: logic_animations / my_animations / example_caption_plugin / llm_mg / whisper_stt
+- 风格: custom_style
+- 类型: tutorial_category（+ 4 内置类型）
+
+### 测试确认
+- 插件发现: 11/11 全部可发现
+- 后端: pytest 315 passed / 0 errors
+
+### 评价
+素材源从 1 个扩展到 3 个（Pexels + Pixabay + Unsplash），MaterialAgent 不再报"无注册素材源"。Whisper STT 从内置服务升级为可发现 Tool/Skill。教程视频类型补齐教育内容场景。可交付程度：极高。
+
+- - -
+
 ## Stage 59: 插件系统审计与修复
 **Timestamp**: 2026-07-30T03:30:00+08:00
 
