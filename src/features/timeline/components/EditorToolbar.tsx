@@ -15,7 +15,7 @@ import {
   Play, Pause, SkipBack, SkipForward, StepBack, StepForward,
   Undo2, Redo2, Save, PanelLeft, PanelRight, Bot, Film,
   FileText, ArrowLeft, Check, Loader2, Mic, Download,
-  Copy, ClipboardPaste, FileUp, Keyboard, FileJson,
+  Copy, ClipboardPaste, FileUp, Keyboard, FileJson, Upload,
 } from 'lucide-react';
 
 /**
@@ -270,6 +270,27 @@ export function EditorToolbar() {
     URL.revokeObjectURL(url);
   };
 
+  const handleJsonImport = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        if (!data.tracks || !Array.isArray(data.tracks)) return;
+        const store = useTimelineStore.getState();
+        useHistoryStore.getState().pushState(store.timeline, 'import-json');
+        store.setTimeline(data);
+      } catch {
+        /* invalid JSON */
+      }
+    };
+    input.click();
+  };
+
   const handleSrtExport = () => {
     const store = useTimelineStore.getState();
     const captions = store.timeline.tracks
@@ -446,6 +467,12 @@ export function EditorToolbar() {
           <button onClick={handleJsonExport}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <FileJson className="w-3.5 h-3.5" />
+          </button>
+        </Tooltip>
+        <Tooltip content="导入 Timeline JSON">
+          <button onClick={handleJsonImport}
+            className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+            <Upload className="w-3.5 h-3.5" />
           </button>
         </Tooltip>
         <Tooltip content="素材面板">
