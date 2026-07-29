@@ -145,6 +145,30 @@ export function PropertiesPanel() {
                     className="w-8 h-7 rounded-cw-xs border border-outline-variant/40 bg-transparent cursor-pointer"
                   />
                 </Row>
+                <Row label="字体族">
+                  <select
+                    value={clip.font ?? 'Inter'}
+                    onChange={(e) => { pushHistory(); set({ font: e.target.value }); }}
+                    className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
+                      outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                  >
+                    {FONT_FAMILIES.map((f) => (
+                      <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
+                    ))}
+                  </select>
+                </Row>
+                <Row label="对齐">
+                  <select
+                    value={clip.text_align ?? 'left'}
+                    onChange={(e) => { pushHistory(); set({ text_align: e.target.value as 'left' | 'center' | 'right' }); }}
+                    className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
+                      outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                  >
+                    <option value="left">左对齐</option>
+                    <option value="center">居中对齐</option>
+                    <option value="right">右对齐</option>
+                  </select>
+                </Row>
               </Section>
             )}
 
@@ -492,6 +516,8 @@ function NumberInput({ value, onChange }: { value: number; onChange: (v: number)
 const TRANSITIONS = ['', 'hard_cut', 'fade', 'dissolve', 'glitch', 'pixel_dissolve', 'slide', 'wipe'];
 
 const BLEND_MODES = ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion'];
+
+const FONT_FAMILIES = ['Inter', 'Noto Sans SC', 'JetBrains Mono', 'system-ui', 'Arial', 'Helvetica', 'Georgia', 'Times New Roman', 'Courier New', 'Impact', 'Verdana'];
 function TransitionSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <select
