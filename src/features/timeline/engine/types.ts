@@ -28,6 +28,11 @@ export const HEADER_W = 152;
 export const RULER_H = 30;
 export const TRACK_H = 48;
 export const SCROLLBAR_H = 12;
+
+export interface Marker {
+  time: number;
+  name?: string;
+}
 export const MIN_ZOOM = 4;
 export const MAX_ZOOM = 600;
 export const DEFAULT_ZOOM = 60;

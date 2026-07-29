@@ -12,7 +12,7 @@ import { useHistoryStore } from '@/stores/historyStore';
 import {
   makeLayout, xToTime, yToTrackIndex, timeToX, trackToY,
   makeDragState, scrollbarGeom, MIN_ZOOM, MAX_ZOOM, DEFAULT_ZOOM, TRIM_HANDLE_PX,
-  type TimelineLayout, type DragState,
+  type TimelineLayout, type DragState, type Marker,
 } from './types';
 import {
   drawBackground, drawTrackLanes, drawRuler, drawTrackHeaders,
@@ -40,7 +40,7 @@ export class TimelineEngine {
   private hoveredClipId: string | null = null;
   private hoveredTrackId: string | null = null;
   private scrollbarHover = false;
-  markers: number[] = [];
+  markers: Marker[] = [];
 
   private rafId = 0;
   private dirty = true;
@@ -652,9 +652,9 @@ export class TimelineEngine {
 
   addMarkerAtPlayhead() {
     const t = usePreviewStore.getState().currentTimeSec;
-    if (!this.markers.some((m) => Math.abs(m - t) < 0.01)) {
-      this.markers.push(t);
-      this.markers.sort((a, b) => a - b);
+    if (!this.markers.some((m) => Math.abs(m.time - t) < 0.01)) {
+      this.markers.push({ time: t });
+      this.markers.sort((a, b) => a.time - b.time);
       this.requestRender();
     }
   }
@@ -665,7 +665,7 @@ export class TimelineEngine {
     let bestIdx = -1;
     let bestDist = 0.5;
     this.markers.forEach((m, i) => {
-      const d = Math.abs(m - t);
+      const d = Math.abs(m.time - t);
       if (d < bestDist) { bestDist = d; bestIdx = i; }
     });
     if (bestIdx >= 0) {
@@ -677,6 +677,20 @@ export class TimelineEngine {
   clearMarkers() {
     this.markers = [];
     this.requestRender();
+  }
+
+  /** Jump to the next marker after the playhead. */
+  jumpToNextMarker() {
+    const t = usePreviewStore.getState().currentTimeSec;
+    const next = this.markers.find((m) => m.time > t + 0.01);
+    if (next) usePreviewStore.getState().setCurrentTime(next.time);
+  }
+
+  /** Jump to the previous marker before the playhead. */
+  jumpToPrevMarker() {
+    const t = usePreviewStore.getState().currentTimeSec;
+    const prev = [...this.markers].reverse().find((m) => m.time < t - 0.01);
+    if (prev) usePreviewStore.getState().setCurrentTime(prev.time);
   }
 
   get markerCount() {

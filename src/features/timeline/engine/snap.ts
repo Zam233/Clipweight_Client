@@ -2,7 +2,7 @@
  * Snap system — aligns clip edges to nearby clip edges, playhead, markers, and zero.
  */
 import type { Track } from '@/types/timeline';
-import type { TimelineLayout } from './types';
+import type { TimelineLayout, Marker } from './types';
 import { timeToX } from './types';
 
 export interface SnapResult {
@@ -19,12 +19,12 @@ export function collectSnapTargets(
   tracks: Track[],
   excludeClipIds: Set<string>,
   playheadSec: number,
-  markers: number[],
+  markers: Marker[],
 ): number[] {
   const targets = new Set<number>();
   targets.add(0);
   targets.add(playheadSec);
-  for (const m of markers) targets.add(m);
+  for (const m of markers) targets.add(m.time);
   for (const track of tracks) {
     for (const clip of track.clips) {
       if (excludeClipIds.has(clip.id)) continue;

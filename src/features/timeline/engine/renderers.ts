@@ -4,7 +4,7 @@
  */
 import type { Track, Clip, ClipKind } from '@/types/timeline';
 import { TRACK_COLORS } from '@/types/timeline';
-import type { TimelineLayout } from './types';
+import type { TimelineLayout, Marker } from './types';
 import { timeToX, trackToY, scrollbarGeom } from './types';
 import { formatTimecode } from '@/lib/utils';
 import { mediaManager } from '@/services/media/mediaManager';
@@ -548,9 +548,9 @@ export function drawPlayhead(ctx: CanvasRenderingContext2D, L: TimelineLayout, t
 }
 
 // ── Markers ────────────────────────────────────────────
-export function drawMarkers(ctx: CanvasRenderingContext2D, L: TimelineLayout, markers: number[]) {
+export function drawMarkers(ctx: CanvasRenderingContext2D, L: TimelineLayout, markers: Marker[]) {
   for (const m of markers) {
-    const x = Math.round(timeToX(m, L)) + 0.5;
+    const x = Math.round(timeToX(m.time, L)) + 0.5;
     if (x < L.headerW || x > L.width) continue;
     ctx.fillStyle = '#FFD700';
     ctx.beginPath();
@@ -566,6 +566,12 @@ export function drawMarkers(ctx: CanvasRenderingContext2D, L: TimelineLayout, ma
     ctx.moveTo(x, L.rulerH);
     ctx.lineTo(x, L.height);
     ctx.stroke();
+    if (m.name && m.name.trim()) {
+      ctx.fillStyle = '#FFD700';
+      ctx.font = `400 9px ${SANS}`;
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(m.name, x + 6, L.rulerH - 6);
+    }
   }
 }
 

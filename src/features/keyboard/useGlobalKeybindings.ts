@@ -279,7 +279,7 @@ export function useGlobalKeybindings() {
       { id: 'delete-bs', combo: 'backspace', label: '删除片段 (退格)', category: '编辑',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: deleteSelected },
-      { id: 'mute-track', combo: 'shift+m', label: '静音轨道 (Shift+M)', category: '轨道',
+      { id: 'mute-track', combo: 'ctrl+m', label: '静音轨道 (Ctrl+M)', category: '轨道',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: toggleMuteSelectedTrack },
       { id: 'lock-track', combo: 'shift+l', label: '锁定轨道', category: '轨道',

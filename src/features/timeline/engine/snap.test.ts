@@ -19,7 +19,7 @@ function mkTrack(clips: { id: string; start: number; dur: number }[]): Track {
 describe('collectSnapTargets', () => {
   it('includes zero, playhead, markers, and clip edges', () => {
     const tracks = [mkTrack([{ id: 'a', start: 2, dur: 3 }])];
-    const targets = collectSnapTargets(tracks, new Set(), 10, [5]);
+    const targets = collectSnapTargets(tracks, new Set(), 10, [{ time: 5 }]);
     expect(targets).toContain(0);
     expect(targets).toContain(10); // playhead
     expect(targets).toContain(5); // marker

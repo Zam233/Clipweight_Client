@@ -74,6 +74,14 @@ export function TimelinePanel() {
         handler: () => engineRef.current?.addMarkerAtPlayhead(),
       },
       {
+        id: 'timeline-next-marker', combo: 'shift+m', label: '跳到下一标记', category: '时间轴',
+        handler: () => engineRef.current?.jumpToNextMarker(),
+      },
+      {
+        id: 'timeline-prev-marker', combo: 'ctrl+shift+m', label: '跳到上一标记', category: '时间轴',
+        handler: () => engineRef.current?.jumpToPrevMarker(),
+      },
+      {
         id: 'timeline-ripple-delete', combo: 'shift+delete', label: '波纹删除', category: '编辑',
         handler: () => {
           const ids = useSelectionStore.getState().selectedClipIds;
