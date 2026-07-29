@@ -1,7 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { collectSnapTargets, applySnap } from './snap';
 import { makeLayout } from './types';
 import type { Track } from '@/types/timeline';
+
+vi.mock('@/stores/settingsStore', () => ({
+  useSettingsStore: {
+    getState: () => ({ snapToGrid: false, snapGridSec: 1 }),
+  },
+}));
 
 const layout = makeLayout(1000, 400, 100, 0, 0); // 100 px per second
 
