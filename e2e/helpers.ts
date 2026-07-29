@@ -58,7 +58,7 @@ const demoTimeline = {
 };
 
 const demoProject = {
-  id: 'e2e-demo',
+  id: 'proj_e2e_demo',
   name: 'E2E 演示项目',
   timeline: demoTimeline,
   created_at: '2026-07-29T00:00:00Z',
@@ -70,7 +70,7 @@ const demoProject = {
 };
 
 const demoSummary = {
-  id: 'e2e-demo',
+  id: 'proj_e2e_demo',
   name: 'E2E 演示项目',
   created_at: '2026-07-29T00:00:00Z',
   updated_at: '2026-07-29T00:00:00Z',
@@ -85,16 +85,18 @@ const demoSummary = {
 
 /**
  * 拦截全部后端请求，使 E2E 不依赖真实后端（hermetic）。
+ * 注意：用正则限定「路径以 /api/ 或 /health 开头」，避免误拦截 Vite 的
+ * 模块请求（如 /src/services/api/client.ts）。
  */
 export async function mockBackendApi(page: Page): Promise<void> {
-  await page.route('**/health', (route) =>
+  await page.route(/https?:\/\/[^/]+\/health(\?|$)/, (route) =>
     route.fulfill({ json: { status: 'ok', service: 'clipwright-engine' } }),
   );
 
-  await page.route('**/api/**', (route) => {
+  await page.route(/https?:\/\/[^/]+\/api\//, (route) => {
     const url = route.request().url();
 
-    if (/\/api\/project\/e2e-demo(\/|$|\?)/.test(url)) {
+    if (/\/api\/project\/proj_e2e_demo(\/|$|\?)/.test(url)) {
       return route.fulfill({ json: demoProject });
     }
     if (/\/api\/project(\/?$|\?)/.test(url)) {

@@ -5,7 +5,7 @@ test.describe('编辑器冒烟测试', () => {
   test('编辑器加载项目并渲染四面板', async ({ page }) => {
     const errors = collectPageErrors(page);
     await mockBackendApi(page);
-    await page.goto('/editor/e2e-demo');
+    await page.goto('/editor/proj_e2e_demo');
 
     // 预览面板
     await expect(page.getByText('节目监视器')).toBeVisible({ timeout: 15_000 });
@@ -16,15 +16,16 @@ test.describe('编辑器冒烟测试', () => {
   });
 
   test('项目加载失败时回退到首页', async ({ page }) => {
-    await page.route('**/health', (route) =>
+    await page.route(/https?:\/\/[^/]+\/health(\?|$)/, (route) =>
       route.fulfill({ json: { status: 'ok', service: 'clipwright-engine' } }),
     );
-    await page.route('**/api/project/bad-id**', (route) =>
+    // Playwright 后注册的路由优先匹配：先注册通用兜底，再注册具体 404
+    await page.route(/https?:\/\/[^/]+\/api\//, (route) => route.fulfill({ json: [] }));
+    await page.route(/https?:\/\/[^/]+\/api\/project\/proj_bad_id/, (route) =>
       route.fulfill({ status: 404, json: { detail: 'not found' } }),
     );
-    await page.route('**/api/**', (route) => route.fulfill({ json: [] }));
 
-    await page.goto('/editor/bad-id');
+    await page.goto('/editor/proj_bad_id');
     await page.waitForURL('**/', { timeout: 15_000 });
     await expect(page).toHaveURL(/\/$/);
   });

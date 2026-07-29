@@ -30,7 +30,8 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     set((state) => ({
       undoStack: [
         ...state.undoStack.slice(-(state.maxSize - 1)),
-        { timestamp: Date.now(), label, timeline: JSON.parse(JSON.stringify(timeline)) },
+        // structuredClone 比 JSON 往返快数倍（大时间线尤甚），且保留更多类型
+        { timestamp: Date.now(), label, timeline: structuredClone(timeline) },
       ],
       redoStack: [],
     })),

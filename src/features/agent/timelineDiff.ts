@@ -112,7 +112,7 @@ export function mergeTimeline(
   acceptIds: Set<string>,
   removeIds: Set<string>,
 ): Timeline {
-  const result: Timeline = JSON.parse(JSON.stringify(current));
+  const result: Timeline = structuredClone(current);
 
   // Apply removals
   if (removeIds.size > 0) {
@@ -138,7 +138,7 @@ export function mergeTimeline(
     if (!acceptIds.has(add.id)) continue;
     const track = result.tracks.find((t) => t.id === add.track_id);
     if (track) {
-      track.clips.push(JSON.parse(JSON.stringify(add)));
+      track.clips.push(structuredClone(add));
     }
   }
 

@@ -436,6 +436,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 
   exportTimeline: () => {
     const { timeline } = get();
-    return JSON.parse(JSON.stringify(timeline));
+    return structuredClone(timeline);
   },
 }));
