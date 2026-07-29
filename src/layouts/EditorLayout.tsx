@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { AssetPanel } from '@/features/assets/AssetPanel';
@@ -40,6 +40,19 @@ export function EditorLayout() {
 
   const [dragging, setDragging] = useState<'assets' | 'properties' | 'timeline' | null>(null);
   const dragStartRef = useRef({ x: 0, y: 0, w: 0, h: 0 });
+  const activeDragRef = useRef<{
+    cleanup: () => void;
+  } | null>(null);
+
+  // Ensure drag listeners are cleaned up on unmount (memory leak prevention)
+  useEffect(() => {
+    return () => {
+      if (activeDragRef.current) {
+        activeDragRef.current.cleanup();
+        activeDragRef.current = null;
+      }
+    };
+  }, []);
 
   const handleDividerMouseDown = useCallback(
     (panel: 'assets' | 'properties' | 'timeline', e: React.MouseEvent) => {
@@ -68,10 +81,15 @@ export function EditorLayout() {
         setDragging(null);
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
+        activeDragRef.current = null;
       };
 
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
+      activeDragRef.current = { cleanup: () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      }};
     },
     [panelWidths, timelineHeight, setPanelWidth, setTimelineHeight],
   );

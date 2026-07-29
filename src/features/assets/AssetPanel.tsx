@@ -52,7 +52,7 @@ export function AssetPanel() {
   }, [setAssets, setLoading]);
 
   // Load on mount
-  useState(() => { loadAssets(); });
+  useEffect(() => { loadAssets(); }, [loadAssets]);
 
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;

@@ -1,9 +1,34 @@
 # ClipWright Optimization — Stage Log
 
 ## Stage 10: 编辑器 UX 功能补齐
-**Timestamp**: 2026-07-29T17:25:00+08:00
+**Timestamp**: 2026-07-29T18:20:00+08:00
 
-- + EditorToolbar 新增「音频转字幕」按钮：选择音频文件 → 上传素材库 → POST /api/subtitle/transcribe → 自动生成字幕轨道与 caption clip（接已就绪的后端 STT 能力，此前 UI 完全缺失）
+### Bug 修复（关键）
+- Fix: AssetPanel 滥用 `useState` 执行副作用（违反 React Hooks 规则）→ 改为 `useEffect`
+- Fix: TimelinePanel 本地 `window.addEventListener('keydown')` 与全局 KeybindingEngine 双重触发冲突（S/M/Delete 三键同时触发两个 handler，结果不一致）→ 移除本地监听器，统一迁入 KeybindingEngine.registerMany
+- Fix: M 键双绑定冲突（全局 muted track vs TimelinePanel 本地 add marker）→ 全局静音改 Shift+M，M 统一为添加标记
+- Fix: TimelinePanel handleDelete 缺少 history push → 补齐（与全局 Delete handler 行为一致）
+- Fix: TimelinePanel handleSplitAtPlayhead 缺少 history push → 补齐
+- Fix: EditorLayout drag 监听器内存泄漏（拖拽中卸载组件不清理 document listener）→ 添加 ref 追踪 + useEffect cleanup
+- Fix: TimelinePanel canvas onDrop 双触发（container + canvas 各处理一次 drop）→ canvas pointer-events:none，仅由 container 处理
+- Fix: workspaceStore 布局加载无防护（malformed localStorage 数据导致 spread null 崩溃）→ loadLayout() 全面类型校验 + try-catch
+
+### 功能新增
+- + Ctrl+S 保存快捷键（全局 KeybindingEngine）
+- + Ctrl+C 复制选中片段到内存剪贴板
+- + Ctrl+V 粘贴片段到播放头位置（自动寻找匹配轨道，深拷贝关键帧）
+- + Ctrl+X 剪切片段（复制 + 删除）
+- + EditorToolbar 新增「导出字幕 (SRT)」按钮：从时间轴收集所有 caption/text clip → 按时间排序 → 生成 SRT 文件下载
+- + TimelinePanel 缩放/标记快捷键迁入全局引擎 (+/-/M/Shift+Delete)
+
+### 测试基线
+- 前端：tsc 0 错 / vitest 58 passed / E2E 5 passed
+- 后端：pytest 310 passed / 1 skipped / 0 failed
+
+### 评价
+本阶段修复了 8 个关键 Bug（键盘冲突、内存泄漏、历史记录不一致），新增了 6 项高影响力 UX 功能（保存快捷键、复制粘贴、字幕导出）。编辑器核心交互稳定性显著提升。可交付程度：高。
+
+- - -
 
 ## Stage 9: 功能缺口补齐（前后端 API 对齐）
 **Timestamp**: 2026-07-29T17:10:00+08:00

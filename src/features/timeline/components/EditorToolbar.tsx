@@ -10,7 +10,7 @@ import { formatTimecode, uid } from '@/lib/utils';
 import {
   Play, Pause, SkipBack, SkipForward, StepBack, StepForward,
   Undo2, Redo2, Save, PanelLeft, PanelRight, Bot, Settings, Film,
-  FileText, ArrowLeft, Check, Loader2, Mic,
+  FileText, ArrowLeft, Check, Loader2, Mic, Download,
 } from 'lucide-react';
 
 /**
@@ -143,6 +143,32 @@ export function EditorToolbar() {
     input.click();
   };
 
+  const handleSrtExport = () => {
+    const store = useTimelineStore.getState();
+    const captions = store.timeline.tracks
+      .flatMap((t) => t.clips)
+      .filter((c) => (c.kind === 'caption' || c.kind === 'text') && c.text?.trim())
+      .sort((a, b) => a.start_sec - b.start_sec);
+
+    if (captions.length === 0) return;
+
+    let srt = '';
+    captions.forEach((c, i) => {
+      const idx = i + 1;
+      const start = formatSrtTime(c.start_sec);
+      const end = formatSrtTime(c.start_sec + c.duration_sec);
+      srt += `${idx}\n${start} --> ${end}\n${c.text}\n\n`;
+    });
+
+    const blob = new Blob([srt], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${projectName || 'captions'}.srt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="flex items-center gap-2 px-3 py-2 bg-surface-dim border-b border-outline-variant/30 shrink-0">
       {/* Back + Logo + project name */}
@@ -253,6 +279,12 @@ export function EditorToolbar() {
             <FileText className="w-4 h-4" />
           </button>
         </Tooltip>
+        <Tooltip content="导出字幕 (SRT)">
+          <button onClick={handleSrtExport}
+            className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+            <Download className="w-4 h-4" />
+          </button>
+        </Tooltip>
         <Tooltip content="音频转字幕">
           <button onClick={handleAudioTranscribe}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
@@ -336,4 +368,12 @@ function parseSrt(raw: string): SrtEntry[] {
     if (text) entries.push({ index: +lines[0] || entries.length + 1, start, end, text });
   }
   return entries;
+}
+
+function formatSrtTime(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = (sec % 60);
+  const ms = Math.round((s - Math.floor(s)) * 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(Math.floor(s)).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
 }

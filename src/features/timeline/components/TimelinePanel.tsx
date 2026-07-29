@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { TimelineEngine } from '../engine/TimelineEngine';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useHistoryStore } from '@/stores/historyStore';
+import { keybindingEngine } from '@/features/keyboard/KeybindingEngine';
 import { Button, Tooltip } from '@/components/ui';
 import { formatTimecode, cn } from '@/lib/utils';
 import type { ClipKind } from '@/types/timeline';
@@ -56,48 +57,46 @@ export function TimelinePanel() {
     };
   }, []);
 
-  // Keyboard shortcuts (timeline-scoped)
+  // Register timeline-scoped shortcuts with the global KeybindingEngine
+  // (avoids dual-fire conflicts with the centralized engine)
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      const engine = engineRef.current;
-      if (!engine) return;
-
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        const ids = useSelectionStore.getState().selectedClipIds;
-        if (e.shiftKey) {
-          // Ripple delete: close the gap
+    const unsub = keybindingEngine.registerMany([
+      {
+        id: 'timeline-zoom-in', combo: '=', label: '放大时间轴', category: '时间轴',
+        handler: () => engineRef.current?.zoomIn(),
+      },
+      {
+        id: 'timeline-zoom-out', combo: '-', label: '缩小时间轴', category: '时间轴',
+        handler: () => engineRef.current?.zoomOut(),
+      },
+      {
+        id: 'timeline-add-marker', combo: 'm', label: '添加标记 (M)', category: '时间轴',
+        handler: () => engineRef.current?.addMarkerAtPlayhead(),
+      },
+      {
+        id: 'timeline-ripple-delete', combo: 'shift+delete', label: '波纹删除', category: '编辑',
+        handler: () => {
+          const ids = useSelectionStore.getState().selectedClipIds;
+          if (ids.length === 0) return;
+          useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'ripple-delete');
           ids.forEach((id) => rippleDelete(id));
-        } else {
-          ids.forEach((id) => removeClip(id));
-        }
-        useSelectionStore.getState().deselectAll();
-      } else if (e.key.toLowerCase() === 's' && !e.ctrlKey && !e.metaKey) {
-        // Split selected clips at playhead
-        const t = usePreviewStore.getState().currentTimeSec;
-        const ids = useSelectionStore.getState().selectedClipIds;
-        ids.forEach((id) => splitClip(id, t));
-      } else if (e.key.toLowerCase() === 'm') {
-        engine.addMarkerAtPlayhead();
-      } else if (e.key === '+' || e.key === '=') {
-        engine.zoomIn();
-      } else if (e.key === '-') {
-        engine.zoomOut();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [removeClip, splitClip]);
+          useSelectionStore.getState().deselectAll();
+        },
+      },
+    ]);
+    return unsub;
+  }, [removeClip, rippleDelete, splitClip]);
 
   const handleAddTrack = (kind: ClipKind) => addTrack(kind);
 
   const handleSplitAtPlayhead = () => {
+    useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'split');
     const t = currentTimeSec;
     selectedClipIds.forEach((id) => splitClip(id, t));
   };
 
   const handleDelete = () => {
+    useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'delete');
     selectedClipIds.forEach((id) => removeClip(id));
     useSelectionStore.getState().deselectAll();
   };
@@ -262,28 +261,7 @@ export function TimelinePanel() {
         <canvas
           ref={canvasRef}
           className="absolute inset-0 block"
-          style={{ pointerEvents: 'auto' }}
-          onDragOver={(e) => {
-            const types = e.dataTransfer.types;
-            if (types.includes('application/x-clipwright-asset') || types.includes('text/plain')) {
-              e.preventDefault();
-              e.dataTransfer.dropEffect = 'copy';
-              setDropActive(true);
-            }
-          }}
-          onDrop={(e) => {
-            setDropActive(false);
-            e.preventDefault();
-            const raw = e.dataTransfer.getData('application/x-clipwright-asset') || e.dataTransfer.getData('text/plain');
-            if (!raw || !engineRef.current || !containerRef.current) return;
-            try {
-              const asset = JSON.parse(raw);
-              const rect = containerRef.current.getBoundingClientRect();
-              engineRef.current.dropAssetAt(e.clientX - rect.left, e.clientY - rect.top, asset);
-            } catch (err) {
-              console.warn('[TimelinePanel] canvas drop parse failed:', err, raw);
-            }
-          }}
+          style={{ pointerEvents: 'none' }}
         />
       </div>
 

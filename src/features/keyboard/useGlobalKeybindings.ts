@@ -4,6 +4,12 @@ import { useTimelineStore } from '@/stores/timelineStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useSelectionStore } from '@/stores/selectionStore';
+import { useProjectStore } from '@/stores/projectStore';
+import { uid } from '@/lib/utils';
+import type { Clip } from '@/types/timeline';
+
+/** In-memory clip clipboard for copy/paste operations. */
+const clipClipboard: { clips: Clip[] } = { clips: [] };
 
 export function useGlobalKeybindings() {
   const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
@@ -71,6 +77,61 @@ export function useGlobalKeybindings() {
       }
     };
 
+    const saveProject = () => {
+      useProjectStore.getState().requestSave();
+    };
+
+    const copyClips = () => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      if (sel.length === 0) return;
+      const store = useTimelineStore.getState();
+      const found: Clip[] = [];
+      for (const tr of store.timeline.tracks) {
+        for (const c of tr.clips) {
+          if (sel.includes(c.id)) found.push(c);
+        }
+      }
+      if (found.length > 0) clipClipboard.clips = found;
+    };
+
+    const pasteClips = () => {
+      if (clipClipboard.clips.length === 0) return;
+      const store = useTimelineStore.getState();
+      const t = usePreviewStore.getState().currentTimeSec;
+      useHistoryStore.getState().pushState(store.timeline, 'paste');
+      for (const src of clipClipboard.clips) {
+        const newId = uid('clip');
+        const track = store.timeline.tracks.find((tr) => tr.id === src.track_id || tr.kind === src.kind);
+        if (!track || track.locked) continue;
+        store.addClip(track.id, {
+          ...src,
+          id: newId,
+          start_sec: t + (src.start_sec - clipClipboard.clips[0].start_sec),
+          asset_id: src.asset_id,
+          kind: src.kind,
+          keyframes: src.keyframes?.map((kf) => ({ ...kf })),
+        });
+      }
+    };
+
+    const cutClips = () => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      if (sel.length === 0) return;
+      const store = useTimelineStore.getState();
+      const found: Clip[] = [];
+      for (const tr of store.timeline.tracks) {
+        for (const c of tr.clips) {
+          if (sel.includes(c.id)) found.push(c);
+        }
+      }
+      if (found.length > 0) {
+        clipClipboard.clips = found;
+        useHistoryStore.getState().pushState(store.timeline, 'cut');
+        sel.forEach((id) => store.removeClip(id));
+        useSelectionStore.getState().deselectAll();
+      }
+    };
+
     const unsub = keybindingEngine.registerMany([
       { id: 'undo', combo: 'ctrl+z', label: '撤销', category: '通用',
         when: () => useHistoryStore.getState().undoStack.length > 0, handler: undo },
@@ -106,7 +167,7 @@ export function useGlobalKeybindings() {
       { id: 'delete', combo: 'delete', label: '删除片段', category: '编辑',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: deleteSelected },
-      { id: 'mute-track', combo: 'm', label: '静音轨道 (M)', category: '轨道',
+      { id: 'mute-track', combo: 'shift+m', label: '静音轨道 (Shift+M)', category: '轨道',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: toggleMuteSelectedTrack },
       { id: 'lock-track', combo: 'shift+l', label: '锁定轨道', category: '轨道',
@@ -114,6 +175,17 @@ export function useGlobalKeybindings() {
         handler: toggleLockSelectedTrack },
       { id: 'cheatsheet', combo: 'ctrl+/', label: '快捷键速查表', category: '通用',
         handler: () => setCheatSheetOpen((v) => !v) },
+      { id: 'save', combo: 'ctrl+s', label: '保存项目', category: '通用',
+        handler: saveProject },
+      { id: 'copy', combo: 'ctrl+c', label: '复制片段', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: copyClips },
+      { id: 'paste', combo: 'ctrl+v', label: '粘贴片段', category: '编辑',
+        when: () => clipClipboard.clips.length > 0,
+        handler: pasteClips },
+      { id: 'cut', combo: 'ctrl+x', label: '剪切片段', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: cutClips },
     ]);
 
     keybindingEngine.attach();

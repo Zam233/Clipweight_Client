@@ -40,17 +40,46 @@ const DEFAULT_PANEL_WIDTHS = {
 
 const DEFAULT_TIMELINE_HEIGHT = 280;
 
-/** Persisted layout (survives reloads via localStorage). */
-const persisted = loadPref('layout', {
-  panels: { assets: true, properties: true, agent: true },
-  panelWidths: { ...DEFAULT_PANEL_WIDTHS },
-  timelineHeight: DEFAULT_TIMELINE_HEIGHT,
-});
+/** Safe layout loader — guards against malformed localStorage data. */
+function loadLayout() {
+  try {
+    const raw = loadPref('layout', {
+      panels: { assets: true, properties: true, agent: true },
+      panelWidths: { ...DEFAULT_PANEL_WIDTHS },
+      timelineHeight: DEFAULT_TIMELINE_HEIGHT,
+    });
+    return {
+      panels: raw?.panels && typeof raw.panels === 'object'
+        ? {
+          assets: Boolean(raw.panels.assets),
+          properties: Boolean(raw.panels.properties),
+          agent: Boolean(raw.panels.agent),
+        }
+        : { assets: true, properties: true, agent: true },
+      panelWidths: raw?.panelWidths && typeof raw.panelWidths === 'object'
+        ? {
+          assets: typeof raw.panelWidths.assets === 'number' ? raw.panelWidths.assets : DEFAULT_PANEL_WIDTHS.assets,
+          properties: typeof raw.panelWidths.properties === 'number' ? raw.panelWidths.properties : DEFAULT_PANEL_WIDTHS.properties,
+          agent: typeof raw.panelWidths.agent === 'number' ? raw.panelWidths.agent : DEFAULT_PANEL_WIDTHS.agent,
+        }
+        : { ...DEFAULT_PANEL_WIDTHS },
+      timelineHeight: typeof raw?.timelineHeight === 'number' ? raw.timelineHeight : DEFAULT_TIMELINE_HEIGHT,
+    };
+  } catch {
+    return {
+      panels: { assets: true, properties: true, agent: true },
+      panelWidths: { ...DEFAULT_PANEL_WIDTHS },
+      timelineHeight: DEFAULT_TIMELINE_HEIGHT,
+    };
+  }
+}
+
+const layout = loadLayout();
 
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
-  panels: { ...persisted.panels },
-  panelWidths: { ...persisted.panelWidths },
-  timelineHeight: persisted.timelineHeight,
+  panels: layout.panels,
+  panelWidths: layout.panelWidths,
+  timelineHeight: layout.timelineHeight,
   timelineCollapsed: false,
   activeBottomTab: 'timeline',
 
