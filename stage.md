@@ -24,7 +24,19 @@
 - Fix: KeybindingEngine match() 永不返回 null → 过滤修饰键(Control/Shift/Alt/Meta)
 
 ### 测试确认
-- tsc: 0 errors / vitest: 59 passed / E2E: 11 passed
+- tsc: 0 errors / vitest: 59 passed / E2E: 23 passed (11→23) / 后端 pytest: 315 passed
+
+### E2E 测试扩展 (+12)
+- + 工具切换 V/C/R
+- + Ctrl+Z/Ctrl+Shift+Z 撤销重做
+- + Ctrl+S 保存
+- + Ctrl+A 全选 + Escape 取消
+- + 空格键播放/暂停
+- + J/K/L shuttle 控制
+- + M 标记 + Shift+M 跳转
+- + 属性面板/时间轴工具栏/状态栏可见性
+- + 面板切换按钮
+- + Ctrl+E 导出页导航
 
 ### 评价
 修复 12 个 Bug（3 Critical + 5 High + 3 Medium + 1 Low），覆盖 undo/redo 核心逻辑、音频管线、视频 seek、页面保存、SSE 生命周期等关键路径。编辑器稳定性和数据安全性显著提升。可交付程度：极高。
