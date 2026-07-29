@@ -638,8 +638,12 @@ export class TimelineEngine {
     const L = this.layout();
     const avail = L.width - L.headerW - 40;
     this.setZoom(avail / durationSec);
-    this.scrollX = 0;
-    this.clampScroll();
+  }
+  /** Set zoom so that `seconds` worth of timeline fills the viewport. */
+  zoomPreset(seconds: number) {
+    const L = this.layout();
+    const avail = L.width - L.headerW - 40;
+    this.setZoom(avail / Math.max(0.1, seconds));
   }
   private setZoom(z: number) {
     const L = this.layout();

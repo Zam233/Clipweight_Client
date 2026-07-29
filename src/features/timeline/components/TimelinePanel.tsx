@@ -253,6 +253,24 @@ export function TimelinePanel() {
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
         </Tooltip>
+        <Tooltip content="缩放至 5s">
+          <button onClick={() => engineRef.current?.zoomPreset(5)}
+            className="px-1 py-0.5 rounded-cw-xs text-caption text-on-surface-variant hover:text-primary transition-colors cursor-pointer font-mono">
+            5s
+          </button>
+        </Tooltip>
+        <Tooltip content="缩放至 10s">
+          <button onClick={() => engineRef.current?.zoomPreset(10)}
+            className="px-1 py-0.5 rounded-cw-xs text-caption text-on-surface-variant hover:text-primary transition-colors cursor-pointer font-mono">
+            10s
+          </button>
+        </Tooltip>
+        <Tooltip content="缩放至 30s">
+          <button onClick={() => engineRef.current?.zoomPreset(30)}
+            className="px-1 py-0.5 rounded-cw-xs text-caption text-on-surface-variant hover:text-primary transition-colors cursor-pointer font-mono">
+            30s
+          </button>
+        </Tooltip>
         <Tooltip content="缩放至适配">
           <button onClick={() => engineRef.current?.zoomToFit(timeline.duration_sec)}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
