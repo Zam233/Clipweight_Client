@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { personaApi, voiceApi, getApiClient } from '@/services/api';
 import { StandardLayout } from '@/layouts/StandardLayout';
@@ -32,6 +32,9 @@ export function PersonaDetailPage() {
   const [prompt, setPrompt] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [kbBusy, setKbBusy] = useState(false);
+  const [kbStatus, setKbStatus] = useState('');
   const [voices, setVoices] = useState<VoiceRecord[]>([]);
 
   useEffect(() => {
@@ -62,6 +65,28 @@ export function PersonaDetailPage() {
 
   const setParam = (updater: (p: Persona) => Persona) => {
     setPersona((prev) => (prev ? updater(prev) : prev));
+  };
+
+  const uploadKnowledge = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !persona) return;
+    setKbBusy(true);
+    setKbStatus('');
+    try {
+      const content = await file.text();
+      await getApiClient().post(`/api/persona/${persona.persona_id}/knowledge`, {
+        title: file.name,
+        content,
+        source: 'upload',
+      });
+      await getApiClient().post(`/api/persona/${persona.persona_id}/rag/index`, { force_rebuild: false });
+      setKbStatus(`已上传「${file.name}」并完成向量索引`);
+    } catch {
+      setKbStatus('上传失败：后端不可达或索引服务异常');
+    } finally {
+      setKbBusy(false);
+    }
   };
 
   if (!persona) {
@@ -204,7 +229,12 @@ export function PersonaDetailPage() {
             <div className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-5 text-center">
               <Database className="w-6 h-6 text-on-surface-variant/40 mx-auto mb-1.5" />
               <p className="text-label-sm text-on-surface-variant">上传 .md / .txt 文档，向量化后供 Agent 检索。</p>
-              <Button variant="outline" size="sm" className="mt-2">上传文档并建立索引</Button>
+              <input ref={fileInputRef} type="file" accept=".md,.txt" className="hidden" onChange={uploadKnowledge} />
+              <Button variant="outline" size="sm" className="mt-2" disabled={kbBusy}
+                onClick={() => fileInputRef.current?.click()}>
+                {kbBusy ? '上传索引中…' : '上传文档并建立索引'}
+              </Button>
+              {kbStatus && <p className="text-caption text-on-surface-variant mt-2">{kbStatus}</p>}
             </div>
           </div>
         )}

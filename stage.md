@@ -12,6 +12,7 @@
 - + RenderProgress 类型补充 'queued' 状态（与后端一致）
 - Fix: TypeMakerPage 新建/复制/删除/编辑全为本地假操作（刷新即丢）→ 接入真实 CRUD（create/GET/PUT/DELETE）；内置类型禁止删除；编辑提交时同步 shot_params；移除 DEMO_TYPES 假数据
 - Fix: TemplatesPage 只读 + 「渲染模板」死按钮 → 接入 list/create/delete；「应用为新项目」调 /{id}/apply 并自动创建项目跳转编辑器；卡片展示真实轨数/时长/标签；移除 DEMO_TEMPLATES
+- Fix: PersonaDetailPage 知识库「上传并建立索引」死按钮 → 文件选择 → POST /knowledge → POST /rag/index → 状态反馈
 
 ## Stage 8: 终审与交付验收
 **Timestamp**: 2026-07-29T16:30:00+08:00
