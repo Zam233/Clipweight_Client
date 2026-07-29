@@ -1,7 +1,24 @@
 # ClipWright Optimization — Stage Log
 
-## Stage 10: 编辑器 UX 功能补齐
-**Timestamp**: 2026-07-29T18:30:00+08:00
+## Stage 11: 高级编辑器功能与交互打磨
+**Timestamp**: 2026-07-29T18:40:00+08:00
+
+### 功能新增
+- + 帧精度微移：Shift+[ 左移一帧 / Shift+] 右移一帧（选中片段整体平移）
+- + 帧精度修剪：[ 修剪入点（右剪一帧）/ ] 修剪出点（左剪一帧）
+- + Ctrl+上箭头 上移轨道（选中片段移到上一轨道）
+- + Ctrl+下箭头 下移轨道（选中片段移到下一轨道）
+- + Backspace 删除片段（与 Delete 等效）
+- 所有新操作均推送 history，支持撤销
+
+### 测试基线
+- 前端：tsc 0 错 / vitest 58 passed / E2E 5 passed
+- 后端：pytest 310 passed / 1 skipped / 0 failed
+
+### 评价
+新增 6 项帧精度编辑快捷键，覆盖了 Premiere/DaVinci 核心剪辑工作流。编辑器已具备专业级键盘操作能力。可交付程度：高。
+
+- - -
 
 ### Bug 修复（关键）
 - Fix: AssetPanel 滥用 `useState` 执行副作用（违反 React Hooks 规则）→ 改为 `useEffect`

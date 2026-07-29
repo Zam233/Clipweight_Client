@@ -148,6 +148,99 @@ export function useGlobalKeybindings() {
     const toolSelect = () => useSelectionStore.getState().setToolMode('select');
     const toolRazor = () => useSelectionStore.getState().setToolMode('razor');
 
+    const nudgeLeft = () => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      if (sel.length === 0) return;
+      const store = useTimelineStore.getState();
+      const fps = store.timeline.fps || 30;
+      const frame = 1 / fps;
+      useHistoryStore.getState().pushState(store.timeline, 'nudge');
+      for (const cid of sel) {
+        const clip = store.getClip(cid);
+        if (!clip) continue;
+        store.moveClip(cid, clip.track_id, Math.max(0, clip.start_sec - frame));
+      }
+    };
+
+    const nudgeRight = () => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      if (sel.length === 0) return;
+      const store = useTimelineStore.getState();
+      const fps = store.timeline.fps || 30;
+      const frame = 1 / fps;
+      useHistoryStore.getState().pushState(store.timeline, 'nudge');
+      for (const cid of sel) {
+        const clip = store.getClip(cid);
+        if (!clip) continue;
+        store.moveClip(cid, clip.track_id, clip.start_sec + frame);
+      }
+    };
+
+    const trimStartIn = () => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      if (sel.length === 0) return;
+      const store = useTimelineStore.getState();
+      const fps = store.timeline.fps || 30;
+      const frame = 1 / fps;
+      useHistoryStore.getState().pushState(store.timeline, 'trim');
+      for (const cid of sel) {
+        const clip = store.getClip(cid);
+        if (!clip) continue;
+        store.trimClipStart(cid, Math.max(0, clip.start_sec + frame));
+      }
+    };
+
+    const trimEndOut = () => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      if (sel.length === 0) return;
+      const store = useTimelineStore.getState();
+      const fps = store.timeline.fps || 30;
+      const frame = 1 / fps;
+      useHistoryStore.getState().pushState(store.timeline, 'trim');
+      for (const cid of sel) {
+        const clip = store.getClip(cid);
+        if (!clip) continue;
+        const newEnd = clip.start_sec + clip.duration_sec - frame;
+        if (newEnd > clip.start_sec + 0.1) {
+          store.trimClipEnd(cid, newEnd);
+        }
+      }
+    };
+
+    const moveClipUp = () => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      if (sel.length === 0) return;
+      const store = useTimelineStore.getState();
+      useHistoryStore.getState().pushState(store.timeline, 'move-track');
+      for (const cid of sel) {
+        const clip = store.getClip(cid);
+        if (!clip) continue;
+        const tracks = store.timeline.tracks;
+        const idx = tracks.findIndex((t) => t.id === clip.track_id);
+        if (idx <= 0) continue;
+        const targetTrack = tracks[idx - 1];
+        if (targetTrack.locked) continue;
+        store.moveClip(cid, targetTrack.id, clip.start_sec);
+      }
+    };
+
+    const moveClipDown = () => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      if (sel.length === 0) return;
+      const store = useTimelineStore.getState();
+      useHistoryStore.getState().pushState(store.timeline, 'move-track');
+      for (const cid of sel) {
+        const clip = store.getClip(cid);
+        if (!clip) continue;
+        const tracks = store.timeline.tracks;
+        const idx = tracks.findIndex((t) => t.id === clip.track_id);
+        if (idx < 0 || idx >= tracks.length - 1) continue;
+        const targetTrack = tracks[idx + 1];
+        if (targetTrack.locked) continue;
+        store.moveClip(cid, targetTrack.id, clip.start_sec);
+      }
+    };
+
     const unsub = keybindingEngine.registerMany([
       { id: 'undo', combo: 'ctrl+z', label: '撤销', category: '通用',
         when: () => useHistoryStore.getState().undoStack.length > 0, handler: undo },
@@ -181,6 +274,9 @@ export function useGlobalKeybindings() {
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: splitSelected },
       { id: 'delete', combo: 'delete', label: '删除片段', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: deleteSelected },
+      { id: 'delete-bs', combo: 'backspace', label: '删除片段 (退格)', category: '编辑',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: deleteSelected },
       { id: 'mute-track', combo: 'shift+m', label: '静音轨道 (Shift+M)', category: '轨道',
@@ -233,6 +329,24 @@ export function useGlobalKeybindings() {
           }
         },
       },
+      { id: 'nudge-left', combo: 'shift+[', label: '左移一帧', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: nudgeLeft },
+      { id: 'nudge-right', combo: 'shift+]', label: '右移一帧', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: nudgeRight },
+      { id: 'trim-start', combo: '[', label: '修剪入点 (左剪一帧)', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: trimStartIn },
+      { id: 'trim-end', combo: ']', label: '修剪出点 (右剪一帧)', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: trimEndOut },
+      { id: 'move-clip-up', combo: 'ctrl+arrowup', label: '上移轨道', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: moveClipUp },
+      { id: 'move-clip-down', combo: 'ctrl+arrowdown', label: '下移轨道', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: moveClipDown },
     ]);
 
     keybindingEngine.attach();
