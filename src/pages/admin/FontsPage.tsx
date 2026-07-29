@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
-import { getApiClient } from '@/services/api';
+import { fontApi } from '@/services/api';
 import { Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { Type, Check } from 'lucide-react';
 
 interface FontItem {
   family: string;
-  style: string;        // e.g. "Regular", "Bold"
+  style: string;
   source: 'system' | 'backend' | 'web';
   supportsCjk: boolean;
 }
@@ -29,8 +29,8 @@ export function FontsPage() {
     let alive = true;
     (async () => {
       try {
-        const { data } = await getApiClient().get('/api/fonts/list');
-        if (alive) setFonts(normalize(data));
+        const res = await fontApi.list();
+        if (alive) setFonts(normalize(res.fonts));
       } catch {
         if (alive) setFonts(DEMO_FONTS);
       } finally {

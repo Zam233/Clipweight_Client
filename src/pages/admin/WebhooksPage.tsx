@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ConsoleShell, ConsoleHeading, StatusPill } from './ConsoleShell';
-import { getApiClient } from '@/services/api';
+import { webhookApi } from '@/services/api';
+import type { WebhookSubscription } from '@/services/api/webhook';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { Webhook, Plus, Send, Trash2, Radio } from 'lucide-react';
@@ -31,8 +32,8 @@ export function WebhooksPage() {
 
   const reload = async () => {
     try {
-      const { data } = await getApiClient().get('/api/webhook/list');
-      setSubs(normalize(data));
+      const list = await webhookApi.list();
+      setSubs(normalize(list));
       setNotice('');
     } catch {
       setNotice('无法连接后端 Webhook 服务');
@@ -43,10 +44,10 @@ export function WebhooksPage() {
     let alive = true;
     (async () => {
       try {
-        const { data } = await getApiClient().get<{ events: string[] }>('/api/webhook/events');
-        if (alive && Array.isArray(data?.events) && data.events.length > 0) {
-          setEventTypes(data.events);
-          setNewEvents([data.events[0]]);
+        const evRes = await webhookApi.listEvents();
+        if (alive && Array.isArray(evRes.events) && evRes.events.length > 0) {
+          setEventTypes(evRes.events);
+          setNewEvents([evRes.events[0]]);
         }
       } catch { /* keep fallback events */ }
       if (!alive) return;
@@ -62,7 +63,7 @@ export function WebhooksPage() {
   const subscribe = async () => {
     if (!newUrl.trim() || newEvents.length === 0) return;
     try {
-      await getApiClient().post('/api/webhook/register', { url: newUrl, events: newEvents });
+      await webhookApi.register({ url: newUrl, events: newEvents });
       setNewUrl('');
       await reload();
     } catch (err) {
@@ -73,7 +74,7 @@ export function WebhooksPage() {
 
   const unsubscribe = async (id: string) => {
     try {
-      await getApiClient().delete(`/api/webhook/${id}`);
+      await webhookApi.remove(id);
       setSubs((s) => s.filter((x) => x.id !== id));
     } catch {
       setNotice('删除失败：后端不可达');
@@ -82,7 +83,7 @@ export function WebhooksPage() {
 
   const toggleActive = async (s: Subscription) => {
     try {
-      await getApiClient().put(`/api/webhook/${s.id}/toggle`);
+      await webhookApi.toggle(s.id);
       setSubs((subs2) => subs2.map((x) => (x.id === s.id ? { ...x, active: !x.active } : x)));
     } catch {
       setNotice('切换状态失败：后端不可达');
@@ -93,13 +94,11 @@ export function WebhooksPage() {
     setFiringId(s.id);
     setLastFire(null);
     try {
-      const { data } = await getApiClient().post<{ status: string; response_code?: number; error?: string }>(
-        `/api/webhook/${s.id}/test`,
-      );
-      if (data.status === 'sent') {
-        setLastFire(`webhook.test → ${s.url} (HTTP ${data.response_code})`);
+      const result = await webhookApi.test(s.id);
+      if (result.success) {
+        setLastFire(`webhook.test → ${s.url} (HTTP ${result.status_code})`);
       } else {
-        setLastFire(`发送失败：${data.error || '未知错误'}`);
+        setLastFire(`发送失败：${result.body || '未知错误'}`);
       }
       setSubs((subs2) => subs2.map((x) => (x.id === s.id ? { ...x, lastDelivery: new Date().toLocaleTimeString() } : x)));
     } catch {
