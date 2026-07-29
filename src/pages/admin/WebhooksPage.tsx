@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ConsoleShell, ConsoleHeading, StatusPill } from './ConsoleShell';
 import { webhookApi } from '@/services/api';
-import type { WebhookSubscription } from '@/services/api/webhook';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { Webhook, Plus, Send, Trash2, Radio } from 'lucide-react';

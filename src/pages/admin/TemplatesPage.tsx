@@ -2,10 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
 import { templateApi, projectApi } from '@/services/api';
-import type { Template as ApiTemplate } from '@/services/api/template';
 import { Button, Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import { createEmptyTimeline } from '@/types/timeline';
 import { LayoutTemplate, Plus, Play, Trash2, Clock, Layers } from 'lucide-react';
 
 interface Template {
@@ -75,7 +73,7 @@ export function TemplatesPage() {
     setApplyingId(t.id);
     setNotice('');
     try {
-      const result = await templateApi.apply(t.id);
+      await templateApi.apply(t.id);
       const project = await projectApi.create({
         name: `${t.name} · 副本`,
         timeline: null,

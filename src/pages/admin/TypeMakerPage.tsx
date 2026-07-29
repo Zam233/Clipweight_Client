@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
 import { typeMakerApi } from '@/services/api';
-import type { TypeDefinition } from '@/services/api/typeMaker';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { Shapes, Plus, Copy, Trash2, Pencil, Film } from 'lucide-react';

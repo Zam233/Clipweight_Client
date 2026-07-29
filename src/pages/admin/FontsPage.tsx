@@ -3,7 +3,7 @@ import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
 import { fontApi } from '@/services/api';
 import { Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import { Type, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 
 interface FontItem {
   family: string;

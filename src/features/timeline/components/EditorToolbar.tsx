@@ -11,7 +11,7 @@ import { formatTimecode, uid } from '@/lib/utils';
 import type { Clip } from '@/types/timeline';
 import {
   Play, Pause, SkipBack, SkipForward, StepBack, StepForward,
-  Undo2, Redo2, Save, PanelLeft, PanelRight, Bot, Settings, Film,
+  Undo2, Redo2, Save, PanelLeft, PanelRight, Bot, Film,
   FileText, ArrowLeft, Check, Loader2, Mic, Download,
   Copy, ClipboardPaste,
 } from 'lucide-react';
