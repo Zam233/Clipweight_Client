@@ -99,6 +99,20 @@ export function PropertiesPanel() {
                 onChange={(v) => { pushHistory(); set({ speed: v }); }} />
               <Slider label="音量" min={0} max={1} step={0.05} value={round2(clip.volume)}
                 onChange={(v) => { pushHistory(); set({ volume: v }); }} />
+              {trackKind === 'audio' && (
+                <Row label="预设">
+                  <select
+                    value={clip.eq_preset ?? 'none'}
+                    onChange={(e) => { pushHistory(); set({ eq_preset: e.target.value || null }); }}
+                    className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
+                      outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                  >
+                    {EQ_PRESETS.map((p) => (
+                      <option key={p.value} value={p.value}>{p.label}</option>
+                    ))}
+                  </select>
+                </Row>
+              )}
               <Slider label="不透明度" min={0} max={1} step={0.05} value={round2(clip.opacity)}
                 onChange={(v) => { pushHistory(); set({ opacity: v }); }} />
               {(trackKind === 'video' || trackKind === 'image') && (
@@ -518,6 +532,17 @@ const TRANSITIONS = ['', 'hard_cut', 'fade', 'dissolve', 'glitch', 'pixel_dissol
 const BLEND_MODES = ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion'];
 
 const FONT_FAMILIES = ['Inter', 'Noto Sans SC', 'JetBrains Mono', 'system-ui', 'Arial', 'Helvetica', 'Georgia', 'Times New Roman', 'Courier New', 'Impact', 'Verdana'];
+
+const EQ_PRESETS = [
+  { value: 'none', label: '无' },
+  { value: 'bass-boost', label: '低音增强' },
+  { value: 'vocal-boost', label: '人声增强' },
+  { value: 'treble-boost', label: '高音增强' },
+  { value: 'bass-reduce', label: '降低低音' },
+  { value: 'loudness', label: '响度均衡' },
+  { value: 'podcast', label: '播客优化' },
+  { value: 'voice', label: '语音清晰' },
+];
 function TransitionSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <select
