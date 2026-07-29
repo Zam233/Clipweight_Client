@@ -241,6 +241,32 @@ export function useGlobalKeybindings() {
       }
     };
 
+    const addKeyframeAtPlayhead = () => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      if (sel.length === 0) return;
+      const store = useTimelineStore.getState();
+      const t = usePreviewStore.getState().currentTimeSec;
+      for (const cid of sel) {
+        const clip = store.getClip(cid);
+        if (!clip) continue;
+        const relT = clip.duration_sec > 0 ? (t - clip.start_sec) / clip.duration_sec : 0;
+        if (relT < 0 || relT > 1) continue;
+        useHistoryStore.getState().pushState(store.timeline, 'add-keyframe');
+        const existing = clip.keyframes?.find((k) => Math.abs(k.time - relT) < 0.005);
+        if (existing) {
+          store.updateClip(cid, {
+            keyframes: clip.keyframes?.map((k) =>
+              Math.abs(k.time - relT) < 0.005
+                ? { ...k, properties: { ...k.properties, opacity: clip.opacity, scale: 1 } }
+                : k,
+            ),
+          });
+        } else {
+          store.addKeyframe(cid, relT, { opacity: clip.opacity, scale: 1 });
+        }
+      }
+    };
+
     const unsub = keybindingEngine.registerMany([
       { id: 'undo', combo: 'ctrl+z', label: '撤销', category: '通用',
         when: () => useHistoryStore.getState().undoStack.length > 0, handler: undo },
@@ -347,6 +373,9 @@ export function useGlobalKeybindings() {
       { id: 'move-clip-down', combo: 'ctrl+arrowdown', label: '下移轨道', category: '编辑',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: moveClipDown },
+      { id: 'add-keyframe', combo: 'ctrl+shift+k', label: '在播放头添加关键帧', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: addKeyframeAtPlayhead },
     ]);
 
     keybindingEngine.attach();
