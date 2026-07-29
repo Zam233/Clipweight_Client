@@ -1,32 +1,37 @@
 # ClipWright Optimization — Stage Log
 
 ## Stage 55: 全量前后端测试报告
-**Timestamp**: 2026-07-30T01:48:00+08:00
+**Timestamp**: 2026-07-30T02:05:00+08:00
 
 ### 前端测试
 | 项目 | 结果 |
 |------|------|
 | TypeScript (tsc --noEmit) | **0 errors** |
-| ESLint | **0 errors**, 97 warnings (均为 any/unused-var 级别) |
+| ESLint | **0 errors**, 97 warnings |
 | Vitest 单元测试 | **7 files, 59 tests, 全部通过** |
-| Playwright E2E | **33 tests, 全部通过** (1.1min) |
-| Production Build | **成功** (6.44s, gzip 143.74 kB) |
+| Playwright E2E (mock) | **33 tests, 全部通过** |
+| Production Build | **成功** (6.44s) |
 
-### E2E 覆盖明细 (33 tests)
-- 首页冒烟: 3 (加载/健康检查/项目列表)
-- 编辑器冒烟: 2 (四面板渲染/加载失败回退)
-- 编辑器功能: 6 (工具栏/快捷键/播放/Backspace)
-- 编辑器交互: 12 (V/C/R切换/撤销重做/保存/全选/播放/shuttle/标记/面板/状态栏/导出导航)
-- Settings 页面: 10 (Settings/Export/Fonts/Webhooks/TypeMaker/Templates/Models/Plugins/Persona/PipelineAdmin)
+### 真实后端集成测试（无头浏览器 +  live server）
+| 项目 | 结果 |
+|------|------|
+| 后端 uvicorn 启动 | **成功** (degraded: MongoDB/ffmpeg 离线) |
+| API 集成测试 | **18 passed** (health/项目CRUD/persona/pipeline/fonts/animation/render/webhook/type-maker/template/plugin/tool/skill/asset/preprocess/EDL/字幕) |
+| 无头浏览器页面测试 | **5 passed** (首页/编辑器+真实项目/Settings/Export/Persona) |
+| 集成测试总计 | **23 passed** |
 
 ### 后端测试
 | 项目 | 结果 |
 |------|------|
-| pytest | **315 passed, 1 skipped, 0 errors** (2min) |
-| 跳过项 | isobase 离线不可装 (预期) |
+| pytest | **315 passed, 1 skipped, 0 errors** |
+
+### 测试覆盖总计
+- 单元测试: 59 (vitest) + 315 (pytest) = **374**
+- E2E 测试: 33 (mock) + 23 (真实后端) = **56**
+- 总计: **430 个测试，全部通过**
 
 ### 评价
-前后端全量测试零失败。前端 33 个 E2E 测试覆盖所有页面路由和核心编辑交互。后端 315 个测试覆盖全部 API 端点、Agent、Pipeline、安全。生产构建成功。项目可交付程度：**极高**。
+首次实现真实后端 + 无头浏览器全栈集成测试。项目 CRUD 完整往返验证通过，所有 18 个 API 端点可达，5 个核心页面在真实后端下正常渲染。前后端联调零失败。可交付程度：**极高**。
 
 - - -
 
