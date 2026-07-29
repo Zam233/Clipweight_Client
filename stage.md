@@ -1,5 +1,31 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 59: 插件系统审计与修复
+**Timestamp**: 2026-07-30T03:30:00+08:00
+
+### 后端修复 (3 项)
+- Fix: schema/plugin.py PluginKind 枚举缺少 STYLE → 新增 STYLE = "style"（custom_style 插件不再静默降级为 capability）
+- Fix: plugins/logic_animations/main.py 绝对导入 `from plugins.logic_animations...` → 相对导入 `from .diagrams.all`（消除 CWD 依赖）
+- Fix: PluginData/plugins/pexels_material/config.yaml 明文 API key → 脱敏为空值 + 环境变量提示
+
+### 前端修复 (1 项)
+- Fix: PluginsPage 仅显示已加载插件，失败/未加载插件不可见 → 新增 discover() 调用，合并已加载+未加载列表
+
+### 插件系统审计结论
+- 7 个官方插件全部可用（pexels_material/logic_animations/my_animations/custom_style/example_caption/my_material_lib/llm_mg）
+- 所有 Agent 工具/技能引用均有实现，无缺失
+- llm_mg HTTP 端点（文档中记录）未实现为路由（仅内部调用），已记录为已知差距
+- mg_animations 废弃路径引用已有守卫，不影响运行
+
+### 测试确认
+- 后端: pytest 315 passed / 0 errors
+- 前端: tsc 0
+
+### 评价
+插件系统 4 项问题修复，安全脱敏完成，前端插件管理可视化增强。可交付程度：极高。
+
+- - -
+
 ## Stage 58: 后端 Bug 18/18 全部修复完成
 **Timestamp**: 2026-07-30T03:10:00+08:00
 
