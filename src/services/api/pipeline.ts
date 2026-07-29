@@ -27,6 +27,12 @@ export const pipelineApi = {
     return data;
   },
 
+  /** Get pipeline status */
+  async getStatus(pipelineId: string) {
+    const { data } = await getApiClient().get(`/api/pipeline/status/${pipelineId}`);
+    return data as { pipeline_id: string; status: string; phase?: string; progress?: number };
+  },
+
   /** Retry from failed agent */
   async retry(pipelineId: string, agentName: string) {
     const { data } = await getApiClient().post(
