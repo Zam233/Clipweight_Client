@@ -1,5 +1,25 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 57: 后端 Medium/Low Bug 修复（第二批）
+**Timestamp**: 2026-07-30T02:50:00+08:00
+
+### 后端修复 (6 项)
+- Fix: render.py trim cache 存入 per-render 临时目录被 cleanup 删除 → 持久化 _TRIM_CACHE_DIR
+- Fix: render.py trim cache 多线程竞态 → threading.Lock 保护读写
+- Fix: project_manager.py JSON 写入非原子（并发损坏）→ tempfile + os.replace 原子写入
+- Fix: security.py 白名单相对路径 CWD 依赖 → 锚定 Path(__file__).parent.parent
+- Fix: render.py task ID 计数器多进程碰撞 → uuid4
+- Fix: pipeline_v2.py self-heal off-by-one（多跑一次 quality agent）→ <= 改 <
+- Fix: render.py render_id 未验证 → is_safe_id 校验
+
+### 测试确认
+- 后端: pytest 315 passed / 0 errors / 0 failures
+
+### 评价
+后端扫描发现的 18 个 Bug 已全部修复（2 Critical + 5 High + 7 Medium + 4 Low）。渲染管线、安全白名单、数据完整性、并发安全均得到加固。可交付程度：极高。
+
+- - -
+
 ## Stage 56: 后端深度 Bug 扫描与修复
 **Timestamp**: 2026-07-30T02:30:00+08:00
 
