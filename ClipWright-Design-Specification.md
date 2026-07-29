@@ -1,3 +1,5 @@
+> 🎨 **Design Authority** — this specification defines the INTENDED design system for ClipWright. It is the source of truth for visual decisions. Implementation conformance should be verified against this document, not the reverse. Version 1.0.0 · 2026-07-20.
+
 # ClipWright 前端设计规范
 
 > **Version**: 1.0.0 | **Date**: 2026-07-20
