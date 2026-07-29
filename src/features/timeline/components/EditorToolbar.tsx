@@ -231,6 +231,33 @@ export function EditorToolbar() {
     input.click();
   };
 
+  const handleEdlExport = async () => {
+    const store = useTimelineStore.getState();
+    const clips = store.timeline.tracks.flatMap((t) =>
+      t.clips.map((c) => ({
+        id: c.id,
+        start_sec: c.start_sec,
+        duration_sec: c.duration_sec,
+        kind: c.kind,
+        title: c.metadata?.title as string ?? c.asset_id,
+      })),
+    );
+    if (clips.length === 0) return;
+    try {
+      const { edlApi } = await import('@/services/api/edl');
+      const result = await edlApi.exportEDL(clips, store.timeline.fps);
+      const blob = new Blob([result.edl], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${projectName || 'timeline'}.edl`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* 后端不可达时静默失败 */
+    }
+  };
+
   const handleSrtExport = () => {
     const store = useTimelineStore.getState();
     const captions = store.timeline.tracks
@@ -395,6 +422,12 @@ export function EditorToolbar() {
           <button onClick={handleEdlImport}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <FileUp className="w-4 h-4" />
+          </button>
+        </Tooltip>
+        <Tooltip content="导出 EDL">
+          <button onClick={handleEdlExport}
+            className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+            <Download className="w-3.5 h-3.5" />
           </button>
         </Tooltip>
         <Tooltip content="素材面板">
