@@ -40,8 +40,21 @@ export function PropertiesPanel() {
   const pushHistory = () =>
     useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'property');
 
+  const batchUpdate = (updates: Partial<Clip>) => {
+    if (selectedClipIds.length > 1) {
+      pushHistory();
+      selectedClipIds.forEach((id) => updateClip(id, updates));
+    } else if (clip) {
+      updateClip(clip.id, updates);
+    }
+  };
+
   const set = (updates: Partial<Clip>) => {
-    if (clip) updateClip(clip.id, updates);
+    if (selectedClipIds.length > 1) {
+      batchUpdate(updates);
+    } else if (clip) {
+      updateClip(clip.id, updates);
+    }
   };
 
   const color = TRACK_COLORS[trackKind as keyof typeof TRACK_COLORS] ?? '#4F8CFF';
@@ -56,9 +69,11 @@ export function PropertiesPanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
-        {!clip ? (
-          <NoSelection />
-        ) : (
+        {selectedClipIds.length === 0 && <NoSelection />}
+        {selectedClipIds.length > 1 && (
+          <BatchEditSection count={selectedClipIds.length} set={set} pushHistory={pushHistory} />
+        )}
+        {clip && (
           <div className="p-3 space-y-4">
             {/* Clip identity */}
             <div className="flex items-center gap-2">
@@ -563,6 +578,19 @@ function TransitionSelect({ value, onChange }: { value: string; onChange: (v: st
         <option key={t} value={t}>{t === '' ? '无' : t}</option>
       ))}
     </select>
+  );
+}
+
+function BatchEditSection({ count, set, pushHistory }: { count: number; set: (u: Partial<Clip>) => void; pushHistory: () => void }) {
+  return (
+    <Section title={`批量编辑 · ${count} 个片段`}>
+      <Slider label="速度（全部）" min={0.25} max={4} step={0.25} value={1}
+        onChange={(v) => { pushHistory(); set({ speed: v }); }} />
+      <Slider label="音量（全部）" min={0} max={1} step={0.05} value={1}
+        onChange={(v) => { pushHistory(); set({ volume: v }); }} />
+      <Slider label="不透明度（全部）" min={0} max={1} step={0.05} value={1}
+        onChange={(v) => { pushHistory(); set({ opacity: v }); }} />
+    </Section>
   );
 }
 
