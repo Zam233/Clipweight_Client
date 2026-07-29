@@ -40,6 +40,8 @@ export class TimelineEngine {
   private hoveredClipId: string | null = null;
   private hoveredTrackId: string | null = null;
   private scrollbarHover = false;
+  private lastClickTime = 0;
+  private lastClickX = 0;
   markers: Marker[] = [];
 
   private rafId = 0;
@@ -225,10 +227,21 @@ export class TimelineEngine {
       return;
     }
 
-    // Ruler → scrub
+    // Ruler → scrub or double-click to add marker
     if (y < L.rulerH) {
+      const now = performance.now();
+      const clickTime = xToTime(x, L);
+      if (now - this.lastClickTime < 400 && Math.abs(x - this.lastClickX) < 10) {
+        this.markers.push({ time: Math.max(0, clickTime) });
+        this.markers.sort((a, b) => a.time - b.time);
+        this.requestRender();
+        this.drag.mode = 'none';
+        return;
+      }
+      this.lastClickTime = now;
+      this.lastClickX = x;
       this.drag.mode = 'scrub';
-      preview.setCurrentTime(Math.max(0, xToTime(x, L)));
+      preview.setCurrentTime(Math.max(0, clickTime));
       return;
     }
 
