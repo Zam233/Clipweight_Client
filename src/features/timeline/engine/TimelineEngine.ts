@@ -283,9 +283,12 @@ export class TimelineEngine {
 
     if (hit) {
       const { clip, track } = hit;
-      // Select
+      // Select (Shift=additive, Ctrl=toggle)
       if (!selection.selectedClipIds.includes(clip.id)) {
-        selection.selectClip(clip.id, e.shiftKey);
+        selection.selectClip(clip.id, e.shiftKey || e.ctrlKey || e.metaKey);
+      } else if (e.ctrlKey || e.metaKey) {
+        // Ctrl+click selected clip → deselect it
+        selection.selectClip(clip.id, true);
       } else if (e.shiftKey) {
         selection.selectClip(clip.id, true); // toggle off
         return;
