@@ -23,6 +23,8 @@ export function TimelinePanel() {
   const engineRef = useRef<TimelineEngine | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const [dropActive, setDropActive] = useState(false);
+
   const addTrack = useTimelineStore((s) => s.addTrack);
   const removeClip = useTimelineStore((s) => s.removeClip);
   const rippleDelete = useTimelineStore((s) => s.rippleDelete);
@@ -235,9 +237,12 @@ export function TimelinePanel() {
           if (types.includes('application/x-clipwright-asset') || types.includes('text/plain')) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
+            setDropActive(true);
           }
         }}
+        onDragLeave={() => setDropActive(false)}
         onDrop={(e) => {
+          setDropActive(false);
           const raw = e.dataTransfer.getData('application/x-clipwright-asset') || e.dataTransfer.getData('text/plain');
           if (!raw || !engineRef.current || !containerRef.current) return;
           e.preventDefault();
@@ -245,10 +250,41 @@ export function TimelinePanel() {
             const asset = JSON.parse(raw);
             const rect = containerRef.current.getBoundingClientRect();
             engineRef.current.dropAssetAt(e.clientX - rect.left, e.clientY - rect.top, asset);
-          } catch { /* malformed drag payload */ }
+          } catch (err) {
+            console.warn('[TimelinePanel] drop parse failed:', err, raw);
+          }
         }}
       >
-        <canvas ref={canvasRef} className="absolute inset-0 block" style={{ pointerEvents: 'auto' }} />
+        {/* Drop highlight overlay */}
+        {dropActive && (
+          <div className="absolute inset-0 z-10 pointer-events-none border-2 border-dashed border-primary/60 bg-primary/5 rounded-cw-sm" />
+        )}
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 block"
+          style={{ pointerEvents: 'auto' }}
+          onDragOver={(e) => {
+            const types = e.dataTransfer.types;
+            if (types.includes('application/x-clipwright-asset') || types.includes('text/plain')) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+              setDropActive(true);
+            }
+          }}
+          onDrop={(e) => {
+            setDropActive(false);
+            e.preventDefault();
+            const raw = e.dataTransfer.getData('application/x-clipwright-asset') || e.dataTransfer.getData('text/plain');
+            if (!raw || !engineRef.current || !containerRef.current) return;
+            try {
+              const asset = JSON.parse(raw);
+              const rect = containerRef.current.getBoundingClientRect();
+              engineRef.current.dropAssetAt(e.clientX - rect.left, e.clientY - rect.top, asset);
+            } catch (err) {
+              console.warn('[TimelinePanel] canvas drop parse failed:', err, raw);
+            }
+          }}
+        />
       </div>
 
       {/* Add track bar */}

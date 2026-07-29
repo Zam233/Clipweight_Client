@@ -3,6 +3,7 @@ import { useAgentStore } from '@/stores/agentStore';
 import { requirementsApi, pipelineApi } from '@/services/api';
 import { useProjectStore } from '@/stores/projectStore';
 import { Button } from '@/components/ui';
+import { Markdown } from '@/components/shared/Markdown';
 import { uid } from '@/lib/utils';
 import { MessageSquare, ThumbsDown, ThumbsUp, X, Send, Check, Loader2, ChevronLeft } from 'lucide-react';
 
@@ -81,10 +82,14 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
       const res = await requirementsApi.chat({ session_id: sessionId, message: msg });
       const newBrief = res.creative_brief ?? null;
       const newPlan = res.production_plan ?? null;
-      if (newBrief) { setBrief(newBrief); setStatus('brief_ready'); }
+      const st = res.status as string | undefined;
+      // Only reset brief during gathering/brief_ready; preserve it after confirmation
+      if (newBrief && (st === 'gathering' || st === 'brief_ready')) { setBrief(newBrief); setStatus('brief_ready'); }
       if (newPlan) { setPlan(newPlan); setStatus('plan_ready'); }
       addMessage({ id: uid('m'), role: 'assistant', content: res.reply ?? '已根据反馈更新方案。',
-        timestamp: new Date().toISOString(), creative_brief: newBrief, production_plan: newPlan });
+        timestamp: new Date().toISOString(),
+        creative_brief: (st === 'gathering' || st === 'brief_ready') ? newBrief : null,
+        production_plan: newPlan });
       useAgentStore.getState().clearAnnotations();
       onBack();
     } catch {
@@ -126,10 +131,10 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
       onBack();
     } else {
       setStatus('brief_confirmed');
-      addMessage({ id: uid('m'), role: 'user', content: '确认创意简报，请生成完整的制作规划书。', timestamp: new Date().toISOString() });
+      addMessage({ id: uid('m'), role: 'user', content: '确认，请生成完整的制作规划书。', timestamp: new Date().toISOString() });
       try {
         if (sessionId) {
-          const res = await requirementsApi.chat({ session_id: sessionId, message: '创意简报已确认，请生成完整的制作规划书。' });
+          const res = await requirementsApi.chat({ session_id: sessionId, message: '确认，请生成完整的制作规划书。' });
           const plan = res.production_plan ?? null;
           if (plan) { setPlan(plan); setStatus('plan_ready'); }
           addMessage({ id: uid('m'), role: 'assistant', content: res.reply ?? '制作规划书已生成。',
@@ -220,7 +225,7 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
               )}
             </div>
           )}
-          {planMarkdown && <div>{planMarkdown}</div>}
+          {planMarkdown && <Markdown text={planMarkdown} />}
         </div>
 
         <div className="w-[240px] shrink-0 border-l border-outline-variant/20 flex flex-col overflow-y-auto bg-surface-container p-3">

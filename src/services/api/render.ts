@@ -22,7 +22,7 @@ export const renderApi = {
 
   /** Get SSE stream URL for render progress */
   getQueueStreamUrl(taskId: string): string {
-    const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
+    const base = getApiClient().defaults.baseURL || 'http://localhost:8080';
     return `${base}/api/render/queue/stream/${taskId}`;
   },
 
@@ -34,19 +34,19 @@ export const renderApi = {
 
   /** Download rendered file */
   getDownloadUrl(filename: string): string {
-    const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
+    const base = getApiClient().defaults.baseURL || 'http://localhost:8080';
     return `${base}/api/render/download/${filename}`;
   },
 
   /** Get video thumbnail */
   getThumbnailUrl(path: string, timeSec = 0.5): string {
-    const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
+    const base = getApiClient().defaults.baseURL || 'http://localhost:8080';
     return `${base}/api/render/thumbnail?path=${encodeURIComponent(path)}&time_sec=${timeSec}`;
   },
 
   /** Get video proxy URL for preview */
   getVideoUrl(path: string): string {
-    const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
+    const base = getApiClient().defaults.baseURL || 'http://localhost:8080';
     return `${base}/api/render/video?path=${encodeURIComponent(path)}`;
   },
 

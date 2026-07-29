@@ -16,19 +16,38 @@ export interface HealthResponse {
 export interface Project {
   id: string;
   name: string;
-  timeline: Timeline;
+  timeline: Timeline | null;
   created_at: string;
   updated_at: string;
   persona_id?: string;
   plugin_id?: string;
+  folder: string;
+  tags: string[];
+  thumbnail?: string;
+}
+
+/** Lightweight project summary returned by list (no full timeline). */
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  persona_id?: string;
+  plugin_id?: string;
+  folder?: string;
+  tags?: string[];
+  track_count?: number;
+  duration_sec?: number;
+  has_thumbnail?: boolean;
 }
 
 export interface ProjectSaveRequest {
-  id?: string;
   name: string;
-  timeline: Timeline;
+  timeline: Timeline | null;
   persona_id?: string;
   plugin_id?: string;
+  folder?: string;
+  tags?: string[];
 }
 
 // ── Asset ──

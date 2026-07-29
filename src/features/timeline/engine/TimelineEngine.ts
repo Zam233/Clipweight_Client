@@ -694,21 +694,26 @@ export class TimelineEngine {
 
     if (!targetTrack) {
       const tid = store.addTrack(clipKind);
-      targetTrack = store.timeline.tracks.find((t) => t.id === tid);
+      targetTrack = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
     }
     if (!targetTrack) return;
 
     // Snap drop time to a sensible grid (0.1s)
     const startSec = Math.round(dropTime * 10) / 10;
     useHistoryStore.getState().pushState(store.timeline, 'drop');
-    store.addClip(targetTrack.id, {
+    const clipId = store.addClip(targetTrack.id, {
       kind: clipKind,
       asset_id: asset.id,
       start_sec: startSec,
       duration_sec: asset.duration || 5,
       metadata: { title: asset.filename },
     });
-    useSelectionStore.getState().selectTrack(targetTrack.id);
+    // Select the dropped clip, not just the track
+    if (clipId) {
+      useSelectionStore.getState().selectClip(clipId);
+    } else {
+      useSelectionStore.getState().selectTrack(targetTrack.id);
+    }
     this.requestRender();
   }
 

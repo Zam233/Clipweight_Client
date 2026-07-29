@@ -92,7 +92,7 @@ export function AssetPanel() {
     let track = store.timeline.tracks.find((t) => t.kind === kind);
     if (!track) {
       const tid = store.addTrack(kind);
-      track = store.timeline.tracks.find((t) => t.id === tid);
+      track = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
     }
     if (!track) return;
     // Prefer real media duration when available
@@ -319,7 +319,7 @@ function AIMatchView() {
     let track = store.timeline.tracks.find((t) => t.kind === 'video');
     if (!track) {
       const tid = store.addTrack('video');
-      track = store.timeline.tracks.find((t) => t.id === tid);
+      track = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
     }
     if (!track) return;
     const lastEnd = track.clips.reduce((m, c) => Math.max(m, c.start_sec + c.duration_sec), 0);
@@ -388,6 +388,15 @@ function AIMatchView() {
         )}
         {!searching && results.map((r) => (
           <button key={r.id} onClick={() => addResult(r)}
+            draggable
+            onDragStart={(e) => {
+              const payload = JSON.stringify({
+                id: r.id, kind: 'video', filename: r.title, duration: r.duration_sec ?? 5,
+              });
+              e.dataTransfer.setData('application/x-clipwright-asset', payload);
+              e.dataTransfer.setData('text/plain', payload);
+              e.dataTransfer.effectAllowed = 'copy';
+            }}
             className="w-full flex items-center gap-2.5 bg-surface-container border border-outline-variant/20 rounded-cw-sm px-2.5 py-2
               hover:border-primary/50 hover:bg-surface transition-all duration-short3 cursor-pointer group text-left">
             {r.thumbnail ? (

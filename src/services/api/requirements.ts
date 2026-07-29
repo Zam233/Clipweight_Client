@@ -16,7 +16,7 @@ export const requirementsApi = {
 
   /** Get SSE stream URL for chat */
   getChatStreamUrl(sessionId: string): string {
-    const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
+    const base = getApiClient().defaults.baseURL || 'http://localhost:8080';
     return `${base}/api/requirements/chat/stream/${sessionId}`;
   },
 

@@ -1,89 +1,133 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+import { useParams } from '@tanstack/react-router';
 import { EditorLayout } from '@/layouts/EditorLayout';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
-import { createEmptyTimeline } from '@/types/timeline';
-import type { Timeline, Track, Clip } from '@/types/timeline';
-import { uid } from '@/lib/utils';
-import { projectCache, createAutoSaver } from '@/services/storage/projectCache';
-import { projectApi } from '@/services/api';
+import { useAgentStore, clearRequirementsDraft } from '@/stores/agentStore';
+import { useHistoryStore } from '@/stores/historyStore';
+import { useSelectionStore } from '@/stores/selectionStore';
+import { usePreviewStore } from '@/stores/previewStore';
+import { projectApi, getApiClient } from '@/services/api';
 import { useGlobalKeybindings } from '@/features/keyboard/useGlobalKeybindings';
 import { ShortcutCheatSheet } from '@/features/keyboard/ShortcutCheatSheet';
-
-const AUTOSAVE_PROJECT_ID = 'current';
+import { createEmptyTimeline } from '@/types/timeline';
 
 /**
- * EditorPage — hosts the 4-panel editor. Restores the last auto-saved project
- * from IndexedDB (or seeds a starter timeline), and continuously auto-saves
- * timeline changes so a crash never loses work.
+ * EditorPage — hosts the 4-panel editor. Loads project from backend by id
+ * (strict: no IndexedDB fallback). Auto-saves to backend on timeline change.
  */
 export function EditorPage() {
-  // Global shortcuts + cheat sheet (Ctrl+/)
+  const { projectId } = useParams({ from: '/editor/$projectId' });
   const { cheatSheetOpen, setCheatSheetOpen } = useGlobalKeybindings();
+  const dirtyRef = useRef(false);
 
-  // Restore or seed on mount
+  // Load project from backend on mount
   useEffect(() => {
     let alive = true;
     (async () => {
-      const store = useTimelineStore.getState();
-      const cached = await projectCache.load(AUTOSAVE_PROJECT_ID).catch(() => undefined);
-      if (!alive) return;
-      if (cached && cached.timeline && cached.timeline.tracks.length > 0) {
-        store.setTimeline(cached.timeline);
-        if (cached.name) useProjectStore.getState().setProjectName(cached.name);
-      } else if (store.timeline.tracks.length === 0) {
-        store.setTimeline(buildStarterTimeline());
+      try {
+        // Reset all stores before loading the new project to prevent
+        // stale state from the previous project leaking through.
+        // resetProject() first — it nulls projectId, which makes
+        // autosave's `if (!st.projectId) return;` guard skip any
+        // in-flight writes to the old project.
+        useProjectStore.getState().resetProject();
+        useTimelineStore.getState().resetTimeline();
+        useAgentStore.getState().resetPipeline();
+        useAgentStore.getState().resetRequirements();
+        clearRequirementsDraft();
+        useHistoryStore.getState().clear();
+        useSelectionStore.getState().deselectAll();
+        usePreviewStore.getState().setPlaying(false);
+        usePreviewStore.getState().setCurrentTime(0);
+
+        const project = await projectApi.load(projectId);
+        if (!alive) return;
+        useProjectStore.getState().setProjectId(project.id);
+        useProjectStore.getState().setProjectName(project.name);
+        if (project.persona_id) useProjectStore.getState().setPersonaId(project.persona_id);
+        if (project.plugin_id) useProjectStore.getState().setPluginId(project.plugin_id);
+        useTimelineStore.getState().setTimeline(project.timeline ?? createEmptyTimeline());
+      } catch (err) {
+        console.error('[EditorPage] Failed to load project:', err);
+        // The beforeLoad guard should have caught this, but as fallback:
+        window.location.href = '/';
       }
     })();
     return () => { alive = false; };
+  }, [projectId]);
+
+  // Save helper — used by autosave, manual save, and pagehide flush
+  const doSave = useCallback(async () => {
+    const st = useProjectStore.getState();
+    if (!st.projectId) return;
+    st.setSaving(true);
+    st.setSaveError(false);
+    try {
+      await projectApi.save(st.projectId, {
+        name: st.projectName,
+        timeline: useTimelineStore.getState().timeline,
+        persona_id: st.personaId ?? undefined,
+        plugin_id: st.pluginId ?? undefined,
+      });
+      st.setSaving(false);
+      st.setLastSaved(new Date().toISOString());
+      dirtyRef.current = false;
+    } catch {
+      st.setSaving(false);
+      st.setSaveError(true);
+    }
   }, []);
 
-  // Auto-save on timeline change (debounced)
-  useEffect(() => {
-    const saver = createAutoSaver(1500);
-    const unsub = useTimelineStore.subscribe((state, prev) => {
-      if (state.timeline !== prev.timeline) {
-        saver.schedule({
-          id: AUTOSAVE_PROJECT_ID,
-          name: useProjectStore.getState().projectName,
-          timeline: state.timeline,
-          personaId: useProjectStore.getState().personaId,
-          pluginId: useProjectStore.getState().pluginId,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        });
-      }
-    });
-    // Flush on unload so the latest edit is persisted
-    const onUnload = () => { saver.flush(); };
-    window.addEventListener('beforeunload', onUnload);
-    return () => {
-      unsub();
-      window.removeEventListener('beforeunload', onUnload);
-      saver.flush();
-    };
-  }, []);
-
-  // Server-side auto-save (debounced, only when project has an ID)
+  // Server-side auto-save (debounced)
   const serverSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const unsub = useTimelineStore.subscribe((_state, _prev) => {
+      dirtyRef.current = true;
       const st = useProjectStore.getState();
       if (!st.projectId) return;
       if (serverSaveTimer.current) clearTimeout(serverSaveTimer.current);
       serverSaveTimer.current = setTimeout(() => {
-        projectApi.save({
-          id: st.projectId!,
-          name: st.projectName,
-          timeline: useTimelineStore.getState().timeline,
-          persona_id: st.personaId ?? undefined,
-          plugin_id: st.pluginId ?? undefined,
-        }).catch(() => { /* offline */ });
-      }, 10000);
+        doSave();
+      }, 5000);
     });
     return () => {
       unsub();
       if (serverSaveTimer.current) clearTimeout(serverSaveTimer.current);
+    };
+  }, [doSave]);
+
+  // Manual save trigger via saveNonce
+  const saveNonce = useProjectStore((s) => s.saveNonce);
+  useEffect(() => {
+    if (saveNonce > 0) void doSave();
+  }, [saveNonce, doSave]);
+
+  // Page-hide save flush — best-effort immediate save when leaving
+  useEffect(() => {
+    const flush = () => {
+      if (!dirtyRef.current) return;
+      const st = useProjectStore.getState();
+      if (!st.projectId) return;
+      const base = getApiClient().defaults.baseURL || 'http://localhost:8080';
+      const payload = JSON.stringify({
+        name: st.projectName,
+        timeline: useTimelineStore.getState().timeline,
+        persona_id: st.personaId ?? undefined,
+        plugin_id: st.pluginId ?? undefined,
+      });
+      try {
+        navigator.sendBeacon(
+          `${base}/api/project/${st.projectId}`,
+          new Blob([payload], { type: 'application/json' }),
+        );
+      } catch { /* best effort */ }
+    };
+    window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      window.removeEventListener('beforeunload', flush);
     };
   }, []);
 
@@ -93,76 +137,4 @@ export function EditorPage() {
       <ShortcutCheatSheet open={cheatSheetOpen} onClose={() => setCheatSheetOpen(false)} />
     </>
   );
-}
-
-/** Build a small demo timeline showcasing all clip kinds. */
-function buildStarterTimeline(): Timeline {
-  const tl = createEmptyTimeline(uid('tl'));
-  tl.fps = 30;
-
-  const mkClip = (over: Partial<Clip> & { kind: Clip['kind']; track_id: string; start_sec: number; duration_sec: number }): Clip => ({
-    id: uid('clip'), asset_id: '', source_offset_sec: 0, speed: 1, volume: 1, opacity: 1,
-    keyframes: [], metadata: {}, ...over,
-  });
-
-  const v1: Track = { id: uid('tr'), name: 'V1 · 主视频', kind: 'video', index: 0, locked: false, muted: false, clips: [] };
-  const v2: Track = { id: uid('tr'), name: 'V2 · 文字', kind: 'text', index: 1, locked: false, muted: false, clips: [] };
-  const a1: Track = { id: uid('tr'), name: 'A1 · 旁白', kind: 'audio', index: 2, locked: false, muted: false, clips: [] };
-  const a2: Track = { id: uid('tr'), name: 'A2 · 音乐', kind: 'audio', index: 3, locked: false, muted: false, clips: [] };
-
-  // Main video scenes
-  const scenes = [
-    { dur: 6, title: '开场钩子' },
-    { dur: 9, title: '背景铺垫' },
-    { dur: 11, title: '论点一' },
-    { dur: 8, title: '论点二' },
-    { dur: 7, title: '总结' },
-  ];
-  let cursor = 0;
-  for (const s of scenes) {
-    v1.clips.push(mkClip({
-      kind: 'video', track_id: v1.id, start_sec: cursor, duration_sec: s.dur,
-      asset_id: `${s.title}.mp4`, metadata: { title: s.title },
-      transition_in: cursor === 0 ? null : 'hard_cut',
-    }));
-    cursor += s.dur;
-  }
-
-  // Text overlays
-  v2.clips.push(mkClip({
-    kind: 'text', track_id: v2.id, start_sec: 0.5, duration_sec: 4.5,
-    text: '你真的了解它吗？', font_size: 64, font_color: '#FBBF24',
-    keyframes: [
-      { time: 0, properties: { opacity: 0 } },
-      { time: 0.2, properties: { opacity: 1 } },
-      { time: 0.85, properties: { opacity: 1 } },
-      { time: 1, properties: { opacity: 0 } },
-    ],
-  }));
-  v2.clips.push(mkClip({
-    kind: 'caption', track_id: v2.id, start_sec: 15.5, duration_sec: 9,
-    text: '关键在于这三个设计', font_size: 48, font_color: '#FFFFFF',
-  }));
-
-  // Voiceover
-  a1.clips.push(mkClip({
-    kind: 'audio', track_id: a1.id, start_sec: 1, duration_sec: cursor - 2,
-    asset_id: '旁白配音.wav', metadata: { title: '旁白配音' }, volume: 1,
-  }));
-
-  // BGM with fade keyframes
-  a2.clips.push(mkClip({
-    kind: 'audio', track_id: a2.id, start_sec: 0, duration_sec: cursor,
-    asset_id: '背景音乐.mp3', metadata: { title: '背景音乐' }, volume: 0.25,
-    keyframes: [
-      { time: 0, properties: { opacity: 0 } },
-      { time: 0.05, properties: { opacity: 0.25 } },
-      { time: 0.95, properties: { opacity: 0.25 } },
-      { time: 1, properties: { opacity: 0 } },
-    ],
-  }));
-
-  tl.tracks = [v1, v2, a1, a2];
-  tl.duration_sec = cursor;
-  return tl;
 }

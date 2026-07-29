@@ -155,7 +155,10 @@ export function ExportPage() {
   return (
     <StandardLayout title="导出与渲染">
       <button
-        onClick={() => navigate({ to: '/editor' })}
+        onClick={() => {
+          const pid = useProjectStore.getState().projectId;
+          if (pid) navigate({ to: '/editor/$projectId', params: { projectId: pid } });
+        }}
         className="flex items-center gap-1.5 text-label-sm text-on-surface-variant hover:text-primary transition-colors mb-5 cursor-pointer"
       >
         <ArrowLeft className="w-3.5 h-3.5" /> 返回编辑器

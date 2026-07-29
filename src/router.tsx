@@ -3,6 +3,7 @@ import {
   createRoute,
   createRouter,
   Outlet,
+  redirect,
 } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { HomePage } from './pages/HomePage';
@@ -30,6 +31,7 @@ const WebhooksPage = lazyPage(() => import('./pages/admin/WebhooksPage'), 'Webho
 const FontsPage = lazyPage(() => import('./pages/admin/FontsPage'), 'FontsPage');
 const PipelineAdminPage = lazyPage(() => import('./pages/admin/PipelineAdminPage'), 'PipelineAdminPage');
 const VoicePage = lazyPage(() => import('./pages/VoicePage'), 'VoicePage');
+const ProjectsPage = lazyPage(() => import('./pages/ProjectsPage'), 'ProjectsPage');
 
 function RouteFallback() {
   return (
@@ -58,7 +60,22 @@ const indexRoute = createRoute({
 
 const editorRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/editor',
+  path: '/editor/$projectId',
+  beforeLoad: async ({ params }) => {
+    const { projectId } = params;
+    // Strict guard: validate id format and check backend
+    if (!projectId || !/^proj_[A-Za-z0-9_-]{1,63}$/.test(projectId)) {
+      sessionStorage.setItem('cw_guard_notice', '项目链接无效');
+      throw redirect({ to: '/' });
+    }
+    try {
+      const { projectApi } = await import('./services/api');
+      await projectApi.load(projectId);
+    } catch {
+      sessionStorage.setItem('cw_guard_notice', '无法打开项目：后端未连接或项目不存在');
+      throw redirect({ to: '/' });
+    }
+  },
   component: EditorPage,
 });
 
@@ -152,6 +169,12 @@ const voiceRoute = createRoute({
   component: VoicePage,
 });
 
+const projectsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/projects',
+  component: ProjectsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   editorRoute,
@@ -170,6 +193,7 @@ const routeTree = rootRoute.addChildren([
   fontsRoute,
   pipelineAdminRoute,
   voiceRoute,
+  projectsRoute,
 ]);
 
 export const router = createRouter({ routeTree });

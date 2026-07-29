@@ -7,8 +7,6 @@ import {
   healthApi, personaApi, projectApi, assetApi, pipelineApi,
   getApiClient,
 } from '@/services/api';
-import { projectCache } from '@/services/storage/projectCache';
-import type { CachedProject } from '@/services/storage/projectCache';
 import { Button, Badge } from '@/components/ui';
 import {
   Film, Settings, Sparkles, ArrowRight, Plus, Bot, ListChecks,
@@ -16,6 +14,7 @@ import {
   History, Trash2, PlayCircle, Upload, X, Check, Loader2, AudioLines,
   Scissors, FileText, FolderOpen, Clapperboard,
 } from 'lucide-react';
+import { ProjectCard, type ProjectCardData } from '@/components/shared/ProjectCard';
 
 /* ── types ─────────────────────────────────────────────── */
 interface PersonaOpt { id: string; name: string; tone: string }
@@ -23,6 +22,7 @@ interface PluginOpt { id: string; name: string; desc: string; color: string }
 interface ProjectOpt {
   id: string; name: string; type: string; duration: string;
   tracks: number; edited: string; grad: [string, string]; featured?: boolean;
+  thumbnail?: string;
 }
 interface DubAudio { path: string; name: string; duration: number }
 interface MatSource { id: string; name: string }
@@ -45,12 +45,6 @@ const DEMO_PLUGINS: PluginOpt[] = [
 
 const PROJECT_GRADS: [string, string][] = [
   ['#A855F7', '#4F8CFF'], ['#4F8CFF', '#34D399'], ['#FF6B6B', '#FBBF24'], ['#34D399', '#F59E0B'],
-];
-const DEMO_PROJECTS: ProjectOpt[] = [
-  { id: 'p1', name: '骁龙 8 Gen3 深度评测', type: '数码评测', duration: '08:42', tracks: 6, edited: '2 小时前', grad: PROJECT_GRADS[0], featured: true },
-  { id: 'p2', name: '量子计算到底是什么', type: '知识区长片', duration: '12:05', tracks: 8, edited: '昨天', grad: PROJECT_GRADS[1] },
-  { id: 'p3', name: '【鬼畜】老板语录 remix', type: '鬼畜快剪', duration: '02:31', tracks: 5, edited: '3 天前', grad: PROJECT_GRADS[2] },
-  { id: 'p4', name: '京都 Vlog · 秋日', type: 'Vlog 日常', duration: '05:18', tracks: 4, edited: '上周', grad: PROJECT_GRADS[3] },
 ];
 
 const WORKFLOW = [
@@ -103,12 +97,12 @@ function relTime(iso: string): string {
 export function HomePage() {
   const navigate = useNavigate();
 
+  const [guardNotice, setGuardNotice] = useState<string | null>(null);
   const [backend, setBackend] = useState<'checking' | 'online' | 'offline'>('checking');
   const [dataMode, setDataMode] = useState<'live' | 'demo'>('demo');
   const [personas, setPersonas] = useState<PersonaOpt[]>(DEMO_PERSONAS);
   const [plugins, setPlugins] = useState<PluginOpt[]>(DEMO_PLUGINS);
-  const [projects, setProjects] = useState<ProjectOpt[]>(DEMO_PROJECTS);
-  const [cached, setCached] = useState<CachedProject | null>(null);
+  const [projects, setProjects] = useState<ProjectOpt[]>([]);
 
   const [topic, setTopic] = useState('');
   const [script, setScript] = useState('');
@@ -127,13 +121,15 @@ export function HomePage() {
 
   useEffect(() => {
     let alive = true;
+    // Check for guard notice from router redirect
+    const notice = sessionStorage.getItem('cw_guard_notice');
+    if (notice) {
+      sessionStorage.removeItem('cw_guard_notice');
+      queueMicrotask(() => alive && setGuardNotice(notice));
+    }
     healthApi.check()
       .then(() => alive && setBackend('online'))
       .catch(() => alive && setBackend('offline'));
-
-    projectCache.load('current')
-      .then((p) => alive && setCached(p && p.timeline?.tracks?.length ? p : null))
-      .catch(() => {});
 
     (async () => {
       try {
@@ -152,15 +148,16 @@ export function HomePage() {
         }
         if (Array.isArray(projs)) {
           setProjects(projs.length > 0
-            ? projs.map((pr, i) => ({
+              ? projs.map((pr, i) => ({
                 id: pr.id,
                 name: pr.name,
                 type: pr.plugin_id ?? '—',
-                duration: fmtDur(pr.timeline?.duration_sec ?? 0),
-                tracks: pr.timeline?.tracks?.length ?? 0,
+                duration: fmtDur(pr.duration_sec ?? 0),
+                tracks: pr.track_count ?? 0,
                 edited: relTime(pr.updated_at),
                 grad: PROJECT_GRADS[i % PROJECT_GRADS.length],
                 featured: i === 0,
+                thumbnail: pr.has_thumbnail ? projectApi.getThumbnailUrl(pr.id, pr.updated_at) : undefined,
               }))
             : []);
         }
@@ -242,7 +239,7 @@ export function HomePage() {
     }
   };
 
-  const launch = () => {
+  const launch = async () => {
     if (!topic.trim() && !script.trim()) {
       setLaunchErr('请填写选题或文案');
       return;
@@ -267,50 +264,42 @@ export function HomePage() {
       if (typeof prefs.autoDub === 'boolean') st.setAutoDub(prefs.autoDub);
     } catch { /* ignore */ }
     clearRequirementsDraft();
-    navigate({ to: '/editor' });
+
+    // Create project on backend
+    if (backend === 'online') {
+      try {
+        const project = await projectApi.create({
+          name: topic.trim() || '未命名项目',
+          timeline: null,
+          persona_id: personaId || undefined,
+          plugin_id: pluginId || undefined,
+        });
+        st.setProjectId(project.id);
+        navigate({ to: '/editor/$projectId', params: { projectId: project.id } });
+        return;
+      } catch {
+        // Fall through — offline
+      }
+    }
+    setLaunchErr('后端离线，无法创建项目');
   };
 
-  const continueEditing = () => {
-    if (!cached) return;
-    useTimelineStore.getState().setTimeline(cached.timeline);
-    useProjectStore.getState().setProjectName(cached.name);
-    navigate({ to: '/editor' });
-  };
-
-  const discardCached = async () => {
-    await projectCache.remove('current').catch(() => {});
-    setCached(null);
-  };
-
-  const openBlank = () => {
-    useProjectStore.getState().setProjectName('未命名项目');
-    navigate({ to: '/editor' });
+  const openBlank = async () => {
+    const st = useProjectStore.getState();
+    st.setProjectName('未命名项目');
+    if (backend === 'online') {
+      try {
+        const project = await projectApi.create({ name: '未命名项目', timeline: null });
+        st.setProjectId(project.id);
+        navigate({ to: '/editor/$projectId', params: { projectId: project.id } });
+        return;
+      } catch { /* fall through */ }
+    }
+    setLaunchErr('后端离线，无法创建项目');
   };
 
   const openProject = async (proj: ProjectOpt) => {
-    if (backend === 'online') {
-      try {
-        const remote = await projectApi.load(proj.id);
-        if (remote?.timeline) {
-          useTimelineStore.getState().setTimeline(remote.timeline);
-        }
-        useProjectStore.getState().setProjectName(remote?.name || proj.name);
-        useProjectStore.getState().setPersonaId(remote?.persona_id || null);
-        useProjectStore.getState().setPluginId(remote?.plugin_id || null);
-        useProjectStore.getState().setProjectId(remote?.id || proj.id);
-        navigate({ to: '/editor' });
-        return;
-      } catch { /* fall through to local cache */ }
-    }
-    // Offline fallback: try IndexedDB cache
-    const cached = await projectCache.load(proj.id).catch(() => null);
-    if (cached?.timeline) {
-      useTimelineStore.getState().setTimeline(cached.timeline);
-      useProjectStore.getState().setProjectName(cached.name || proj.name);
-    } else {
-      useProjectStore.getState().setProjectName(proj.name);
-    }
-    navigate({ to: '/editor' });
+    navigate({ to: '/editor/$projectId', params: { projectId: proj.id } });
   };
 
   const handleDeleteProject = async (projectId: string) => {
@@ -318,6 +307,32 @@ export function HomePage() {
       await projectApi.remove(projectId);
     } catch { /* offline — still remove from local state */ }
     setProjects((prev) => prev.filter((project) => project.id !== projectId));
+  };
+
+  const reloadProjects = async () => {
+    try {
+      const projs = await projectApi.list();
+      if (Array.isArray(projs)) {
+        setProjects(projs.map((pr, i) => ({
+          id: pr.id,
+          name: pr.name,
+          type: pr.plugin_id ?? '—',
+          duration: fmtDur(pr.duration_sec ?? 0),
+          tracks: pr.track_count ?? 0,
+          edited: relTime(pr.updated_at),
+          grad: PROJECT_GRADS[i % PROJECT_GRADS.length],
+          featured: i === 0,
+          thumbnail: pr.has_thumbnail ? projectApi.getThumbnailUrl(pr.id, pr.updated_at) : undefined,
+        })));
+      }
+    } catch { /* offline */ }
+  };
+
+  const handleDuplicateProject = async (project: ProjectOpt) => {
+    try {
+      await projectApi.duplicate(project.id);
+      await reloadProjects();
+    } catch { /* offline */ }
   };
 
   return (
@@ -329,6 +344,18 @@ export function HomePage() {
         <RulerStrip />
 
         <main className="flex-1 w-full max-w-[1200px] mx-auto px-8 pb-10">
+          {guardNotice && (
+            <div className="mb-4 flex items-center gap-3 rounded-cw-md bg-amber-500/10 border border-amber-500/30 px-4 py-3 text-amber-200 text-body-sm">
+              <span className="flex-1">{guardNotice}</span>
+              <button
+                onClick={() => setGuardNotice(null)}
+                className="ml-2 text-amber-200/60 hover:text-amber-200 transition-colors cursor-pointer"
+                aria-label="关闭"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           <section className="grid grid-cols-12 gap-6 pt-8">
             {/* ── production console ── */}
             <div className="col-span-12 lg:col-span-7">
@@ -660,7 +687,7 @@ export function HomePage() {
                         : backend === 'offline' ? 'text-error'
                         : 'text-track-text'
                     }>
-                      {backend === 'online' ? '已连接 localhost:8000'
+                      {backend === 'online' ? '已连接 localhost:8080'
                         : backend === 'offline' ? '离线 · 演示模式'
                         : '检测中…'}
                     </span>
@@ -687,38 +714,15 @@ export function HomePage() {
               </Badge>
             </div>
 
-            {cached && (
-              <div className="mb-4 flex items-center gap-4 bg-primary-container/25 border border-primary/40 rounded-cw-md px-5 py-4
-                hover:border-primary/70 transition-colors duration-short3 group">
-                <span className="w-11 h-11 rounded-cw-sm bg-primary-container flex items-center justify-center shrink-0">
-                  <History className="w-5 h-5 text-on-primary-container" />
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-body-sm font-semibold text-on-surface truncate">{cached.name}</p>
-                  <p className="text-caption text-on-surface-variant font-mono">
-                    上次编辑 {new Date(cached.updatedAt).toLocaleString()} · {cached.timeline.tracks.length} 轨 · 已自动保存
-                  </p>
-                </div>
-                <Button size="sm" onClick={continueEditing} className="group-hover:scale-105 transition-transform">
-                  <PlayCircle className="w-3.5 h-3.5" /> 继续编辑
-                </Button>
-                <button
-                  onClick={discardCached}
-                  className="p-2 rounded-cw-sm text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors cursor-pointer"
-                  title="放弃此草稿"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
             <div className="grid grid-cols-12 gap-4">
               {projects.map((proj) => (
                 <ProjectCard
                   key={proj.id}
                   proj={proj}
+                  mode="simple"
                   onOpen={() => openProject(proj)}
                   onDelete={() => handleDeleteProject(proj.id)}
+                  onDuplicate={() => handleDuplicateProject(proj)}
                 />
               ))}
             </div>
@@ -841,6 +845,14 @@ function TopBar({ backend }: { backend: 'checking' | 'online' | 'offline' }) {
           多轨时间轴 · 六 Agent 管线
         </span>
         <button
+          onClick={() => navigate({ to: '/projects' })}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-cw-sm text-label-sm text-on-surface-variant
+            hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+          title="我的项目"
+        >
+          <FolderOpen className="w-3.5 h-3.5" /> 我的项目
+        </button>
+        <button
           onClick={() => navigate({ to: '/voice' })}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-cw-sm text-label-sm text-on-surface-variant
             hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
@@ -860,81 +872,3 @@ function TopBar({ backend }: { backend: 'checking' | 'online' | 'offline' }) {
   );
 }
 
-function ProjectCard({
-  proj,
-  onOpen,
-  onDelete,
-}: {
-  proj: ProjectOpt;
-  onOpen: () => void;
-  onDelete: () => void;
-}) {
-  const span = proj.featured ? 'col-span-12 md:col-span-6' : 'col-span-12 sm:col-span-6 md:col-span-3';
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.currentTarget === event.target && (event.key === 'Enter' || event.key === ' ')) {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-      className={`${span} relative text-left group bg-surface-container border border-outline-variant/30 rounded-cw-md overflow-hidden
-        hover:border-primary/60 hover:-translate-y-1 hover:shadow-xl hover:shadow-primary/10
-        transition-all duration-medium2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
-    >
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          void onDelete();
-        }}
-        className="absolute top-2 right-2 z-10 p-1.5 rounded-cw-sm bg-black/50 text-white/70 opacity-0
-          group-hover:opacity-100 focus:opacity-100 hover:text-error hover:bg-black/70 transition-all cursor-pointer"
-        title="删除项目"
-        aria-label={`删除项目 ${proj.name}`}
-      >
-        <X className="w-3.5 h-3.5" />
-      </button>
-      <div
-        className={`relative ${proj.featured ? 'h-36' : 'h-24'} overflow-hidden`}
-        style={{ background: `linear-gradient(120deg, ${proj.grad[0]}33, ${proj.grad[1]}22)` }}
-      >
-        <div className="absolute top-1.5 left-0 right-0 flex gap-2 px-2 opacity-40">
-          {Array.from({ length: 14 }).map((_, i) => (
-            <i key={i} className="w-3 h-2 rounded-[2px] bg-black/50 shrink-0" />
-          ))}
-        </div>
-        <div className="absolute bottom-1.5 left-0 right-0 flex gap-2 px-2 opacity-40">
-          {Array.from({ length: 14 }).map((_, i) => (
-            <i key={i} className="w-3 h-2 rounded-[2px] bg-black/50 shrink-0" />
-          ))}
-        </div>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span
-            className="w-11 h-11 rounded-full flex items-center justify-center bg-black/40 border border-white/20
-              group-hover:scale-110 group-hover:bg-primary/80 transition-all duration-short3"
-          >
-            <svg className="w-4 h-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
-          </span>
-        </div>
-        <span className="absolute bottom-3 right-2 font-mono text-caption bg-black/60 text-white px-1.5 py-0.5 rounded-cw-xs">
-          {proj.duration}
-        </span>
-      </div>
-
-      <div className="p-3.5">
-        <p className="text-body-sm font-semibold text-on-surface truncate group-hover:text-primary transition-colors">
-          {proj.name}
-        </p>
-        <div className="flex items-center gap-3 mt-1.5 text-caption text-on-surface-variant">
-          <span className="truncate">{proj.type}</span>
-          <span className="flex items-center gap-1 shrink-0"><Layers className="w-3 h-3" />{proj.tracks} 轨</span>
-          <span className="flex items-center gap-1 ml-auto shrink-0"><Clock className="w-3 h-3" />{proj.edited}</span>
-        </div>
-      </div>
-    </div>
-  );
-}

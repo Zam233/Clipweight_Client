@@ -2,7 +2,9 @@
 
 ## Project Identity
 
-**ClipWright (帧艺)** is an AI-assisted video creation web editor frontend. React 19 + TypeScript 5.5 + Canvas 2D. Currently at Phase 5. The backend orchestration engine lives at `D:\Clipweight`.
+**ClipWright (帧艺)** is an AI-assisted video creation web editor frontend. React 19 + TypeScript 5.5 + Canvas 2D. Currently at Phase 5.
+
+**Backend**: `D:\Clipweight` — Content Video Orchestration Engine v0.1.0 (Python, FastAPI, SSE pipeline orchestration).
 
 Core product logic: Agent generates a rough-cut timeline → human reviews on the timeline → local dissatisfaction triggers Agent rework → final export. Human-in-the-loop iterative creation.
 

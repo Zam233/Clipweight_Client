@@ -82,4 +82,33 @@ describe('timelineStore', () => {
     useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 0, duration_sec: 12 });
     expect(useTimelineStore.getState().timeline.duration_sec).toBeCloseTo(12, 5);
   });
+
+  it('re-reading getState after addTrack sees the new track (stale-state guard)', () => {
+    // Simulate the stale-state pattern: capture snapshot BEFORE mutation
+    const staleSnapshot = useTimelineStore.getState();
+
+    // Mutate via live API (which calls set() internally)
+    const tid = useTimelineStore.getState().addTrack('audio', 'A1');
+
+    // Stale snapshot is frozen in time — its tracks array is still empty
+    expect(staleSnapshot.timeline.tracks).toHaveLength(0);
+
+    // Live re-read sees the new track
+    const freshTracks = useTimelineStore.getState().timeline.tracks;
+    expect(freshTracks).toHaveLength(1);
+    expect(freshTracks[0].id).toBe(tid);
+    expect(freshTracks[0].kind).toBe('audio');
+  });
+
+  it('finds a track by id via fresh getState (the fix)', () => {
+    // This mirrors the actual code pattern after the fix:
+    //   const store = useTimelineStore.getState();
+    //   const tid = store.addTrack('video');
+    //   const track = useTimelineStore.getState().timeline.tracks.find(t => t.id === tid);
+    const store = useTimelineStore.getState();
+    const tid = store.addTrack('video', 'V1');
+    const track = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
+    expect(track).toBeDefined();
+    expect(track!.kind).toBe('video');
+  });
 });

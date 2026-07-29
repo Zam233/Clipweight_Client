@@ -9,6 +9,8 @@ interface ProjectState {
   personas: Persona[];
   isSaving: boolean;
   lastSavedAt: string | null;
+  saveError: boolean;
+  saveNonce: number;
 
   voiceId: string | null;
   autoDub: boolean;
@@ -22,6 +24,7 @@ interface ProjectState {
   requirementsScript: string;
   requirementsAudioDuration: number;
   materialSourceIds: string[];
+  dubSegments: Array<{ start: number; end: number; text: string }> | null;
 
   // Actions
   setProjectId: (id: string | null) => void;
@@ -31,6 +34,8 @@ interface ProjectState {
   setPersonas: (personas: Persona[]) => void;
   setSaving: (saving: boolean) => void;
   setLastSaved: (at: string | null) => void;
+  setSaveError: (error: boolean) => void;
+  requestSave: () => void;
   setVoiceId: (id: string | null) => void;
   setAutoDub: (v: boolean) => void;
   setScriptText: (v: string) => void;
@@ -42,6 +47,7 @@ interface ProjectState {
   setRequirementsScript: (v: string) => void;
   setRequirementsAudioDuration: (v: number) => void;
   setMaterialSourceIds: (ids: string[]) => void;
+  setDubSegments: (segments: Array<{ start: number; end: number; text: string }> | null) => void;
   resetProject: () => void;
 }
 
@@ -53,6 +59,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
   personas: [],
   isSaving: false,
   lastSavedAt: null,
+  saveError: false,
+  saveNonce: 0,
 
   voiceId: null,
   autoDub: true,
@@ -66,6 +74,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   requirementsScript: '',
   requirementsAudioDuration: 0,
   materialSourceIds: [],
+  dubSegments: null,
 
   setProjectId: (id) => set({ projectId: id }),
   setProjectName: (name) => set({ projectName: name }),
@@ -74,6 +83,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setPersonas: (personas) => set({ personas }),
   setSaving: (saving) => set({ isSaving: saving }),
   setLastSaved: (at) => set({ lastSavedAt: at }),
+  setSaveError: (error) => set({ saveError: error }),
+  requestSave: () => set((s) => ({ saveNonce: s.saveNonce + 1 })),
   setVoiceId: (id) => set({ voiceId: id }),
   setAutoDub: (v) => set({ autoDub: v }),
   setScriptText: (v) => set({ scriptText: v }),
@@ -85,6 +96,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setRequirementsScript: (v) => set({ requirementsScript: v }),
   setRequirementsAudioDuration: (v) => set({ requirementsAudioDuration: v }),
   setMaterialSourceIds: (ids) => set({ materialSourceIds: ids }),
+  setDubSegments: (segments) => set({ dubSegments: segments }),
   resetProject: () =>
     set({
       projectId: null,
@@ -93,6 +105,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
       pluginId: null,
       isSaving: false,
       lastSavedAt: null,
+      saveError: false,
+      saveNonce: 0,
       voiceId: null,
       autoDub: true,
       scriptText: '',

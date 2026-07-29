@@ -202,10 +202,14 @@ function RequirementsView() {
       const res = await requirementsApi.chat({ session_id: sessionId, message });
       const brief = res.creative_brief ?? null;
       const plan = res.production_plan ?? null;
-      if (brief) { setBrief(brief); setStatus('brief_ready'); }
+      const st = res.status as string | undefined;
+      // Only reset brief during gathering/brief_ready; preserve it after confirmation
+      if (brief && (st === 'gathering' || st === 'brief_ready')) { setBrief(brief); setStatus('brief_ready'); }
       if (plan) { setPlan(plan); setStatus('plan_ready'); }
       addMessage({ id: uid('m'), role: 'assistant', content: res.reply ?? res.message ?? '已收到。',
-        timestamp: new Date().toISOString(), creative_brief: brief, production_plan: plan });
+        timestamp: new Date().toISOString(),
+        creative_brief: (st === 'gathering' || st === 'brief_ready') ? brief : null,
+        production_plan: plan });
     } catch {
       addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
         content: '（离线演示）已记录你的需求。' });
@@ -214,19 +218,21 @@ function RequirementsView() {
 
   const confirmBrief = async () => {
     setStatus('planning');
-    addMessage({ id: uid('m'), role: 'user', content: '确认创意简报，请生成制作规划书。', timestamp: new Date().toISOString() });
-    setBusy(true);
     const sid = useAgentStore.getState().requirementsSessionId;
     if (sid) {
-      await sendChat(sid, '创意简报已确认，请生成完整的制作规划书。');
-    } else {
-      await new Promise((r) => setTimeout(r, 600));
-      const plan = { markdown: demoPlanMarkdown(topic) };
-      setPlan(plan);
-      setStatus('plan_ready');
-      addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-        content: '制作规划书已生成，请审阅。', production_plan: plan });
+      // Online: sendChat adds exactly ONE user bubble + reads reply/plan from backend
+      await sendChat(sid, '确认，请生成完整的制作规划书。');
+      return;
     }
+    // Offline demo path: exactly ONE user + ONE assistant
+    setBusy(true);
+    addMessage({ id: uid('m'), role: 'user', content: '确认，请生成制作规划书。', timestamp: new Date().toISOString() });
+    await new Promise((r) => setTimeout(r, 600));
+    const plan = { markdown: demoPlanMarkdown(topic) };
+    setPlan(plan);
+    setStatus('plan_ready');
+    addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+      content: '制作规划书已生成，请审阅。', production_plan: plan });
     setBusy(false);
   };
 

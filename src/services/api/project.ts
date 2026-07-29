@@ -1,24 +1,92 @@
 import { getApiClient } from './client';
-import type { Project, ProjectSaveRequest, HealthResponse, PluginInfo, AnimationDef } from '@/types/api';
+import type { Project, ProjectSummary, ProjectSaveRequest, HealthResponse, PluginInfo, AnimationDef } from '@/types/api';
 
 export const projectApi = {
-  async save(request: ProjectSaveRequest) {
-    const { data } = await getApiClient().post('/api/project/save', request);
+  /** Create a new project (backend assigns id) */
+  async create(request: ProjectSaveRequest) {
+    const { data } = await getApiClient().post<Project>('/api/project', request);
     return data;
   },
 
+  /** Save/update an existing project (PUT) */
+  async save(projectId: string, request: ProjectSaveRequest) {
+    const { data } = await getApiClient().put<Project>(`/api/project/${projectId}`, request);
+    return data;
+  },
+
+  /** Load a project by id */
   async load(projectId: string) {
-    const { data } = await getApiClient().get<Project>(`/api/project/load/${projectId}`);
+    const { data } = await getApiClient().get<Project>(`/api/project/${projectId}`);
     return data;
   },
 
-  async list() {
-    const { data } = await getApiClient().get<Project[]>('/api/project/list');
+  /** List all projects (returns summaries, not full timeline) */
+  async list(folder?: string, tag?: string) {
+    const params: Record<string, string> = {};
+    if (folder) params.folder = folder;
+    if (tag) params.tag = tag;
+    const { data } = await getApiClient().get<ProjectSummary[]>('/api/project', { params });
     return data;
   },
 
+  /** Delete a project */
   async remove(projectId: string) {
-    const { data } = await getApiClient().delete(`/api/project/delete/${projectId}`);
+    const { data } = await getApiClient().delete(`/api/project/${projectId}`);
+    return data;
+  },
+
+  /** Rename a project */
+  async rename(projectId: string, name: string) {
+    const { data } = await getApiClient().patch<Project>(`/api/project/${projectId}/rename`, { name });
+    return data;
+  },
+
+  /** Set project folder */
+  async setFolder(projectId: string, folder: string) {
+    const { data } = await getApiClient().patch<Project>(`/api/project/${projectId}/folder`, { folder });
+    return data;
+  },
+
+  /** Add a tag to a project */
+  async addTag(projectId: string, tag: string) {
+    const { data } = await getApiClient().post<Project>(`/api/project/${projectId}/tags`, { tag });
+    return data;
+  },
+
+  /** Remove a tag from a project */
+  async removeTag(projectId: string, tag: string) {
+    const { data } = await getApiClient().delete<Project>(`/api/project/${projectId}/tags/${encodeURIComponent(tag)}`);
+    return data;
+  },
+
+  /** Get thumbnail URL for a project */
+  getThumbnailUrl(projectId: string, version?: string): string {
+    const base = getApiClient().defaults.baseURL || 'http://localhost:8080';
+    const v = encodeURIComponent(version || String(Date.now()));
+    return `${base}/api/project/${projectId}/thumbnail?v=${v}`;
+  },
+
+  /** Refresh (force-regenerate) thumbnail */
+  refreshThumbnailUrl(projectId: string): string {
+    const base = getApiClient().defaults.baseURL || 'http://localhost:8080';
+    return `${base}/api/project/${projectId}/thumbnail?force=1&v=${Date.now()}`;
+  },
+
+  /** Duplicate a project */
+  async duplicate(projectId: string) {
+    const { data } = await getApiClient().post<Project>(`/api/project/${projectId}/duplicate`);
+    return data;
+  },
+
+  /** Rename a folder across all projects */
+  async renameFolder(oldName: string, newName: string) {
+    const { data } = await getApiClient().post<{ updated: number }>('/api/project/folders/rename', { old: oldName, new: newName });
+    return data;
+  },
+
+  /** Delete a folder (unfile all its projects) */
+  async deleteFolder(name: string) {
+    const { data } = await getApiClient().post<{ updated: number }>('/api/project/folders/delete', { name });
     return data;
   },
 };

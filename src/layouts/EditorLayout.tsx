@@ -9,6 +9,7 @@ import { AgentPanel } from '@/features/agent/AgentPanel';
 import { ReviewPanel } from '@/features/agent/ReviewPanel';
 import { EditorToolbar } from '@/features/timeline/components/EditorToolbar';
 import { useAgentStore } from '@/stores/agentStore';
+import { useProjectStore } from '@/stores/projectStore';
 
 /**
  * EditorLayout — 4-panel Premiere-style layout
@@ -171,10 +172,22 @@ export function EditorLayout() {
 }
 
 function StatusBar() {
+  const isSaving = useProjectStore((s) => s.isSaving);
+  const lastSavedAt = useProjectStore((s) => s.lastSavedAt);
+  const saveError = useProjectStore((s) => s.saveError);
+
+  let statusText = 'Ready';
+  if (isSaving) statusText = '保存中…';
+  else if (saveError) statusText = '保存失败';
+  else if (lastSavedAt) {
+    const t = new Date(lastSavedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    statusText = `已保存 ${t}`;
+  }
+
   return (
     <div className="flex items-center justify-between px-3 py-1 bg-surface-dim border-t border-outline-variant/30 text-caption text-on-surface-variant shrink-0">
       <span>ClipWright v0.1.0</span>
-      <span className="font-mono">Ready</span>
+      <span className="font-mono">{statusText}</span>
     </div>
   );
 }

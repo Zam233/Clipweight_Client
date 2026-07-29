@@ -54,7 +54,10 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
 
   setPlaying: (playing) => set({ isPlaying: playing }),
   togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
-  setCurrentTime: (timeSec) => set({ currentTimeSec: timeSec }),
+  setCurrentTime: (timeSec) =>
+    set((state) => ({
+      currentTimeSec: Math.max(0, Math.min(timeSec, state.durationSec)),
+    })),
   setDuration: (durationSec) => set({ durationSec }),
   setFps: (fps) => set({ fps }),
   setVolume: (volume) => set({ volume }),

@@ -51,7 +51,7 @@ export function PreviewPanel() {
         el.volume = clamp(clip.volume, 0, 1);
         el.muted = muted || track.muted;
         if (inClip && playing) {
-          if (Math.abs(el.currentTime - localT) > 0.25) { try { el.currentTime = localT; } catch {} }
+          if (Math.abs(el.currentTime - localT) > 0.25) { try { el.currentTime = localT; } catch { /* seek not available */ } }
           if (el.paused) el.play().catch(() => {});
         } else {
           if (!el.paused) el.pause();
@@ -71,7 +71,14 @@ export function PreviewPanel() {
       const st = usePreviewStore.getState();
       let next = st.currentTimeSec + dt;
       const dur = useTimelineStore.getState().timeline.duration_sec;
-      if (next >= dur) {
+      const region = st.loopRegion;
+      const looping = st.isLooping;
+
+      if (looping && region) {
+        if (next >= region.end) {
+          next = region.start;
+        }
+      } else if (next >= dur) {
         next = dur;
         st.setPlaying(false);
       }

@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { useProjectStore } from '@/stores/projectStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
@@ -8,14 +10,18 @@ import { formatTimecode, uid } from '@/lib/utils';
 import {
   Play, Pause, SkipBack, SkipForward, StepBack, StepForward,
   Undo2, Redo2, Save, PanelLeft, PanelRight, Bot, Settings, Film,
-  FileText,
+  FileText, ArrowLeft, Check, Loader2,
 } from 'lucide-react';
 
 /**
  * EditorToolbar — top transport + panel toggles + project actions.
  */
 export function EditorToolbar() {
+  const navigate = useNavigate();
   const projectName = useProjectStore((s) => s.projectName);
+  const setProjectName = useProjectStore((s) => s.setProjectName);
+  const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState('');
   const isPlaying = usePreviewStore((s) => s.isPlaying);
   const togglePlay = usePreviewStore((s) => s.togglePlay);
   const currentTimeSec = usePreviewStore((s) => s.currentTimeSec);
@@ -83,15 +89,45 @@ export function EditorToolbar() {
 
   return (
     <div className="flex items-center gap-2 px-3 py-2 bg-surface-dim border-b border-outline-variant/30 shrink-0">
-      {/* Logo + project name */}
+      {/* Back + Logo + project name */}
       <div className="flex items-center gap-2 mr-2">
+        <Tooltip content="返回首页">
+          <button onClick={() => navigate({ to: '/' })}
+            className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+        </Tooltip>
         <div className="w-7 h-7 rounded-cw-sm bg-primary-container flex items-center justify-center">
           <Film className="w-4 h-4 text-on-primary-container" />
         </div>
-        <div className="flex flex-col">
-          <span className="text-title-sm font-medium text-on-surface leading-tight">{projectName}</span>
-          <span className="text-caption text-on-surface-variant leading-tight">ClipWright 编辑器</span>
-        </div>
+        {editingName ? (
+          <div className="flex items-center gap-1">
+            <input
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setProjectName(draftName.trim() || projectName);
+                  setEditingName(false);
+                  useProjectStore.getState().requestSave();
+                } else if (e.key === 'Escape') {
+                  setEditingName(false);
+                }
+              }}
+              autoFocus
+              className="bg-surface border border-primary rounded-cw-xs px-2 py-0.5 text-title-sm font-medium text-on-surface outline-none"
+            />
+            <button onClick={() => { setProjectName(draftName.trim() || projectName); setEditingName(false); useProjectStore.getState().requestSave(); }}
+              className="p-0.5 rounded-cw-xs text-primary hover:bg-primary/10 cursor-pointer">
+              <Check className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col cursor-pointer" onClick={() => { setDraftName(projectName); setEditingName(true); }}>
+            <span className="text-title-sm font-medium text-on-surface leading-tight hover:text-primary transition-colors">{projectName}</span>
+            <span className="text-caption text-on-surface-variant leading-tight">点击重命名</span>
+          </div>
+        )}
       </div>
 
       <div className="w-px h-6 bg-outline-variant/40" />
@@ -182,11 +218,14 @@ export function EditorToolbar() {
 
         <div className="w-px h-6 bg-outline-variant/40 mx-1" />
 
-        <Button size="sm" variant="outline">
+        {/* Save status indicator */}
+        <SaveStatusIndicator />
+
+        <Button size="sm" variant="outline" onClick={() => useProjectStore.getState().requestSave()}>
           <Save className="w-3.5 h-3.5" />
           保存
         </Button>
-        <Button size="sm" variant="default">
+        <Button size="sm" variant="default" onClick={() => navigate({ to: '/export' })}>
           导出
         </Button>
       </div>
@@ -195,6 +234,29 @@ export function EditorToolbar() {
 }
 
 interface SrtEntry { index: number; start: number; end: number; text: string; }
+
+function SaveStatusIndicator() {
+  const isSaving = useProjectStore((s) => s.isSaving);
+  const lastSavedAt = useProjectStore((s) => s.lastSavedAt);
+  const saveError = useProjectStore((s) => s.saveError);
+
+  if (isSaving) {
+    return (
+      <span className="flex items-center gap-1 text-caption text-on-surface-variant">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        保存中…
+      </span>
+    );
+  }
+  if (saveError) {
+    return <span className="text-caption text-error">保存失败</span>;
+  }
+  if (lastSavedAt) {
+    const time = new Date(lastSavedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    return <span className="text-caption text-on-surface-variant">已保存 {time}</span>;
+  }
+  return null;
+}
 
 function parseSrt(raw: string): SrtEntry[] {
   const normalized = raw.replace(/\r\n/g, '\n').trim();

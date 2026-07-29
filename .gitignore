@@ -40,3 +40,18 @@ playwright-report/
 # Temp
 *.tmp
 .cache/
+
+# TypeScript build info
+tsconfig.tsbuildinfo
+
+# Test/debug artifacts
+screenshot/
+.playwright-mcp/
+qa-*.png
+qa-*.md
+timeline-after-drop.png
+
+# Agent tooling state
+.omo/
+.opencode/opencode-loop/
+.opencode/run-continuation/
