@@ -230,7 +230,7 @@ function StatusBar() {
       <div className="flex items-center gap-3">
         <span>ClipWright v0.1.0</span>
         <span className="text-on-surface-variant/60">
-          {tracks.length} 轨 · {tracks.reduce((s, tr) => s + tr.clips.length, 0)} 片段
+          {formatTimecode(duration, fps)} · {tracks.length} 轨 · {tracks.reduce((s, tr) => s + tr.clips.length, 0)} 片段
         </span>
         {undoCount > 0 && <span className="text-on-surface-variant/60">撤销 {undoCount}</span>}
         {redoCount > 0 && <span className="text-on-surface-variant/60">重做 {redoCount}</span>}
