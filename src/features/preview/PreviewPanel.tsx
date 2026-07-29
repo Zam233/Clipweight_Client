@@ -7,7 +7,7 @@ import type { Clip, Track } from '@/types/timeline';
 import { formatTimecode, clamp } from '@/lib/utils';
 import { mediaManager } from '@/services/media/mediaManager';
 import { interpolateProperties } from '@/features/timeline/engine/easing';
-import { Maximize, Shield, Volume2, VolumeX, ZoomIn, ZoomOut } from 'lucide-react';
+import { Maximize, Shield, Volume2, VolumeX, ZoomIn, ZoomOut, Camera } from 'lucide-react';
 import { Tooltip } from '@/components/ui';
 
 /**
@@ -276,6 +276,19 @@ export function PreviewPanel() {
             <button onClick={() => { setFullscreen(true); wrapRef.current?.requestFullscreen?.(); }}
               className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
               <Maximize className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+          <Tooltip content="导出当前帧 (PNG)">
+            <button onClick={() => {
+              const canvas = canvasRef.current;
+              if (!canvas) return;
+              const link = document.createElement('a');
+              link.download = `frame_${Math.floor(currentTimeSec * 1000)}.png`;
+              link.href = canvas.toDataURL('image/png');
+              link.click();
+            }}
+              className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+              <Camera className="w-3.5 h-3.5" />
             </button>
           </Tooltip>
         </div>
