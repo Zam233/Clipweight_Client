@@ -54,6 +54,7 @@ export interface Clip {
   volume: number;
   opacity: number;
   blend_mode?: string | null;
+  enabled?: boolean;
 
   // Layout (video / image only)
   image_fit?: ImageFit | null;
@@ -131,6 +132,7 @@ export function createDefaultClip(
     speed: 1,
     volume: 1,
     opacity: 1,
+    enabled: true,
     image_fit: null,
     image_rect: null,
     text: null,

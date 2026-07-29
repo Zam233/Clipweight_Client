@@ -4,13 +4,14 @@ import { useTimelineStore } from '@/stores/timelineStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { Slider, Badge } from '@/components/ui';
+import { Tooltip } from '@/components/ui';
 import { TRACK_COLORS } from '@/types/timeline';
 import { EASING_NAMES, interpolateProperties } from '@/features/timeline/engine/easing';
 import { ANIMATION_PRESETS, presetKeyframes } from './animationPresets';
 import type { Clip } from '@/types/timeline';
 import {
   SlidersHorizontal, Type, Diamond, Plus, Trash2, ChevronLeft, ChevronRight,
-  Move, RotateCcw, Wand2,
+  Move, RotateCcw, Wand2, Eye, EyeOff,
 } from 'lucide-react';
 
 /**
@@ -69,6 +70,14 @@ export function PropertiesPanel() {
                 <p className="text-caption text-on-surface-variant font-mono">{clip.id}</p>
               </div>
               <Badge variant="info">{trackKind}</Badge>
+              <Tooltip content={clip.enabled !== false ? '禁用片段' : '启用片段'}>
+                <button
+                  onClick={() => { pushHistory(); set({ enabled: clip.enabled === false }); }}
+                  className={`p-1 rounded-cw-xs transition-colors cursor-pointer ${clip.enabled !== false ? 'text-on-surface-variant hover:text-on-surface' : 'text-error'}`}
+                >
+                  {clip.enabled !== false ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                </button>
+              </Tooltip>
             </div>
 
             {/* Timing */}

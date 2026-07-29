@@ -1,5 +1,24 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 15: 状态栏增强 + 帧导出 + 片段启用/禁用
+**Timestamp**: 2026-07-29T20:00:00+08:00
+
+### 功能新增
+- + 状态栏时间码/帧数切换按钮
+- + 状态栏循环区域可视化
+- + 预览面板「导出当前帧 (PNG)」
+- + Clip 类型新增 `enabled` 字段 + createDefaultClip 默认值 true
+- + PropertiesPanel 片段启用/禁用切换 (Eye/EyeOff) + history 支持
+- + PreviewPanel 合成引擎跳过 enabled=false 的片段
+
+### 审计确认
+- tsc: 0 errors / vitest: 58 passed / E2E: 11 passed
+
+### 评价
+片段启用/禁用是专业编辑器标准功能，允许临时隐藏片段测试效果。可交付程度：高。
+
+- - -
+
 ## Stage 15: 状态栏增强 + 帧导出
 **Timestamp**: 2026-07-29T19:55:00+08:00
 

@@ -164,6 +164,7 @@ export function PreviewPanel() {
         if (track.muted && (track.kind === 'audio' || track.kind === 'waveform')) continue;
         for (const clip of track.clips) {
           if (t < clip.start_sec || t >= clip.start_sec + clip.duration_sec) continue;
+          if (clip.enabled === false) continue;
           drawClipToPreview(ctx, clip, track, fx, fy, fw, fh, t);
         }
       }
