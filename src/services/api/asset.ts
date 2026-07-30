@@ -63,6 +63,16 @@ export const assetApi = {
     return data;
   },
 
+  /** Import a web resource by URL (download + symlink to asset library) */
+  async importUrl(url: string, filename: string, projectId?: string) {
+    const { data } = await getApiClient().post('/api/asset/import-url', {
+      url,
+      filename,
+      project_id: projectId || '',
+    });
+    return data;
+  },
+
   /** Search materials (semantic) */
   async searchMaterials(request: MaterialSearchRequest) {
     const params: Record<string, string> = { query: request.query };

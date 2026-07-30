@@ -39,6 +39,26 @@ PluginPanel 的 3 个 TAB（AI 图片/AI 视频/AI 音乐）完全硬编码，�
 
 - - -
 
+## Fix: 时间轴碰撞处理 + AI 素材收藏
+**Timestamp**: 2026-07-30T15:31:00+08:00
+
+### Bug 1: 时间轴拖放素材重叠
+- 修复: `dropAssetAt` 新增碰撞检测逻辑
+  - 优先使用拖放位置轨道 → 有重叠则追加到末尾
+  - 无匹配轨道或全部同类型轨道有重叠 → 创建新轨道
+  - 不使用 `tracks.find` 回退（旧逻辑强行选第一个匹配轨道忽略位置）
+
+### Bug 2: AI 搜索素材缺少文件名/缩略图 + 收藏功能
+- + AIMatchView 结果卡新增收藏按钮 (Heart/Check)
+- + 收藏调用 `POST /api/asset/import-url` 下载 URL 素材并入库
+- + 后端新增 `POST /api/asset/import-url` 端点 (httpx 下载 + import_file)
+- + 前端新增 `assetApi.importUrl()`
+- 素材文件名和缩略图已在搜索结果中显示（thumbnail 字段）
+
+### 测试: tsc 0 / vitest 59 / backend import OK
+
+- - -
+
 ## Stage 80: 继续检测与修复 — 前端 6 项 + 后端 5 项
 **Timestamp**: 2026-07-30T14:58:00+08:00
 

@@ -765,31 +765,63 @@ export class TimelineEngine {
     const dropTrackIdx = yToTrackIndex(canvasY, L);
 
     const clipKind = normalizeClipKind(asset.kind);
-
-    // Prefer the dropped-on track if its kind matches; else find/create one
-    const tracks = store.timeline.tracks;
-    let targetTrack =
-      dropTrackIdx >= 0 && dropTrackIdx < tracks.length && tracks[dropTrackIdx].kind === clipKind
-        ? tracks[dropTrackIdx]
-        : tracks.find((t) => t.kind === clipKind);
-
-    if (!targetTrack) {
-      const tid = store.addTrack(clipKind);
-      targetTrack = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
-    }
-    if (!targetTrack) return;
-
+    const clipDuration = asset.duration || 5;
     // Snap drop time to a sensible grid (0.1s)
     const startSec = Math.round(dropTime * 10) / 10;
+
+    // Find existing tracks of the same kind
+    const tracks = store.timeline.tracks;
+    const sameKindTracks = tracks.filter((t) => t.kind === clipKind);
+
+    // Prefer the dropped-on track if its kind matches
+    let targetTrack: Track | undefined =
+      dropTrackIdx >= 0 && dropTrackIdx < tracks.length && tracks[dropTrackIdx].kind === clipKind
+        ? tracks[dropTrackIdx]
+        : undefined;
+
+    // Check overlap on the preferred track
+    const hasOverlap = (track: typeof tracks[number]) =>
+      track.clips.some((c) => c.start_sec < startSec + clipDuration && c.start_sec + c.duration_sec > startSec);
+
+    if (targetTrack && hasOverlap(targetTrack)) {
+      // Overlap on dropped track → append after last clip
+      const lastEnd = targetTrack.clips.reduce((m, c) => Math.max(m, c.start_sec + c.duration_sec), 0);
+      useHistoryStore.getState().pushState(store.timeline, 'drop');
+      const clipId = store.addClip(targetTrack.id, {
+        kind: clipKind,
+        asset_id: asset.id,
+        start_sec: lastEnd,
+        duration_sec: clipDuration,
+        metadata: { title: asset.filename },
+      });
+      if (clipId) useSelectionStore.getState().selectClip(clipId);
+      this.requestRender();
+      return;
+    }
+
+    if (!targetTrack) {
+      // No preferred track or no overlap on it → try ANY same-kind track without overlap
+      targetTrack = sameKindTracks.find((t) => !hasOverlap(t));
+      if (!targetTrack) {
+        // All same-kind tracks have overlap → create new track
+        // Insert at drop position or below existing same-kind tracks
+        const insertIdx = dropTrackIdx >= 0 && dropTrackIdx <= tracks.length
+          ? dropTrackIdx + 1
+          : (sameKindTracks.length > 0 ? tracks.indexOf(sameKindTracks[sameKindTracks.length - 1]) + 1 : tracks.length);
+        const tid = store.addTrack(clipKind);
+        targetTrack = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
+        if (!targetTrack) return;
+      }
+    }
+
     useHistoryStore.getState().pushState(store.timeline, 'drop');
     const clipId = store.addClip(targetTrack.id, {
       kind: clipKind,
       asset_id: asset.id,
       start_sec: startSec,
-      duration_sec: asset.duration || 5,
+      duration_sec: clipDuration,
       metadata: { title: asset.filename },
     });
-    // Select the dropped clip, not just the track
     if (clipId) {
       useSelectionStore.getState().selectClip(clipId);
     } else {

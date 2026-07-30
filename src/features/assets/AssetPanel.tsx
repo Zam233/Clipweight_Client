@@ -13,7 +13,7 @@ import { DubView } from './DubView';
 import { PluginPanel } from './PluginPanel';
 import type { Asset, MaterialSearchResult } from '@/types/api';
 import type { ClipKind } from '@/types/timeline';
-import { Sparkles, FolderOpen, History, Upload, Search, Plus, Mic, AudioLines, Puzzle, X } from 'lucide-react';
+import { Sparkles, FolderOpen, History, Upload, Search, Plus, Mic, AudioLines, Puzzle, X, Heart, Check } from 'lucide-react';
 
 type Tab = 'ai' | 'library' | 'history' | 'dub' | 'plugins';
 
@@ -317,6 +317,28 @@ function AIMatchView() {
   const [visionOpen, setVisionOpen] = useState(false);
   const [visionPath, setVisionPath] = useState('');
   const [visionLoading, setVisionLoading] = useState(false);
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [faving, setFaving] = useState<Set<string>>(new Set());
+  const projectId = useProjectStore((s) => s.projectId);
+
+  const toggleFavorite = async (r: MaterialSearchResult, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const id = r.id;
+    if (faving.has(id)) return;
+    if (favorites.has(id)) {
+      setFavorites((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      return;
+    }
+    setFaving((prev) => new Set(prev).add(id));
+    try {
+      await assetApi.importUrl(r.url, r.title, projectId ?? undefined);
+      setFavorites((prev) => new Set(prev).add(id));
+    } catch {
+      // silently fail, user can retry
+    } finally {
+      setFaving((prev) => { const n = new Set(prev); n.delete(id); return n; });
+    }
+  };
   const [visionResult, setVisionResult] = useState<string | null>(null);
 
   useEffect(() => { assetApi.listSources().then(setSources).catch(() => {}); }, []);
@@ -453,6 +475,17 @@ function AIMatchView() {
               {r.reason && <span className="block text-caption text-on-surface-variant/70 truncate">{r.reason}</span>}
             </span>
             <Plus className="w-3.5 h-3.5 text-on-surface-variant group-hover:text-primary shrink-0" />
+            <button
+              onClick={(e) => toggleFavorite(r, e)}
+              title={favorites.has(r.id) ? '已收藏' : '收藏到素材库'}
+              className={`p-1 rounded-cw-full transition-colors cursor-pointer shrink-0 ${
+                favorites.has(r.id) ? 'text-error hover:text-error/80' : 'text-on-surface-variant/30 hover:text-error'
+              }`}
+            >
+              {faving.has(r.id)
+                ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin block" />
+                : favorites.has(r.id) ? <Check className="w-3 h-3" /> : <Heart className="w-3 h-3" />}
+            </button>
           </button>
         ))}
         {!searching && searched && results.length === 0 && (
