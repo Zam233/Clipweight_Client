@@ -1,5 +1,28 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 91: Flash 轻量模型支持（简单任务分流）
+**Timestamp**: 2026-07-30T19:05:00+08:00
+
+### 背景
+现有 LLM 为专业模型（deepseek-v4-pro），用于复杂生成。简单的意图判断/确认分类/搜索等无需重型推理，应使用更快更省的 flash 模型。
+
+### 实现
+- **config.py**: 新增 `llm_flash_model` + 可选 `llm_flash_provider/api_key/base_url`（缺省回退主模型）
+- **llm.py**:
+  - 新增 `flash_client` 属性 + `_build_client(flash=True)`（flash 配置缺省项回退主 LLM）
+  - `generate` / `chat` / `structured_output` 新增 `use_flash: bool` 参数，按选择路由到对应客户端
+  - `structured_output` 按目标客户端 provider 构造消息格式
+- **requirements_service.py**: `_is_confirm` 意图判断改用 `use_flash=True`
+- **.env / .env.example**: 新增 `CLIPWRIGHT_LLM_FLASH_MODEL=deepseek-chat`（+ 可选独立 provider/key/url）
+
+### 设计原则
+- 复杂生成（创意简报/规划书/场景编排/Persona 生成）保持主模型
+- 简单任务（确认分类等）走 flash，未配置 flash 时自动回退主模型，零破坏
+
+### 测试: flash=deepseek-chat / main=deepseek-v4-pro / backend import OK
+
+- - -
+
 ## Stage 90: 确认判断改用 LLM 语义判断
 **Timestamp**: 2026-07-30T18:52:00+08:00
 
