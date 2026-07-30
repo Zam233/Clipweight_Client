@@ -1,5 +1,18 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 97: 数据持久化 + 时间线合并修复
+**Timestamp**: 2026-07-30T23:20:00+08:00
+
+### 后端
+- Fix (CRITICAL): `chat()` 同步调用 `_persist` → `find_by_id` 走 `_io()` 在事件循环线程返回未 await 协程 → MongoDB 写入静默失败（重启丢失 brief/plan/messages）→ 改为 `await asyncio.to_thread(self._persist, ...)`
+
+### 前端
+- Fix: `mergeTimeline` 对「Agent 引入新轨道」的添加片段静默丢弃（`if (track)` 失败）→ 按片段 kind 创建最小轨道再并入，避免选择性合并丢失片段
+
+### 测试: tsc 0 / vitest 59（含 timelineDiff）/ backend import OK
+
+- - -
+
 ## Stage 96: 需求→管线→前端 核心闭环修复（SSE 事件路由 + proceed 联通）
 **Timestamp**: 2026-07-30T23:15:00+08:00
 

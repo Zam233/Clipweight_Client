@@ -3,7 +3,7 @@
  * timeline and produces a structured change list (added / removed / modified).
  * Powers the Agent co-pilot's "review changes before accepting" flow.
  */
-import type { Timeline, Clip } from '@/types/timeline';
+import type { Timeline, Clip, Track } from '@/types/timeline';
 
 export interface ModifiedClip {
   current: Clip;
@@ -136,10 +136,21 @@ export function mergeTimeline(
   // Apply additions
   for (const add of diff.addedClips) {
     if (!acceptIds.has(add.id)) continue;
-    const track = result.tracks.find((t) => t.id === add.track_id);
-    if (track) {
-      track.clips.push(structuredClone(add));
+    let track = result.tracks.find((t) => t.id === add.track_id);
+    if (!track) {
+      // Agent 引入了新轨道 → 按片段类型创建一个最小轨道，避免静默丢弃片段
+      track = {
+        id: add.track_id,
+        name: `${add.kind} ${result.tracks.length + 1}`,
+        kind: add.kind,
+        index: result.tracks.length,
+        clips: [],
+        locked: false,
+        muted: false,
+      } satisfies Track;
+      result.tracks.push(track);
     }
+    track.clips.push(structuredClone(add));
   }
 
   // Recompute duration
