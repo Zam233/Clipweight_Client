@@ -1,5 +1,20 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 89: 语音克隆 UX + 后端并发安全 (4 项)
+**Timestamp**: 2026-07-30T18:45:00+08:00
+
+### 前端
+- Fix: CloneDialog 重新打开显示上次残留的错误/步骤 → 挂载时重置 cloneStep/error 为 idle
+- Fix: 克隆进行中可点击背景/X 关闭对话框丢失进度 → busy 时禁用背景点击和 X 按钮
+- Fix: voiceApi.getAudioUrl 对绝对 URL 拼接出非法地址 → 检测 http(s):// 直接返回
+
+### 后端
+- Fix: VoiceStorage add/delete 读-改-写无锁 → 并发克隆/删除丢失记录 → 添加 threading.Lock 串行化
+
+### 测试: tsc 0 / vitest 59 / backend import OK
+
+- - -
+
 ## Stage 88: 后端需求/语音服务深度 Bug 修复 (5 项)
 **Timestamp**: 2026-07-30T18:40:00+08:00
 

@@ -50,8 +50,10 @@ export const voiceApi = {
     return data;
   },
 
-  getAudioUrl(relativePath: string): string {
+  getAudioUrl(path: string): string {
+    // Absolute URLs (e.g. CDN links) are returned as-is
+    if (/^https?:\/\//i.test(path)) return path;
     const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
-    return `${base}${relativePath}`;
+    return `${base}${path}`;
   },
 };

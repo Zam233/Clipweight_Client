@@ -229,6 +229,11 @@ function CloneDialog({ onClose }: { onClose: () => void }) {
   const [fileError, setFileError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Clear stale error/step left over from a previous dialog session
+  useEffect(() => {
+    useVoiceStore.setState({ cloneStep: 'idle', error: null });
+  }, []);
+
   const validateFile = useCallback((f: File): boolean => {
     const ext = '.' + (f.name.split('.').pop()?.toLowerCase() ?? '');
     if (!ACCEPTED_TYPES.includes(ext)) {
@@ -264,14 +269,16 @@ function CloneDialog({ onClose }: { onClose: () => void }) {
   const busy = cloneStep === 'uploading' || cloneStep === 'cloning';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      onClick={() => { if (!busy) onClose(); }}>
       <div
         className="w-full max-w-md bg-surface-container border border-outline-variant/40 rounded-cw-lg p-6 space-y-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
           <h2 className="text-title-sm font-semibold text-on-surface">克隆新音色</h2>
-          <button onClick={onClose} className="p-1 rounded-cw-xs text-on-surface-variant hover:text-on-surface cursor-pointer">
+          <button onClick={onClose} disabled={busy}
+            className="p-1 rounded-cw-xs text-on-surface-variant hover:text-on-surface disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
