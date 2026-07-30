@@ -8,6 +8,7 @@ import { useHistoryStore } from '@/stores/historyStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useAssetStore } from '@/stores/assetStore';
+import { useVoiceStore } from '@/stores/voiceStore';
 import { projectApi, getApiClient } from '@/services/api';
 import { mediaManager } from '@/services/media/mediaManager';
 import { useGlobalKeybindings } from '@/features/keyboard/useGlobalKeybindings';
@@ -52,10 +53,9 @@ export function EditorPage() {
         if (pendingTopic) clearRequirementsDraft();
         useHistoryStore.getState().clear();
         useSelectionStore.getState().deselectAll();
-        usePreviewStore.getState().setPlaying(false);
-        usePreviewStore.getState().setCurrentTime(0);
-        // 清除上一个项目的素材库，切换项目时不共享素材
+        usePreviewStore.getState().resetPreview();
         useAssetStore.getState().clearAssets();
+        useVoiceStore.getState().resetVoices();
         // 释放上一个项目的媒体资源（object URL / media element / 缓存）
         mediaManager.clear();
 

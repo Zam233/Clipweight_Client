@@ -259,7 +259,7 @@ export const AssetCard = memo(function AssetCard({ asset, onAdd }: { asset: Asse
       draggable
       onDragStart={(e) => {
         const payload = JSON.stringify({
-          id: asset.id, kind, filename: asset.filename, duration: dur ?? 5,
+          id: asset.id, kind, filename: asset.filename, duration: (dur ?? 0) > 0 ? dur : 5,
         });
         e.dataTransfer.setData('application/x-clipwright-asset', payload);
         e.dataTransfer.setData('text/plain', payload);
@@ -425,7 +425,7 @@ function AIMatchView() {
             draggable
             onDragStart={(e) => {
               const payload = JSON.stringify({
-                id: r.id, kind: 'video', filename: r.title, duration: r.duration_sec ?? 5,
+                id: r.id, kind: 'video', filename: r.title, duration: r.duration_sec != null && r.duration_sec > 0 ? r.duration_sec : 5,
               });
               e.dataTransfer.setData('application/x-clipwright-asset', payload);
               e.dataTransfer.setData('text/plain', payload);

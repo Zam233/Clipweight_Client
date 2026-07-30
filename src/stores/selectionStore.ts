@@ -44,7 +44,7 @@ export const useSelectionStore = create<SelectionState>((set, get) => ({
     })),
 
   deselectAll: () =>
-    set({ selectedClipIds: [], selectedTrackId: null, rangeStart: null, rangeEnd: null }),
+    set({ selectedClipIds: [], selectedTrackId: null, rangeStart: null, rangeEnd: null, toolMode: 'select', isRangeSelecting: false }),
 
   selectTrack: (trackId) =>
     set({ selectedTrackId: trackId }),

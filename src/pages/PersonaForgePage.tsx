@@ -38,6 +38,11 @@ export function PersonaForgePage() {
   const [kbBusy, setKbBusy] = useState(false);
   const [kbFile, setKbFile] = useState<{ name: string; total: number; current: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const kbClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (kbClearTimerRef.current) clearTimeout(kbClearTimerRef.current);
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -129,7 +134,8 @@ export function PersonaForgePage() {
       addMsg('assistant', '参考文档上传失败，请重试。');
     } finally {
       setKbBusy(false);
-      setTimeout(() => setKbFile(null), 2000);
+      if (kbClearTimerRef.current) clearTimeout(kbClearTimerRef.current);
+      kbClearTimerRef.current = setTimeout(() => setKbFile(null), 2000);
     }
     e.target.value = '';
   };

@@ -311,7 +311,7 @@ function renderFieldControl(
       return (
         <input
           type="number" step={1}
-          value={field.value as number ?? 0}
+          value={Number(field.value) || 0}
           onChange={(e) => onChange(key, parseInt(e.target.value) || 0)}
           className="w-full bg-surface rounded-cw-xs px-2.5 py-1.5 text-body-sm text-on-surface
             outline-none border border-outline-variant/30 focus:border-primary"
@@ -321,7 +321,7 @@ function renderFieldControl(
       return (
         <input
           type="number" step={0.1}
-          value={field.value as number ?? 0}
+          value={Number(field.value) || 0}
           onChange={(e) => onChange(key, parseFloat(e.target.value) || 0)}
           className="w-full bg-surface rounded-cw-xs px-2.5 py-1.5 text-body-sm text-on-surface
             outline-none border border-outline-variant/30 focus:border-primary"

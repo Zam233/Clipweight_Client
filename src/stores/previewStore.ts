@@ -38,6 +38,7 @@ interface PreviewState {
   setMarkerIn: () => void;
   setMarkerOut: () => void;
   setPlaybackSpeed: (speed: number) => void;
+  resetPreview: () => void;
 }
 
 export const usePreviewStore = create<PreviewState>((set, get) => ({
@@ -102,4 +103,11 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
     set({ loopRegion: { start: loopRegion?.start ?? 0, end: currentTimeSec } });
   },
   setPlaybackSpeed: (speed) => set({ playbackSpeed: Math.max(0.25, Math.min(4, speed)) }),
+  resetPreview: () =>
+    set({
+      isPlaying: false, currentTimeSec: 0, durationSec: 0, fps: 30,
+      volume: 1, isMuted: false, isFullscreen: false, zoomLevel: 1,
+      showSafeArea: false, loopRegion: null, isLooping: false,
+      shuttleSpeed: 0, playbackSpeed: 1,
+    }),
 }));

@@ -165,8 +165,8 @@ export function EditorToolbar() {
           store.addClip(subTrack!.id, {
             kind: 'caption' as const,
             asset_id: '',
-            start_sec: (c.start_sec as number) ?? 0,
-            duration_sec: Math.max(0.5, (c.duration_sec as number) ?? 1),
+            start_sec: Number(c.start_sec) || 0,
+            duration_sec: Math.max(0.5, Number(c.duration_sec) || 1),
             source_offset_sec: 0,
             speed: 1,
             volume: 1,

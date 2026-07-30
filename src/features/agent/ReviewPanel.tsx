@@ -72,7 +72,7 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
     if (annotations.length === 0 || !sessionId) return;
     setSubmitting(true);
     const lines = annotations.map((a) => {
-      const tag = a.type === 'dislike' ? '[删除/不喜欢]' : a.type === 'like' ? '[保留/喜欢]' : '';
+      const tag = a.type === 'dislike' ? '[删除/不喜欢]' : a.type === 'like' ? '[保留/喜欢]' : `[${a.type || '反馈'}]`;
       const note = a.note ? ` — ${a.note}` : '';
       return `${tag}「${a.text}」${note}`;
     });

@@ -1,5 +1,38 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 76: 同类模式 Bug 补修 — 零值?? / store重置 / 类型断言 / 缺失cleanup (10 项)
+**Timestamp**: 2026-07-30T13:52:00+08:00
+
+### 零值 `??` 修复 (2 项)
+- Fix: AssetCard 拖放 payload `dur ?? 5` → `(dur ?? 0) > 0 ? dur : 5`（防止 0 时长）
+- Fix: AIMatchView 拖放 `r.duration_sec ?? 5` → 显式 null+zero 检查
+
+### Store 状态泄漏修复 (4 项)
+- Fix: previewStore 缺少 `resetPreview()` → 添加完整重置方法（volume/mute/loop/zoom 等 13 字段）
+- Fix: projectStore.resetProject() 遗漏 `dubSegments` → 补充
+- Fix: voiceStore 无 reset → 添加 `resetVoices()`
+- Fix: selectionStore.deselectAll() 未重置 `toolMode`/`isRangeSelecting` → 补充 'select'/false
+
+### EditorPage 重置整合
+- 将 `setPlaying(false)` + `setCurrentTime(0)` 替换为 `resetPreview()`
+- 新增 `clearAssets()` / `resetVoices()` 调用，确保切换项目时 9/10 stores 完全重置
+
+### 类型断言修复 (2 项)
+- Fix: EditorToolbar `(c.start_sec as number) ?? 0` → `Number(c.start_sec) || 0`（防止字符串穿透）
+- Fix: PluginsPage `field.value as number ?? 0` → `Number(field.value) || 0`
+
+### 缺失 Cleanup 修复 (1 项)
+- Fix: PersonaForgePage setTimeout 未追踪 → 添加 `kbClearTimerRef` + unmount cleanup
+
+### 其他修复 (3 项)
+- Fix: normalizeClipKind 静默 fallback → 添加 `console.warn` 提示未知类型
+- Fix: ReviewPanel annotation type 空 fallback → `[${a.type || '反馈'}]`
+- Fix: AssetPanel 离线路径 kind cast → `as Asset['kind']` 兼容类型收缩
+
+### 测试: tsc 0 / vitest 59
+
+- - -
+
 ## Stage 75: 时间轴素材放置 7 项 Bug 修复
 **Timestamp**: 2026-07-30T13:39:00+08:00
 

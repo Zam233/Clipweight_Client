@@ -17,6 +17,7 @@ export function normalizeClipKind(raw: string): ClipKind {
   if (k === 'waveform') return 'waveform';
   if (k === 'animation') return 'animation';
   if (k === 'shape') return 'shape';
+  console.warn(`[normalizeClipKind] Unknown kind "${raw}", falling back to "image"`);
   return 'image';
 }
 

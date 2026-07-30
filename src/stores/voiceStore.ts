@@ -18,6 +18,7 @@ interface VoiceState {
   synthesizePreview: (voiceId: string, text: string) => Promise<void>;
   clearPreview: () => void;
   clearError: () => void;
+  resetVoices: () => void;
 }
 
 export const useVoiceStore = create<VoiceState>((set, get) => ({
@@ -86,4 +87,5 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
   clearPreview: () => set({ previewUrl: null }),
   clearError: () => set({ error: null }),
+  resetVoices: () => set({ voices: [], loading: false, error: null, cloneStep: 'idle', previewUrl: null, previewLoading: false }),
 }));
