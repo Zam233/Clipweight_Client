@@ -21,6 +21,46 @@ PluginPanel 的 3 个 TAB（AI 图片/AI 视频/AI 音乐）完全硬编码，�
 
 - - -
 
+## Stage 78: 插件 UI 挂载系统 — usePluginUI + JSON 布局引擎
+**Timestamp**: 2026-07-30T14:34:00+08:00
+
+### 架构设计
+插件 UI 不再硬编码在前端代码中，改为：
+1. 插件开发者在 `plugins/{id}/ui.json` 中定义声明式 JSON 布局
+2. 后端提供 `GET /api/plugin/{id}/ui` 返回布局定义
+3. 前端 `usePluginUI` Hook 获取布局 → `PluginLayoutRenderer` 引擎渲染
+
+### 新增前端组件
+- + `src/features/plugins/types.ts` — JSON 布局类型定义（UILayout/UIWidget/UIAction 等）
+- + `src/features/plugins/PluginLayoutRenderer.tsx` — JSON 驱动 UI 渲染引擎
+  - 支持 9 种组件：textarea/button/image/spinner/alert/text/row/column/group
+  - `${key}` 语法变量插值、action.resultMap 响应映射
+  - loading/error/success 状态自动管理
+  - visibleWhen 条件渲染
+- + `src/features/plugins/usePluginUI.ts` — 获取插件 UI 的 React Hook
+- + `src/features/plugins/index.ts` — 功能模块 barrel export
+- ~ `src/features/assets/PluginPanel.tsx` — 重构为数据驱动
+  - 从 pluginApi.list() 获取已加载的能力插件
+  - 每个 tab 使用 usePluginUI + PluginLayoutRenderer 动态渲染
+  - 移除硬编码的 AIImageGenView/AIVideoGenView/AIMusicGenView
+- + `src/services/api/project.ts` — pluginApi.getUI() 新增
+
+### 新增后端 API
+- + `GET /api/plugin/{plugin_id}/ui` — 返回插件 ui.json 内容
+- 若 ui.json 不存在返回 `{"widgets": []}`
+
+### 插件 UI 定义 (3 个)
+- + `plugins/ai_image_gen/ui.json`
+- + `plugins/ai_video_gen/ui.json`
+- + `plugins/ai_music_gen/ui.json`
+
+### 新增文档
+- + `docs/plugin-ui-layout-language.md` — JSON 布局语言完整语法文档
+
+### 测试: tsc 0 / vitest 59 / backend import OK
+
+- - -
+
 ## Stage 77: 时间轴深层逻辑 Bug 修复 — 拆分/trim/选区/时间码/键盘 (12 项)
 **Timestamp**: 2026-07-30T14:04:00+08:00
 

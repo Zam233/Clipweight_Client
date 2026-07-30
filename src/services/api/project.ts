@@ -145,6 +145,12 @@ export const pluginApi = {
     const { data } = await getApiClient().delete(`/api/plugin/${pluginId}/config`);
     return data;
   },
+
+  /** 获取插件的 UI 布局定义 (ui.json) */
+  async getUI(pluginId: string) {
+    const { data } = await getApiClient().get(`/api/plugin/${pluginId}/ui`);
+    return data as { title?: string; widgets: unknown[] } | null;
+  },
 };
 
 export const animationApi = {
