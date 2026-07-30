@@ -9,6 +9,7 @@ import { useSelectionStore } from '@/stores/selectionStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useAssetStore } from '@/stores/assetStore';
 import { useVoiceStore } from '@/stores/voiceStore';
+import { toast } from '@/stores/toastStore';
 import { projectApi, getApiClient } from '@/services/api';
 import { mediaManager } from '@/services/media/mediaManager';
 import { useGlobalKeybindings } from '@/features/keyboard/useGlobalKeybindings';
@@ -59,7 +60,16 @@ export function EditorPage() {
         // 释放上一个项目的媒体资源（object URL / media element / 缓存）
         mediaManager.clear();
 
-        const project = await projectApi.load(projectId);
+        // Load from backend; on failure (offline / not found) fall back to an
+        // empty local project so the editor remains usable in demo mode.
+        let project: { id: string; name: string; persona_id?: string; plugin_id?: string; timeline: ReturnType<typeof createEmptyTimeline> | null };
+        try {
+          project = await projectApi.load(projectId);
+        } catch (loadErr) {
+          console.warn('[EditorPage] Backend load failed, using local empty project:', loadErr);
+          toast('后端离线 — 已打开本地空项目', 'info');
+          project = { id: projectId, name: '未命名项目', timeline: null };
+        }
         if (!alive) return;
         useProjectStore.getState().setProjectId(project.id);
         useProjectStore.getState().setProjectName(project.name);
@@ -75,9 +85,9 @@ export function EditorPage() {
         }
         if (alive) setLoading(false);
       } catch (err) {
-        console.error('[EditorPage] Failed to load project:', err);
+        console.error('[EditorPage] Failed to initialize editor:', err);
         if (alive) {
-          setLoadError('加载项目失败');
+          setLoadError('编辑器初始化失败');
           setLoading(false);
         }
       }

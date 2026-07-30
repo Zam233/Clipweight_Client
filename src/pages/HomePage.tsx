@@ -15,7 +15,7 @@ import {
   Scissors, FileText, FolderOpen, Clapperboard,
 } from 'lucide-react';
 import { ProjectCard, type ProjectCardData } from '@/components/shared/ProjectCard';
-import { fmtDur, relTime } from '@/lib/utils';
+import { fmtDur, relTime, uid } from '@/lib/utils';
 
 /* ── types ─────────────────────────────────────────────── */
 interface PersonaOpt { id: string; name: string; tone: string }
@@ -258,8 +258,11 @@ export function HomePage() {
         // Fall through — offline
       }
     }
-    setLaunching(false);
-    setLaunchErr('后端离线，无法创建项目');
+    // Offline / backend create failed → open a local empty project (demo mode)
+    const localId = uid('proj');
+    st.setProjectId(localId);
+    clearRequirementsDraft();
+    navigate({ to: '/editor/$projectId', params: { projectId: localId } });
   };
 
   const openBlank = async () => {
@@ -274,8 +277,10 @@ export function HomePage() {
         return;
       } catch { /* fall through */ }
     }
-    setLaunching(false);
-    setLaunchErr('后端离线，无法创建项目');
+    // Offline → open a local empty project (demo mode)
+    const localId = uid('proj');
+    st.setProjectId(localId);
+    navigate({ to: '/editor/$projectId', params: { projectId: localId } });
   };
 
   const openProject = async (proj: ProjectOpt) => {

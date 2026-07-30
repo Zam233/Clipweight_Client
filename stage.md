@@ -1,5 +1,21 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 84: 离线/演示模式可用化 + 路由优化
+**Timestamp**: 2026-07-30T17:55:00+08:00
+
+### 问题
+- 后端离线时「开始创作」/「空白编辑器」完全无法进入编辑器（与宣称的离线演示模式矛盾）
+- 路由守卫调用 `projectApi.load` 校验，EditorPage 又调用一次 → 每次打开编辑器双重请求
+
+### 修复
+- 路由守卫: 仅校验 projectId 格式，移除冗余的 `projectApi.load` 调用（消除双重请求 + 允许离线进入）
+- EditorPage: `projectApi.load` 失败时回退到本地空项目（toast 提示「后端离线」），编辑器仍可用
+- HomePage: `launch()` / `openBlank()` 离线时生成本地 `proj_xxx` ID 并进入编辑器，不再阻断
+
+### 测试: tsc 0 / vitest 59
+
+- - -
+
 ## Stage 83: UX 优化 — 空状态/中文标签/Toast 通知系统
 **Timestamp**: 2026-07-30T17:44:00+08:00
 
