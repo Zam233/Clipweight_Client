@@ -17,6 +17,20 @@ import type {
   ProductionPlan,
 } from '@/types/persona';
 
+/** 各管线相位对应的进度百分比（未显式给定进度时按此推导）。 */
+const PHASE_PROGRESS: Record<string, number> = {
+  idle: 0,
+  structure: 15,
+  material: 35,
+  edit: 55,
+  animation: 70,
+  audio: 85,
+  quality: 95,
+  self_heal: 90,
+  completed: 100,
+  failed: 100,
+};
+
 interface Annotation {
   id: string;
   type: 'comment' | 'dislike' | 'like';
@@ -118,7 +132,8 @@ export const useAgentStore = create<AgentState>((set) => ({
   updatePhase: (phase, progress) =>
     set((state) => ({
       phase,
-      progress: progress ?? state.progress,
+      // 未显式给定进度时，按相位在管线中的位置推导，避免进度条全程卡在初始值
+      progress: progress ?? PHASE_PROGRESS[phase] ?? state.progress,
     })),
 
   setAgentTimeline: (timeline) => set({ agentTimeline: timeline }),

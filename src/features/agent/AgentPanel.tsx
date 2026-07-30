@@ -283,6 +283,7 @@ function RequirementsView() {
             <input value={input} onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter') return;
+                if (busy) return; // 与发送按钮一致，避免并发重复发送
                 const sid = useAgentStore.getState().requirementsSessionId;
                 if (input.trim() && sid) { const m = input; setInput(''); sendChat(sid, m); }
               }}
@@ -431,9 +432,11 @@ function BottomBar() {
 
     const startTimes: Record<string, number> = {};
     let finished = false;
+    // 每次挂接 SSE 前清空上一次运行残留的时间线，避免 finish 复用旧时间线（张冠李戴）
+    lastTimelineRef.current = null;
 
-    // 完成处理：拉取最终时间线（v2 通过 /result 返回 shared_data.final_timeline）
-    const finish = async (ok: boolean) => {
+    // 完成处理：ok=true 拉取最终时间线进入审阅；ok=false 标记失败并提示
+    const finish = async (ok: boolean, errMsg?: string) => {
       if (finished) return;
       finished = true;
       if (ok) {
@@ -447,6 +450,10 @@ function BottomBar() {
           } catch { tl = null; }
         }
         if (tl) useAgentStore.getState().setAgentTimeline(tl);
+      } else {
+        updatePhase('failed');
+        useAgentStore.getState().setError(errMsg || '管线执行失败');
+        addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'error', summary: errMsg || '管线执行失败' });
       }
       es.close();
       esRef.current = null;
@@ -474,7 +481,12 @@ function BottomBar() {
           break;
         }
         case 'error':
+          // 管线级失败（终态）→ 标记失败并结束
+          addLogEntry({ timestamp: Date.now(), agent: name, type: 'error', summary: (d.error || d.summary || `${name} 失败`) as string });
+          void finish(false, (d.error || d.summary || '管线执行失败') as string);
+          break;
         case 'agent_error':
+          // 单个 Agent 错误（管线可能自愈恢复）→ 仅记录
           addLogEntry({ timestamp: Date.now(), agent: name, type: 'error', summary: (d.error || d.summary || `${name} 失败`) as string });
           break;
         case 'timeline_snapshot': {
@@ -488,6 +500,7 @@ function BottomBar() {
           break;
         }
         case 'done':
+        case 'pipeline_complete':
           void finish(true);
           break;
         case 'llm':

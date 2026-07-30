@@ -39,7 +39,19 @@ export function TimelineDiffView({
 
   const acceptAll = () => {
     useHistoryStore.getState().pushState(currentTimeline, 'accept-agent');
-    setTimeline(agentTimeline);
+    // 保留当前项目的 id/分辨率/fps，仅采纳 Agent 的轨道内容，并重算时长，
+    // 避免 Agent 时间线的 id/fps/分辨率/陈旧 duration 覆盖项目设置。
+    let maxEnd = 0;
+    for (const track of agentTimeline.tracks) {
+      for (const clip of track.clips) {
+        maxEnd = Math.max(maxEnd, clip.start_sec + clip.duration_sec);
+      }
+    }
+    setTimeline({
+      ...currentTimeline,
+      tracks: structuredClone(agentTimeline.tracks),
+      duration_sec: maxEnd,
+    });
     onDone();
   };
 

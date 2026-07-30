@@ -1,5 +1,24 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 99: 管线失败检测 + 前端终态/进度/审阅修复
+**Timestamp**: 2026-07-30T23:50:00+08:00
+
+### 后端（pipeline_v2.py）
+- **Fix (CRITICAL): DAG 失败检测失效**——`str(result.status).lower() in ("failed","fail")` 永不匹配（`str(enum)` 返回 `'PipelineStatus.FAILED'`），失败 Agent 被静默吞掉、管线仍报 COMPLETED 并产出空/残时间线 → 改为枚举直接比较 `result.status == PipelineStatus.FAILED`
+- **Fix (HIGH): 合并仅在成功时进行**——原按 `result.result` 真值合并，失败 Agent 的空/部分时间线会覆盖已累积的好时间线 → 失败分支 `continue`，成功才合并
+
+### 前端
+- **Fix (HIGH): 管线失败终态处理**（AgentPanel）——`error` 事件 → `finish(false)` 设 phase='failed' + 提示；新增 `pipeline_complete` 兼容；区分管线级 `error`（终态）与 `agent_error`（可自愈）
+- **Fix (HIGH): 跨运行时间线张冠李戴**——openSSE 挂接前清空 `lastTimelineRef`，避免复用上次运行的时间线
+- **Fix (HIGH): ReviewPanel 确认规划书失败无回滚**——catch 中回滚 status 到 plan_ready 并提示（原卡死在 pipeline_running）
+- **Fix (MEDIUM): acceptAll 保留项目元信息**——保留当前 id/分辨率/fps，仅采纳 Agent 轨道并重算时长（原整体覆盖）
+- **Fix (MEDIUM): 进度条全程卡 5%**——updatePhase 未给进度时按相位推导（PHASE_PROGRESS）
+- **Fix (MEDIUM): Enter 键绕过 busy 守卫**——与发送按钮一致，避免并发重复发送
+
+### 测试: tsc 0 / vitest 59 / backend import OK
+
+- - -
+
 ## Stage 98: 管线复用确认场景 + 时间线缺失保护
 **Timestamp**: 2026-07-30T23:35:00+08:00
 

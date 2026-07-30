@@ -126,9 +126,14 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
         });
         useAgentStore.getState().setPipelineId(res.pipeline_id);
         useAgentStore.getState().updatePhase('structure', 5);
-      } catch { /* offline */ }
-      useAgentStore.getState().clearAnnotations();
-      onBack();
+        useAgentStore.getState().clearAnnotations();
+        onBack();
+      } catch {
+        // 启动失败：回滚状态并提示，避免卡在 pipeline_running 无法重试
+        setStatus('plan_ready');
+        addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: '管线启动失败，请稍后重试。' });
+      }
     } else {
       setStatus('brief_confirmed');
       addMessage({ id: uid('m'), role: 'user', content: '确认，请生成完整的制作规划书。', timestamp: new Date().toISOString() });
