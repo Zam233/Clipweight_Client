@@ -9,17 +9,19 @@ import { mediaManager } from '@/services/media/mediaManager';
 import { Button, Badge } from '@/components/ui';
 import { uid } from '@/lib/utils';
 import { DubView } from './DubView';
+import { PluginPanel } from './PluginPanel';
 import type { Asset, MaterialSearchResult } from '@/types/api';
 import type { ClipKind } from '@/types/timeline';
-import { Sparkles, FolderOpen, History, Upload, Search, Plus, Mic, AudioLines } from 'lucide-react';
+import { Sparkles, FolderOpen, History, Upload, Search, Plus, Mic, AudioLines, Puzzle } from 'lucide-react';
 
-type Tab = 'ai' | 'library' | 'history' | 'dub';
+type Tab = 'ai' | 'library' | 'history' | 'dub' | 'plugins';
 
 const TABS: { id: Tab; label: string; icon: typeof Sparkles }[] = [
   { id: 'ai', label: 'AI 匹配', icon: Sparkles },
   { id: 'library', label: '素材库', icon: FolderOpen },
   { id: 'history', label: '历史', icon: History },
   { id: 'dub', label: '配音', icon: Mic },
+  { id: 'plugins', label: '插件', icon: Puzzle },
 ];
 
 /**
@@ -169,6 +171,8 @@ export function AssetPanel() {
         {activeTab === 'ai' && <AIMatchView />}
 
         {activeTab === 'dub' && <DubView />}
+
+        {activeTab === 'plugins' && <PluginPanel />}
 
         {(activeTab === 'library' || activeTab === 'history') && (
           <>
