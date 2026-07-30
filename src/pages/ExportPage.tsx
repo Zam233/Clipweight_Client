@@ -26,6 +26,7 @@ interface QueueItem extends RenderProgress {
   presetName: string;
   startedAt: string;
   filename?: string;
+  simulated?: boolean;
 }
 
 /**
@@ -166,7 +167,7 @@ export function ExportPage() {
   const simulateTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
 
   const simulateRender = (taskId: string) => {
-    updateQueue(taskId, { status: 'rendering', progress: 0 });
+    updateQueue(taskId, { status: 'rendering', progress: 0, simulated: true });
     const phases = [
       { p: 'trim', until: 40 },
       { p: 'concat', until: 70 },
@@ -349,7 +350,13 @@ function QueueCard({ item }: { item: QueueItem }) {
         }`}>
           {item.status === 'failed' ? '失败' : `${item.progress}%`}
         </span>
-        {item.status === 'completed' && item.filename && (
+        {item.status === 'completed' && item.simulated && (
+          <span className="px-2 py-1 rounded-cw-sm bg-surface-container-high text-caption text-on-surface-variant"
+            title="演示模式 — 连接后端后可真实渲染导出">
+            演示模式
+          </span>
+        )}
+        {item.status === 'completed' && !item.simulated && item.filename && (
           <a
             href={renderApi.getDownloadUrl(item.filename)}
             className="p-2 rounded-cw-sm bg-track-audio/15 text-track-audio hover:bg-track-audio/25 transition-colors"

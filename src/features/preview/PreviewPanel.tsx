@@ -7,7 +7,7 @@ import type { Clip, Track } from '@/types/timeline';
 import { formatTimecode, clamp } from '@/lib/utils';
 import { mediaManager } from '@/services/media/mediaManager';
 import { interpolateProperties } from '@/features/timeline/engine/easing';
-import { Maximize, Shield, Volume2, VolumeX, ZoomIn, ZoomOut, Camera, Repeat } from 'lucide-react';
+import { Maximize, Shield, Volume2, VolumeX, ZoomIn, ZoomOut, Camera, Repeat, Play, Pause } from 'lucide-react';
 import { Tooltip } from '@/components/ui';
 
 /**
@@ -21,6 +21,7 @@ export function PreviewPanel() {
   const timeline = useTimelineStore((s) => s.timeline);
   const currentTimeSec = usePreviewStore((s) => s.currentTimeSec);
   const isPlaying = usePreviewStore((s) => s.isPlaying);
+  const togglePlay = usePreviewStore((s) => s.togglePlay);
   const showSafeArea = usePreviewStore((s) => s.showSafeArea);
   const isMuted = usePreviewStore((s) => s.isMuted);
   const toggleMute = usePreviewStore((s) => s.toggleMute);
@@ -331,8 +332,18 @@ export function PreviewPanel() {
       </div>
 
       {/* Canvas viewport */}
-      <div ref={wrapRef} className="flex-1 relative overflow-hidden min-h-0">
-        <canvas ref={canvasRef} className="absolute inset-0 block" />
+      <div ref={wrapRef} className="flex-1 relative overflow-hidden min-h-0 group/preview">
+        <canvas ref={canvasRef} className="absolute inset-0 block" onClick={togglePlay} />
+        {/* Centered play/pause overlay — visible when paused or on hover */}
+        <button
+          onClick={togglePlay}
+          aria-label={isPlaying ? '暂停' : '播放'}
+          className={`absolute inset-0 m-auto w-14 h-14 rounded-cw-full flex items-center justify-center
+            bg-black/50 text-white backdrop-blur-sm transition-opacity duration-short3 cursor-pointer
+            ${isPlaying ? 'opacity-0 group-hover/preview:opacity-100' : 'opacity-90 hover:opacity-100'}`}
+        >
+          {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
+        </button>
       </div>
 
       {/* Resolution / info bar */}
