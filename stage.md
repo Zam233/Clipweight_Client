@@ -1,5 +1,25 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 95: 首页文案无法传入需求Agent（竞态修复）
+**Timestamp**: 2026-07-30T22:48:00+08:00
+
+### 现象
+首页填入的文案/时长等信息无法传入需求 Agent（Stage 93 重构引入的回归）。
+
+### 根因（竞态）
+- `useRequirementsAutoStart` 在挂载时立即运行，抢先 `setRequirementsTopic('')` 消费掉 topic
+- EditorPage 加载副作用随后才快照 `pendingTopic`（此时已被清空为 ''）→ 恢复逻辑被跳过
+- 虽然 Hook 读到了快照，但与加载副作用的 reset/restore 存在时序竞争，文案等字段可能丢失
+
+### 修复
+- `useRequirementsAutoStart(ready)` 新增 `ready` 门控，等待项目加载完成（数据已恢复）后再消费
+- EditorPage 传入 `!loading`，确保 Hook 在 reset→restore 完成后运行，可靠读到完整 requirements 数据
+- 依赖数组改为 `[ready, requirementsTopic]`
+
+### 测试: tsc 0 / vitest 59
+
+- - -
+
 ## Stage 94: 确认简报后无法生成规划书（前后端状态不同步）
 **Timestamp**: 2026-07-30T22:25:00+08:00
 

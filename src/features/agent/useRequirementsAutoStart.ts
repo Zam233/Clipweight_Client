@@ -9,14 +9,17 @@ import { demoBrief } from './AgentPanel';
  * useRequirementsAutoStart — 从 HomePage「开始创作」进入编辑器后自动启动需求 Agent。
  *
  * 挂在 EditorPage 顶层（始终挂载），不依赖 Agent 面板是否展开。
+ * 必须等到项目加载完成（ready=true，EditorPage 已恢复 requirements 数据）再消费，
+ * 否则会抢在 EditorPage 恢复数据之前清空 topic，导致文案/时长等信息丢失。
  * 当 projectStore.requirementsTopic 有值且尚无对话消息时，自动初始化需求会话、
  * 发送选题并请求生成创意简报 / 规划书。全程仅使用全局 store action。
  */
-export function useRequirementsAutoStart() {
+export function useRequirementsAutoStart(ready: boolean) {
   const requirementsTopic = useProjectStore((s) => s.requirementsTopic);
   const autoStartedRef = useRef(false);
 
   useEffect(() => {
+    if (!ready) return; // 等待项目加载并恢复 requirements 数据后再启动
     if (autoStartedRef.current) return;
     if (!requirementsTopic) return;
     if (useAgentStore.getState().requirementsMessages.length > 0) return;
@@ -74,5 +77,5 @@ export function useRequirementsAutoStart() {
         useAgentStore.getState().setRequirementsBusy(false);
       }
     })();
-  }, [requirementsTopic]);
+  }, [ready, requirementsTopic]);
 }

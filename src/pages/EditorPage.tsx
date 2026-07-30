@@ -29,8 +29,9 @@ export function EditorPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Auto-start the requirements Agent when launched from HomePage (panel-independent)
-  useRequirementsAutoStart();
+  // Auto-start the requirements Agent when launched from HomePage (panel-independent).
+  // Gated on !loading so it runs only after the project (and requirements data) is restored.
+  useRequirementsAutoStart(!loading);
 
   // Load project from backend on mount
   useEffect(() => {
