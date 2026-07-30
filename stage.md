@@ -1,5 +1,26 @@
 # ClipWright Optimization — Stage Log
 
+## Fix: 插件面板硬编码 — 禁用/卸载插件 UI 仍显示
+**Timestamp**: 2026-07-30T14:20:00+08:00
+
+### 根因
+PluginPanel 的 3 个 TAB（AI 图片/AI 视频/AI 音乐）完全硬编码，无任何后端 API 调用。即使后端插件被 unload 或未加载，UI 仍然显示可交互的 tab。
+
+### 修复
+- PluginPanel 改为数据驱动：mount 时调用 `pluginApi.list()` 获取已加载插件
+- 仅显示 `kind === 'capability' || kind === 'editor'` 的已加载插件 tab
+- 后端离线时回退显示全部 tab（demo 模式）
+- 无可用插件时显示空状态 "暂无可用插件"
+- 加载中显示 spinner
+
+### 测试: tsc 0 / vitest 59
+
+- - -
+
+## Fix: 后端 asset_id/media_type 字段名不匹配
+
+- - -
+
 ## Stage 77: 时间轴深层逻辑 Bug 修复 — 拆分/trim/选区/时间码/键盘 (12 项)
 **Timestamp**: 2026-07-30T14:04:00+08:00
 
