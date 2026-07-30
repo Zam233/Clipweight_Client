@@ -1,5 +1,23 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 88: 后端需求/语音服务深度 Bug 修复 (5 项)
+**Timestamp**: 2026-07-30T18:40:00+08:00
+
+### Critical
+- Fix: `process_upload` 是 async def 却用 `asyncio.to_thread` 调用 → 协程永不执行，上传端点完全失效 → 改为直接 await
+- Fix: `get_session` 调用不存在的 `model.to_session_dict()` → AttributeError → 改为 `to_dict()`
+
+### High
+- Fix: `_is_confirm` 子串匹配误判否定句（"不可以了"/"不要就这样"/"有问题"被当作确认）→ 新增否定词检测 + 问句检测，10 个用例全通过
+- Fix: SSE 流错误 `str(e)` 泄露内部细节给客户端 → 改为通用提示 + 服务端记录日志
+
+### Medium
+- Fix: CloneRequest.voice_name `default=""` 与 `min_length=1` 矛盾 → 移除 min_length（留空自动生成）
+
+### 测试: backend import OK / _is_confirm 10 用例通过
+
+- - -
+
 ## Stage 87: Persona/Voice/Settings 深度 Bug 修复 (8 项)
 **Timestamp**: 2026-07-30T18:33:00+08:00
 
