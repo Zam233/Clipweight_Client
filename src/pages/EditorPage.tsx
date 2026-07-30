@@ -30,6 +30,13 @@ export function EditorPage() {
     let alive = true;
     (async () => {
       try {
+        // Snapshot requirements data set by HomePage.launch() before reset clears it
+        const preResetProject = useProjectStore.getState();
+        const pendingTopic = preResetProject.requirementsTopic;
+        const pendingScript = preResetProject.requirementsScript;
+        const pendingAudioDur = preResetProject.requirementsAudioDuration;
+        const pendingMaterialSourceIds = preResetProject.materialSourceIds;
+
         // Reset all stores before loading the new project to prevent
         // stale state from the previous project leaking through.
         // resetProject() first — it nulls projectId, which makes
@@ -54,6 +61,13 @@ export function EditorPage() {
         if (project.persona_id) useProjectStore.getState().setPersonaId(project.persona_id);
         if (project.plugin_id) useProjectStore.getState().setPluginId(project.plugin_id);
         useTimelineStore.getState().setTimeline(project.timeline ?? createEmptyTimeline());
+        // Restore requirements data so AgentPanel auto-start can consume it
+        if (pendingTopic) {
+          useProjectStore.getState().setRequirementsTopic(pendingTopic);
+          useProjectStore.getState().setRequirementsScript(pendingScript);
+          useProjectStore.getState().setRequirementsAudioDuration(pendingAudioDur);
+          useProjectStore.getState().setMaterialSourceIds(pendingMaterialSourceIds);
+        }
         if (alive) setLoading(false);
       } catch (err) {
         console.error('[EditorPage] Failed to load project:', err);

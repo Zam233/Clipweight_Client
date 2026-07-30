@@ -1,5 +1,21 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 73: 需求 Agent 未自启动修复
+**Timestamp**: 2026-07-30T12:55:00+08:00
+
+### Bug 分析
+- 用户从 HomePage 点击"开始创作"后进入编辑器，需求 Agent 不会自动启动
+- 根因：EditorPage mount 时调用 `resetProject()` 清空了 `requirementsTopic`，而 AgentPanel 的 auto-start useEffect 依赖该字段判断是否启动
+- 时间线：HomePage.launch() → setRequirementsTopic("选题") → navigate → EditorPage.resetProject() → requirementsTopic='' → AgentPanel 检测为空 → 跳过自启动
+
+### 修复 (EditorPage.tsx)
+- 在 `resetProject()` 之前快照 requirements 数据（topic/script/audioDuration/materialSourceIds）
+- 项目加载完成后恢复这些数据，确保 AgentPanel 的 auto-start useEffect 能正确触发
+
+### 测试: tsc 0 / vitest 59
+
+- - -
+
 ## Stage 72: UX Polish + Error Handling Improvements
 **Timestamp**: 2026-07-30T12:24:00+08:00
 
