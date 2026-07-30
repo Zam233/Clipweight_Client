@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { memo, useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useVoiceStore } from '@/stores/voiceStore';
 import { voiceApi } from '@/services/api';
@@ -122,7 +122,7 @@ export function VoicePage({ embedded = false, onSelect }: { embedded?: boolean; 
   );
 }
 
-function VoiceCard({ voice, onDelete, onSelect }: { voice: VoiceRecord; onDelete: () => void; onSelect?: (v: VoiceRecord) => void }) {
+const VoiceCard = memo(function VoiceCard({ voice, onDelete, onSelect }: { voice: VoiceRecord; onDelete: () => void; onSelect?: (v: VoiceRecord) => void }) {
   const provider = PROVIDERS.find((p) => p.id === voice.provider);
   const [previewText, setPreviewText] = useState('你好，这是一段测试语音。');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -214,7 +214,7 @@ function VoiceCard({ voice, onDelete, onSelect }: { voice: VoiceRecord; onDelete
       )}
     </div>
   );
-}
+});
 
 function CloneDialog({ onClose }: { onClose: () => void }) {
   const cloneStep = useVoiceStore((s) => s.cloneStep);

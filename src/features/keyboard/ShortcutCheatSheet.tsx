@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { keybindingEngine } from './KeybindingEngine';
 import { Keyboard, X } from 'lucide-react';
 
@@ -7,6 +7,14 @@ import { Keyboard, X } from 'lucide-react';
  * grouped by category, styled like a physical keycap reference.
  */
 export function ShortcutCheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [open, onClose]);
   const grouped = useMemo(() => {
     const map = new Map<string, { combo: string; label: string }[]>();
     for (const b of keybindingEngine.list()) {

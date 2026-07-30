@@ -219,6 +219,7 @@ export function HomePage() {
       setLaunchErr('请填写选题或文案');
       return;
     }
+    setLaunching(true);
     setLaunchErr(null);
     const st = useProjectStore.getState();
     st.setProjectName(topic.trim() || '未命名项目');
@@ -256,10 +257,12 @@ export function HomePage() {
         // Fall through — offline
       }
     }
+    setLaunching(false);
     setLaunchErr('后端离线，无法创建项目');
   };
 
   const openBlank = async () => {
+    setLaunching(true);
     const st = useProjectStore.getState();
     st.setProjectName('未命名项目');
     if (backend === 'online') {
@@ -270,6 +273,7 @@ export function HomePage() {
         return;
       } catch { /* fall through */ }
     }
+    setLaunching(false);
     setLaunchErr('后端离线，无法创建项目');
   };
 

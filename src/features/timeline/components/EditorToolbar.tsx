@@ -508,7 +508,8 @@ export function EditorToolbar() {
         {/* Save status indicator */}
         <SaveStatusIndicator />
 
-        <Button size="sm" variant="outline" onClick={() => useProjectStore.getState().requestSave()}>
+        <Button size="sm" variant="outline" onClick={() => useProjectStore.getState().requestSave()}
+          disabled={useProjectStore.getState().isSaving}>
           <Save className="w-3.5 h-3.5" />
           保存
         </Button>

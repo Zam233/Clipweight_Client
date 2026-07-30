@@ -1,5 +1,34 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 71: Deep UX + Accessibility + Backend Validation Fixes
+**Timestamp**: 2026-07-30T12:22:00+08:00
+
+### 前端 P0 修复 (5 项)
+- Fix: HomePage launch/openBlank 按钮重复点击 → `setLaunching(true)`/`setLaunching(false)` 正确切换 disabled 状态
+- Fix: ShortcutCheatSheet 无法按 Escape 关闭 → 添加 useEffect + keydown Escape 监听
+- Fix: Tooltip 无障碍 → 添加 `aria-describedby` + `role="tooltip"` + 唯一 tooltipId，屏幕阅读器可读
+- Fix: ExportPage 返回按钮无 projectId → 回退到首页 `/` 而非静默无操作
+- Fix: EditorToolbar 保存按钮未禁用 → 绑定 `isSaving` 状态到 `disabled` prop
+
+### 前端 P1 修复 (6 项)
+- Fix: ExportPage NumField 无 min/max → 添加约束（width: 320-7680, height: 240-4320, fps: 1-120）
+- Opt: ProjectCard → `React.memo` 包装，避免父组件搜索/筛选时全量重渲染
+- Opt: AssetCard → `React.memo` 包装
+- Opt: PersonaCard → `React.memo` 包装
+- Opt: VoiceCard → `React.memo` 包装
+
+### 后端修复 (6 项)
+- Fix: animation.py OnscreenAnimationDef `easing` 字段重复定义 → 移除重复（Pydantic 重复字段 Bug）
+- Fix: persona_forge.py 5 处 `HTTPException(status_code=500, detail=str(e))` → sanitized 错误消息
+- Fix: requirements.py 2 处 `str(e)` 信息泄露 → sanitized 错误消息
+- Fix: render.py `str(e)` 信息泄露 → sanitized 错误消息
+- Fix: persona.py 中英文 404 不一致 → 统一为中文 "Persona 不存在: {id}"
+- Fix: render.py RenderSettings 缺少验证 → Field(ge/gt/le) 约束 width/height/fps
+
+### 测试: tsc 0 / vitest 59 / eslint 0err
+
+- - -
+
 ## Stage 70: UX 优化与 Bug 修复 — 前后端全面审计 + 补修
 **Timestamp**: 2026-07-30T12:12:00+08:00
 

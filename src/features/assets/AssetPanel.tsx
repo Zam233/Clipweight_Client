@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { memo, useState, useCallback, useEffect } from 'react';
 import { useAssetStore } from '@/stores/assetStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
@@ -215,7 +215,7 @@ export function AssetPanel() {
   );
 }
 
-export function AssetCard({ asset, onAdd }: { asset: Asset; onAdd: (opts?: { ripple?: boolean }) => void }) {
+export const AssetCard = memo(function AssetCard({ asset, onAdd }: { asset: Asset; onAdd: (opts?: { ripple?: boolean }) => void }) {
   const kindColor = asset.kind === 'video' ? '#4F8CFF' : asset.kind === 'audio' ? '#34D399' : '#A855F7';
   const [thumb, setThumb] = useState<string | null>(null);
   const [realDur, setRealDur] = useState(0);
@@ -292,7 +292,7 @@ export function AssetCard({ asset, onAdd }: { asset: Asset; onAdd: (opts?: { rip
       </div>
     </div>
   );
-}
+});
 
 function AIMatchView() {
   const [query, setQuery] = useState('');

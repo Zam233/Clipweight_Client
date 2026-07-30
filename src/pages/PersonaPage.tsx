@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { personaApi } from '@/services/api';
 import { Button, Badge } from '@/components/ui';
@@ -162,7 +162,7 @@ export function PersonaPage() {
   );
 }
 
-function PersonaCard({ persona, onOpen }: { persona: Persona; onOpen: () => void }) {
+const PersonaCard = memo(function PersonaCardImpl({ persona, onOpen }: { persona: Persona; onOpen: () => void }) {
   const tone = persona.parameter.identity.tone;
   const accent = TONE_COLORS[tone] ?? '#4F8CFF';
   const rhythm = persona.parameter.rhythm;
@@ -242,7 +242,7 @@ function PersonaCard({ persona, onOpen }: { persona: Persona; onOpen: () => void
       </div>
     </button>
   );
-}
+});
 
 function Meter({ label, value, color }: { label: string; value: number; color: string }) {
   return (

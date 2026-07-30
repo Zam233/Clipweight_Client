@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Layers, Clock, X, MoreVertical, FolderOpen, Check, Trash2 } from 'lucide-react';
 
 /* ── shared project card type ──────────────────────────── */
@@ -17,7 +17,7 @@ export interface ProjectCardData {
 }
 
 /* ── shared ProjectCard ────────────────────────────────── */
-export function ProjectCard({
+export const ProjectCard = memo(function ProjectCard({
   proj,
   onOpen,
   onDelete,
@@ -246,7 +246,7 @@ export function ProjectCard({
       </div>
     </div>
   );
-}
+});
 
 /* ── menu helpers ──────────────────────────────────────── */
 function MenuItem({ label, icon, danger, onClick, children }: {

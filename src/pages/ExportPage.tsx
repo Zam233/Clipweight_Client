@@ -203,7 +203,8 @@ export function ExportPage() {
       <button
         onClick={() => {
           const pid = useProjectStore.getState().projectId;
-          if (pid) navigate({ to: '/editor/$projectId', params: { projectId: pid } });
+          if (pid) { navigate({ to: '/editor/$projectId', params: { projectId: pid } }); }
+          else { navigate({ to: '/' }); }
         }}
         className="flex items-center gap-1.5 text-label-sm text-on-surface-variant hover:text-primary transition-colors mb-5 cursor-pointer"
       >
@@ -260,9 +261,9 @@ export function ExportPage() {
               <Gauge className="w-3.5 h-3.5" /> 参数
             </h3>
             <div className="grid grid-cols-2 gap-3">
-              <NumField label="宽度" value={settings.width} onChange={(v) => setSettings({ ...settings, width: v })} />
-              <NumField label="高度" value={settings.height} onChange={(v) => setSettings({ ...settings, height: v })} />
-              <NumField label="帧率" value={settings.fps} onChange={(v) => setSettings({ ...settings, fps: v })} />
+              <NumField label="宽度" value={settings.width} onChange={(v) => setSettings({ ...settings, width: v })} min={320} max={7680} step={2} />
+              <NumField label="高度" value={settings.height} onChange={(v) => setSettings({ ...settings, height: v })} min={240} max={4320} step={2} />
+              <NumField label="帧率" value={settings.fps} onChange={(v) => setSettings({ ...settings, fps: v })} min={1} max={120} step={0.01} />
               <div>
                 <label className="block text-label text-on-surface-variant mb-1">码率</label>
                 <select
@@ -372,7 +373,10 @@ function QueueCard({ item }: { item: QueueItem }) {
   );
 }
 
-function NumField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function NumField({ label, value, onChange, min, max, step }: {
+  label: string; value: number; onChange: (v: number) => void;
+  min?: number; max?: number; step?: number;
+}) {
   return (
     <div>
       <label className="block text-label text-on-surface-variant mb-1">{label}</label>
@@ -380,6 +384,7 @@ function NumField({ label, value, onChange }: { label: string; value: number; on
         type="number"
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
+        min={min} max={max} step={step}
         className="w-full bg-surface rounded-cw-xs px-2 py-1.5 text-body-sm font-mono text-on-surface outline-none border border-outline-variant/30 focus:border-primary"
       />
     </div>
