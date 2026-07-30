@@ -7,6 +7,7 @@ import { useAgentStore, clearRequirementsDraft } from '@/stores/agentStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { usePreviewStore } from '@/stores/previewStore';
+import { useAssetStore } from '@/stores/assetStore';
 import { projectApi, getApiClient } from '@/services/api';
 import { mediaManager } from '@/services/media/mediaManager';
 import { useGlobalKeybindings } from '@/features/keyboard/useGlobalKeybindings';
@@ -53,6 +54,8 @@ export function EditorPage() {
         useSelectionStore.getState().deselectAll();
         usePreviewStore.getState().setPlaying(false);
         usePreviewStore.getState().setCurrentTime(0);
+        // 清除上一个项目的素材库，切换项目时不共享素材
+        useAssetStore.getState().clearAssets();
         // 释放上一个项目的媒体资源（object URL / media element / 缓存）
         mediaManager.clear();
 

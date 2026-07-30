@@ -12,6 +12,7 @@ interface AssetState {
   isLoading: boolean;
   searchQuery: string;
   uploadProgress: number | null;
+  refreshCounter: number;
 
   // Actions
   setActiveTab: (tab: AssetTab) => void;
@@ -21,6 +22,7 @@ interface AssetState {
   setLoading: (loading: boolean) => void;
   setSearchQuery: (query: string) => void;
   setUploadProgress: (progress: number | null) => void;
+  clearAssets: () => void;
 }
 
 export const useAssetStore = create<AssetState>((set, get) => ({
@@ -31,6 +33,7 @@ export const useAssetStore = create<AssetState>((set, get) => ({
   isLoading: false,
   searchQuery: '',
   uploadProgress: null,
+  refreshCounter: 0,
 
   setActiveTab: (tab) => set({ activeTab: tab }),
   setAssets: (assets) => set({ assets }),
@@ -46,4 +49,5 @@ export const useAssetStore = create<AssetState>((set, get) => ({
   setLoading: (loading) => set({ isLoading: loading }),
   setSearchQuery: (query) => set({ searchQuery: query }),
   setUploadProgress: (progress) => set({ uploadProgress: progress }),
+  clearAssets: () => set((s) => ({ assets: [], searchResults: [], isLoading: false, uploadProgress: null, refreshCounter: s.refreshCounter + 1 })),
 }));

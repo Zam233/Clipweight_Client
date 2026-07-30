@@ -1,9 +1,23 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import type { ClipKind } from '@/types/timeline';
 
 /** Merge Tailwind classes with clsx */
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+/** Normalize a raw kind string to a valid ClipKind, with case-insensitive matching */
+export function normalizeClipKind(raw: string): ClipKind {
+  const k = raw.toLowerCase().trim();
+  if (k === 'video' || k.startsWith('video')) return 'video';
+  if (k === 'audio' || k === 'music' || k.startsWith('audio')) return 'audio';
+  if (k === 'text' || k === 'caption') return 'text';
+  if (k === 'image' || k === 'photo' || k.startsWith('image')) return 'image';
+  if (k === 'waveform') return 'waveform';
+  if (k === 'animation') return 'animation';
+  if (k === 'shape') return 'shape';
+  return 'image';
 }
 
 /** Generate a short unique ID */

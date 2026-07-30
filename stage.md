@@ -1,5 +1,42 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 75: 时间轴素材放置 7 项 Bug 修复
+**Timestamp**: 2026-07-30T13:39:00+08:00
+
+### Bug 1 (HIGH): 所有素材无论类型都被放到图像轨道
+- 根因: `addToTimeline` 中 kind 映射逻辑 `asset.kind === 'video' ? ... : 'image'` 将所有不匹配的类型 fallback 到 `image`
+- 后端返回的素材 kind 存在大小写/变体差异时（如 `Video`），100% 素材被路由到图像轨道
+- 修复: 创建 `normalizeClipKind()` 工具函数，大小写不敏感 + 支持 8 种 ClipKind 匹配
+
+### Bug 2 (HIGH): 零时长片段导致不可见 + 叠加
+- 根因: `asset.duration_sec ?? 5` — `0 ?? 5 = 0`（0 不是 nullish），零时长片段宽度为 0px 不可见
+- 后续片段 `lastEnd` 相同，导致叠加在同一位置
+- 修复: `asset.duration_sec != null && asset.duration_sec > 0 ? asset.duration_sec : 5`
+
+### Bug 3 (HIGH): 拖放素材到时间轴使用原始 kind 未规格化
+- 根因: TimelineEngine.dropAssetAt 中 `asset.kind as ClipKind` 无运行时校验
+- 修复: 改用 `normalizeClipKind(asset.kind)` + AssetCard 拖放 payload 也使用规格化后的 kind
+
+### Bug 4 (MEDIUM): 本地素材库跨项目共享
+- 根因: ① assetStore 无 clearAssets 方法 ② loadAssets 仅挂载时执行一次 ③ 素材历史存全局 localStorage
+- 修复: 添加 clearAssets() + refreshCounter 触发重载 + EditorPage 切换项目时调用 clearAssets
+
+### Bug 5 (MEDIUM): 双击 + 号添加素材触发 3× 添加
+- 根因: dblclick 冒泡到容器 → click×2 + dblclick×1 = 3 次 addToTimeline
+- 修复: 按钮 onClick 添加 `e.stopPropagation()`
+
+### Bug 6 (MEDIUM): 在线路径上传后素材无媒体预览
+- 根因: `mediaManager.registerFile()` 仅在 catch 离线路径调用，在线路径跳过
+- 修复: 在线路径 upload 成功后也调用 registerFile（传入返回的 assetId）
+
+### Bug 7 (LOW): AI 匹配素材始终视为 video
+- 根因: `addResult` 硬编码 `kind: 'video'`
+- 修复: 使用 `normalizeClipKind('video')` 规格化（MaterialSearchResult 无 kind，保留默认 video）
+
+### 测试: tsc 0 / vitest 59
+
+- - -
+
 ## Stage 74: Pipeline 整体数据流同类 Bug 修复 (3 项)
 **Timestamp**: 2026-07-30T13:10:00+08:00
 

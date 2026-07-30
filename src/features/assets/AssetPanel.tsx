@@ -7,7 +7,7 @@ import { usePreviewStore } from '@/stores/previewStore';
 import { assetApi, getApiClient } from '@/services/api';
 import { mediaManager } from '@/services/media/mediaManager';
 import { Button, Badge } from '@/components/ui';
-import { uid } from '@/lib/utils';
+import { uid, normalizeClipKind } from '@/lib/utils';
 import { DubView } from './DubView';
 import { PluginPanel } from './PluginPanel';
 import type { Asset, MaterialSearchResult } from '@/types/api';
@@ -38,6 +38,7 @@ export function AssetPanel() {
   const setLoading = useAssetStore((s) => s.setLoading);
   const uploadProgress = useAssetStore((s) => s.uploadProgress);
   const setUploadProgress = useAssetStore((s) => s.setUploadProgress);
+  const refreshCounter = useAssetStore((s) => s.refreshCounter);
   const [loadError, setLoadError] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -57,22 +58,25 @@ export function AssetPanel() {
     }
   }, [setAssets, setLoading]);
 
-  // Load on mount
-  useEffect(() => { loadAssets(); }, [loadAssets]);
+  // Load on mount + reload on project change (refreshCounter bump)
+  useEffect(() => { loadAssets(); }, [loadAssets, refreshCounter]);
 
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setLoading(true);
     try {
       for (const file of Array.from(files)) {
-        await assetApi.upload(file, setUploadProgress);
+        const res = await assetApi.upload(file, setUploadProgress);
+        // Register uploaded file with MediaManager for local preview/thumbnails
+        const assetId = res.id || res.asset_id || uid('asset');
+        mediaManager.registerFile(assetId, file);
       }
       await loadAssets();
     } catch {
       // Offline: create local assets backed by real object URLs (playable media)
       const newAssets: Asset[] = Array.from(files).map((f) => {
         const id = uid('asset');
-        const kind = f.type.startsWith('video') ? 'video' : f.type.startsWith('audio') ? 'audio' : 'image';
+        const kind = normalizeClipKind(f.type.startsWith('video') ? 'video' : f.type.startsWith('audio') ? 'audio' : 'image') as Asset['kind'];
         // Register real media so preview/thumbnails/waveforms work
         mediaManager.registerFile(id, f);
         return {
@@ -93,7 +97,7 @@ export function AssetPanel() {
 
   const addToTimeline = (asset: Asset, opts?: { ripple?: boolean }) => {
     const store = useTimelineStore.getState();
-    const kind: ClipKind = asset.kind === 'video' ? 'video' : asset.kind === 'audio' ? 'audio' : 'image';
+    const kind: ClipKind = normalizeClipKind(asset.kind);
     // Find or create a matching track
     let track = store.timeline.tracks.find((t) => t.kind === kind);
     if (!track) {
@@ -101,9 +105,9 @@ export function AssetPanel() {
       track = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
     }
     if (!track) return;
-    // Prefer real media duration when available
+    // Prefer real media duration, but guard against zero (0 is falsy for ??)
     const realDur = mediaManager.getDuration(asset.id);
-    const duration = realDur > 0 ? realDur : (asset.duration_sec ?? 5);
+    const duration = realDur > 0 ? realDur : (asset.duration_sec != null && asset.duration_sec > 0 ? asset.duration_sec : 5);
     const clipData = { kind, asset_id: asset.id, duration_sec: duration, metadata: { title: asset.filename } };
 
     useHistoryStore.getState().pushState(store.timeline, 'add-asset');
@@ -221,7 +225,8 @@ export function AssetPanel() {
 }
 
 export const AssetCard = memo(function AssetCard({ asset, onAdd }: { asset: Asset; onAdd: (opts?: { ripple?: boolean }) => void }) {
-  const kindColor = asset.kind === 'video' ? '#4F8CFF' : asset.kind === 'audio' ? '#34D399' : '#A855F7';
+  const kind = normalizeClipKind(asset.kind);
+  const kindColor = kind === 'video' ? '#4F8CFF' : kind === 'audio' ? '#34D399' : kind === 'text' ? '#FBBF24' : '#A855F7';
   const [thumb, setThumb] = useState<string | null>(null);
   const [realDur, setRealDur] = useState(0);
 
@@ -254,7 +259,7 @@ export const AssetCard = memo(function AssetCard({ asset, onAdd }: { asset: Asse
       draggable
       onDragStart={(e) => {
         const payload = JSON.stringify({
-          id: asset.id, kind: asset.kind, filename: asset.filename, duration: dur ?? 5,
+          id: asset.id, kind, filename: asset.filename, duration: dur ?? 5,
         });
         e.dataTransfer.setData('application/x-clipwright-asset', payload);
         e.dataTransfer.setData('text/plain', payload);
@@ -273,7 +278,7 @@ export const AssetCard = memo(function AssetCard({ asset, onAdd }: { asset: Asse
           <img src={thumb} alt="" draggable={false} className="absolute inset-0 w-full h-full object-cover" />
         ) : (
           <span className="text-2xl" style={{ color: kindColor }}>
-            {asset.kind === 'video' ? '🎬' : asset.kind === 'audio' ? '🎵' : '🖼'}
+            {kind === 'video' ? '🎬' : kind === 'audio' ? '🎵' : kind === 'text' ? '📝' : '🖼'}
           </span>
         )}
         {dur != null && dur > 0 && (
@@ -283,9 +288,9 @@ export const AssetCard = memo(function AssetCard({ asset, onAdd }: { asset: Asse
         )}
         {/* Hover overlay (visual only, no pointer events — preserves drag from thumbnail) */}
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-short3 pointer-events-none" />
-        {/* Add button (small badge, pointer-events-auto) — Shift+click = ripple insert at playhead */}
+        {/* Add button — Shift+click = ripple insert at playhead. stopPropagation prevents dblclick on parent. */}
         <button
-          onClick={(e) => onAdd({ ripple: e.shiftKey })}
+          onClick={(e) => { e.stopPropagation(); onAdd({ ripple: e.shiftKey }); }}
           className="absolute bottom-1 left-1 w-7 h-7 rounded-cw-full bg-primary text-on-primary flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-short3 pointer-events-auto cursor-pointer"
         >
           <Plus className="w-4 h-4" />
@@ -344,17 +349,18 @@ function AIMatchView() {
 
   const addResult = (r: MaterialSearchResult) => {
     const store = useTimelineStore.getState();
-    let track = store.timeline.tracks.find((t) => t.kind === 'video');
+    const kind = normalizeClipKind('video'); // MaterialSearchResult 无 kind 字段，默认为 video
+    let track = store.timeline.tracks.find((t) => t.kind === kind);
     if (!track) {
-      const tid = store.addTrack('video');
+      const tid = store.addTrack(kind);
       track = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
     }
     if (!track) return;
     const lastEnd = track.clips.reduce((m, c) => Math.max(m, c.start_sec + c.duration_sec), 0);
     useHistoryStore.getState().pushState(store.timeline, 'ai-match');
     store.addClip(track.id, {
-      kind: 'video', asset_id: r.id, start_sec: lastEnd,
-      duration_sec: r.duration_sec ?? 5, metadata: { title: r.title, source: r.source },
+      kind, asset_id: r.id, start_sec: lastEnd,
+      duration_sec: r.duration_sec != null && r.duration_sec > 0 ? r.duration_sec : 5, metadata: { title: r.title, source: r.source },
     });
   };
 

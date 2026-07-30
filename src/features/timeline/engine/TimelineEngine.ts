@@ -8,6 +8,7 @@ import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { normalizeClipKind } from '@/lib/utils';
 import { useHistoryStore } from '@/stores/historyStore';
 import {
   makeLayout, xToTime, yToTrackIndex, timeToX,
@@ -763,7 +764,7 @@ export class TimelineEngine {
     const dropTime = Math.max(0, xToTime(canvasX, L));
     const dropTrackIdx = yToTrackIndex(canvasY, L);
 
-    const clipKind = asset.kind as import('@/types/timeline').ClipKind;
+    const clipKind = normalizeClipKind(asset.kind);
 
     // Prefer the dropped-on track if its kind matches; else find/create one
     const tracks = store.timeline.tracks;
