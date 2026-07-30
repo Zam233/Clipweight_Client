@@ -324,7 +324,7 @@ export function EditorToolbar() {
     <div className="flex items-center gap-2 px-3 py-2 bg-surface-dim border-b border-outline-variant/30 shrink-0">
       {/* Back + Logo + project name */}
       <div className="flex items-center gap-2 mr-2">
-        <Tooltip content="返回首页">
+        <Tooltip side="bottom" content="返回首页">
           <button onClick={() => navigate({ to: '/' })}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <ArrowLeft className="w-4 h-4" />
@@ -366,25 +366,25 @@ export function EditorToolbar() {
       <div className="w-px h-6 bg-outline-variant/40" />
 
       {/* Undo / Redo */}
-      <Tooltip content="撤销 (Ctrl+Z)">
+      <Tooltip side="bottom" content="撤销 (Ctrl+Z)">
         <button onClick={handleUndo} disabled={!canUndo}
           className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface disabled:opacity-30 transition-colors cursor-pointer">
           <Undo2 className="w-4 h-4" />
         </button>
       </Tooltip>
-      <Tooltip content="重做 (Ctrl+Shift+Z)">
+      <Tooltip side="bottom" content="重做 (Ctrl+Shift+Z)">
         <button onClick={handleRedo} disabled={!canRedo}
           className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface disabled:opacity-30 transition-colors cursor-pointer">
           <Redo2 className="w-4 h-4" />
         </button>
       </Tooltip>
-      <Tooltip content="复制 (Ctrl+C)">
+      <Tooltip side="bottom" content="复制 (Ctrl+C)">
         <button onClick={handleCopy}
           className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
           <Copy className="w-3.5 h-3.5" />
         </button>
       </Tooltip>
-      <Tooltip content="粘贴 (Ctrl+V)">
+      <Tooltip side="bottom" content="粘贴 (Ctrl+V)">
         <button onClick={handlePaste} disabled={clipClipboard.clips.length === 0}
           className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface disabled:opacity-30 transition-colors cursor-pointer">
           <ClipboardPaste className="w-3.5 h-3.5" />
@@ -395,13 +395,13 @@ export function EditorToolbar() {
 
       {/* Transport controls (centered) */}
       <div className="flex-1 flex items-center justify-center gap-1">
-        <Tooltip content="跳到开头 (Home)">
+        <Tooltip side="bottom" content="跳到开头 (Home)">
           <button onClick={seekToStart}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <SkipBack className="w-4 h-4" />
           </button>
         </Tooltip>
-        <Tooltip content="上一帧 (←)">
+        <Tooltip side="bottom" content="上一帧 (←)">
           <button onClick={stepBackward}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <StepBack className="w-4 h-4" />
@@ -414,13 +414,13 @@ export function EditorToolbar() {
         >
           {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
         </button>
-        <Tooltip content="下一帧 (→)">
+        <Tooltip side="bottom" content="下一帧 (→)">
           <button onClick={stepForward}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <StepForward className="w-4 h-4" />
           </button>
         </Tooltip>
-        <Tooltip content="跳到结尾 (End)">
+        <Tooltip side="bottom" content="跳到结尾 (End)">
           <button onClick={seekToEnd}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <SkipForward className="w-4 h-4" />
@@ -436,61 +436,61 @@ export function EditorToolbar() {
 
       {/* Panel toggles */}
       <div className="flex items-center gap-1">
-        <Tooltip content="导入字幕 (SRT)">
+        <Tooltip side="bottom" content="导入字幕 (SRT)">
           <button onClick={handleSrtImport}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <FileText className="w-4 h-4" />
           </button>
         </Tooltip>
-        <Tooltip content="导出字幕 (SRT)">
+        <Tooltip side="bottom" content="导出字幕 (SRT)">
           <button onClick={handleSrtExport}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <Download className="w-4 h-4" />
           </button>
         </Tooltip>
-        <Tooltip content="音频转字幕">
+        <Tooltip side="bottom" content="音频转字幕">
           <button onClick={handleAudioTranscribe}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <Mic className="w-4 h-4" />
           </button>
         </Tooltip>
-        <Tooltip content="导入 EDL/FCPXML">
+        <Tooltip side="bottom" content="导入 EDL/FCPXML">
           <button onClick={handleEdlImport}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <FileUp className="w-4 h-4" />
           </button>
         </Tooltip>
-        <Tooltip content="导出 EDL">
+        <Tooltip side="bottom" content="导出 EDL">
           <button onClick={handleEdlExport}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <Download className="w-3.5 h-3.5" />
           </button>
         </Tooltip>
-        <Tooltip content="导出 Timeline JSON">
+        <Tooltip side="bottom" content="导出 Timeline JSON">
           <button onClick={handleJsonExport}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <FileJson className="w-3.5 h-3.5" />
           </button>
         </Tooltip>
-        <Tooltip content="导入 Timeline JSON">
+        <Tooltip side="bottom" content="导入 Timeline JSON">
           <button onClick={handleJsonImport}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <Upload className="w-3.5 h-3.5" />
           </button>
         </Tooltip>
-        <Tooltip content="素材面板">
+        <Tooltip side="bottom" content="素材面板">
           <button onClick={() => togglePanel('assets')}
             className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panels.assets ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
             <PanelLeft className="w-4 h-4" />
           </button>
         </Tooltip>
-        <Tooltip content="Agent 副驾驶">
+        <Tooltip side="bottom" content="Agent 副驾驶">
           <button onClick={() => togglePanel('agent')}
             className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panels.agent ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
             <Bot className="w-4 h-4" />
           </button>
         </Tooltip>
-        <Tooltip content="属性面板">
+        <Tooltip side="bottom" content="属性面板">
           <button onClick={() => togglePanel('properties')}
             className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panels.properties ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
             <PanelRight className="w-4 h-4" />
@@ -501,7 +501,7 @@ export function EditorToolbar() {
 
         <div className="w-px h-6 bg-outline-variant/40 mx-1" />
 
-        <Tooltip content="快捷键速查 (Ctrl+/)">
+        <Tooltip side="bottom" content="快捷键速查 (Ctrl+/)">
           <button onClick={() => useSettingsStore.getState().setCheatSheetOpen(true)}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <Keyboard className="w-4 h-4" />
