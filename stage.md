@@ -1,5 +1,43 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 102: 无头浏览器端到端全流程验证（真实 Zam + Pexels）
+**Timestamp**: 2026-07-31T02:25:00+08:00
+
+### 测试方法
+自行拉起前后端，用 Playwright 无头浏览器 + 直接 API 测试，使用 D:\clipweight client\文理 的真实数据（voice.MP3 配音 + content.md 完整文案 4123 字符，未自创），真实 Persona「Zam」(zam_knowledge_critical) + Pexels 素材库 + 知识区长篇，无 fallback。
+
+### 全流程验证结果（从首页到导出前）
+- ✅ 首页填写完整文案 + 上传 voice.MP3 + 选 Zam/Pexels/知识区长篇 → 开始创作 → 进入编辑器
+- ✅ 需求 Agent 自启动（修复 Stage 95 StrictMode 恢复 bug 后，以完整 4074 字符文案启动）
+- ✅ **简报功能正常**：「确认简报」按钮约 30s 出现（简报生成）
+- ✅ **规划书功能正常**：「确认并启动管线」按钮约 50s 出现（规划书生成）
+- ✅ 确认规划书 → proceed → 管线启动（SSE 追踪）
+- ✅ **pipeline 完整运行**：structure→material→edit→animation→audio→quality 全部 COMPLETED（含自愈循环）
+- ✅ **生成完整时间轴**：3 轨（video 10 片段 / audio 10 片段 / 59s），status=completed, error=None
+
+### 本阶段修复
+- Fix: 确认判断 _is_confirm 改为「启发式优先 + LLM 兜底」——明确确认（确认/可以/好的开头）直接判定，避免 LLM 把「确认，请生成规划书」误判为提需求（原 LLM-first 导致确认后回到 gathering 不生成规划书）
+- Fix: E2E step7 等待简报生成后再点击（简报生成约 30s，原检查过早）
+
+### 测试: tsc 0 / vitest 59 / 全流程 API 验证通过（完整时间轴 3 轨 59s）
+
+- - -
+
+## Stage 101: 无头浏览器端到端测试 + 需求数据恢复 Bug（StrictMode）
+**Timestamp**: 2026-07-31T01:00:00+08:00
+
+### 测试方法
+用 Playwright 无头浏览器对运行中的前后端走完整流程（首页填文案+上传 voice.MP3 → 开始创作 → 需求Agent → 确认简报 → 规划书 → 管线 → 时间线审阅），完整文案 4123 字符全部使用。
+
+### 发现并修复的关键 Bug
+- **需求数据恢复失败（StrictMode 双重挂载）**：EditorPage 在 effect 内快照 requirementsTopic，StrictMode 下首次挂载的 resetProject 清空 store，第二次挂载快照到已清空的值 → 恢复失败 → 需求 Agent 拿不到选题/文案，requirements/init 从未被调用
+  - 修复: 用 `pendingReqRef`（useRef 跨 StrictMode 重挂载持久化）捕获需求数据，reset 后从 ref 恢复
+  - 验证: 调试日志确认 topic 正确恢复、Agent 以完整 4074 字符文案启动、requirements/init+chat 被调用、时间线审阅出现
+
+### 测试: tsc 0 / vitest 59 / E2E 全流程跑通
+
+- - -
+
 ## Stage 100: 自愈循环激活 + SSE 鉴权/模拟 + 状态机同步
 **Timestamp**: 2026-07-31T00:09:00+08:00
 

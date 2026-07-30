@@ -28,6 +28,9 @@ export function EditorPage() {
   const dirtyRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // HomePage.launch() 写入的需求数据快照。用 ref 保存以跨 StrictMode 双重挂载持久化——
+  // 否则首次挂载的 resetProject 会清空 store，第二次挂载快照到的是已清空的值，导致恢复失败。
+  const pendingReqRef = useRef<{ topic: string; script: string; audioDur: number; materialSourceIds: string[] } | null>(null);
 
   // Auto-start the requirements Agent when launched from HomePage (panel-independent).
   // Gated on !loading so it runs only after the project (and requirements data) is restored.
@@ -38,12 +41,17 @@ export function EditorPage() {
     let alive = true;
     (async () => {
       try {
-        // Snapshot requirements data set by HomePage.launch() before reset clears it
-        const preResetProject = useProjectStore.getState();
-        const pendingTopic = preResetProject.requirementsTopic;
-        const pendingScript = preResetProject.requirementsScript;
-        const pendingAudioDur = preResetProject.requirementsAudioDuration;
-        const pendingMaterialSourceIds = preResetProject.materialSourceIds;
+        // 仅在首次捕获 HomePage.launch() 写入的需求数据（ref 跨 StrictMode 重挂载保留）
+        if (pendingReqRef.current === null) {
+          const preResetProject = useProjectStore.getState();
+          pendingReqRef.current = {
+            topic: preResetProject.requirementsTopic,
+            script: preResetProject.requirementsScript,
+            audioDur: preResetProject.requirementsAudioDuration,
+            materialSourceIds: preResetProject.materialSourceIds,
+          };
+        }
+        const pendingTopic = pendingReqRef.current.topic;
 
         // Reset all stores before loading the new project to prevent
         // stale state from the previous project leaking through.
@@ -83,10 +91,11 @@ export function EditorPage() {
         useTimelineStore.getState().setTimeline(project.timeline ?? createEmptyTimeline());
         // Restore requirements data so AgentPanel auto-start can consume it
         if (pendingTopic) {
-          useProjectStore.getState().setRequirementsTopic(pendingTopic);
-          useProjectStore.getState().setRequirementsScript(pendingScript);
-          useProjectStore.getState().setRequirementsAudioDuration(pendingAudioDur);
-          useProjectStore.getState().setMaterialSourceIds(pendingMaterialSourceIds);
+          const pending = pendingReqRef.current!;
+          useProjectStore.getState().setRequirementsTopic(pending.topic);
+          useProjectStore.getState().setRequirementsScript(pending.script);
+          useProjectStore.getState().setRequirementsAudioDuration(pending.audioDur);
+          useProjectStore.getState().setMaterialSourceIds(pending.materialSourceIds);
         }
         if (alive) setLoading(false);
       } catch (err) {
