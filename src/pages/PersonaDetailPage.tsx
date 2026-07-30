@@ -246,19 +246,14 @@ export function PersonaDetailPage() {
 
         {tab === 'versions' && (
           <div className="space-y-2">
-            {[
-              { v: persona.version, date: '当前', note: '最新参数' },
-              { v: '2.2.0', date: '2026-06-12', note: '调整剪切密度为 medium' },
-              { v: '2.1.0', date: '2026-05-30', note: '新增强调色配置' },
-            ].map((ver) => (
-              <div key={ver.v} className="flex items-center gap-3 bg-surface-container border border-outline-variant/30 rounded-cw-sm px-4 py-3">
-                <GitBranch className="w-4 h-4 text-primary shrink-0" />
-                <span className="font-mono text-body-sm text-on-surface">v{ver.v}</span>
-                <span className="text-caption text-on-surface-variant">{ver.date}</span>
-                <span className="text-label-sm text-on-surface-variant flex-1 truncate">{ver.note}</span>
-                {ver.date === '当前' && <Badge variant="success">当前</Badge>}
-              </div>
-            ))}
+            <div className="flex items-center gap-3 bg-surface-container border border-outline-variant/30 rounded-cw-sm px-4 py-3">
+              <GitBranch className="w-4 h-4 text-primary shrink-0" />
+              <span className="font-mono text-body-sm text-on-surface">v{persona.version}</span>
+              <span className="text-caption text-on-surface-variant">当前</span>
+              <span className="text-label-sm text-on-surface-variant flex-1 truncate">最新参数</span>
+              <Badge variant="success">当前</Badge>
+            </div>
+            <p className="text-caption text-on-surface-variant/60 px-1 pt-1">暂无历史版本记录</p>
           </div>
         )}
 
@@ -332,7 +327,7 @@ function RagSearch({ personaId }: { personaId: string }) {
     setResults(null);
     try {
       const data = await personaApi.ragQuery(personaId, query.trim());
-      setResults((data?.chunks ?? []).map((c) => ({ text: c.content, score: c.score })));
+      setResults((data?.chunks ?? []).map((c) => ({ text: c.content ?? '', score: c.score ?? 0 })));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '检索失败');
     } finally { setLoading(false); }
@@ -351,8 +346,8 @@ function RagSearch({ personaId }: { personaId: string }) {
       {results && results.length === 0 && <p className="text-caption text-on-surface-variant">无匹配结果。</p>}
       {results && results.map((r, i) => (
         <div key={i} className="bg-surface rounded-cw-xs border border-outline-variant/20 p-2">
-          <p className="text-label-sm text-on-surface leading-relaxed">{r.text.slice(0, 300)}</p>
-          <p className="text-caption text-on-surface-variant mt-0.5 font-mono">得分: {(r.score * 100).toFixed(0)}%</p>
+          <p className="text-label-sm text-on-surface leading-relaxed">{(r.text || '').slice(0, 300)}</p>
+          <p className="text-caption text-on-surface-variant mt-0.5 font-mono">得分: {((r.score ?? 0) * 100).toFixed(0)}%</p>
         </div>
       ))}
     </div>

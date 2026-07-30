@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { healthApi, assetApi } from '@/services/api';
+import { healthApi, assetApi, resetApiClient } from '@/services/api';
 import { Button, Badge, Slider } from '@/components/ui';
 import { Server, Palette, Ruler, Save, RefreshCw, Terminal, ChevronRight, FolderOpen } from 'lucide-react';
 
@@ -43,6 +43,7 @@ export function SettingsPage() {
             <input
               value={s.apiBaseUrl}
               onChange={(e) => s.setApiBaseUrl(e.target.value)}
+              onBlur={resetApiClient}
               className="w-full bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm font-mono text-on-surface
                 outline-none border border-outline-variant/30 focus:border-primary"
             />
@@ -51,6 +52,7 @@ export function SettingsPage() {
             <input
               value={s.wsUrl}
               onChange={(e) => s.setWsUrl(e.target.value)}
+              onBlur={resetApiClient}
               className="w-full bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm font-mono text-on-surface
                 outline-none border border-outline-variant/30 focus:border-primary"
             />

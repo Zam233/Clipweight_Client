@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { personaApi } from '@/services/api';
 import { Button, Badge } from '@/components/ui';
 import { uid } from '@/lib/utils';
+import { toast } from '@/stores/toastStore';
 import type { ParameterLayer } from '@/types/persona';
 import {
   ArrowLeft, Send, Sparkles, Bot, User, Check, Loader2, FileUp, Dna,
@@ -102,15 +103,32 @@ export function PersonaForgePage() {
     setBusy(true);
     try {
       if (sessionId) await personaApi.chatForgeCommit(sessionId, personaName);
-    } catch { /* offline */ }
-    setBusy(false);
-    navigate({ to: '/persona' });
+      toast('人格已保存', 'success');
+      navigate({ to: '/persona' });
+    } catch {
+      // Stay on the page so the user's work isn't silently lost
+      toast('保存失败 — 后端未连接或请求被拒绝', 'error');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleKnowledge = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !sessionId) { e.target.value = ''; return; }
-    const text = await file.text();
+    if (!file) return;
+    if (!sessionId) {
+      toast('请先开始对话再上传参考文档', 'error');
+      e.target.value = '';
+      return;
+    }
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      toast('文件读取失败', 'error');
+      e.target.value = '';
+      return;
+    }
     const sections = splitByH1(text);
     setKbFile({ name: file.name, total: sections.length, current: 0 });
     setKbBusy(true);
@@ -136,8 +154,8 @@ export function PersonaForgePage() {
       setKbBusy(false);
       if (kbClearTimerRef.current) clearTimeout(kbClearTimerRef.current);
       kbClearTimerRef.current = setTimeout(() => setKbFile(null), 2000);
+      e.target.value = '';
     }
-    e.target.value = '';
   };
 
   const overall = Math.round(DIMENSIONS.reduce((s, d) => s + progress[d.key], 0) / DIMENSIONS.length);

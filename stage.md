@@ -1,5 +1,26 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 87: Persona/Voice/Settings 深度 Bug 修复 (8 项)
+**Timestamp**: 2026-07-30T18:33:00+08:00
+
+### Critical
+- Fix: 设置页修改 API/WebSocket 地址无效（resetApiClient 从未调用）→ URL 输入 onBlur 时重置 API 客户端
+- Fix: PersonaForge 保存失败静默跳转丢失作品 → 失败时 toast 提示并停留页面
+- Fix: PersonaForge file.text() 在 try 外 → 未处理 rejection + 卡死文件输入 → 包裹 try/catch + 无会话时提示
+
+### High
+- Fix: agentStore.resetPipeline 遗漏 chatMessages → 跨管线残留 ghost 消息
+- Fix: agentStore addRequirementsMessage/setBrief/setPlan 在 set() 外读 getState → 并发丢失更新 → 改为原子 set 回调
+- Fix: PersonaDetailPage 所有 persona 显示伪造版本历史 → 仅显示当前版本 + "暂无历史"
+
+### Medium
+- Fix: agentStore draft 无 ts 字段时 NaN 比较永不过期 → 类型守护
+- Fix: PersonaDetailPage RAG 结果缺 content/score 时崩溃 → 空值兜底
+
+### 测试: tsc 0 / vitest 59
+
+- - -
+
 ## Stage 86: 预览播放按钮 + 导出演示模式标注
 **Timestamp**: 2026-07-30T18:03:00+08:00
 

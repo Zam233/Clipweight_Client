@@ -148,6 +148,7 @@ export const useAgentStore = create<AgentState>((set) => ({
       logEntries: [],
       agentStats: [],
       pipelineSummary: null,
+      chatMessages: [],
     }),
 
   addLogEntry: (entry) =>
@@ -180,15 +181,17 @@ export const useAgentStore = create<AgentState>((set) => ({
   setRequirementsStatus: (status) =>
     set({ requirementsStatus: status }),
 
-  addRequirementsMessage: (message) => {
-    const state = useAgentStore.getState();
-    const msgs = [...state.requirementsMessages, message];
-    saveDraft({ messages: msgs, brief: state.creativeBrief, plan: state.productionPlan, sessionId: state.requirementsSessionId, status: state.requirementsStatus });
-    set({ requirementsMessages: msgs });
-  },
+  addRequirementsMessage: (message) =>
+    set((state) => {
+      const msgs = [...state.requirementsMessages, message];
+      saveDraft({ messages: msgs, brief: state.creativeBrief, plan: state.productionPlan, sessionId: state.requirementsSessionId, status: state.requirementsStatus });
+      return { requirementsMessages: msgs };
+    }),
 
-  setCreativeBrief: (brief) => { saveDraft({ brief, plan: useAgentStore.getState().productionPlan }); set({ creativeBrief: brief }); },
-  setProductionPlan: (plan) => { saveDraft({ plan, brief: useAgentStore.getState().creativeBrief }); set({ productionPlan: plan }); },
+  setCreativeBrief: (brief) =>
+    set((state) => { saveDraft({ brief, plan: state.productionPlan }); return { creativeBrief: brief }; }),
+  setProductionPlan: (plan) =>
+    set((state) => { saveDraft({ plan, brief: state.creativeBrief }); return { productionPlan: plan }; }),
 
   resetRequirements: () =>
     set({
@@ -237,7 +240,11 @@ export function loadRequirementsDraft(): {
     const raw = localStorage.getItem(DRAFT_KEY);
     if (!raw) return null;
     const draft = JSON.parse(raw);
-    if (Date.now() - draft.ts > 86400000) { localStorage.removeItem(DRAFT_KEY); return null; }
+    // Guard against missing/invalid timestamp (NaN comparison would never expire)
+    if (typeof draft.ts !== 'number' || Date.now() - draft.ts > 86400000) {
+      localStorage.removeItem(DRAFT_KEY);
+      return null;
+    }
     return draft;
   } catch { return null; }
 }
