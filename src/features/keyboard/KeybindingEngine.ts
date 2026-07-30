@@ -74,6 +74,11 @@ export class KeybindingEngine {
     if (!combo) return;
     const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
     if (isTypingTarget(e) && !hasModifier) return;
+    // In text inputs, let native browser shortcuts (cut/copy/paste/undo/redo/save) pass through
+    if (isTypingTarget(e) && hasModifier) {
+      const rawKey = normalizeKey(e);
+      if ((e.ctrlKey || e.metaKey) && ['z', 'c', 'v', 'x', 'a', 's'].includes(rawKey)) return;
+    }
 
     const binding = this.bindings.find((b) => {
       const m = parseCombo(b.combo);

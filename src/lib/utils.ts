@@ -30,9 +30,10 @@ export function uid(prefix = ''): string {
 
 /** Format seconds to timecode HH:MM:SS:FF */
 export function formatTimecode(seconds: number, fps = 30): string {
+  if (fps <= 0 || !isFinite(fps)) return '00:00:00:00';
   const totalFrames = Math.round(seconds * fps);
-  const ff = totalFrames % fps;
-  const totalSecs = Math.floor(totalFrames / fps);
+  const ff = totalFrames % Math.round(fps);
+  const totalSecs = Math.floor(totalFrames / Math.round(fps));
   const ss = totalSecs % 60;
   const mm = Math.floor(totalSecs / 60) % 60;
   const hh = Math.floor(totalSecs / 3600);

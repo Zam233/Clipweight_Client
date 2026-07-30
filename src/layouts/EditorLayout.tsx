@@ -224,8 +224,8 @@ function StatusBar() {
     statusText = `已保存 ${t}`;
   }
 
-  const currentFrame = Math.floor(currentTime * fps);
-  const totalFrames = Math.floor(duration * fps);
+  const currentFrame = Math.round(currentTime * fps);
+  const totalFrames = Math.round(duration * fps);
 
   return (
     <div className="flex items-center justify-between px-3 py-1 bg-surface-dim border-t border-outline-variant/30 text-caption text-on-surface-variant shrink-0">

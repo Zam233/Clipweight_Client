@@ -76,17 +76,22 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
   setLoopRegion: (region) => set({ loopRegion: region }),
 
   stepForward: () =>
-    set((state) => ({
-      currentTimeSec: Math.min(
-        state.durationSec,
-        state.currentTimeSec + 1 / state.fps,
-      ),
-    })),
+    set((state) => {
+      if (state.fps <= 0) return {};
+      const frame = Math.round(state.currentTimeSec * state.fps) + 1;
+      const time = frame / state.fps;
+      return {
+        currentTimeSec: Math.min(state.durationSec, Math.max(0, time)),
+      };
+    }),
 
   stepBackward: () =>
-    set((state) => ({
-      currentTimeSec: Math.max(0, state.currentTimeSec - 1 / state.fps),
-    })),
+    set((state) => {
+      if (state.fps <= 0) return {};
+      const frame = Math.round(state.currentTimeSec * state.fps) - 1;
+      const time = frame / state.fps;
+      return { currentTimeSec: Math.max(0, time) };
+    }),
 
   seekToStart: () => set({ currentTimeSec: 0 }),
   seekToEnd: () => set((state) => ({ currentTimeSec: state.durationSec })),

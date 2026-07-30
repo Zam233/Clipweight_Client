@@ -264,9 +264,22 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         const relSplit = splitTimeSec - clip.start_sec;
         if (relSplit <= 0 || relSplit >= clip.duration_sec) return t;
 
+        // Remap keyframes: keyframes use normalized time [0,1]
+        const kfs = clip.keyframes ?? [];
+        const leftKfs = kfs
+          .filter((k) => k.time * clip.duration_sec <= relSplit)
+          .map((k) => ({ ...k, time: (k.time * clip.duration_sec) / relSplit }));
+        const rightKfs = kfs
+          .filter((k) => k.time * clip.duration_sec > relSplit)
+          .map((k) => ({
+            ...k,
+            time: (k.time * clip.duration_sec - relSplit) / (clip.duration_sec - relSplit),
+          }));
+
         const left: Clip = {
           ...clip,
           duration_sec: relSplit,
+          keyframes: leftKfs,
         };
         const right: Clip = {
           ...clip,
@@ -274,6 +287,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
           start_sec: splitTimeSec,
           duration_sec: clip.duration_sec - relSplit,
           source_offset_sec: clip.source_offset_sec + relSplit * clip.speed,
+          keyframes: rightKfs,
         };
         const clips = [...t.clips];
         clips.splice(clipIndex, 1, left, right);
@@ -291,13 +305,14 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         ...t,
         clips: t.clips.map((c) => {
           if (c.id !== clipId) return c;
-          const delta = newStartSec - c.start_sec;
+          const newStart = Math.max(0, Math.min(newStartSec, c.start_sec + c.duration_sec - 0.1));
+          const delta = newStart - c.start_sec;
           return {
             ...c,
-            start_sec: newStartSec,
+            start_sec: newStart,
             duration_sec: Math.max(0.1, c.duration_sec - delta),
             source_offset_sec: Math.max(0, c.source_offset_sec + delta * c.speed),
-          };
+    };
         }),
       }));
       return {
@@ -363,7 +378,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
               ? { ...c, start_sec: c.start_sec + insertedDur }
               : c,
           );
-        return { ...t, clips: [...clips, newClip] };
+        return { ...t, clips: [...clips, newClip].sort((a, b) => a.start_sec - b.start_sec) };
       });
       return {
         timeline: { ...state.timeline, tracks, duration_sec: computeTotalDuration(tracks) },

@@ -1,5 +1,30 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 77: 时间轴深层逻辑 Bug 修复 — 拆分/trim/选区/时间码/键盘 (12 项)
+**Timestamp**: 2026-07-30T14:04:00+08:00
+
+### CRITICAL: splitClip 关键帧不重映射
+- Fix: 拆分后左右两半继承完整原始关键帧数组 → 现在按 splitTimeSec 分割并重映射 time 值
+- 左半保留 ≤ split 的关键帧并重新归一化到 [0,1]，右半保留 > split 的关键帧并重映射
+
+### HIGH: trim/选区/键盘 (6 项)
+- Fix: trimClipStart 无上界 clamp → newStart 限制 `Math.min(newStartSec, c.start_sec + c.duration_sec - 0.1)`
+- Fix: rippleInsert 片段追加到数组末尾不排序 → `.sort((a,b) => a.start_sec - b.start_sec)`
+- Fix: Shift+click 已选中片段 → 反选（去选），应保持选中 → 改为 no-op，不切换
+- Fix: Ctrl+click 反选后仍触发拖拽 → 提前 return 跳过拖拽初始化
+- Fix: Ctrl+Z/C/V/X/A/S 在文本输入中劫持原生操作 → KeybindingEngine 放行 isTypingTarget 中的修饰键原生快捷键
+- Fix: EditorToolbar SRT/转写导入 addTrack 后读取 stale store 引用 → 实时 getState()
+
+### MEDIUM: 剪切/帧步/时间码 (4 项)
+- Fix: moveClipUp/Down 无轨道类型检查 → 添加 `targetTrack.kind !== clip.kind` 跳过
+- Fix: formatTimecode 非整数 fps 产生 NaN 帧号 → `Math.round(fps)` + `fps <= 0` 守护
+- Fix: statusBar 帧显示 Math.floor vs 标尺 Math.round 不一致 → 统一为 `Math.round`
+- Fix: 帧步进累积浮点误差 → 改用 `Math.round(currentTime * fps) ± 1` 整数帧号法
+
+### 测试: tsc 0 / vitest 59
+
+- - -
+
 ## Stage 76: 同类模式 Bug 补修 — 零值?? / store重置 / 类型断言 / 缺失cleanup (10 项)
 **Timestamp**: 2026-07-30T13:52:00+08:00
 

@@ -106,7 +106,8 @@ export function EditorToolbar() {
       let subTrack = store.timeline.tracks.find((t) => t.kind === 'caption' || t.kind === 'text');
       if (!subTrack) {
         const tid = store.addTrack('caption', '字幕');
-        subTrack = store.timeline.tracks.find((t) => t.id === tid)!;
+        subTrack = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
+        if (!subTrack) return;
       }
       for (const e of entries) {
         store.addClip(subTrack!.id, {
@@ -159,7 +160,8 @@ export function EditorToolbar() {
         let subTrack = store.timeline.tracks.find((t) => t.kind === 'caption' || t.kind === 'text');
         if (!subTrack) {
           const tid = store.addTrack('caption', '字幕');
-          subTrack = store.timeline.tracks.find((t) => t.id === tid)!;
+          subTrack = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
+          if (!subTrack) return;
         }
         for (const c of clips) {
           store.addClip(subTrack!.id, {

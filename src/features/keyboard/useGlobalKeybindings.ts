@@ -251,6 +251,7 @@ export function useGlobalKeybindings() {
         if (idx <= 0) continue;
         const targetTrack = tracks[idx - 1];
         if (targetTrack.locked) continue;
+        if (targetTrack.kind !== clip.kind) continue;
         store.moveClip(cid, targetTrack.id, clip.start_sec);
       }
     };
@@ -268,6 +269,7 @@ export function useGlobalKeybindings() {
         if (idx < 0 || idx >= tracks.length - 1) continue;
         const targetTrack = tracks[idx + 1];
         if (targetTrack.locked) continue;
+        if (targetTrack.kind !== clip.kind) continue;
         store.moveClip(cid, targetTrack.id, clip.start_sec);
       }
     };

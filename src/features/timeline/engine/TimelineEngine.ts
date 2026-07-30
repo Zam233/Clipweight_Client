@@ -284,16 +284,16 @@ export class TimelineEngine {
 
     if (hit) {
       const { clip, track } = hit;
-      // Select (Shift=additive, Ctrl=toggle)
+      // Select (Shift=additive, Ctrl/Meta=toggle)
       if (!selection.selectedClipIds.includes(clip.id)) {
         selection.selectClip(clip.id, e.shiftKey || e.ctrlKey || e.metaKey);
       } else if (e.ctrlKey || e.metaKey) {
-        // Ctrl+click selected clip → deselect it
+        // Ctrl+click selected clip → deselect it, don't start drag
         selection.selectClip(clip.id, true);
-      } else if (e.shiftKey) {
-        selection.selectClip(clip.id, true); // toggle off
+        selection.selectTrack(track.id);
         return;
       }
+      // Shift+click on already-selected clip → keep selection (no-op for select)
       selection.selectTrack(track.id);
 
       // Determine move vs trim
