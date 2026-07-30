@@ -8,7 +8,8 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /** Normalize a raw kind string to a valid ClipKind, with case-insensitive matching */
-export function normalizeClipKind(raw: string): ClipKind {
+export function normalizeClipKind(raw: string | undefined | null): ClipKind {
+  if (raw == null) return 'image';
   const k = raw.toLowerCase().trim();
   if (k === 'video' || k.startsWith('video')) return 'video';
   if (k === 'audio' || k === 'music' || k.startsWith('audio')) return 'audio';
