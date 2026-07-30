@@ -1,5 +1,32 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 67: 插件加载修复 + 前端插件面板
+**Timestamp**: 2026-07-30T04:30:00+08:00
+
+### 后端修复 (插件加载)
+- Fix: HookRegistry/SkillRegistry/CategoryRegistry.register() 不接受 plugin_id → 添加 **kwargs
+- Fix: BaseCategoryPlugin 未继承 BasePlugin → 改为继承 + 默认 initialize/shutdown
+- Fix: 4 个类别插件缺少 plugin_id 属性 → 补充
+- Fix: kinetic_typography AnimationRegistry.register 参数错误 → 改用 AnimationDef 对象
+- 结果: **27/27 插件全部加载成功**
+
+### 前端新增 (插件面板)
+- + AssetPanel 新增第 5 个 TAB「插件」(Puzzle 图标)
+- + PluginPanel 组件：二级 TAB（AI 图片 / AI 视频 / AI 音乐）
+- + AI 图片生成 UI：prompt 输入 → POST /api/tool/execute(ai_image_generate) → 图片预览
+- + AI 视频生成 UI：prompt 输入 → POST /api/tool/execute(ai_video_generate) → 状态追踪
+- + AI 音乐生成 UI：prompt 输入 → POST /api/tool/execute(ai_music_generate) → 状态追踪
+- + assetStore AssetTab 类型扩展 'plugins'
+
+### 测试确认
+- 后端: pytest 315 / 插件 27/27
+- 前端: tsc 0 / vitest 59 / E2E 37
+
+### 评价
+插件系统从"部分加载失败"修复为"27/27 全部可用"。前端编辑器左侧新增插件 TAB，AI 生成类插件（图片/视频/音乐）拥有完整的编辑器 UI。插件可被 AI Agent 通过 ToolRegistry 调用。可交付程度：极高。
+
+- - -
+
 ## Stage 66: 剩余 Agent Bug 修复
 **Timestamp**: 2026-07-30T04:15:00+08:00
 
