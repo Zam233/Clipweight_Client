@@ -1,7 +1,29 @@
 # ClipWright Optimization — Stage Log
 
-## Stage 68: 插件 Tool/Skill 继承修复 + 前端插件面板验证
-**Timestamp**: 2026-07-30T11:30:00+08:00
+## Stage 68-69: 插件 Tool/Skill 继承修复 + 前后端 API 契约修复
+**Timestamp**: 2026-07-30T11:40:00+08:00
+
+### 插件系统修复
+- Fix: 6 个插件 Tool 未继承 BaseTool → 添加继承 + execute(**kwargs)
+- Fix: 2 个插件 Skill 未继承 BaseSkill → 添加继承 + 返回 SkillExecResult
+- Fix: 4 个类别插件 plugin_id 为空/"no exported class" → 补充 plugin_id + BaseCategoryPlugin 继承 BasePlugin
+- Fix: HookRegistry/SkillRegistry/CategoryRegistry 不接受 plugin_id → 添加 **kwargs
+- Fix: kinetic_typography AnimationRegistry.register 参数错误 → AnimationDef 对象
+- 结果: 27/27 插件加载 + 7 Tools + 3 Skills 可用
+
+### 前后端 API 契约修复 (10 项)
+- Fix (Critical): pipelineApi.predictScript query→JSON body（Stage 58 引入的回归）
+- Fix (Critical): toolApi.execute field 'tool'→'name'
+- Fix (Critical): skillApi.execute field 'skill'→'name'
+- Fix (Critical): assetApi.searchMaterials body→query params + limit→top_k + source→sources
+- Fix (High): 移除 assetApi.probe（端点不存在，HomePage 调用静默失败）
+- Fix (High): 移除 assetApi.uploadBatch（端点不存在，死代码）
+- Fix (Medium): renderApi.getPresets 返回类型 Array→Object（ExportPage 适配）
+- Fix (Medium): personaApi.chatForgeStart description→persona_id
+
+### 测试: tsc 0 / vitest 59 / E2E 37 / pytest 315
+
+- - -
 
 ### 后端修复
 - Fix: 所有插件 Tool 未继承 BaseTool → 添加继承 + execute(**kwargs) 签名→ 6 个 Tool 修复
