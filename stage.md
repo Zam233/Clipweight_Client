@@ -1,5 +1,27 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 82: 预览播放系统 + 属性面板 UX 深度修复 (12 项)
+**Timestamp**: 2026-07-30T17:37:00+08:00
+
+### 预览播放 (previewStore + PreviewPanel)
+- Fix: 播放到末尾后按空格立即停止 → togglePlay 在末尾时从 0 重新开始，并清除残留 shuttleSpeed
+- Fix: 循环按钮未设 In/Out 时完全无效 → 无选区时循环整条时间轴
+- Fix: 循环边界丢弃溢出时间导致卡顿 → 用取模携带溢出量
+- Fix: In/Out 标记倒置(start>end)卡死播放头 → setMarkerIn/Out 强制 start<end
+- Fix: setDuration 缩短时不重新钳制播放头 → 同步钳制 currentTimeSec
+- Fix: seekToEnd 落在空白帧 → 定位到最后一帧(末尾前一帧)
+- Fix: 音频 seek 忽略 clip.speed 导致音画不同步 → 加入 `* clip.speed` 并设置 playbackRate
+- Fix: 离开编辑器后音频继续播放 → unmount 时 mediaManager.pauseAll()
+- Fix: 全屏状态退出后不同步 → 监听 fullscreenchange 事件
+
+### 属性面板 UX
+- Fix: 滑块/数字/文本每次变更都推历史栈导致撤销失效 → pushHistoryCoalesced 600ms 合并
+- Fix: NumberInput 清空时变 NaN/0 跳变 → 改为本地文本态，blur/Enter 提交，非法输入回退
+
+### 测试: tsc 0 / vitest 59
+
+- - -
+
 ## Stage 81: 三处 Bug 修复 — AI收藏/跨轨碰撞/需求Agent自启动
 **Timestamp**: 2026-07-30T17:05:00+08:00
 

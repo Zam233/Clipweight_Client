@@ -61,9 +61,13 @@ export function PreviewPanel() {
         const el = entry?.audioEl ?? entry?.videoEl;
         if (!el) continue;
         const inClip = t >= clip.start_sec && t < clip.start_sec + clip.duration_sec;
-        const localT = t - clip.start_sec + clip.source_offset_sec;
+        // Account for clip speed so audio stays in sync with sped-up/slowed video
+        const localT = (t - clip.start_sec) * clip.speed + clip.source_offset_sec;
         el.volume = clamp(clip.volume, 0, 1);
         el.muted = muted || track.muted;
+        if (Math.abs(el.playbackRate - clip.speed) > 0.01) {
+          try { el.playbackRate = clip.speed; } catch { /* not supported */ }
+        }
           if (inClip && playing) {
           if (Math.abs(el.currentTime - localT) > 0.25) { try { el.currentTime = localT; } catch { /* seek not available */ } }
           if (el.paused) {
@@ -92,9 +96,15 @@ export function PreviewPanel() {
       const region = st.loopRegion;
       const looping = st.isLooping;
 
-      if (looping && region) {
-        if (next >= region.end) next = region.start;
-        if (next < region.start) next = region.end;
+      if (looping) {
+        // Loop region (or the whole timeline if no In/Out markers set)
+        const lo = region ? region.start : 0;
+        const hi = region ? region.end : dur;
+        const span = hi - lo;
+        if (span > 0) {
+          if (next >= hi) next = lo + ((next - hi) % span); // carry overshoot
+          else if (next < lo) next = hi - ((lo - next) % span);
+        }
       } else if (next >= dur) {
         next = dur;
         st.setPlaying(false);
@@ -110,6 +120,16 @@ export function PreviewPanel() {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [isPlaying]);
+
+  // Pause all media when the preview unmounts (avoid audio playing after leaving the editor)
+  useEffect(() => () => { mediaManager.pauseAll(); }, []);
+
+  // Keep fullscreen state in sync with the browser (e.g. user exits via Escape)
+  useEffect(() => {
+    const onFsChange = () => setFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, [setFullscreen]);
 
   // Composite render — 持久 RAF 循环 + 单次 ResizeObserver。
   // 不依赖 currentTimeSec，避免播放期间每帧重建 observer；仅在状态变化时重绘。

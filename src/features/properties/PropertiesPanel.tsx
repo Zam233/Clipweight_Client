@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useHistoryStore } from '@/stores/historyStore';
@@ -13,6 +13,17 @@ import {
   SlidersHorizontal, Type, Diamond, Plus, Trash2, ChevronLeft, ChevronRight,
   Move, RotateCcw, Wand2, Eye, EyeOff,
 } from 'lucide-react';
+
+// Coalesce rapid history pushes (slider drag / number input / typing) into a single
+// undo point. The first push captures the pre-edit state; pushes within the window
+// are skipped so one gesture ≠ dozens of undo steps.
+let _lastHistoryPush = 0;
+function pushHistoryCoalesced(label: string, windowMs = 600) {
+  const now = Date.now();
+  if (now - _lastHistoryPush < windowMs) return;
+  _lastHistoryPush = now;
+  useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, label);
+}
 
 /**
  * PropertiesPanel — inspects and edits the selected clip's attributes.
@@ -39,8 +50,7 @@ export function PropertiesPanel() {
     }
   }
 
-  const pushHistory = () =>
-    useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'property');
+  const pushHistory = () => pushHistoryCoalesced('property');
 
   const batchUpdate = (updates: Partial<Clip>) => {
     if (selectedClipIds.length > 1) {
@@ -290,8 +300,7 @@ function AnimationSection({ clip }: { clip: Clip }) {
   const currentTimeSec = usePreviewStore((s) => s.currentTimeSec);
   const [activeCat, setActiveCat] = useState<string>('入场');
 
-  const pushHistory = () =>
-    useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'animation');
+  const pushHistory = () => pushHistoryCoalesced('animation');
 
   const applyPreset = (presetId: string) => {
     const preset = ANIMATION_PRESETS.find((p) => p.id === presetId);
@@ -440,8 +449,7 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
     : 0;
   const inClip = currentTimeSec >= clip.start_sec && currentTimeSec <= clip.start_sec + clip.duration_sec;
 
-  const pushHistory = () =>
-    useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'keyframe');
+  const pushHistory = () => pushHistoryCoalesced('keyframe');
 
   // Current interpolated values at playhead (for the "add keyframe" snapshot)
   const liveProps = interpolateProperties(clip.keyframes, localT);
@@ -581,12 +589,26 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 function NumberInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const [text, setText] = useState(String(round2(value)));
+  const [focused, setFocused] = useState(false);
+  // Sync from the clip value while the field is not being edited
+  useEffect(() => {
+    if (!focused) setText(String(round2(value)));
+  }, [value, focused]);
+  const commit = () => {
+    const v = Number(text);
+    if (text.trim() !== '' && !isNaN(v)) onChange(v);
+    else setText(String(round2(value))); // revert invalid/empty input
+  };
   return (
     <input
       type="number"
-      value={value}
       step={0.1}
-      onChange={(e) => onChange(Number(e.target.value))}
+      value={text}
+      onFocus={() => setFocused(true)}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => { setFocused(false); commit(); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
       className="w-20 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm font-mono text-on-surface
         outline-none border border-outline-variant/30 focus:border-primary text-right"
     />

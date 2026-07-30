@@ -116,6 +116,14 @@ class MediaManager {
     for (const id of [...this.entries.keys()]) this.unregister(id);
   }
 
+  /** Pause all playing media elements without releasing them. */
+  pauseAll(): void {
+    for (const e of this.entries.values()) {
+      if (e.videoEl && !e.videoEl.paused) e.videoEl.pause();
+      if (e.audioEl && !e.audioEl.paused) e.audioEl.pause();
+    }
+  }
+
   hasRealMedia(assetId: string): boolean {
     const e = this.entries.get(assetId);
     return !!e && (e.kind !== 'image' ? !!e.videoEl || !!e.audioEl : true);
