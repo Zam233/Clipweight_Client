@@ -437,12 +437,25 @@ export class TimelineEngine {
               const origIdx = this.trackIndexOf(orig.track_id);
               const newIdx = clamp(origIdx + dtr, 0, tl.tracks.length - 1);
               const candidate = tl.tracks[newIdx];
-              // Only move across tracks of the same kind
               if (candidate && candidate.kind === tl.tracks[origIdx].kind) {
                 targetTrackId = candidate.id;
               }
             }
-            store.moveClip(id, targetTrackId, Math.max(0, orig.start_sec + dt));
+            let newStartSec = Math.max(0, orig.start_sec + dt);
+            // Check overlap on target track (exclude self)
+            const targetTrack = tl.tracks.find((t) => t.id === targetTrackId);
+            if (targetTrack) {
+              const dur = orig.duration_sec;
+              const hasOverlap = targetTrack.clips.some(
+                (c) => c.id !== id && c.start_sec < newStartSec + dur && c.start_sec + c.duration_sec > newStartSec,
+              );
+              if (hasOverlap) {
+                newStartSec = targetTrack.clips
+                  .filter((c) => c.id !== id)
+                  .reduce((m, c) => Math.max(m, c.start_sec + c.duration_sec), 0);
+              }
+            }
+            store.moveClip(id, targetTrackId, newStartSec);
           }
         }
         break;
