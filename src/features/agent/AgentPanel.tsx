@@ -188,10 +188,35 @@ function RequirementsView() {
     setBusy(false);
   };
 
-  const confirmPlan = () => {
+  const confirmPlan = async () => {
+    const sid = useAgentStore.getState().requirementsSessionId;
+    if (!sid) {
+      // 离线演示：无会话，仅提示
+      setStatus('pipeline_running');
+      addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+        content: '已确认规划书。请在底部启动管线，切换到「执行日志」标签查看实时进度。' });
+      return;
+    }
     setStatus('pipeline_running');
     addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-      content: '已确认规划书。请在底部启动管线，切换到「执行日志」标签查看实时进度。' });
+      content: '已确认规划书，正在启动制作管线…' });
+    try {
+      const st = useProjectStore.getState();
+      const res = await requirementsApi.proceed(
+        sid,
+        st.personaId ?? 'default',
+        st.pluginId ?? 'knowledge_longform',
+      ) as { pipeline_id?: string };
+      if (res.pipeline_id) {
+        // 设置 pipelineId + 运行相位，BottomBar 的 effect 会自动挂接 SSE 追踪
+        setPipelineId(res.pipeline_id);
+        updatePhase('structure', 5);
+      }
+    } catch {
+      setStatus('plan_ready');
+      addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+        content: '管线启动失败，请稍后重试。' });
+    }
   };
 
   return (
@@ -405,94 +430,90 @@ function BottomBar() {
     esRef.current = es;
 
     const startTimes: Record<string, number> = {};
+    let finished = false;
 
-    // 畸形 JSON 不应中断后续事件处理
-    const safeParse = (e: Event): Record<string, unknown> | null => {
-      try {
-        return JSON.parse((e as MessageEvent).data);
-      } catch {
-        return null;
+    // 完成处理：拉取最终时间线（v2 通过 /result 返回 shared_data.final_timeline）
+    const finish = async (ok: boolean) => {
+      if (finished) return;
+      finished = true;
+      if (ok) {
+        updatePhase('completed', 100);
+        // 优先用 SSE 快照；否则从 result 接口取最终时间线
+        let tl = lastTimelineRef.current;
+        if (!tl) {
+          try {
+            const result = await pipelineApi.getResult(pid) as { shared_data?: { final_timeline?: Timeline } };
+            tl = result?.shared_data?.final_timeline ?? null;
+          } catch { tl = null; }
+        }
+        if (tl) useAgentStore.getState().setAgentTimeline(tl);
       }
+      es.close();
+      esRef.current = null;
     };
 
-    es.addEventListener('agent_start', (e) => {
-      const d = safeParse(e);
-      if (!d) return;
-      const name = (d.agent_name || d.agent) as string;
-      startTimes[name] = Date.now();
-      updatePhase(normalizePhase(name));
-      addLogEntry({ timestamp: Date.now(), agent: name, type: 'agent_start', summary: `${name} 启动` });
-    });
-
-    es.addEventListener('agent_end', (e) => {
-      const d = safeParse(e);
-      if (!d) return;
-      const name = (d.agent_name || d.agent) as string;
-      const dur = startTimes[name] ? ((Date.now() - startTimes[name]) / 1000).toFixed(1) + 's' : '';
-      addLogEntry({ timestamp: Date.now(), agent: name, type: 'agent_end', summary: `${name} 完成${dur ? ` (${dur})` : ''}` });
-    });
-
-    es.addEventListener('agent_complete', (e) => {
-      const d = safeParse(e);
-      if (!d) return;
-      const name = (d.agent_name || d.agent) as string;
-      const dur = startTimes[name] ? ((Date.now() - startTimes[name]) / 1000).toFixed(1) + 's' : '';
-      addLogEntry({ timestamp: Date.now(), agent: name, type: 'agent_end', summary: `${name} 完成${dur ? ` (${dur})` : ''}` });
-    });
-
-    es.addEventListener('agent_error', (e) => {
-      const d = safeParse(e);
-      if (!d) return;
-      const name = (d.agent_name || d.agent || 'unknown') as string;
-      addLogEntry({ timestamp: Date.now(), agent: name, type: 'error', summary: (d.error || d.summary || `${name} 失败`) as string });
-    });
-
-    es.addEventListener('timeline_snapshot', (e) => {
-      const d = safeParse(e);
-      if (!d) return;
-      if (d.timeline) {
-        const tl = d.timeline as Timeline;
-        lastTimelineRef.current = tl;
-        addLogEntry({ timestamp: Date.now(), agent: (d.agent as string) || 'system', type: 'timeline_snapshot',
-          summary: `时间线: ${tl.tracks?.length || 0}轨, ${tl.duration_sec?.toFixed(0) || 0}s` });
-      }
-    });
-
-    es.addEventListener('pipeline_complete', () => {
-      updatePhase('completed', 100);
-      if (lastTimelineRef.current) {
-        useAgentStore.getState().setAgentTimeline(lastTimelineRef.current);
-      }
-      es.close();
-      esRef.current = null;
-    });
-    es.addEventListener('done', () => {
-      updatePhase('completed', 100);
-      if (lastTimelineRef.current) {
-        useAgentStore.getState().setAgentTimeline(lastTimelineRef.current);
-      }
-      es.close();
-      esRef.current = null;
-    });
-
+    // 后端 SSE 不带 event: 字段，所有事件都走默认 message，类型在 payload 的 type 中。
     es.onmessage = (e) => {
+      let d: Record<string, unknown>;
       try {
-        const d = JSON.parse((e as MessageEvent).data);
-        const t: string = d.type || '';
-        if (['llm', 'tool', 'skill', 'plugin', 'info', 'warning'].includes(t)) {
+        d = JSON.parse((e as MessageEvent).data);
+      } catch { return; }
+      const t = (d.type as string) || '';
+      const name = (d.agent_name || d.agent || 'system') as string;
+
+      switch (t) {
+        case 'agent_start':
+          startTimes[name] = Date.now();
+          updatePhase(normalizePhase(name));
+          addLogEntry({ timestamp: Date.now(), agent: name, type: 'agent_start', summary: `${name} 启动` });
+          break;
+        case 'agent_end':
+        case 'agent_complete': {
+          const dur = startTimes[name] ? ((Date.now() - startTimes[name]) / 1000).toFixed(1) + 's' : '';
+          addLogEntry({ timestamp: Date.now(), agent: name, type: 'agent_end', summary: `${name} 完成${dur ? ` (${dur})` : ''}` });
+          break;
+        }
+        case 'error':
+        case 'agent_error':
+          addLogEntry({ timestamp: Date.now(), agent: name, type: 'error', summary: (d.error || d.summary || `${name} 失败`) as string });
+          break;
+        case 'timeline_snapshot': {
+          // 时间线存放在 detail 字段（非 timeline）
+          const tl = (d.detail || d.timeline) as Timeline | undefined;
+          if (tl) {
+            lastTimelineRef.current = tl;
+            addLogEntry({ timestamp: Date.now(), agent: name, type: 'timeline_snapshot',
+              summary: `时间线: ${tl.tracks?.length || 0}轨, ${tl.duration_sec?.toFixed(0) || 0}s` });
+          }
+          break;
+        }
+        case 'done':
+          void finish(true);
+          break;
+        case 'llm':
+        case 'tool':
+        case 'skill':
+        case 'plugin':
+        case 'info':
+        case 'warning':
           addLogEntry({
             timestamp: Date.now(),
-            agent: d.agent || 'system',
+            agent: (d.agent as string) || 'system',
             type: t as LogEventType,
-            summary: d.summary || d.message || '',
-            detail: d.detail || null,
+            summary: (d.summary || d.message || '') as string,
+            detail: (d.detail as Record<string, unknown>) || null,
           });
-        }
-      } catch { /* ignore parse errors */ }
+          break;
+        default:
+          break;
+      }
     };
 
     es.onerror = () => {
-      addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'warning', summary: 'SSE 连接中断' });
+      // 后端在 done/error 后会主动关闭流；若尚未完成才视为异常中断
+      if (!finished) {
+        addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'warning', summary: 'SSE 连接中断' });
+      }
       es.close();
       esRef.current = null;
     };

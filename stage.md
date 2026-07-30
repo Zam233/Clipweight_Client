@@ -1,5 +1,27 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 96: 需求→管线→前端 核心闭环修复（SSE 事件路由 + proceed 联通）
+**Timestamp**: 2026-07-30T23:15:00+08:00
+
+### 问题
+确认规划书后管线无法追踪、生成时间线无法回到前端审阅——核心 human-in-the-loop 闭环整体断裂。
+
+### 前端修复（AgentPanel.tsx）
+- **SSE 事件路由重写**: 后端 SSE 不带 `event:` 字段，所有命名监听器（agent_start/timeline_snapshot/done…）从不触发 → 改为在 `onmessage` 中按 `d.type` 统一路由
+- **完成检测**: 处理 `done`/`error` 终止事件；`done` 时调 `pipelineApi.getResult` 取 `shared_data.final_timeline` 并 `setAgentTimeline` 打开审阅视图（v2 不发 snapshot，必须走 result 接口）
+- **字段修正**: timeline_snapshot 从 `d.detail` 读取（后端存于 detail 而非 timeline）
+- **confirmPlan 联通**: 确认规划书 → `requirementsApi.proceed` → 拿 pipeline_id → `setPipelineId` + `updatePhase`，BottomBar 的 effect 自动挂接 SSE（修复 proceed 从未被调用的死代码）
+
+### 后端修复
+- **proceed 端点重写** (requirements.py): 预生成 pipeline_id + create_trace + 存入 `_pipeline_results` + 发 done/error 事件 + 返回 pipeline_id（原先 fire-and-forget，前端无法追踪）；补充转发 dub_segments
+- **material_plugin_config 丢失** (pipeline_v2.py): `_dispatch` 漏传 → 视觉 LLM 校验恒禁用 → 已补传
+- **Persona prompt.md 未加载** (pipeline_v2.py): 管线 StructureAgent 拿不到风格指引导致风格漂移 → `_init` 加载 manifest.prompt + RAG 上下文并注入 structure 输入
+- **animation_agent 崩溃** (animation_agent.py): `_add_trace_warning` 误用 `@staticmethod` 却带 self 参数 → llm_mg 降级路径 TypeError → 移除 @staticmethod
+
+### 测试: tsc 0 / vitest 59 / backend import OK
+
+- - -
+
 ## Stage 95: 首页文案无法传入需求Agent（竞态修复）
 **Timestamp**: 2026-07-30T22:48:00+08:00
 
