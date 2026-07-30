@@ -239,7 +239,6 @@ export function HomePage() {
       if (prefs.voiceId) st.setVoiceId(prefs.voiceId);
       if (typeof prefs.autoDub === 'boolean') st.setAutoDub(prefs.autoDub);
     } catch { /* ignore */ }
-    clearRequirementsDraft();
 
     // Create project on backend
     if (backend === 'online') {
@@ -251,6 +250,8 @@ export function HomePage() {
           plugin_id: pluginId || undefined,
         });
         st.setProjectId(project.id);
+        // 仅在项目创建成功后清除旧 draft，失败则保留草稿
+        clearRequirementsDraft();
         navigate({ to: '/editor/$projectId', params: { projectId: project.id } });
         return;
       } catch {

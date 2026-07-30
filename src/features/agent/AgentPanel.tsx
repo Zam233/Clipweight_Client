@@ -129,6 +129,7 @@ function RequirementsView() {
     const t = st.requirementsTopic;
     if (!t || useAgentStore.getState().requirementsMessages.length > 0) return;
     autoStartedRef.current = true;
+    useProjectStore.getState().setRequirementsTopic('');
     setTopic(t);
     (async () => {
       setBusy(true);

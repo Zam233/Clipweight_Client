@@ -1,5 +1,23 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 74: Pipeline 整体数据流同类 Bug 修复 (3 项)
+**Timestamp**: 2026-07-30T13:10:00+08:00
+
+### 调查结论
+Stage 73 的 Bug（requirementsTopic 被 resetProject 清除）是整个 Pipeline 唯一的同类数据丢失问题。ReviewPanel/TimelineDiffView/SSE 事件处理等环节的数据流均无类似问题。
+
+### 关联 Bug 修复 (3 项)
+- Fix (HIGH): `clearRequirementsDraft()` 在 EditorPage 挂载时无条件执行 → 页面刷新后 24h 会话草稿被清除
+  - 修复：仅当从 HomePage 启动（有 pendingTopic）时清除；页面刷新保留草稿
+- Fix (MEDIUM): AgentPanel 自启动消费 `requirementsTopic` 后未清空 → 跨项目跳转时可泄露旧选题
+  - 修复：消费后立即 `setRequirementsTopic('')`
+- Fix (LOW): HomePage.launch() 中 `clearRequirementsDraft()` 在项目创建前调用 → 后端离线上传失败时草稿已丢失
+  - 修复：移至 `projectApi.create()` 成功后执行
+
+### 测试: tsc 0 / vitest 59
+
+- - -
+
 ## Stage 73: 需求 Agent 未自启动修复
 **Timestamp**: 2026-07-30T12:55:00+08:00
 

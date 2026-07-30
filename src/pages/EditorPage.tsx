@@ -46,7 +46,9 @@ export function EditorPage() {
         useTimelineStore.getState().resetTimeline();
         useAgentStore.getState().resetPipeline();
         useAgentStore.getState().resetRequirements();
-        clearRequirementsDraft();
+        // 仅在从 HomePage 启动（有 pendingTopic）时清除旧 draft；
+        // 如果是页面刷新/直接导航，保留 24h 会话草稿让用户继续工作
+        if (pendingTopic) clearRequirementsDraft();
         useHistoryStore.getState().clear();
         useSelectionStore.getState().deselectAll();
         usePreviewStore.getState().setPlaying(false);
