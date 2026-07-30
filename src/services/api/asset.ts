@@ -23,22 +23,27 @@ function mapAsset(raw: Record<string, unknown>): Asset {
 }
 
 export const assetApi = {
-  /** List all assets */
-  async list(): Promise<Asset[]> {
-    const { data } = await getApiClient().get('/api/asset/list');
+  /** List all assets for a project */
+  async list(projectId?: string): Promise<Asset[]> {
+    const params: Record<string, string> = {};
+    if (projectId) params.project_id = projectId;
+    const { data } = await getApiClient().get('/api/asset/list', { params });
     if (!Array.isArray(data)) return [];
     return data.map(mapAsset);
   },
 
-  /** Upload a single asset */
-  async upload(file: File, onProgress?: (pct: number) => void) {
+  /** Upload a single asset to a project */
+  async upload(file: File, onProgress?: (pct: number) => void, projectId?: string) {
     const formData = new FormData();
     formData.append('file', file);
+    const params: Record<string, string> = {};
+    if (projectId) params.project_id = projectId;
     const { data } = await getApiClient().post<AssetUploadResponse>(
       '/api/asset/upload',
       formData,
       {
         headers: { 'Content-Type': 'multipart/form-data' },
+        params,
         onUploadProgress: (e) => {
           if (e.total && onProgress) {
             onProgress(Math.round((e.loaded / e.total) * 100));

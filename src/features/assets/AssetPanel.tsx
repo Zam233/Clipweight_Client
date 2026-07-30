@@ -1,6 +1,7 @@
 import { memo, useState, useCallback, useEffect } from 'react';
 import { useAssetStore } from '@/stores/assetStore';
 import { useTimelineStore } from '@/stores/timelineStore';
+import { useProjectStore } from '@/stores/projectStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { usePreviewStore } from '@/stores/previewStore';
@@ -43,12 +44,13 @@ export function AssetPanel() {
   const [demoMode, setDemoMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  const projectId = useProjectStore((s) => s.projectId);
   const loadAssets = useCallback(async () => {
     setLoading(true);
     setLoadError(false);
     setDemoMode(false);
     try {
-      const list = await assetApi.list();
+      const list = await assetApi.list(projectId ?? undefined);
       setAssets(Array.isArray(list) ? list : []);
     } catch {
       setAssets(demoAssets());
@@ -56,7 +58,7 @@ export function AssetPanel() {
     } finally {
       setLoading(false);
     }
-  }, [setAssets, setLoading]);
+  }, [setAssets, setLoading, projectId]);
 
   // Load on mount + reload on project change (refreshCounter bump)
   useEffect(() => { loadAssets(); }, [loadAssets, refreshCounter]);
@@ -66,7 +68,8 @@ export function AssetPanel() {
     setLoading(true);
     try {
       for (const file of Array.from(files)) {
-        const res = await assetApi.upload(file, setUploadProgress);
+        const pid = useProjectStore.getState().projectId;
+        const res = await assetApi.upload(file, setUploadProgress, pid ?? undefined);
         // Register uploaded file with MediaManager for local preview/thumbnails
         const assetId = res.id || res.asset_id || uid('asset');
         mediaManager.registerFile(assetId, file);

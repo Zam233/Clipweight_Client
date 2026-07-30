@@ -21,6 +21,36 @@ PluginPanel 的 3 个 TAB（AI 图片/AI 视频/AI 音乐）完全硬编码，�
 
 - - -
 
+## Stage 79: 素材库按项目隔离 + 软连接存储
+**Timestamp**: 2026-07-30T14:50:00+08:00
+
+### 后端重构
+- AssetManager 支持 `project_id` 参数 → 素材按项目存储于 `projects/{id}/assets/`
+- 上传素材用软连接引用原始文件（Windows 回退到 copy2）→ 不更名、不移动原文件
+- 删除素材仅移除软连接和元数据 → 原始文件保留
+- 新增 `delete_asset()` 方法 + `AssetInfo` 文件存在性校验
+- 所有 asset API 端点新增 `project_id` query 参数
+- 新增 `DELETE /api/asset/{asset_id}` 端点
+- 使用 dict 缓存各项目的 AssetManager 实例
+
+### 前端适配
+- `assetApi.list(projectId)` / `assetApi.upload(file, onProgress, projectId)` 新增 projectId 参数
+- `AssetPanel.loadAssets()` 从 projectStore 读取 projectId 传入
+
+### 存储结构
+```
+projects/{project_id}/
+  project.json
+  assets/
+    files/         # 软连接 → 原始文件
+    thumbnails/    # 缩略图
+    index.json     # 素材索引
+```
+
+### 测试: tsc 0 / vitest 59 / backend import OK
+
+- - -
+
 ## Fix: 插件面板 + 中文命名 + has_ui 过滤
 **Timestamp**: 2026-07-30T14:40:00+08:00
 
