@@ -21,6 +21,24 @@ PluginPanel 的 3 个 TAB（AI 图片/AI 视频/AI 音乐）完全硬编码，�
 
 - - -
 
+## Fix: AI 素材源 + 文件路径导入
+**Timestamp**: 2026-07-30T15:13:00+08:00
+
+### 问题
+1. AI 插件 MaterialSource.search() 在搜索时直接调用 AI 生成 → 慢/费钱/不符合搜索语义
+2. AI 生成结果未自动入库，无法被正常搜索
+3. 本地文件"上传"实际上传了整个文件内容，而非用软连接
+
+### 修复
+- AI 插件（image/video/music）移除 MaterialSource 注册 → 不再在搜索时生成
+- AI 生成仅作为独立 Tool 通过 PluginPanel UI 调用
+- 后端新增 `POST /api/asset/import-path` → 接收文件路径，创建软连接 + 元数据入库
+- 前端新增 `assetApi.importPath()` 
+
+### 测试: tsc 0 / vitest 59 / backend import OK
+
+- - -
+
 ## Stage 80: 继续检测与修复 — 前端 6 项 + 后端 5 项
 **Timestamp**: 2026-07-30T14:58:00+08:00
 

@@ -54,6 +54,15 @@ export const assetApi = {
     return data;
   },
 
+  /** Import a file by path (symlink, no upload) */
+  async importPath(path: string, projectId?: string) {
+    const { data } = await getApiClient().post('/api/asset/import-path', {
+      path,
+      project_id: projectId || '',
+    });
+    return data;
+  },
+
   /** Search materials (semantic) */
   async searchMaterials(request: MaterialSearchRequest) {
     const params: Record<string, string> = { query: request.query };
