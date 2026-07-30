@@ -279,6 +279,8 @@ export const AssetCard = memo(function AssetCard({ asset, onAdd }: { asset: Asse
       >
         {thumb ? (
           <img src={thumb} alt="" draggable={false} className="absolute inset-0 w-full h-full object-cover" />
+        ) : asset.thumbnail_url ? (
+          <img src={asset.thumbnail_url} alt="" draggable={false} className="absolute inset-0 w-full h-full object-cover" />
         ) : (
           <span className="text-2xl" style={{ color: kindColor }}>
             {kind === 'video' ? '🎬' : kind === 'audio' ? '🎵' : kind === 'text' ? '📝' : '🖼'}

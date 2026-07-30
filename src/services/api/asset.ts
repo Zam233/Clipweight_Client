@@ -8,15 +8,21 @@ import type {
 
 /** Transform backend asset shape (asset_id/media_type/file_path) to frontend Asset type */
 function mapAsset(raw: Record<string, unknown>): Asset {
+  const assetId = (raw.asset_id as string) || (raw.id as string) || '';
+  const thumbPath = (raw.thumbnail_path as string) || '';
+  // Convert filesystem thumbnail path to API URL
+  const thumbnailUrl = thumbPath
+    ? `/api/asset/${assetId}/thumbnail${raw.project_id ? `?project_id=${raw.project_id}` : ''}`
+    : ((raw.thumbnail_url as string) || undefined);
   return {
-    id: (raw.asset_id as string) || (raw.id as string) || '',
+    id: assetId,
     filename: (raw.filename as string) || '',
     path: (raw.file_path as string) || (raw.path as string) || '',
     kind: (raw.media_type as Asset['kind']) || (raw.kind as Asset['kind']) || 'image',
     duration_sec: raw.duration_sec as number | undefined,
     width: raw.width as number | undefined,
     height: raw.height as number | undefined,
-    thumbnail_url: (raw.thumbnail_path as string) || (raw.thumbnail_url as string) || undefined,
+    thumbnail_url: thumbnailUrl,
     tags: (Array.isArray(raw.tags) ? raw.tags : []) as string[],
     created_at: (raw.created_at as string) || new Date().toISOString(),
   };
