@@ -1,5 +1,34 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 66: 剩余 Agent Bug 修复
+**Timestamp**: 2026-07-30T04:15:00+08:00
+
+### 修复 (3 项)
+- Fix: material_agent.py 排序使用陈旧变量 r 的 tags（所有候选项共享同一 tags）→ 改为每项使用自身 tags
+- Fix: pipeline.py legacy 编排器未传递 persona_config 给 MaterialAgent → 补充传递
+- Fix: quality_agent.py 转场间隔跨轨道统计（PiP 轨导致误报）→ 按轨道分别计算
+
+### 测试: pytest 315 passed / 0 errors
+
+### 全部会话 Bug 修复总览 (53 项)
+| 阶段 | 范围 | 数量 |
+|------|------|------|
+| Stage 53 | 前端 Critical/High/Medium/Low | 15 |
+| Stage 56 | 前端 Medium + 后端 Critical/High | 10 |
+| Stage 57 | 后端 Medium/Low | 6 |
+| Stage 58 | 后端 Medium/Low | 4 |
+| Stage 59 | 插件系统 | 4 |
+| Stage 65 | Agent/Pipeline Critical/High/Medium | 8 |
+| Stage 66 | Agent Medium | 3 |
+| **总计** | | **53** (另有 3 项前端 Low 在 Stage 53) |
+
+### 已知未修复（需架构级重构）
+- QualityAgent 从未设置 redo_agent → self-heal 循环为死代码
+- Quality agent 在 DAG 和 self-heal 中双重执行
+- edit_agent 媒体生成失败时静默创建空 clip
+
+- - -
+
 ## Stage 65: Agent/Pipeline 深度 Bug 修复
 **Timestamp**: 2026-07-30T04:00:00+08:00
 
