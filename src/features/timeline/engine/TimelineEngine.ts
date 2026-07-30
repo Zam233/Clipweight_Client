@@ -11,7 +11,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { normalizeClipKind } from '@/lib/utils';
 import { useHistoryStore } from '@/stores/historyStore';
 import {
-  makeLayout, xToTime, yToTrackIndex, timeToX,
+  makeLayout, xToTime, yToTrackIndex, timeToX, trackToY,
   makeDragState, scrollbarGeom, MIN_ZOOM, MAX_ZOOM, DEFAULT_ZOOM, TRIM_HANDLE_PX,
   type TimelineLayout, type DragState, type Marker,
 } from './types';
@@ -44,6 +44,9 @@ export class TimelineEngine {
   private lastClickTime = 0;
   private lastClickX = 0;
   markers: Marker[] = [];
+  /** Drop feedback animation: green=placed before/after, red=reject (middle) */
+  dropFeedback: { type: 'before' | 'after' | 'reject'; clipId: string; trackId: string; time: number } | null = null;
+  private feedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
   private rafId = 0;
   private dirty = true;
@@ -80,6 +83,17 @@ export class TimelineEngine {
 
   requestRender() {
     this.dirty = true;
+  }
+
+  /** Show drop feedback animation (green flash = placed, red shake = rejected) */
+  private showDropFeedback(type: 'before' | 'after' | 'reject', clipId: string, trackId: string, time: number) {
+    if (this.feedbackTimer) clearTimeout(this.feedbackTimer);
+    this.dropFeedback = { type, clipId, trackId, time };
+    this.dirty = true;
+    this.feedbackTimer = setTimeout(() => {
+      this.dropFeedback = null;
+      this.dirty = true;
+    }, 600);
   }
 
   resize() {
@@ -126,6 +140,8 @@ export class TimelineEngine {
     if (this.disposed) return;
     // Always clamp scroll — keeps viewport valid after timeline changes (e.g., all clips deleted)
     this.clampScroll();
+    // Keep animating while drop feedback is active
+    if (this.dropFeedback) this.dirty = true;
     if (this.dirty) {
       this.dirty = false;
       try {
@@ -205,6 +221,39 @@ export class TimelineEngine {
     drawTrackHeaders(ctx, L, tracks, selection.selectedTrackId, this.hoveredTrackId);
     drawRuler(ctx, L, timeline.fps);
     drawPlayhead(ctx, L, playhead);
+
+    // Drop feedback animation
+    if (this.dropFeedback) {
+      const fb = this.dropFeedback;
+      const track = tracks.find((t) => t.id === fb.trackId);
+      const clip = track?.clips.find((c) => c.id === fb.clipId);
+      if (track && clip) {
+        const tIdx = tracks.indexOf(track);
+        const x = timeToX(clip.start_sec, L);
+        const w = clip.duration_sec * L.zoom;
+        const y = trackToY(tIdx, L);
+        const h = L.trackH - 6;
+        const elapsed = Date.now() % 600;
+        if (fb.type === 'reject') {
+          // Red shake — oscillate horizontally
+          const shake = Math.sin(elapsed / 40) * 4 * (1 - elapsed / 600);
+          ctx.save();
+          ctx.strokeStyle = 'rgba(244,67,54,0.9)';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([4, 3]);
+          ctx.strokeRect(x + shake + 1, y + 4, w - 2, h - 2);
+          ctx.restore();
+        } else {
+          // Green flash — pulse the placed clip outline
+          const alpha = 0.9 * (1 - elapsed / 600);
+          ctx.save();
+          ctx.strokeStyle = `rgba(52,211,153,${alpha})`;
+          ctx.lineWidth = 2.5;
+          ctx.strokeRect(x + 1, y + 4, w - 2, h - 2);
+          ctx.restore();
+        }
+      }
+    }
 
     // Horizontal scrollbar — drawn last so it sits on top
     const sbState = this.drag.mode === 'scrollbar' ? 'drag' : this.scrollbarHover ? 'hover' : 'idle';
@@ -441,21 +490,44 @@ export class TimelineEngine {
                 targetTrackId = candidate.id;
               }
             }
-            let newStartSec = Math.max(0, orig.start_sec + dt);
-            // Check overlap on target track (exclude self)
+            const newStartSec = Math.max(0, orig.start_sec + dt);
             const targetTrack = tl.tracks.find((t) => t.id === targetTrackId);
-            if (targetTrack) {
-              const dur = orig.duration_sec;
-              const hasOverlap = targetTrack.clips.some(
-                (c) => c.id !== id && c.start_sec < newStartSec + dur && c.start_sec + c.duration_sec > newStartSec,
-              );
-              if (hasOverlap) {
-                newStartSec = targetTrack.clips
-                  .filter((c) => c.id !== id)
-                  .reduce((m, c) => Math.max(m, c.start_sec + c.duration_sec), 0);
-              }
+            if (!targetTrack) continue;
+
+            // Find the first overlapping clip (excluding self)
+            const dur = orig.duration_sec;
+            const overlapping = targetTrack.clips.find(
+              (c) => c.id !== id && c.start_sec < newStartSec + dur && c.start_sec + c.duration_sec > newStartSec,
+            );
+
+            if (!overlapping) {
+              // No collision → place directly
+              store.moveClip(id, targetTrackId, newStartSec);
+              continue;
             }
-            store.moveClip(id, targetTrackId, newStartSec);
+
+            // Collision: determine drop zone by position within the overlapping clip
+            // 10% front → place before · 80% middle → reject · 10% back → place after
+            const clipStart = overlapping.start_sec;
+            const clipEnd = overlapping.start_sec + overlapping.duration_sec;
+            const clipDur = overlapping.duration_sec;
+            const dropCenter = newStartSec + dur / 2;
+            const relPos = clipDur > 0 ? (dropCenter - clipStart) / clipDur : 0.5;
+
+            if (relPos < 0.1) {
+              // Front 10% → place before the existing clip
+              const placeAt = Math.max(0, clipStart - dur);
+              store.moveClip(id, targetTrackId, placeAt);
+              this.showDropFeedback('before', id, targetTrackId, placeAt);
+            } else if (relPos > 0.9) {
+              // Back 10% → place after the existing clip
+              const placeAt = clipEnd;
+              store.moveClip(id, targetTrackId, placeAt);
+              this.showDropFeedback('after', id, targetTrackId, placeAt);
+            } else {
+              // Middle 80% → reject the move
+              this.showDropFeedback('reject', id, targetTrackId, newStartSec);
+            }
           }
         }
         break;
