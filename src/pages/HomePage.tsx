@@ -223,12 +223,6 @@ export function HomePage() {
       const res = await assetApi.upload(file);
       const path = res.file_path ?? res.path ?? '';
       let duration = res.duration_sec ?? 0;
-      if (!duration && path) {
-        try {
-          const probe = await assetApi.probe(path) as { duration_sec?: number };
-          duration = probe.duration_sec ?? 0;
-        } catch { /* ignore probe failure */ }
-      }
       setAudio({ path, name: res.filename ?? file.name, duration });
     } catch (e) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail

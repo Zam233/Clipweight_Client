@@ -50,19 +50,8 @@ export function ExportPage() {
   useEffect(() => {
     renderApi.getPresets()
       .then((presets) => {
-        if (Array.isArray(presets)) {
-          const mapped: Record<string, any> = {};
-          for (const p of presets) {
-            mapped[p.id || p.name] = {
-              name: p.name || p.label,
-              width: p.width || 1920,
-              height: p.height || 1080,
-              fps: p.fps || 30,
-              bitrate: p.bitrate || '5M',
-              icon: p.icon || '⚙️',
-            };
-          }
-          setApiPresets(mapped);
+        if (presets && typeof presets === 'object' && !Array.isArray(presets)) {
+          setApiPresets(presets as Record<string, unknown>);
         }
       })
       .catch(() => {

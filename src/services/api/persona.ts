@@ -65,9 +65,9 @@ export const personaApi = {
   // ── Chat Forge ──
 
   /** Start a chat forge session */
-  async chatForgeStart(description?: string) {
+  async chatForgeStart(personaId?: string) {
     const { data } = await getApiClient().post('/api/persona/forge/chat/start', {
-      description,
+      persona_id: personaId || '',
     });
     return data as { session_id: string; persona_draft?: unknown; progress?: Record<string, number>; reply?: string };
   },

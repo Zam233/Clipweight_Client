@@ -58,7 +58,8 @@ export const pipelineApi = {
   /** Predict script configuration */
   async predictScript(scriptText: string) {
     const { data } = await getApiClient().post(
-      `/api/pipeline/predict-script?script_text=${encodeURIComponent(scriptText)}`,
+      '/api/pipeline/predict-script',
+      { script_text: scriptText },
     );
     return data;
   },

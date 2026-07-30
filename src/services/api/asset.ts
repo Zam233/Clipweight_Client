@@ -32,34 +32,13 @@ export const assetApi = {
     return data;
   },
 
-  /** Batch upload assets */
-  async uploadBatch(files: File[], onProgress?: (pct: number) => void) {
-    const formData = new FormData();
-    files.forEach((f) => formData.append('files', f));
-    const { data } = await getApiClient().post('/api/asset/upload-batch', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      onUploadProgress: (e) => {
-        if (e.total && onProgress) {
-          onProgress(Math.round((e.loaded / e.total) * 100));
-        }
-      },
-    });
-    return data;
-  },
-
-  /** Probe media file info */
-  async probe(path: string) {
-    const { data } = await getApiClient().get('/api/asset/probe', { params: { path } });
-    return data;
-  },
-
   /** Search materials (semantic) */
   async searchMaterials(request: MaterialSearchRequest) {
-    const { data } = await getApiClient().post<MaterialSearchResult[]>(
-      '/api/material/search',
-      request,
-    );
-    return data;
+    const params: Record<string, string> = { query: request.query };
+    if (request.limit) params.top_k = String(request.limit);
+    if (request.source) params.sources = request.source;
+    const { data } = await getApiClient().post('/api/material/search', null, { params });
+    return Array.isArray(data) ? data : [];
   },
 
   /** List material sources */

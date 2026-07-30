@@ -58,7 +58,7 @@ export const renderApi = {
 
   /** List export presets */
   async getPresets() {
-    const { data } = await getApiClient().get<RenderPreset[]>('/api/render/presets');
-    return data;
+    const { data } = await getApiClient().get<{ presets: Record<string, unknown> }>('/api/render/presets');
+    return data?.presets ?? {};
   },
 };

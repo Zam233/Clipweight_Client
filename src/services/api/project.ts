@@ -162,7 +162,7 @@ export const toolApi = {
 
   async execute(toolName: string, params: Record<string, unknown>) {
     const { data } = await getApiClient().post('/api/tool/execute', {
-      tool: toolName,
+      name: toolName,
       params,
     });
     return data;
@@ -177,7 +177,7 @@ export const skillApi = {
 
   async execute(skillName: string, params: Record<string, unknown>) {
     const { data } = await getApiClient().post('/api/skill/execute', {
-      skill: skillName,
+      name: skillName,
       params,
     });
     return data;
