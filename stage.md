@@ -21,6 +21,22 @@ PluginPanel 的 3 个 TAB（AI 图片/AI 视频/AI 音乐）完全硬编码，�
 
 - - -
 
+## Fix: 插件面板 + 中文命名 + has_ui 过滤
+**Timestamp**: 2026-07-30T14:40:00+08:00
+
+### 问题
+1. PluginPanel 显示所有已加载的能力插件（包括无 UI 的 whiper_stt/subtitle_translate 等）
+2. 所有插件名称为英文
+
+### 修复
+- 后端 PluginMetadata 新增 `has_ui: bool` — 检查 `ui.json` 是否存在
+- 前端 PluginPanel 过滤条件：`kind === 'capability'` → `has_ui === true`
+- 27 个插件 plugin.yaml 的 name 全部改为中文
+
+### 测试: tsc 0 / vitest 59 / backend import OK
+
+- - -
+
 ## Stage 78: 插件 UI 挂载系统 — usePluginUI + JSON 布局引擎
 **Timestamp**: 2026-07-30T14:34:00+08:00
 

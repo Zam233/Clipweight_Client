@@ -33,10 +33,7 @@ export function PluginPanel() {
         const plugins = await pluginApi.list();
         if (!alive) return;
         const loaded = (Array.isArray(plugins) ? plugins : [])
-          .filter((p: Record<string, unknown>) => {
-            const m = (p.manifest as Record<string, unknown>) || {};
-            return m.kind === 'capability' || m.kind === 'editor';
-          })
+          .filter((p: Record<string, unknown>) => p.has_ui === true)
           .map((p: Record<string, unknown>) => {
             const m = (p.manifest as Record<string, unknown>) || {};
             const id = String(m.id || '');
