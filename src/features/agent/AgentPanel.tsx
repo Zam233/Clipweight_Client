@@ -96,6 +96,8 @@ function RequirementsView() {
   const updatePhase = useAgentStore((s) => s.updatePhase);
   const reviewMode = useAgentStore((s) => s.reviewMode);
   const setReviewMode = useAgentStore((s) => s.setReviewMode);
+  // Reactively track requirementsTopic so auto-start fires when HomePage.launch() sets it
+  const requirementsTopic = useProjectStore((s) => s.requirementsTopic);
 
   const [topic, setTopic] = useState('');
   const [input, setInput] = useState('');
@@ -125,6 +127,7 @@ function RequirementsView() {
 
   useEffect(() => {
     if (autoStartedRef.current) return;
+    if (!draftLoaded) return;
     const st = useProjectStore.getState();
     const t = st.requirementsTopic;
     if (!t || useAgentStore.getState().requirementsMessages.length > 0) return;
@@ -171,7 +174,7 @@ function RequirementsView() {
           content: '已为你生成创意简报，请审阅后确认。', creative_brief: brief });
       } finally { setBusy(false); }
     })();
-  }, [draftLoaded]);
+  }, [draftLoaded, requirementsTopic]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });

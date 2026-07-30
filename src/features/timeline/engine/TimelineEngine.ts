@@ -494,8 +494,14 @@ export class TimelineEngine {
             const targetTrack = tl.tracks.find((t) => t.id === targetTrackId);
             if (!targetTrack) continue;
 
-            // Find the first overlapping clip (excluding self)
             const dur = orig.duration_sec;
+            // Check whether a candidate start position is free of overlap (excluding self)
+            const isFree = (start: number) =>
+              start >= 0 && !targetTrack.clips.some(
+                (c) => c.id !== id && c.start_sec < start + dur && c.start_sec + c.duration_sec > start,
+              );
+
+            // Find the first overlapping clip (excluding self)
             const overlapping = targetTrack.clips.find(
               (c) => c.id !== id && c.start_sec < newStartSec + dur && c.start_sec + c.duration_sec > newStartSec,
             );
@@ -514,18 +520,22 @@ export class TimelineEngine {
             const dropCenter = newStartSec + dur / 2;
             const relPos = clipDur > 0 ? (dropCenter - clipStart) / clipDur : 0.5;
 
+            let placeAt: number | null = null;
+            let zone: 'before' | 'after' | 'reject' = 'reject';
             if (relPos < 0.1) {
-              // Front 10% → place before the existing clip
-              const placeAt = Math.max(0, clipStart - dur);
-              store.moveClip(id, targetTrackId, placeAt);
-              this.showDropFeedback('before', id, targetTrackId, placeAt);
+              zone = 'before';
+              placeAt = clipStart - dur;
             } else if (relPos > 0.9) {
-              // Back 10% → place after the existing clip
-              const placeAt = clipEnd;
+              zone = 'after';
+              placeAt = clipEnd;
+            }
+
+            // Final validation: only commit if the target position is actually free
+            if (placeAt !== null && isFree(placeAt)) {
               store.moveClip(id, targetTrackId, placeAt);
-              this.showDropFeedback('after', id, targetTrackId, placeAt);
+              this.showDropFeedback(zone, id, targetTrackId, placeAt);
             } else {
-              // Middle 80% → reject the move
+              // No valid placement (middle zone, or before/after would still overlap) → reject
               this.showDropFeedback('reject', id, targetTrackId, newStartSec);
             }
           }

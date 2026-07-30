@@ -80,12 +80,26 @@ export const assetApi = {
   },
 
   /** Search materials (semantic) */
-  async searchMaterials(request: MaterialSearchRequest) {
+  async searchMaterials(request: MaterialSearchRequest): Promise<MaterialSearchResult[]> {
     const params: Record<string, string> = { query: request.query };
     if (request.limit) params.top_k = String(request.limit);
     if (request.source) params.sources = request.source;
     const { data } = await getApiClient().post('/api/material/search', null, { params });
-    return Array.isArray(data) ? data : [];
+    if (!Array.isArray(data)) return [];
+    // Backend nests fields under `asset`; flatten to the frontend shape
+    return data.map((r: Record<string, unknown>) => {
+      const a = (r.asset as Record<string, unknown>) || {};
+      return {
+        id: (a.id as string) || (r.id as string) || '',
+        title: (a.title as string) || (r.title as string) || '',
+        url: (a.url as string) || (a.local_path as string) || (r.url as string) || '',
+        thumbnail: (a.thumbnail_url as string) || (r.thumbnail as string) || undefined,
+        duration_sec: (a.duration_sec as number) ?? (r.duration_sec as number) ?? undefined,
+        score: (r.score as number) ?? 0,
+        source: (r.source_name as string) || (a.source as string) || (r.source as string) || '',
+        reason: (r.reason as string) || undefined,
+      } as MaterialSearchResult;
+    });
   },
 
   /** List material sources */

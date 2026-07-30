@@ -1,5 +1,26 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 81: 三处 Bug 修复 — AI收藏/跨轨碰撞/需求Agent自启动
+**Timestamp**: 2026-07-30T17:05:00+08:00
+
+### Bug 1: AI 匹配收藏按钮失效 + 无缩略图 (422)
+- 根因: 后端搜索结果嵌套在 `asset` 字段下，前端按扁平结构读取 → `r.url`/`r.title`/`r.thumbnail` 全为 undefined
+- 修复: `assetApi.searchMaterials` 新增扁平化映射，兼容嵌套(`r.asset.*`)与扁平结构
+- 效果: 收藏按钮拿到真实 url，缩略图正常显示
+
+### Bug 2: 跨轨道拖动素材重叠
+- 根因: "前置"放置 `clipStart - dur` 在空间不足时仍产生新重叠
+- 修复: 新增 `isFree()` 最终校验 — 计算目标位置后验证是否真的无重叠，否则拒绝移动
+- 行为: 前10%/后10% 仅在位置空闲时放置，否则与中间80%一样拒绝（红色抖动反馈）
+
+### Bug 3: 首页开始创作后需求 Agent 未自启动
+- 根因: 自启动 useEffect 仅依赖 `[draftLoaded]`，若在 topic 设置前运行则提前返回且不再触发
+- 修复: 订阅 `requirementsTopic` 并加入依赖数组 `[draftLoaded, requirementsTopic]`，topic 设置后重新触发自启动
+
+### 测试: tsc 0 / vitest 59
+
+- - -
+
 ## Fix: 插件面板硬编码 — 禁用/卸载插件 UI 仍显示
 **Timestamp**: 2026-07-30T14:20:00+08:00
 
