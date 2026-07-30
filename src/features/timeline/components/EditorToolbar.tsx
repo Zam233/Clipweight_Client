@@ -7,6 +7,7 @@ import { useHistoryStore } from '@/stores/historyStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { toast } from '@/stores/toastStore';
 import { Button, Tooltip } from '@/components/ui';
 import { formatTimecode, uid } from '@/lib/utils';
 import type { Clip } from '@/types/timeline';
@@ -181,7 +182,7 @@ export function EditorToolbar() {
           });
         }
       } catch {
-        /* 离线或后端不可达时静默失败 */
+        toast('音频转录失败 — 后端不可达', 'error');
       }
     };
     input.click();
@@ -227,7 +228,7 @@ export function EditorToolbar() {
           });
         }
       } catch {
-        /* 后端不可达时静默失败 */
+        toast('EDL 导入失败 — 后端不可达', 'error');
       }
     };
     input.click();
@@ -256,7 +257,7 @@ export function EditorToolbar() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      /* 后端不可达时静默失败 */
+      toast('EDL 导出失败 — 后端不可达', 'error');
     }
   };
 
@@ -287,7 +288,7 @@ export function EditorToolbar() {
         useHistoryStore.getState().pushState(store.timeline, 'import-json');
         store.setTimeline(data);
       } catch {
-        /* invalid JSON */
+        toast('JSON 导入失败 — 文件格式无效', 'error');
       }
     };
     input.click();

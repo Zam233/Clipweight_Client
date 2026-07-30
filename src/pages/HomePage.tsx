@@ -710,6 +710,14 @@ export function HomePage() {
                   onDuplicate={() => handleDuplicateProject(proj)}
                 />
               ))}
+              {projects.length === 0 && (
+                <div className="col-span-12 flex flex-col items-center justify-center py-12 text-center gap-2
+                  border border-dashed border-outline-variant/30 rounded-cw-md">
+                  <FolderOpen className="w-8 h-8 text-on-surface-variant/40" />
+                  <p className="text-body-sm text-on-surface-variant">还没有项目</p>
+                  <p className="text-caption text-on-surface-variant/60">在上方填写选题并点击「开始创作」创建你的第一个视频</p>
+                </div>
+              )}
             </div>
           </section>
         </main>

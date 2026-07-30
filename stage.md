@@ -1,5 +1,22 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 83: UX 优化 — 空状态/中文标签/Toast 通知系统
+**Timestamp**: 2026-07-30T17:44:00+08:00
+
+### 新增 Toast 通知系统
+- + `src/stores/toastStore.ts` — 轻量通知 store（info/success/error，4s 自动消失）+ `toast()` 辅助函数
+- + `src/components/ui/toast.tsx` — Toaster 组件（右下角固定定位）
+- + App.tsx 挂载 `<Toaster />`
+- Fix: EditorToolbar 4 处静默失败（音频转录/EDL导入/EDL导出/JSON导入）→ 改为 toast 错误提示
+
+### UX 改进
+- Fix: HomePage 项目列表为空时显示空白 → 新增空状态引导（图标+提示文案）
+- Fix: 属性面板转场/混合模式显示原始英文标识 → 新增中文标签映射（硬切/淡入淡出/正片叠底等）
+
+### 测试: tsc 0 / vitest 59
+
+- - -
+
 ## Stage 82: 预览播放系统 + 属性面板 UX 深度修复 (12 项)
 **Timestamp**: 2026-07-30T17:37:00+08:00
 

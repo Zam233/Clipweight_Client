@@ -182,7 +182,7 @@ export function PropertiesPanel() {
                       outline-none border border-outline-variant/30 focus:border-primary"
                   >
                     {BLEND_MODES.map((m) => (
-                      <option key={m} value={m}>{m === 'normal' ? '正常' : m}</option>
+                      <option key={m} value={m}>{BLEND_LABELS[m] ?? m}</option>
                     ))}
                   </select>
                 </Row>
@@ -617,7 +617,18 @@ function NumberInput({ value, onChange }: { value: number; onChange: (v: number)
 
 const TRANSITIONS = ['', 'hard_cut', 'fade', 'dissolve', 'glitch', 'pixel_dissolve', 'slide', 'wipe'];
 
+const TRANSITION_LABELS: Record<string, string> = {
+  '': '无', hard_cut: '硬切', fade: '淡入淡出', dissolve: '溶解', glitch: '故障',
+  pixel_dissolve: '像素溶解', slide: '滑动', wipe: '擦除',
+};
+
 const BLEND_MODES = ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion'];
+
+const BLEND_LABELS: Record<string, string> = {
+  normal: '正常', multiply: '正片叠底', screen: '滤色', overlay: '叠加', darken: '变暗',
+  lighten: '变亮', 'color-dodge': '颜色减淡', 'color-burn': '颜色加深', 'hard-light': '强光',
+  'soft-light': '柔光', difference: '差值', exclusion: '排除',
+};
 
 const FONT_FAMILIES = ['Inter', 'Noto Sans SC', 'JetBrains Mono', 'system-ui', 'Arial', 'Helvetica', 'Georgia', 'Times New Roman', 'Courier New', 'Impact', 'Verdana'];
 
@@ -640,7 +651,7 @@ function TransitionSelect({ value, onChange }: { value: string; onChange: (v: st
         outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
     >
       {TRANSITIONS.map((t) => (
-        <option key={t} value={t}>{t === '' ? '无' : t}</option>
+        <option key={t} value={t}>{TRANSITION_LABELS[t] ?? t}</option>
       ))}
     </select>
   );
