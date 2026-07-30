@@ -1,5 +1,17 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 92: AI 匹配搜索改用 flash 模型
+**Timestamp**: 2026-07-30T19:12:00+08:00
+
+### 改进
+- `llm.py`: `ask()` 方法新增 `use_flash` 参数（与 generate/chat/structured_output 一致）
+- `material_agent.py`: `_llm_search_queries`（AI 匹配搜索词生成）改用 `use_flash=True`
+  - 搜索词生成是简单任务，无需专业大模型，走 flash 更快更省
+
+### 测试: ask 含 use_flash / backend import OK
+
+- - -
+
 ## Stage 91: Flash 轻量模型支持（简单任务分流）
 **Timestamp**: 2026-07-30T19:05:00+08:00
 
