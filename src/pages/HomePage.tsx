@@ -386,6 +386,11 @@ export function HomePage() {
                         placeholder="视频选题，例如：深度解析某品牌新手机的散热设计…"
                         className="flex-1 bg-transparent outline-none py-3 text-body text-on-surface placeholder:text-on-surface-variant/40 font-mono"
                       />
+                      {topic && (
+                        <button onClick={() => setTopic('')} className="p-1 text-on-surface-variant/50 hover:text-on-surface cursor-pointer">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                     <textarea
                       value={script}

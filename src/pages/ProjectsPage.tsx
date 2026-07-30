@@ -247,8 +247,13 @@ export function ProjectsPage() {
               <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-on-surface-variant/50" />
               <input value={search} onChange={(e) => setSearch(e.target.value)}
                 placeholder="搜索项目…"
-                className="bg-surface-container border border-outline-variant/30 rounded-cw-sm pl-7 pr-3 py-1.5 text-caption text-on-surface outline-none
+                className="bg-surface-container border border-outline-variant/30 rounded-cw-sm pl-7 pr-8 py-1.5 text-caption text-on-surface outline-none
                   focus:border-primary/60 transition-colors w-48" />
+              {search && (
+                <button onClick={() => setSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-on-surface-variant/50 hover:text-on-surface cursor-pointer">
+                  <X className="w-3 h-3" />
+                </button>
+              )}
             </div>
           </div>
 

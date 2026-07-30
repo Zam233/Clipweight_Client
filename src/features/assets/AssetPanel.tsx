@@ -12,7 +12,7 @@ import { DubView } from './DubView';
 import { PluginPanel } from './PluginPanel';
 import type { Asset, MaterialSearchResult } from '@/types/api';
 import type { ClipKind } from '@/types/timeline';
-import { Sparkles, FolderOpen, History, Upload, Search, Plus, Mic, AudioLines, Puzzle } from 'lucide-react';
+import { Sparkles, FolderOpen, History, Upload, Search, Plus, Mic, AudioLines, Puzzle, X } from 'lucide-react';
 
 type Tab = 'ai' | 'library' | 'history' | 'dub' | 'plugins';
 
@@ -154,6 +154,11 @@ export function AssetPanel() {
             placeholder="搜索素材…"
             className="flex-1 bg-transparent outline-none text-body-sm text-on-surface placeholder:text-on-surface-variant/50"
           />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="p-0.5 text-on-surface-variant/50 hover:text-on-surface cursor-pointer">
+              <X className="w-3 h-3" />
+            </button>
+          )}
         </div>
         <label className="p-2 rounded-cw-sm bg-primary-container text-on-primary-container hover:opacity-90 transition-opacity cursor-pointer">
           <Upload className="w-3.5 h-3.5" />

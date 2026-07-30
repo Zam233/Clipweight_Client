@@ -1,5 +1,26 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 72: UX Polish + Error Handling Improvements
+**Timestamp**: 2026-07-30T12:24:00+08:00
+
+### 前端 UX 改进 (5 项)
+- + Button 组件 press 反馈 → `active:scale-[0.97]` + `transition-all`，按钮按下有视觉回馈
+- + HomePage 选题输入 → 添加清空按钮（X 图标），输入内容后可一键清除
+- + AssetPanel 搜索 → 添加清空按钮
+- + ProjectsPage 搜索 → 添加清空按钮
+- + ExportPage NumField → `step` 参数透传，frame 等精细输入可用步进
+
+### 后端改进 (5 项)
+- Fix: voice.py CloneRequest.voice_name → `min_length=1`，不允许空名称
+- Fix: template.py 静默吞异常 → 添加 `logger.warning(exc_info=True)`，数据格式错误可追踪
+- Fix: type_maker.py 静默吞异常 → 同上
+- Fix: video_editor.py 静默吞异常 → 同上
+- Opt: voice.py → Field 导入正确使用
+
+### 测试: tsc 0 / vitest 59 / eslint 0err
+
+- - -
+
 ## Stage 71: Deep UX + Accessibility + Backend Validation Fixes
 **Timestamp**: 2026-07-30T12:22:00+08:00
 
