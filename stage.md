@@ -1,6 +1,24 @@
 # ClipWright Optimization — Stage Log
 
-## Stage 67: 插件加载修复 + 前端插件面板
+## Stage 68: 插件 Tool/Skill 继承修复 + 前端插件面板验证
+**Timestamp**: 2026-07-30T11:30:00+08:00
+
+### 后端修复
+- Fix: 所有插件 Tool 未继承 BaseTool → 添加继承 + execute(**kwargs) 签名→ 6 个 Tool 修复
+- Fix: 所有插件 Skill 未继承 BaseSkill → 添加继承 + 返回 SkillExecResult → 2 个 Skill 修复
+- Fix: 后端启动失败 AttributeError (is_available/required_tools) → 全部修复
+- 结果: **27/27 插件全部加载 + 7 Tools + 3 Skills 可用**
+
+### 插件可调用性验证
+- ✅ 插件 Tool 通过 ToolRegistry.register() 注册 → Pipeline Agent 可通过 ToolRegistry.execute() 调用
+- ✅ 插件 Skill 通过 SkillRegistry.register() 注册 → Pipeline Agent 可通过 SkillRegistry.execute() 调用
+- ✅ 插件 MaterialSource 通过 MaterialRegistry.register() 注册 → MaterialAgent 可自动发现
+- ✅ 插件 Hook 通过 HookRegistry.register() 注册 → Pipeline PRE/POST_RENDER 等生命周期可用
+- ✅ 前端 PluginPanel POST /api/tool/execute → ToolRegistry → 插件 Tool 全链路已打通
+
+### 测试: pytest 315/0 | tsc 0 | vitest 59 | E2E 37
+
+- - -
 **Timestamp**: 2026-07-30T04:30:00+08:00
 
 ### 后端修复 (插件加载)
