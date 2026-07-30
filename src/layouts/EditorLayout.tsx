@@ -242,6 +242,14 @@ function StatusBar() {
             循环: {formatTimecode(loopRegion.start, fps)} – {formatTimecode(loopRegion.end, fps)}
           </span>
         )}
+        {saveError && (
+          <button
+            onClick={() => useProjectStore.getState().requestSave()}
+            className="px-2 py-0.5 rounded-cw-xs bg-error/15 text-error text-caption font-medium hover:bg-error/25 transition-colors cursor-pointer"
+          >
+            保存失败 · 点击重试
+          </button>
+        )}
       </div>
       <div className="flex items-center gap-3">
         <Tooltip content="标尺显示">

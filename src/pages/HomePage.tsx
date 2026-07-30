@@ -15,6 +15,7 @@ import {
   Scissors, FileText, FolderOpen, Clapperboard,
 } from 'lucide-react';
 import { ProjectCard, type ProjectCardData } from '@/components/shared/ProjectCard';
+import { fmtDur, relTime } from '@/lib/utils';
 
 /* ── types ─────────────────────────────────────────────── */
 interface PersonaOpt { id: string; name: string; tone: string }
@@ -73,24 +74,6 @@ function splitScriptToCaptions(text: string, mode: 'period' | 'punctuation'): st
   }
   const parts = t.split(/[。！？.!?]/).map((s) => s.trim()).filter(Boolean);
   return parts.length ? parts : [t];
-}
-
-function fmtDur(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-function relTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const min = Math.floor(diff / 60000);
-  if (min < 1) return '刚刚';
-  if (min < 60) return `${min} 分钟前`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} 小时前`;
-  const day = Math.floor(hr / 24);
-  if (day < 7) return `${day} 天前`;
-  return new Date(iso).toLocaleDateString('zh-CN');
 }
 
 /* ── page ──────────────────────────────────────────────── */
@@ -195,8 +178,6 @@ export function HomePage() {
       .catch(() => {});
 
     return () => { alive = false; };
-
-    return () => { alive = false; };
   }, []);
 
   const captions = useMemo(
@@ -222,7 +203,7 @@ export function HomePage() {
     try {
       const res = await assetApi.upload(file);
       const path = res.file_path ?? res.path ?? '';
-      let duration = res.duration_sec ?? 0;
+      const duration = res.duration_sec ?? 0;
       setAudio({ path, name: res.filename ?? file.name, duration });
     } catch (e) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail

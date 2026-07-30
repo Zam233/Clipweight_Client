@@ -38,16 +38,20 @@ export function AssetPanel() {
   const setLoading = useAssetStore((s) => s.setLoading);
   const uploadProgress = useAssetStore((s) => s.uploadProgress);
   const setUploadProgress = useAssetStore((s) => s.setUploadProgress);
+  const [loadError, setLoadError] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   const loadAssets = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
+    setDemoMode(false);
     try {
       const list = await assetApi.list();
       setAssets(Array.isArray(list) ? list : []);
     } catch {
-      // Backend offline — show demo assets so the editor remains usable
       setAssets(demoAssets());
+      setDemoMode(true);
     } finally {
       setLoading(false);
     }
@@ -163,6 +167,21 @@ export function AssetPanel() {
           <div className="h-1 bg-surface-container rounded-cw-full overflow-hidden">
             <div className="h-full bg-primary transition-all duration-medium2" style={{ width: `${uploadProgress}%` }} />
           </div>
+        </div>
+      )}
+
+      {(demoMode || loadError) && (
+        <div className="flex items-center justify-between px-3 py-1.5 bg-warning/10 border-b border-outline-variant/20 shrink-0">
+          <span className="text-caption text-warning flex items-center gap-1">
+            <Sparkles className="w-3 h-3" />
+            {demoMode ? '演示数据' : '加载失败'}
+          </span>
+          <button
+            onClick={loadAssets}
+            className="text-caption text-primary hover:text-primary/80 cursor-pointer"
+          >
+            重试
+          </button>
         </div>
       )}
 

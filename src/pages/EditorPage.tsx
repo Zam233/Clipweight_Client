@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { EditorLayout } from '@/layouts/EditorLayout';
 import { useTimelineStore } from '@/stores/timelineStore';
@@ -12,6 +12,7 @@ import { mediaManager } from '@/services/media/mediaManager';
 import { useGlobalKeybindings } from '@/features/keyboard/useGlobalKeybindings';
 import { ShortcutCheatSheet } from '@/features/keyboard/ShortcutCheatSheet';
 import { createEmptyTimeline } from '@/types/timeline';
+import { Loader2 } from 'lucide-react';
 
 /**
  * EditorPage — hosts the 4-panel editor. Loads project from backend by id
@@ -21,6 +22,8 @@ export function EditorPage() {
   const { projectId } = useParams({ from: '/editor/$projectId' });
   const { cheatSheetOpen, setCheatSheetOpen } = useGlobalKeybindings();
   const dirtyRef = useRef(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Load project from backend on mount
   useEffect(() => {
@@ -51,10 +54,13 @@ export function EditorPage() {
         if (project.persona_id) useProjectStore.getState().setPersonaId(project.persona_id);
         if (project.plugin_id) useProjectStore.getState().setPluginId(project.plugin_id);
         useTimelineStore.getState().setTimeline(project.timeline ?? createEmptyTimeline());
+        if (alive) setLoading(false);
       } catch (err) {
         console.error('[EditorPage] Failed to load project:', err);
-        // The beforeLoad guard should have caught this, but as fallback:
-        window.location.href = '/';
+        if (alive) {
+          setLoadError('加载项目失败');
+          setLoading(false);
+        }
       }
     })();
     return () => { alive = false; };
@@ -136,6 +142,29 @@ export function EditorPage() {
       window.removeEventListener('beforeunload', flush);
     };
   }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-surface-dim text-on-surface-variant gap-3">
+        <Loader2 className="w-5 h-5 animate-spin text-primary" />
+        <span className="text-body">加载项目中…</span>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-surface-dim gap-4">
+        <p className="text-error text-body">{loadError}</p>
+        <button
+          onClick={() => window.location.href = '/'}
+          className="px-4 py-2 rounded-cw-md bg-primary text-on-primary text-body-sm hover:bg-primary/90 cursor-pointer"
+        >
+          返回首页
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>

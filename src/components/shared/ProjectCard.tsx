@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Layers, Clock, X, MoreVertical, FolderOpen, Check } from 'lucide-react';
+import { Layers, Clock, X, MoreVertical, FolderOpen, Check, Trash2 } from 'lucide-react';
 
 /* ── shared project card type ──────────────────────────── */
 export interface ProjectCardData {
@@ -46,6 +46,7 @@ export function ProjectCard({
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState(proj.name);
   const [imgFailed, setImgFailed] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const span = proj.featured ? 'col-span-12 md:col-span-6' : 'col-span-12 sm:col-span-6 md:col-span-3';
@@ -84,16 +85,33 @@ export function ProjectCard({
         transition-all duration-medium2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary`}
     >
       {/* delete button (X) — always present */}
-      <button
-        type="button"
-        onClick={(event) => { event.stopPropagation(); void onDelete(); }}
-        className="absolute top-2 right-2 z-10 p-1.5 rounded-cw-sm bg-black/50 text-white/70 opacity-0
-          group-hover:opacity-100 focus:opacity-100 hover:text-error hover:bg-black/70 transition-all cursor-pointer"
-        title="删除项目"
-        aria-label={`删除项目 ${proj.name}`}
-      >
-        <X className="w-3.5 h-3.5" />
-      </button>
+      {confirmDelete ? (
+        <div className="absolute top-2 right-2 z-10 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button" onClick={() => { void onDelete(); setConfirmDelete(false); }}
+            className="px-2 py-1 rounded-cw-xs bg-error text-on-error text-caption font-medium cursor-pointer hover:bg-error/90"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+          <button
+            type="button" onClick={() => setConfirmDelete(false)}
+            className="px-2 py-1 rounded-cw-xs bg-black/50 text-white/70 text-caption cursor-pointer hover:bg-black/70"
+          >
+            取消
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={(event) => { event.stopPropagation(); setConfirmDelete(true); }}
+          className="absolute top-2 right-2 z-10 p-1.5 rounded-cw-sm bg-black/50 text-white/70 opacity-0
+            group-hover:opacity-100 focus:opacity-100 hover:text-error hover:bg-black/70 transition-all cursor-pointer"
+          title="删除项目"
+          aria-label={`删除项目 ${proj.name}`}
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
 
       {/* kebab menu button — full mode only */}
       {mode === 'full' && (

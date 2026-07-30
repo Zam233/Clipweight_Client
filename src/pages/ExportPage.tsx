@@ -162,6 +162,8 @@ export function ExportPage() {
     };
   };
 
+  const simulateTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+
   const simulateRender = (taskId: string) => {
     updateQueue(taskId, { status: 'rendering', progress: 0 });
     const phases = [
@@ -176,18 +178,23 @@ export function ExportPage() {
       const phase = phases.find((ph) => prog <= ph.until) ?? phases[phases.length - 1];
       if (prog >= 100) {
         clearInterval(timer);
+        simulateTimers.current.delete(taskId);
         updateQueue(taskId, { status: 'completed', progress: 100, phase: 'done' });
       } else {
         updateQueue(taskId, { status: 'rendering', progress: Math.round(prog), phase: phase.p });
       }
     }, 180);
+    simulateTimers.current.set(taskId, timer);
   };
 
   const updateQueue = (taskId: string, patch: Partial<QueueItem>) => {
     setQueue((q) => q.map((it) => (it.task_id === taskId ? { ...it, ...patch } : it)));
   };
 
-  useEffect(() => () => { esRefs.current.forEach((es) => es.close()); }, []);
+  useEffect(() => () => {
+    esRefs.current.forEach((es) => es.close());
+    simulateTimers.current.forEach((timer) => clearInterval(timer));
+  }, []);
 
   const estSize = estimateSize(timeline.duration_sec, settings.bitrate);
 

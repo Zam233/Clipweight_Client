@@ -8,25 +8,7 @@ import {
   Film, ArrowLeft, Search, FolderOpen, Folder, X, Plus,
   Loader2, PackageOpen, Tag,
 } from 'lucide-react';
-
-/* ── helpers ───────────────────────────────────────────── */
-function fmtDur(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-function relTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const min = Math.floor(diff / 60000);
-  if (min < 1) return '刚刚';
-  if (min < 60) return `${min} 分钟前`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} 小时前`;
-  const day = Math.floor(hr / 24);
-  if (day < 7) return `${day} 天前`;
-  return new Date(iso).toLocaleDateString('zh-CN');
-}
+import { fmtDur, relTime } from '@/lib/utils';
 
 const GRADIENTS: [string, string][] = [
   ['#A855F7', '#4F8CFF'], ['#4F8CFF', '#34D399'], ['#FF6B6B', '#FBBF24'], ['#34D399', '#F59E0B'],

@@ -25,7 +25,7 @@ function Tooltip({ content, side = 'top', children }: TooltipProps) {
 
   return (
     <>
-      <div ref={triggerRef} className="inline-flex" onMouseEnter={show} onMouseLeave={hide}>
+      <div ref={triggerRef} className="inline-flex" onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
         {children}
       </div>
       {pos && createPortal(

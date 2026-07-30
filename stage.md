@@ -1,5 +1,42 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 70: UX 优化与 Bug 修复 — 前后端全面审计 + 补修
+**Timestamp**: 2026-07-30T12:12:00+08:00
+
+### 前端 Bug 修复 (5 项)
+- Fix: HomePage useEffect 重复 return → 移除死代码（第二个 return 永远不可达）
+- Fix: ExportPage simulateRender setInterval 泄漏 → 加入 simulateTimers Map 追踪 + unmount 清理
+- Fix: HomePage `let duration` → `const duration` (prefer-const 规则)
+- Fix: EditorPage 加载失败 → 不再强制跳转首页（`window.location.href = '/'`），改为显示错误提示 + "返回首页"按钮
+- Fix: ProjectCard 删除无确认 → 两阶段确认模式（点击 X → "确认/取消" → 真删除）
+
+### 前端 UX 改进 (6 项)
+- + EditorPage 加载态 → 显示 Loading 旋转 + "加载项目中…" 文案，不再灰屏等待
+- + EditorPage 错误态 → 加载失败显示错误提示 + 返回首页按钮
+- + EditorLayout 保存失败 → 状态栏增加可点击的 "保存失败 · 点击重试" 按钮
+- + AssetPanel 重试 → 加载失败/演示数据时显示横幅 + "重试" 按钮
+- + Tooltip 无障碍 → 添加 onFocus/onBlur 支持键盘用户
+- + HomePage + ProjectsPage → fmtDur/relTime 提取到 @/lib/utils 消除重复
+
+### 前端性能优化 (2 项)
+- Opt: workspaceStore localStorage 持久化 → debounce 300ms（原每次 state 变化都写 localStorage）
+- Opt: historyStore pushState → structuredClone 加 try/catch 保护，避免非可序列化数据导致崩溃
+
+### 后端 Bug 修复 (6 项)
+- Fix: api/render.py missing `import uuid` → 添加顶层导入
+- Fix: api/render.py dead code `_render_queue_counter` → 移除
+- Fix: services/pipeline_v2.py dead condition `"PipelineStatus.FAILED"` → 改为 `str(result.status).lower()` 比对
+- Fix: api/persona.py 4 个 404 无 detail → 添加 `detail=f"Persona 不存在: {persona_id}"`
+- Fix: api/preprocess.py `tempfile.mktemp` 竞争漏洞 → 替换为 `tempfile.mkstemp` + `os.close`
+- Fix: main.py CORS `allow_credentials=True` + `allow_origins=["*"]` → 动态设 False
+
+### 后端内存保护
+- Fix: services/llm_tracker.py `_llm_calls` 无上限增长 → 加入 `_MAX_CALLS=10000`，超出时修剪至 75%
+
+### 测试: tsc 0 / vitest 59 / eslint 0err
+
+- - -
+
 ## Stage 68-69: 插件 Tool/Skill 继承修复 + 前后端 API 契约修复
 **Timestamp**: 2026-07-30T11:40:00+08:00
 

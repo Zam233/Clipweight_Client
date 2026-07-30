@@ -110,11 +110,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
     }),
 }));
 
-// Persist layout changes (debounced via simple throttle on each change)
+// Persist layout changes (debounced to avoid excessive localStorage writes)
+let _persistTimer: ReturnType<typeof setTimeout> | null = null;
 useWorkspaceStore.subscribe((state) => {
-  savePref('layout', {
-    panels: state.panels,
-    panelWidths: state.panelWidths,
-    timelineHeight: state.timelineHeight,
-  });
+  if (_persistTimer) clearTimeout(_persistTimer);
+  _persistTimer = setTimeout(() => {
+    savePref('layout', {
+      panels: state.panels,
+      panelWidths: state.panelWidths,
+      timelineHeight: state.timelineHeight,
+    });
+  }, 300);
 });

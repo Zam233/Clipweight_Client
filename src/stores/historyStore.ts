@@ -27,15 +27,21 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   redoStack: [],
   maxSize: 200,
 
-  pushState: (timeline, label = 'edit') =>
+  pushState: (timeline, label = 'edit') => {
+    let snapshot: Timeline;
+    try {
+      snapshot = structuredClone(timeline);
+    } catch {
+      return;
+    }
     set((state) => ({
       undoStack: [
         ...state.undoStack.slice(-(state.maxSize - 1)),
-        // structuredClone 比 JSON 往返快数倍（大时间线尤甚），且保留更多类型
-        { timestamp: Date.now(), label, timeline: structuredClone(timeline) },
+        { timestamp: Date.now(), label, timeline: snapshot },
       ],
       redoStack: [],
-    })),
+    }));
+  },
 
   undo: () => {
     const { undoStack } = get();
