@@ -124,6 +124,8 @@ export class TimelineEngine {
   // ── render loop ──────────────────────────────────────
   private loop = () => {
     if (this.disposed) return;
+    // Always clamp scroll — keeps viewport valid after timeline changes (e.g., all clips deleted)
+    this.clampScroll();
     if (this.dirty) {
       this.dirty = false;
       try {
