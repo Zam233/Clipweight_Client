@@ -235,27 +235,43 @@ body {
   outline-offset: 2px;
 }
 
-/* Utility: panel divider */
+/* Utility: panel divider — 5px grab target with a centered 1px visible line */
 .panel-divider {
-  width: 1px;
-  background: var(--cw-outline-variant);
+  width: 5px;
+  background: linear-gradient(to right,
+    transparent 2px,
+    var(--cw-outline-variant) 2px,
+    var(--cw-outline-variant) 3px,
+    transparent 3px);
   cursor: col-resize;
   transition: background var(--duration-short3) var(--ease-standard);
 }
 
 .panel-divider:hover,
 .panel-divider:active {
-  background: var(--cw-primary);
+  background: linear-gradient(to right,
+    transparent 2px,
+    var(--cw-primary) 2px,
+    var(--cw-primary) 3px,
+    transparent 3px);
 }
 
 .panel-divider-h {
-  height: 1px;
-  background: var(--cw-outline-variant);
+  height: 5px;
+  background: linear-gradient(to bottom,
+    transparent 2px,
+    var(--cw-outline-variant) 2px,
+    var(--cw-outline-variant) 3px,
+    transparent 3px);
   cursor: row-resize;
   transition: background var(--duration-short3) var(--ease-standard);
 }
 
 .panel-divider-h:hover,
 .panel-divider-h:active {
-  background: var(--cw-primary);
+  background: linear-gradient(to bottom,
+    transparent 2px,
+    var(--cw-primary) 2px,
+    var(--cw-primary) 3px,
+    transparent 3px);
 }

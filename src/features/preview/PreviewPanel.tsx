@@ -434,13 +434,21 @@ function drawClipToPreview(
       const text = clip.text || '文字';
       const fontSize = (clip.font_size ?? 48) * (fh / 1080) * tf.scale;
       ctx.font = `600 ${fontSize}px 'Noto Sans SC','PingFang SC',sans-serif`;
-      ctx.textAlign = 'center';
+      // Horizontal alignment from clip.text_align
+      const align = clip.text_align ?? 'center';
+      ctx.textAlign = align as CanvasTextAlign;
       ctx.textBaseline = 'middle';
       ctx.fillStyle = clip.font_color || '#FFFFFF';
       ctx.shadowColor = 'rgba(0,0,0,0.6)';
       ctx.shadowBlur = 8;
-      const ty = track.kind === 'caption' ? fy + fh * 0.85 : fy + fh / 2;
-      ctx.fillText(text, fx + fw / 2, ty, fw * 0.9);
+      const baseY = track.kind === 'caption' ? fy + fh * 0.85 : fy + fh / 2;
+      const baseX = align === 'left' ? fx + fw * 0.05 : align === 'right' ? fx + fw * 0.95 : fx + fw / 2;
+      // Apply position offset + rotation about the text anchor
+      ctx.save();
+      ctx.translate(baseX + tf.x * fw, baseY + tf.y * fh);
+      if (tf.rotation !== 0) ctx.rotate((tf.rotation * Math.PI) / 180);
+      ctx.fillText(text, 0, 0, fw * 0.9);
+      ctx.restore();
       ctx.shadowBlur = 0;
       ctx.textAlign = 'left';
       break;
@@ -523,6 +531,10 @@ function drawCover(
   const dw = fw * scale, dh = fh * scale;
 
   ctx.save();
+  // Clip to the frame rect so scaled/offset/rotated media doesn't bleed into the letterbox
+  ctx.beginPath();
+  ctx.rect(fx, fy, fw, fh);
+  ctx.clip();
   ctx.translate(centerX + tf.x * fw, centerY + tf.y * fh);
   if (tf.rotation !== 0) ctx.rotate((tf.rotation * Math.PI) / 180);
   try {

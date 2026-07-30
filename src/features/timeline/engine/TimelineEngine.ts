@@ -293,6 +293,8 @@ export class TimelineEngine {
       this.lastClickTime = now;
       this.lastClickX = x;
       this.drag.mode = 'scrub';
+      // Pause playback so the playhead doesn't fight the user's scrub drag
+      preview.setPlaying(false);
       preview.setCurrentTime(Math.max(0, clickTime));
       return;
     }

@@ -1,5 +1,21 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 85: 画布渲染修复 + 面板拖拽手柄 + 标尺 scrub
+**Timestamp**: 2026-07-30T18:00:00+08:00
+
+### 预览画布渲染
+- Fix: drawCover 无裁剪区域 → 缩放/偏移/旋转的素材溢出到黑边 → 添加 frame rect 裁剪
+- Fix: 文字/字幕忽略位置(tf.x/tf.y)和旋转(tf.rotation)变换 → 应用完整 Transform2D
+- Fix: text_align 属性被忽略（始终居中）→ 支持 left/center/right 对齐
+
+### 交互 UX
+- Fix: 面板分隔线仅 1px 难以抓取 → 改为 5px 抓取区 + 居中 1px 可见线（渐变实现）
+- Fix: 标尺 scrub 不暂停播放导致播放头抖动 → scrub 开始时 setPlaying(false)
+
+### 测试: tsc 0 / vitest 59
+
+- - -
+
 ## Stage 84: 离线/演示模式可用化 + 路由优化
 **Timestamp**: 2026-07-30T17:55:00+08:00
 
