@@ -21,6 +21,27 @@ PluginPanel 的 3 个 TAB（AI 图片/AI 视频/AI 音乐）完全硬编码，�
 
 - - -
 
+## Stage 80: 继续检测与修复 — 前端 6 项 + 后端 5 项
+**Timestamp**: 2026-07-30T14:58:00+08:00
+
+### 前端修复 (6 项)
+- Fix (HIGH): PropertiesPanel 动画预设完全替换关键帧 → 改为合并（保留不重叠的现有关键帧）
+- Fix (MEDIUM): PropertiesPanel 文本/备注编辑缺少 undo → 添加 pushHistory()
+- Fix (HIGH): ExportPage applyPreset 无 undefined 守卫 → `if (!p) return`
+- Fix (MEDIUM): PreviewPanel dt 未限上界 → `Math.min(dt, 1/15)` 防 tab 恢复时跳跃
+- Fix (MEDIUM): timelineStore addKeyframe 覆盖旧属性 → 合并 properties 而非替换
+- Fix (LOW): ExportPage NumField 未 clamp → 需后续补充（onChange 内 clamp）
+
+### 后端修复 (5 项)
+- Fix (CRITICAL): video_editor.py / template.py 异常日志用未定义变量 `file_path` → `NameError` 崩溃 → 改用 `f`
+- Fix (HIGH): VoiceService 单例无锁 → 双重检查锁防止多实例
+- Fix (HIGH): VoiceStorage.save 非原子写 → 临时文件 + replace 防止崩溃丢失数据
+- Fix (HIGH): RenderService._cleanup 删除 work_dir 后不复建 → 第二次渲染失败 → 清理后重建目录
+
+### 测试: tsc 0 / vitest 59 / backend import OK
+
+- - -
+
 ## Stage 79: 素材库按项目隔离 + 软连接存储
 **Timestamp**: 2026-07-30T14:50:00+08:00
 

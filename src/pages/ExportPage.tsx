@@ -93,6 +93,7 @@ export function ExportPage() {
 
   const applyPreset = (id: string) => {
     const p = presets[id];
+    if (!p) return;
     setPresetId(id);
     setSettings({ preset: id, width: p.width, height: p.height, fps: p.fps, bitrate: p.bitrate });
   };

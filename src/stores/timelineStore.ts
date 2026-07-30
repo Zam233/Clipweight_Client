@@ -399,7 +399,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
             const existing = c.keyframes.findIndex((k) => Math.abs(k.time - time) < 0.001);
             const keyframes = [...c.keyframes];
             if (existing >= 0) {
-              keyframes[existing] = { ...keyframes[existing], properties };
+              keyframes[existing] = { ...keyframes[existing], properties: { ...keyframes[existing].properties, ...properties } };
             } else {
               keyframes.push({ time, properties });
               keyframes.sort((a, b) => a.time - b.time);

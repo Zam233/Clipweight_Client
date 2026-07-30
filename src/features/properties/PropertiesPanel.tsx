@@ -132,7 +132,7 @@ export function PropertiesPanel() {
             <Section title="备注">
               <textarea
                 value={clip.notes ?? ''}
-                onChange={(e) => set({ notes: e.target.value || null })}
+                onChange={(e) => { pushHistory(); set({ notes: e.target.value || null }); }}
                 rows={3}
                 placeholder="添加备注…"
                 className="w-full bg-surface-container rounded-cw-xs px-2 py-1.5 text-body-sm text-on-surface
@@ -204,7 +204,7 @@ export function PropertiesPanel() {
                 <Row label="内容">
                   <textarea
                     value={clip.text ?? ''}
-                    onChange={(e) => set({ text: e.target.value })}
+                      onChange={(e) => { pushHistory(); set({ text: e.target.value }); }}
                     rows={2}
                     className="w-full bg-surface-container rounded-cw-xs px-2 py-1.5 text-body-sm text-on-surface
                       outline-none border border-outline-variant/30 focus:border-primary resize-none"
@@ -297,8 +297,12 @@ function AnimationSection({ clip }: { clip: Clip }) {
     const preset = ANIMATION_PRESETS.find((p) => p.id === presetId);
     if (!preset) return;
     pushHistory();
-    // Merge preset keyframes with any existing ones (preset wins on same time)
-    updateClip(clip.id, { keyframes: presetKeyframes(preset) });
+    // Merge preset keyframes with existing ones (preset wins on same time)
+    const existing = clip.keyframes ?? [];
+    const presetKfs = presetKeyframes(preset);
+    const presetTimes = new Set(presetKfs.map((k) => k.time));
+    const kept = existing.filter((k) => !presetTimes.has(k.time));
+    updateClip(clip.id, { keyframes: [...kept, ...presetKfs].sort((a, b) => a.time - b.time) });
   };
 
   const categories = ['入场', '出场', '强调', '循环'];

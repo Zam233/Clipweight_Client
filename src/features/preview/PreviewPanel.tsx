@@ -83,7 +83,7 @@ export function PreviewPanel() {
     let raf = 0;
     let last = performance.now();
     const tick = (now: number) => {
-      const dt = (now - last) / 1000;
+      const dt = Math.min((now - last) / 1000, 1 / 15);
       last = now;
       const st = usePreviewStore.getState();
       const speed = st.shuttleSpeed !== 0 ? st.shuttleSpeed * Math.abs(st.playbackSpeed) : st.playbackSpeed;
