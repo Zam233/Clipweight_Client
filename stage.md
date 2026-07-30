@@ -1,5 +1,25 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 94: 确认简报后无法生成规划书（前后端状态不同步）
+**Timestamp**: 2026-07-30T22:25:00+08:00
+
+### 现象
+用户回复「确认，请生成完整的制作规划书。」后，得到「请继续描述你的想法。」而非规划书。
+
+### 根因（前后端状态不同步）
+- 前端：只要拿到 creative_brief 就把状态置为 `brief_ready` 并展示确认按钮
+- 后端：仅当 LLM 输出 `is_ready=true` 才从 `gathering` 进到 `brief_ready`；首轮 LLM 通常不给 `is_ready=true`（用户尚未"确认"），后端停留在 `gathering`
+- 用户确认时后端仍在 `gathering` 分支 → 走 `_handle_gathering` 兜底回复「请继续描述你的想法」，永远到不了 `brief_ready → 生成规划书` 分支
+
+### 修复（requirements_service.py）
+- `gathering` 分支中：只要生成了非空 `brief_draft` 就强制 `is_ready=True`，状态进入 `brief_ready`
+- 不再完全依赖 LLM 的 `is_ready` 标志，保证后端状态与前端展示一致
+- 用户确认后正确进入 `brief_ready` 分支 → `_is_confirm` 通过 → 生成规划书 → `plan_ready`
+
+### 测试: backend import OK
+
+- - -
+
 ## Stage 93: 需求Agent自启动重构 + 导出页项目上下文
 **Timestamp**: 2026-07-30T22:10:00+08:00
 
