@@ -1,5 +1,20 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 98: 管线复用确认场景 + 时间线缺失保护
+**Timestamp**: 2026-07-30T23:35:00+08:00
+
+### 后端
+- **Fix (HIGH): 管线复用已确认规划书场景**（structure_agent.py）
+  - 原问题: 管线 StructureAgent 把确认的规划书仅当软 prompt，重新 LLM 生成场景 → 场景数/时长/标题/口播与用户确认方案漂移，人在回路审阅被架空
+  - 修复: `execute` 开头检测 `production_plan.raw_scenes`，存在则直接校验复用（跳过重新生成），保证管线输出与确认方案一致
+- **Fix (MEDIUM): 时间线缺失保护**（pipeline_v2.py）
+  - `_build_input` 对 animation/audio/quality 在缺少时间线时明确抛错（而非 Pydantic 校验崩溃）
+  - 质检自愈循环开头检测时间线，缺失则明确 FAILED（而非静默跳过质检直接"完成"）
+
+### 测试: backend import OK
+
+- - -
+
 ## Stage 97: 数据持久化 + 时间线合并修复
 **Timestamp**: 2026-07-30T23:20:00+08:00
 
