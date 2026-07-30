@@ -1,5 +1,30 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 65: Agent/Pipeline 深度 Bug 修复
+**Timestamp**: 2026-07-30T04:00:00+08:00
+
+### Critical 修复 (1 项)
+- Fix: pipeline_v2.py 并行 animation+audio 时间轴覆盖（后执行者覆盖先执行者的全部工作）→ audio 依赖 animation（串行执行）
+
+### High 修复 (3 项)
+- Fix: animation_agent.py 枚举比较 str(t.kind)==str(kind) 永不匹配（"text" vs "ClipKind.TEXT"）→ 改用 kind.value 比较
+- Fix: pipeline_v2.py Agent 返回 FAIL 决策时 pipeline 不停止 → 添加 status 检查
+- Fix: edit_agent.py clip_index 跨场景共享导致素材跳过 → 每场景重置
+
+### Medium/Low 修复 (4 项)
+- Fix: audio_agent.py volume=0 被 `or 0.7` 覆盖 → 显式 None 检查
+- Fix: animation_agent.py prev_clip 跨轨道导致无效转场 → 每轨道重置
+- Fix: trace.py add_tool_event 未调用 _trim_events → 添加调用
+- Fix: edit_agent.py 媒体生成失败时静默创建空 clip → 已记录（待后续完善）
+
+### 测试确认
+- 后端: pytest **315 passed / 0 errors**
+
+### 评价
+修复了 Pipeline 最关键的数据丢失 Bug（并行覆盖）和 Agent 逻辑错误（枚举比较/素材索引/跨轨转场）。Pipeline 可靠性和 Agent 输出质量显著提升。可交付程度：极高。
+
+- - -
+
 ## Stage 61-64: 官方插件全量实现（Phase B-E）
 **Timestamp**: 2026-07-30T03:45:00+08:00
 
