@@ -1,5 +1,25 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 100: 自愈循环激活 + SSE 鉴权/模拟 + 状态机同步
+**Timestamp**: 2026-07-31T00:09:00+08:00
+
+### 后端（self-heal 自愈循环从死代码激活）
+- **QualityAgent 填充 redo_agent**——按 error 类别映射责任 Agent（structure/duration/rhythm→edit，animation/transition→animation，audio→audio），原恒为空导致自愈永不触发
+- **quality DAG 失败不终止管线**——转入自愈循环处理（其它 Agent 失败仍终止），解决「quality 在 DAG 失败即 abort、自愈循环不可达」的设计冲突
+- **自愈重做仅成功才合并**——redo/下游 Agent 失败时不合并，避免部分/空时间线覆盖好时间线
+- **result_data 排除控制字段**——合并时剔除 agent_name/decision/error/status，避免污染共享数据、掩盖更早错误
+
+### 前端
+- **SSE 鉴权**——EventSource 无法设请求头，token 经 query 参数传递（后端中间件已支持 ?token=）；pipeline + requirements 两条流均修复
+- **离线模拟不误连 SSE**——simulatedRef 标记，模拟管线不对假 pipeline_id 发起真实 SSE
+- **self_heal 相位 UI**——自检阶段各相位显示为已完成（不再全部灰显）
+- **normalizePhase 不回退**——未知/编排类 Agent 返回 null 跳过相位更新（避免 quality→structure 回退）
+- **需求状态机同步**——sendChat 以后端权威 status 同步前端状态机，简报/规划书有则刷新（不再仅限特定状态、不再丢弃修订版）
+
+### 测试: tsc 0 / vitest 59 / backend import OK
+
+- - -
+
 ## Stage 99: 管线失败检测 + 前端终态/进度/审阅修复
 **Timestamp**: 2026-07-30T23:50:00+08:00
 

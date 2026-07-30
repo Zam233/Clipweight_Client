@@ -1,4 +1,5 @@
 import { getApiClient } from './client';
+import { useSettingsStore } from '@/stores/settingsStore';
 import type { PipelineRequest, PipelineState } from '@/types/pipeline';
 import type { Timeline } from '@/types/timeline';
 
@@ -67,6 +68,12 @@ export const pipelineApi = {
   /** Create SSE stream URL for pipeline trace */
   getTraceStreamUrl(pipelineId: string): string {
     const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
-    return `${base}/api/pipeline/trace/stream/${pipelineId}`;
+    return `${base}/api/pipeline/trace/stream/${pipelineId}${authQuery()}`;
   },
 };
+
+/** EventSource 无法设置请求头，鉴权令牌通过 query 参数传递。 */
+function authQuery(): string {
+  const token = useSettingsStore.getState().authToken;
+  return token ? `?token=${encodeURIComponent(token)}` : '';
+}

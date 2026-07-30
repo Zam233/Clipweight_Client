@@ -8,6 +8,7 @@ import { Button } from '@/components/ui';
 import { uid } from '@/lib/utils';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline } from '@/types/timeline';
+import type { RequirementsStatus } from '@/types/persona';
 import {
   Bot, Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
   MessageSquareText, Play, ChevronDown, ChevronRight,
@@ -155,12 +156,17 @@ function RequirementsView() {
       const brief = res.creative_brief ?? null;
       const plan = res.production_plan ?? null;
       const st = res.status as string | undefined;
-      // Only reset brief during gathering/brief_ready; preserve it after confirmation
-      if (brief && (st === 'gathering' || st === 'brief_ready')) { setBrief(brief); setStatus('brief_ready'); }
-      if (plan) { setPlan(plan); setStatus('plan_ready'); }
+      // 有简报/规划书就刷新（不再仅限特定状态，避免修订版被丢弃）
+      if (brief) setBrief(brief);
+      if (plan) setPlan(plan);
+      // 以后端权威状态同步前端状态机（映射到合法的 RequirementsStatus）
+      const VALID: string[] = ['gathering', 'brief_ready', 'brief_confirmed', 'planning', 'plan_ready', 'plan_confirmed', 'pipeline_running', 'pipeline_done', 'completed'];
+      if (st && VALID.includes(st)) setStatus(st as RequirementsStatus);
+      else if (plan) setStatus('plan_ready');
+      else if (brief) setStatus('brief_ready');
       addMessage({ id: uid('m'), role: 'assistant', content: res.reply ?? res.message ?? '已收到。',
         timestamp: new Date().toISOString(),
-        creative_brief: (st === 'gathering' || st === 'brief_ready') ? brief : null,
+        creative_brief: brief,
         production_plan: plan });
     } catch {
       addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
@@ -410,11 +416,13 @@ function BottomBar() {
   const esRef = useRef<EventSource | null>(null);
   const lastTimelineRef = useRef<Timeline | null>(null);
   const simTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // 标记当前管线是否为离线模拟，避免对假 pipeline_id 发起真实 SSE 连接
+  const simulatedRef = useRef(false);
 
   const running = pipelineId !== null && phase !== 'completed' && phase !== 'failed' && phase !== 'idle';
 
   useEffect(() => {
-    if (pipelineId && running && !esRef.current) {
+    if (pipelineId && running && !esRef.current && !simulatedRef.current) {
       openSSE(pipelineId);
     }
   }, [pipelineId, running]);
@@ -469,11 +477,13 @@ function BottomBar() {
       const name = (d.agent_name || d.agent || 'system') as string;
 
       switch (t) {
-        case 'agent_start':
+        case 'agent_start': {
           startTimes[name] = Date.now();
-          updatePhase(normalizePhase(name));
+          const ph = normalizePhase(name);
+          if (ph) updatePhase(ph);
           addLogEntry({ timestamp: Date.now(), agent: name, type: 'agent_start', summary: `${name} 启动` });
           break;
+        }
         case 'agent_end':
         case 'agent_complete': {
           const dur = startTimes[name] ? ((Date.now() - startTimes[name]) / 1000).toFixed(1) + 's' : '';
@@ -534,6 +544,7 @@ function BottomBar() {
 
   const launch = async () => {
     setError(null);
+    simulatedRef.current = false;
     updatePhase('structure', 5);
     setLaunching(true);
     addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'info', summary: `管线启动: ${topic || '未命名选题'}` });
@@ -566,6 +577,7 @@ function BottomBar() {
   };
 
   const simulatePipeline = () => {
+    simulatedRef.current = true;
     setPipelineId(uid('pl'));
     let i = 0;
     const schedule = (fn: () => void, ms: number) => {
@@ -600,7 +612,9 @@ function BottomBar() {
           {PHASE_ORDER.map((p) => {
             const idx = PHASE_ORDER.indexOf(p);
             const curIdx = PHASE_ORDER.indexOf(phase as never);
-            const done = (phase as string) === 'completed' || (curIdx > idx);
+            const isSelfHeal = (phase as string) === 'self_heal';
+            // self_heal 发生在所有阶段之后，视为各阶段已完成（正在联动重做）
+            const done = (phase as string) === 'completed' || isSelfHeal || (curIdx > idx);
             const active = (phase as string) === p;
             return (
               <div key={p} className="flex items-center gap-1.5">
@@ -775,7 +789,7 @@ function buildGroups(entries: ReturnType<typeof useAgentStore.getState>['logEntr
   return groups;
 }
 
-function normalizePhase(name: string): PipelinePhase {
+function normalizePhase(name: string): PipelinePhase | null {
   const n = name.toLowerCase();
   if (n.includes('structure')) return 'structure';
   if (n.includes('material')) return 'material';
@@ -784,7 +798,8 @@ function normalizePhase(name: string): PipelinePhase {
   if (n.includes('audio')) return 'audio';
   if (n.includes('quality')) return 'quality';
   if (n.includes('self_heal') || n.includes('heal')) return 'self_heal';
-  return 'structure';
+  // 未知/编排类 Agent 不映射到具体相位，避免相位指示回退（如 quality→structure）
+  return null;
 }
 
 export function demoBrief(topic: string) {

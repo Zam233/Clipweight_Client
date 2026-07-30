@@ -1,4 +1,5 @@
 import { getApiClient } from './client';
+import { useSettingsStore } from '@/stores/settingsStore';
 import type { RequirementsInitRequest, RequirementsChatRequest } from '@/types/api';
 
 export const requirementsApi = {
@@ -17,7 +18,9 @@ export const requirementsApi = {
   /** Get SSE stream URL for chat */
   getChatStreamUrl(sessionId: string): string {
     const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
-    return `${base}/api/requirements/chat/stream/${sessionId}`;
+    const token = useSettingsStore.getState().authToken;
+    const q = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${base}/api/requirements/chat/stream/${sessionId}${q}`;
   },
 
   /** Get session state */
