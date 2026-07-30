@@ -516,7 +516,10 @@ export function EditorToolbar() {
           <Save className="w-3.5 h-3.5" />
           保存
         </Button>
-        <Button size="sm" variant="default" onClick={() => navigate({ to: '/export' })}>
+        <Button size="sm" variant="default" onClick={() => {
+          const pid = useProjectStore.getState().projectId;
+          if (pid) navigate({ to: '/export/$projectId', params: { projectId: pid } });
+        }}>
           导出
         </Button>
       </div>

@@ -44,6 +44,7 @@ interface AgentState {
   requirementsSessionId: string | null;
   requirementsStatus: RequirementsStatus;
   requirementsMessages: RequirementMessage[];
+  requirementsBusy: boolean;
   creativeBrief: CreativeBrief | null;
   productionPlan: ProductionPlan | null;
 
@@ -76,6 +77,7 @@ interface AgentState {
   setRequirementsSession: (sessionId: string | null) => void;
   setRequirementsStatus: (status: RequirementsStatus) => void;
   addRequirementsMessage: (message: RequirementMessage) => void;
+  setRequirementsBusy: (busy: boolean) => void;
   setCreativeBrief: (brief: CreativeBrief | null) => void;
   setProductionPlan: (plan: ProductionPlan | null) => void;
   resetRequirements: () => void;
@@ -104,6 +106,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   requirementsSessionId: null,
   requirementsStatus: 'idle',
   requirementsMessages: [],
+  requirementsBusy: false,
   creativeBrief: null,
   productionPlan: null,
 
@@ -181,6 +184,8 @@ export const useAgentStore = create<AgentState>((set) => ({
   setRequirementsStatus: (status) =>
     set({ requirementsStatus: status }),
 
+  setRequirementsBusy: (busy) => set({ requirementsBusy: busy }),
+
   addRequirementsMessage: (message) =>
     set((state) => {
       const msgs = [...state.requirementsMessages, message];
@@ -198,6 +203,7 @@ export const useAgentStore = create<AgentState>((set) => ({
       requirementsSessionId: null,
       requirementsStatus: 'idle',
       requirementsMessages: [],
+      requirementsBusy: false,
       creativeBrief: null,
       productionPlan: null,
       annotations: [],

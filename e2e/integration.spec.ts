@@ -177,7 +177,7 @@ test.describe('无头浏览器 + 真实后端页面测试', () => {
   });
 
   test('Export 页面加载（真实后端）', async ({ page }) => {
-    await page.goto('http://localhost:5173/export');
+    await page.goto('http://localhost:5173/export/proj_test');
     await page.waitForTimeout(2000);
     await expect(page.locator('body')).toBeVisible();
   });

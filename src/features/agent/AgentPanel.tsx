@@ -96,14 +96,14 @@ function RequirementsView() {
   const updatePhase = useAgentStore((s) => s.updatePhase);
   const reviewMode = useAgentStore((s) => s.reviewMode);
   const setReviewMode = useAgentStore((s) => s.setReviewMode);
-  // Reactively track requirementsTopic so auto-start fires when HomePage.launch() sets it
-  const requirementsTopic = useProjectStore((s) => s.requirementsTopic);
-
   const [topic, setTopic] = useState('');
   const [input, setInput] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [manualBusy, setBusy] = useState(false);
+  // Auto-start (from HomePage launch) runs in EditorPage via useRequirementsAutoStart;
+  // reflect its busy flag here so the UI shows progress even though it's store-driven.
+  const autoBusy = useAgentStore((s) => s.requirementsBusy);
+  const busy = manualBusy || autoBusy;
   const [draftLoaded, setDraftLoaded] = useState(false);
-  const autoStartedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -124,57 +124,6 @@ function RequirementsView() {
     }
     setDraftLoaded(true);
   }, [draftLoaded]);
-
-  useEffect(() => {
-    if (autoStartedRef.current) return;
-    if (!draftLoaded) return;
-    const st = useProjectStore.getState();
-    const t = st.requirementsTopic;
-    if (!t || useAgentStore.getState().requirementsMessages.length > 0) return;
-    autoStartedRef.current = true;
-    useProjectStore.getState().setRequirementsTopic('');
-    setTopic(t);
-    (async () => {
-      setBusy(true);
-      setStatus('gathering');
-      addMessage({ id: uid('m'), role: 'user', content: `选题：${t}`, timestamp: new Date().toISOString() });
-      try {
-        const res = await requirementsApi.init({ topic: t,
-          persona_id: st.personaId || undefined,
-          category_plugin_id: st.pluginId || undefined,
-          script_text: st.requirementsScript || undefined,
-          audio_duration_sec: st.requirementsAudioDuration || undefined,
-          extra: { material_source_ids: st.materialSourceIds || [] },
-        });
-        setSession(res.session_id);
-        let firstMsg = `我的选题是：${t}。`;
-        if (st.requirementsScript) firstMsg += `文稿：${st.requirementsScript}。`;
-        firstMsg += `预估时长：${st.requirementsAudioDuration}秒。请帮我生成创意简报。`;
-        addMessage({ id: uid('m'), role: 'user', content: firstMsg, timestamp: new Date().toISOString() });
-        try {
-          const chatRes = await requirementsApi.chat({ session_id: res.session_id, message: firstMsg });
-          const brief = chatRes.creative_brief ?? null;
-          const plan = chatRes.production_plan ?? null;
-          if (brief) { setBrief(brief); setStatus('brief_ready'); }
-          if (plan) { setPlan(plan); setStatus('plan_ready'); }
-          addMessage({ id: uid('m'), role: 'assistant', content: chatRes.reply ?? chatRes.message ?? '已收到。',
-            timestamp: new Date().toISOString(), creative_brief: brief, production_plan: plan });
-        } catch {
-          const brief = demoBrief(t);
-          setBrief(brief);
-          setStatus('brief_ready');
-          addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-            content: '已为你生成创意简报，请审阅后确认。', creative_brief: brief });
-        }
-      } catch {
-        const brief = demoBrief(t);
-        setBrief(brief);
-        setStatus('brief_ready');
-        addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-          content: '已为你生成创意简报，请审阅后确认。', creative_brief: brief });
-      } finally { setBusy(false); }
-    })();
-  }, [draftLoaded, requirementsTopic]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -804,7 +753,7 @@ function normalizePhase(name: string): PipelinePhase {
   return 'structure';
 }
 
-function demoBrief(topic: string) {
+export function demoBrief(topic: string) {
   return {
     title: `《${topic}》`, overview: `围绕「${topic}」展开的知识型视频，以问题驱动叙事。`,
     target_audience: '对该主题感兴趣的大众观众',

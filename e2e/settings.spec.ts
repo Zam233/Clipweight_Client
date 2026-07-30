@@ -39,7 +39,7 @@ test.describe('Settings 页面冒烟测试', () => {
   test('ExportPage 加载且预设可选', async ({ page }) => {
     const errors = collectPageErrors(page);
     await mockSettingsApis(page);
-    await page.goto('/export');
+    await page.goto('/export/proj_test');
     await page.waitForTimeout(1000);
     await expect(page.getByText('导出').first()).toBeVisible({ timeout: 10_000 });
     expect(errors).toEqual([]);

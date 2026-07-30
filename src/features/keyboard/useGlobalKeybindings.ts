@@ -414,7 +414,9 @@ export function useGlobalKeybindings() {
         handler: addKeyframeAtPlayhead },
       { id: 'export-page', combo: 'ctrl+e', label: '打开导出页面', category: '通用',
         handler: () => {
-          import('@/router').then((m) => m.router.navigate({ to: '/export' }));
+          const pid = useProjectStore.getState().projectId;
+          if (!pid) return;
+          import('@/router').then((m) => m.router.navigate({ to: '/export/$projectId', params: { projectId: pid } }));
         } },
     ]);
 

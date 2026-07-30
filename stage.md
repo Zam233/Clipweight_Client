@@ -1,5 +1,27 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 93: 需求Agent自启动重构 + 导出页项目上下文
+**Timestamp**: 2026-07-30T22:10:00+08:00
+
+### Bug 1: 首页开始创作后需求 Agent 仍未启动（彻底修复）
+- 根因: 自启动逻辑写在 RequirementsView 内，依赖 Agent 面板挂载可见；面板折叠/时序问题导致永不触发
+- 重构:
+  - 新增 `useRequirementsAutoStart` Hook，挂在 EditorPage 顶层（始终挂载，与面板可见性无关）
+  - 全程仅用全局 agentStore action；新增 `requirementsBusy` 状态供 UI 显示进度
+  - RequirementsView 移除内嵌自启动，`busy = manualBusy || requirementsBusy`
+  - 导出 `demoBrief` 供 Hook 复用
+
+### Bug 2: 导出页项目上下文 + 返回键
+- 路由 `/export` → `/export/$projectId`（项目上下文进 URL，刷新不丢失）
+- ExportPage 从 URL 读 projectId，刷新后自动重新加载项目
+- 返回键始终回到 `/editor/$projectId`（不再因 store 重置而退回主页）
+- EditorToolbar 导出按钮 + Ctrl+E 快捷键携带 projectId 导航
+- 更新 3 处 E2E 测试适配新路由
+
+### 测试: tsc 0 / vitest 59 / E2E 21 通过（1 个标记测试为并行超时 flake，单独运行通过）
+
+- - -
+
 ## Stage 92: AI 匹配搜索改用 flash 模型
 **Timestamp**: 2026-07-30T19:12:00+08:00
 

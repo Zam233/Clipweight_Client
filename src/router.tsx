@@ -81,7 +81,7 @@ const settingsRoute = createRoute({
 
 const exportRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/export',
+  path: '/export/$projectId',
   component: ExportPage,
 });
 

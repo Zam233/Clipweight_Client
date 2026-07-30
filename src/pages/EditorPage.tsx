@@ -14,6 +14,7 @@ import { projectApi, getApiClient } from '@/services/api';
 import { mediaManager } from '@/services/media/mediaManager';
 import { useGlobalKeybindings } from '@/features/keyboard/useGlobalKeybindings';
 import { ShortcutCheatSheet } from '@/features/keyboard/ShortcutCheatSheet';
+import { useRequirementsAutoStart } from '@/features/agent/useRequirementsAutoStart';
 import { createEmptyTimeline } from '@/types/timeline';
 import { Loader2 } from 'lucide-react';
 
@@ -27,6 +28,9 @@ export function EditorPage() {
   const dirtyRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Auto-start the requirements Agent when launched from HomePage (panel-independent)
+  useRequirementsAutoStart();
 
   // Load project from backend on mount
   useEffect(() => {

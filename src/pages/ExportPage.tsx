@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useParams } from '@tanstack/react-router';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
-import { renderApi } from '@/services/api';
+import { renderApi, projectApi } from '@/services/api';
+import { createEmptyTimeline } from '@/types/timeline';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge } from '@/components/ui';
 import { uid, formatTimecode } from '@/lib/utils';
@@ -35,8 +36,29 @@ interface QueueItem extends RenderProgress {
  */
 export function ExportPage() {
   const navigate = useNavigate();
+  const { projectId } = useParams({ from: '/export/$projectId' });
   const timeline = useTimelineStore((s) => s.timeline);
   const projectName = useProjectStore((s) => s.projectName);
+
+  // 刷新后 store 会重置：从 URL 的 projectId 重新加载项目，保证导出页始终持有项目上下文
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const st = useProjectStore.getState();
+      if (st.projectId === projectId && useTimelineStore.getState().timeline.tracks.length > 0) return;
+      try {
+        const project = await projectApi.load(projectId);
+        if (!alive) return;
+        useProjectStore.getState().setProjectId(project.id);
+        useProjectStore.getState().setProjectName(project.name);
+        useTimelineStore.getState().setTimeline(project.timeline ?? createEmptyTimeline());
+      } catch {
+        // 离线或项目不存在：仅设置 id，时间轴保持当前（可能为空）
+        if (alive) useProjectStore.getState().setProjectId(projectId);
+      }
+    })();
+    return () => { alive = false; };
+  }, [projectId]);
 
   const [presetId, setPresetId] = useState('bilibili');
   const [settings, setSettings] = useState<ExportSettings>({
@@ -203,11 +225,7 @@ export function ExportPage() {
   return (
     <StandardLayout title="导出与渲染">
       <button
-        onClick={() => {
-          const pid = useProjectStore.getState().projectId;
-          if (pid) { navigate({ to: '/editor/$projectId', params: { projectId: pid } }); }
-          else { navigate({ to: '/' }); }
-        }}
+        onClick={() => navigate({ to: '/editor/$projectId', params: { projectId } })}
         className="flex items-center gap-1.5 text-label-sm text-on-surface-variant hover:text-primary transition-colors mb-5 cursor-pointer"
       >
         <ArrowLeft className="w-3.5 h-3.5" /> 返回编辑器
