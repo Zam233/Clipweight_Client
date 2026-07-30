@@ -1,5 +1,18 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 90: 确认判断改用 LLM 语义判断
+**Timestamp**: 2026-07-30T18:52:00+08:00
+
+### 改进
+- 需求 Agent 的确认判断 `_is_confirm` 由关键词硬编码改为 **LLM 语义判断**
+  - 调用 `structured_output` 让 LLM 输出 `{is_confirm: bool}`，正确处理否定/提问/委婉/修改意见等复杂语义
+  - LLM 不可用（离线/异常）时自动回退到关键词启发式 `_is_confirm_heuristic`，保证流程不中断
+- `_is_confirm` 改为 async，两处调用点（brief_ready / plan_ready）改为 `await`
+
+### 测试: backend import OK / _is_confirm 为协程 / 启发式回退 4 用例通过
+
+- - -
+
 ## Stage 89: 语音克隆 UX + 后端并发安全 (4 项)
 **Timestamp**: 2026-07-30T18:45:00+08:00
 
