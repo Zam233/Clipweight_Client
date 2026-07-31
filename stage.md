@@ -1,5 +1,24 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 104: 需求对话/执行日志随项目持久化与再读入
+**Timestamp**: 2026-07-31T11:05:00+08:00
+
+### 问题
+- 执行日志（logEntries）完全不持久化，切换项目/刷新即丢失
+- 需求对话/简报/规划书仅存全局 localStorage（非按项目），跨项目串味、24h 过期
+- 后端 requirements session 与 project 无关联，加载项目时不恢复
+
+### 修复
+- **后端**：ProjectCreate/UpdateRequest 新增 `agent_state` 字段，save 合并存储、load 返回
+- **前端类型**：Project/ProjectSaveRequest 新增 `agent_state`（AgentStateSnapshot）
+- **agentStore**：新增 `restoreAgentState(snapshot)` 恢复对话/简报/规划书/日志
+- **EditorPage**：doSave 快照 Agent 状态写入 `agent_state`；加载时若非首页新启动则 `restoreAgentState` 恢复
+- 效果：需求对话与执行日志随项目保存，重新打开项目可再读入
+
+### 测试: tsc 0 / vitest 59 / backend import OK
+
+- - -
+
 ## Stage 103: 配音时长/配音轨/字幕对齐修复（时间轴 59s→625s）
 **Timestamp**: 2026-07-31T10:50:00+08:00
 

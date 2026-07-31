@@ -24,6 +24,7 @@ export interface Project {
   folder: string;
   tags: string[];
   thumbnail?: string;
+  agent_state?: AgentStateSnapshot | null;
 }
 
 /** Lightweight project summary returned by list (no full timeline). */
@@ -48,6 +49,17 @@ export interface ProjectSaveRequest {
   plugin_id?: string;
   folder?: string;
   tags?: string[];
+  agent_state?: AgentStateSnapshot | null;
+}
+
+/** 随项目持久化的 Agent 状态快照（需求对话/简报/规划书/执行日志） */
+export interface AgentStateSnapshot {
+  requirementsSessionId?: string | null;
+  requirementsStatus?: string;
+  requirementsMessages?: unknown[];
+  creativeBrief?: unknown;
+  productionPlan?: unknown;
+  logEntries?: unknown[];
 }
 
 // ── Asset ──

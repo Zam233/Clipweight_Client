@@ -75,7 +75,7 @@ export function EditorPage() {
 
         // Load from backend; on failure (offline / not found) fall back to an
         // empty local project so the editor remains usable in demo mode.
-        let project: { id: string; name: string; persona_id?: string; plugin_id?: string; timeline: ReturnType<typeof createEmptyTimeline> | null };
+        let project: { id: string; name: string; persona_id?: string; plugin_id?: string; timeline: ReturnType<typeof createEmptyTimeline> | null; agent_state?: import('@/types/api').AgentStateSnapshot | null };
         try {
           project = await projectApi.load(projectId);
         } catch (loadErr) {
@@ -96,6 +96,9 @@ export function EditorPage() {
           useProjectStore.getState().setRequirementsScript(pending.script);
           useProjectStore.getState().setRequirementsAudioDuration(pending.audioDur);
           useProjectStore.getState().setMaterialSourceIds(pending.materialSourceIds);
+        } else if (project.agent_state) {
+          // 非首页新启动 → 恢复项目保存的 Agent 状态（需求对话/简报/规划书/执行日志）
+          useAgentStore.getState().restoreAgentState(project.agent_state);
         }
         if (alive) setLoading(false);
       } catch (err) {
@@ -116,11 +119,22 @@ export function EditorPage() {
     st.setSaving(true);
     st.setSaveError(false);
     try {
+      // 快照 Agent 状态（需求对话/简报/规划书/执行日志），随项目持久化，加载时恢复
+      const ag = useAgentStore.getState();
+      const agentState = {
+        requirementsSessionId: ag.requirementsSessionId,
+        requirementsStatus: ag.requirementsStatus,
+        requirementsMessages: ag.requirementsMessages,
+        creativeBrief: ag.creativeBrief,
+        productionPlan: ag.productionPlan,
+        logEntries: ag.logEntries,
+      };
       await projectApi.save(st.projectId, {
         name: st.projectName,
         timeline: useTimelineStore.getState().timeline,
         persona_id: st.personaId ?? undefined,
         plugin_id: st.pluginId ?? undefined,
+        agent_state: agentState,
       });
       st.setSaving(false);
       st.setLastSaved(new Date().toISOString());

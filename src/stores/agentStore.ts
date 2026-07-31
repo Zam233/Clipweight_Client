@@ -95,6 +95,14 @@ interface AgentState {
   setCreativeBrief: (brief: CreativeBrief | null) => void;
   setProductionPlan: (plan: ProductionPlan | null) => void;
   resetRequirements: () => void;
+  restoreAgentState: (snapshot: {
+    requirementsSessionId?: string | null;
+    requirementsStatus?: string;
+    requirementsMessages?: unknown[];
+    creativeBrief?: unknown;
+    productionPlan?: unknown;
+    logEntries?: unknown[];
+  }) => void;
 
   // Annotation actions
   addAnnotation: (ann: Omit<Annotation, 'id'>) => void;
@@ -223,6 +231,16 @@ export const useAgentStore = create<AgentState>((set) => ({
       productionPlan: null,
       annotations: [],
       reviewMode: null,
+    }),
+
+  restoreAgentState: (snapshot) =>
+    set({
+      requirementsSessionId: snapshot.requirementsSessionId ?? null,
+      requirementsStatus: (snapshot.requirementsStatus as RequirementsStatus) ?? 'idle',
+      requirementsMessages: (snapshot.requirementsMessages as RequirementMessage[]) ?? [],
+      creativeBrief: (snapshot.creativeBrief as CreativeBrief) ?? null,
+      productionPlan: (snapshot.productionPlan as ProductionPlan) ?? null,
+      logEntries: (snapshot.logEntries as LogEntry[]) ?? [],
     }),
 
   addAnnotation: (ann) =>
