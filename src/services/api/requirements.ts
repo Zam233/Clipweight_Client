@@ -11,7 +11,9 @@ export const requirementsApi = {
 
   /** Send a chat message */
   async chat(request: RequirementsChatRequest) {
-    const { data } = await getApiClient().post('/api/requirements/chat', request);
+    // 规划书生成需要结构 Agent + 翻译，耗时可达 2-5 分钟，
+    // 覆盖 axios 默认 60s 超时。
+    const { data } = await getApiClient().post('/api/requirements/chat', request, { timeout: 600_000 });
     return data;
   },
 
@@ -54,7 +56,7 @@ export const requirementsApi = {
       persona_id: personaId,
       category_plugin_id: pluginId,
       extra_params: extraParams,
-    });
+    }, { timeout: 300_000 });
     return data;
   },
 };
