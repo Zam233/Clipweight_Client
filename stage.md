@@ -1,5 +1,26 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 103: 配音时长/配音轨/字幕对齐修复（时间轴 59s→625s）
+**Timestamp**: 2026-07-31T10:50:00+08:00
+
+### 核心问题
+之前时间轴仅 59s，而配音 voice.MP3 实际约 625s。根因链：
+- HomePage 上传配音后只读后端返回的 `duration_sec`，Windows 缺 ffprobe → 返回 0
+- `estDuration` 退化为文案长度估算（script.length/5 ≈ 59s）
+- 59s 流入管线 → edit_agent 按 59s 缩放场景 → 时间轴 59s；配音文件从未作为 clip 上时间轴
+
+### 修复
+- **客户端探测真实音频时长**（HomePage.tsx）：新增 `detectAudioDuration`（`new Audio()` + loadedmetadata），不依赖后端 ffprobe，voice.MP3 正确识别为 ~625s
+- **配音文件上时间轴**（audio_agent.py）：若 `audio_path`+`audio_duration_sec` 存在，将配音作为 audio clip 铺满 0→625s，并把 `timeline.duration_sec` 锚定到配音长度
+- **audio_path 贯通管线**：useRequirementsAutoStart 在 init 的 extra 带上 audio_path/video_mode/auto_dub/voice_id；proceed 端点从 user_inputs 透传到 pipeline extra_params
+
+### 发现（待后续）
+- 625s 长视频管线执行 >900s 超时：edit_agent 对大量场景逐个 video_trim（缺 ffmpeg 快速失败）+ Pexels 逐场景素材搜索过慢。需后续优化素材搜索批处理/缓存或调高超时
+
+### 测试: tsc 0 / vitest 59 / backend import OK
+
+- - -
+
 ## Stage 102: 无头浏览器端到端全流程验证（真实 Zam + Pexels）
 **Timestamp**: 2026-07-31T02:25:00+08:00
 

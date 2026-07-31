@@ -42,7 +42,14 @@ export function useRequirementsAutoStart(ready: boolean) {
           category_plugin_id: st.pluginId || undefined,
           script_text: st.requirementsScript || undefined,
           audio_duration_sec: st.requirementsAudioDuration || undefined,
-          extra: { material_source_ids: st.materialSourceIds || [] },
+          extra: {
+            material_source_ids: st.materialSourceIds || [],
+            audio_path: st.audioPath || undefined,
+            video_mode: st.videoMode || undefined,
+            split_mode: st.splitMode || undefined,
+            auto_dub: st.autoDub,
+            voice_id: st.voiceId || undefined,
+          },
         });
         useAgentStore.getState().setRequirementsSession(res.session_id);
         let firstMsg = `我的选题是：${t}。`;

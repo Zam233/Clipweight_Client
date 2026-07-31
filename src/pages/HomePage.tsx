@@ -76,6 +76,23 @@ function splitScriptToCaptions(text: string, mode: 'period' | 'punctuation'): st
   return parts.length ? parts : [t];
 }
 
+/** 客户端探测音频文件真实时长（秒）。失败返回 0。 */
+function detectAudioDuration(file: File): Promise<number> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const audio = new Audio();
+    audio.preload = 'metadata';
+    const cleanup = () => URL.revokeObjectURL(url);
+    audio.onloadedmetadata = () => {
+      const d = audio.duration;
+      cleanup();
+      resolve(Number.isFinite(d) && d > 0 ? d : 0);
+    };
+    audio.onerror = () => { cleanup(); resolve(0); };
+    audio.src = url;
+  });
+}
+
 /* ── page ──────────────────────────────────────────────── */
 export function HomePage() {
   const navigate = useNavigate();
@@ -201,9 +218,12 @@ export function HomePage() {
     setUploading(true);
     setUploadErr(null);
     try {
+      // 客户端检测真实音频时长（不依赖后端 ffprobe——Windows 常缺 ffprobe 会返回 0，
+      // 导致时长退化为文案估算值，进而使时间轴远短于配音实际长度）
+      const clientDuration = await detectAudioDuration(file);
       const res = await assetApi.upload(file);
       const path = res.file_path ?? res.path ?? '';
-      const duration = res.duration_sec ?? 0;
+      const duration = clientDuration || res.duration_sec || 0;
       setAudio({ path, name: res.filename ?? file.name, duration });
     } catch (e) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
