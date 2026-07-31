@@ -1,5 +1,30 @@
 # ClipWright Optimization — Stage Log
 
+## Stage 105: ffmpeg 接入 + 625s 长视频管线超时修复（有界面浏览器实测跑通）
+**Timestamp**: 2026-07-31T12:21:00+08:00
+
+### 问题
+625s 长视频管线 >900s 超时：edit_agent 对大量场景逐个 video_trim（缺 ffmpeg 快速失败）+ Pexels 逐场景素材搜索过慢。
+
+### 修复
+- **ffmpeg 接入**：ffmpeg 已装（WinGet v8.1.2）但不在后端 PATH → 新增 `resolve_ffmpeg/resolve_ffprobe`（配置项→PATH→WinGet 常见位置），`_ensure_ffmpeg_on_path()` 启动时注入 PATH，video.py/asset_manager 全部改用解析路径
+- **动态超时**：proceed 端点按配音时长动态调超 `pipeline_timeout_sec = max(900, audio_duration*4)`
+- **裁剪缓存**：edit_agent 新增 `_TRIM_CACHE`（按 源路径+起点+时长 复用，有界 512），避免对同一网络素材重复下载/裁剪
+
+### 有界面浏览器实测（headed Playwright，真实 voice.MP3 625s + 完整文案 4123 字符 + Zam + Pexels）
+- ✅ 配音时长客户端正确探测 **658s**（≈625s 配音）
+- ✅ EditAgent target=658s（时间轴锚定配音，总长 > 配音长度 ✓）
+- ✅ video_trim 正常工作（ffmpeg 生效）
+- ✅ 管线 **COMPLETED**（pl_787ad75dd4ec，~190s，远快于之前 >900s 超时）
+- ✅ 简报→规划书→管线→时间线审阅（全部接受）全流程跑通：briefFound=true planFound=true reviewFound=true
+
+### 待观察
+- AnimationAgent 本次文字/逻辑/MG 动画=0：结构 Agent 场景描述未含 [文字动画]/[逻辑动画] 标记（属 LLM 生成内容问题，非动画逻辑 bug）
+
+### 测试: tsc 0 / vitest 59 / backend import OK / 有界面浏览器全流程跑通
+
+- - -
+
 ## Stage 104: 需求对话/执行日志随项目持久化与再读入
 **Timestamp**: 2026-07-31T11:05:00+08:00
 
