@@ -1,5 +1,15 @@
 import { getApiClient } from './client';
-import type { RenderRequest, RenderProgress, RenderPreset } from '@/types/api';
+import type { RenderRequest, RenderProgress } from '@/types/api';
+
+/** Export preset shape (backend may omit optional fields). */
+export interface ExportPreset {
+  name: string;
+  width: number;
+  height: number;
+  fps: number;
+  bitrate: string;
+  icon: string;
+}
 
 export const renderApi = {
   /** Start a render job */
@@ -58,7 +68,7 @@ export const renderApi = {
 
   /** List export presets */
   async getPresets() {
-    const { data } = await getApiClient().get<{ presets: Record<string, unknown> }>('/api/render/presets');
+    const { data } = await getApiClient().get<{ presets: Record<string, Partial<ExportPreset>> }>('/api/render/presets');
     return data?.presets ?? {};
   },
 };

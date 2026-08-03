@@ -2,11 +2,10 @@ import { memo, useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { personaApi } from '@/services/api';
 import { Button, Badge } from '@/components/ui';
-import { uid } from '@/lib/utils';
 import type { Persona } from '@/types/persona';
 import {
-  Plus, Sparkles, MessageSquare, GitBranch, Layers, BookOpen,
-  Mic, Palette, Timer, PenTool, ChevronRight, Dna,
+  Plus, Sparkles, MessageSquare, Layers, BookOpen,
+  Timer, ChevronRight, Dna,
 } from 'lucide-react';
 
 /** Demo personas (offline fallback) — rich parameter data for visualization. */

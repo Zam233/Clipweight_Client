@@ -203,7 +203,7 @@ class MediaManager {
 
     try {
       if (!this.audioCtx) {
-        this.audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        this.audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
       }
       const resp = await fetch(e.url);
       const buf = await resp.arrayBuffer();
@@ -281,7 +281,7 @@ class MediaManager {
   // ── audio level metering ─────────────────────────────
   private ensureAudioCtx(): AudioContext {
     if (!this.audioCtx) {
-      this.audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      this.audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
     }
     return this.audioCtx;
   }
@@ -293,6 +293,9 @@ class MediaManager {
     const el = e.audioEl ?? e.videoEl;
     if (!el) return null;
     const ctx = this.ensureAudioCtx();
+    // 浏览器可能以 suspended 状态创建 AudioContext（非用户手势路径），静默无声；
+    // 播放已由用户点击触发，此时尝试恢复
+    if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
     if (!this.analyser) {
       this.analyser = ctx.createAnalyser();
       this.analyser.fftSize = 256;

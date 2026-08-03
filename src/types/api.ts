@@ -89,7 +89,8 @@ export interface AssetUploadResponse {
 
 export interface MaterialSearchRequest {
   query: string;
-  source?: string;
+  /** 素材源过滤（可多选；逗号分隔传给后端） */
+  source?: string | string[];
   limit?: number;
   offset?: number;
 }

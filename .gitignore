@@ -63,3 +63,6 @@ timeline-after-drop.png
 e2e-shots/
 vite-out.log
 vite-err.log
+
+# 运行时字体缓存（勿提交）
+_fonts/

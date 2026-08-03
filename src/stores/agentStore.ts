@@ -5,7 +5,6 @@ import type {
   PipelinePhase,
   AgentSuggestion,
   AgentChatMessage,
-  PipelineRequest,
   LogEntry,
   AgentStat,
   PipelineSummary,
@@ -54,6 +53,10 @@ interface AgentState {
   agentStats: AgentStat[];
   pipelineSummary: PipelineSummary | null;
 
+  // MG 动画进度（动画阶段逐片段生成）
+  mgTotal: number;
+  mgDone: number;
+
   // Requirements Agent state
   requirementsSessionId: string | null;
   requirementsStatus: RequirementsStatus;
@@ -86,6 +89,11 @@ interface AgentState {
   toggleLogExpand: (id: string) => void;
   setAgentStats: (stats: AgentStat[]) => void;
   setPipelineSummary: (summary: PipelineSummary | null) => void;
+
+  // MG 进度 actions
+  mgStarted: () => void;
+  mgFinished: () => void;
+  resetMgProgress: () => void;
 
   // Requirements actions
   setRequirementsSession: (sessionId: string | null) => void;
@@ -124,6 +132,8 @@ export const useAgentStore = create<AgentState>((set) => ({
   logEntries: [],
   agentStats: [],
   pipelineSummary: null,
+  mgTotal: 0,
+  mgDone: 0,
 
   requirementsSessionId: null,
   requirementsStatus: 'idle',
@@ -175,6 +185,8 @@ export const useAgentStore = create<AgentState>((set) => ({
       agentStats: [],
       pipelineSummary: null,
       chatMessages: [],
+      mgTotal: 0,
+      mgDone: 0,
     }),
 
   addLogEntry: (entry) =>
@@ -190,7 +202,7 @@ export const useAgentStore = create<AgentState>((set) => ({
       ],
     })),
 
-  clearLogs: () => set({ logEntries: [], agentStats: [], pipelineSummary: null }),
+  clearLogs: () => set({ logEntries: [], agentStats: [], pipelineSummary: null, mgTotal: 0, mgDone: 0 }),
   toggleLogExpand: (id) =>
     set((state) => ({
       logEntries: state.logEntries.map((e) =>
@@ -200,6 +212,12 @@ export const useAgentStore = create<AgentState>((set) => ({
 
   setAgentStats: (stats) => set({ agentStats: stats }),
   setPipelineSummary: (summary) => set({ pipelineSummary: summary }),
+
+  mgStarted: () =>
+    set((state) => ({ mgTotal: state.mgTotal + 1 })),
+  mgFinished: () =>
+    set((state) => ({ mgDone: state.mgDone + 1 })),
+  resetMgProgress: () => set({ mgTotal: 0, mgDone: 0 }),
 
   setRequirementsSession: (sessionId) =>
     set({ requirementsSessionId: sessionId }),

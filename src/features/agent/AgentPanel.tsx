@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAgentStore, loadRequirementsDraft, clearRequirementsDraft } from '@/stores/agentStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { Markdown } from '@/components/shared/Markdown';
@@ -26,6 +26,7 @@ const LOG_ICONS: Record<LogEventType, string> = {
   agent_start: '▶', agent_end: '✓', llm: '🤖', tool: '🔧',
   skill: '🧠', plugin: '🔌', info: '○', warning: '⚠',
   error: '✗', timeline_snapshot: '📊',
+  mg_start: '🎬', mg_end: '✨',
 };
 
 const LOG_COLORS: Record<LogEventType, string> = {
@@ -34,6 +35,7 @@ const LOG_COLORS: Record<LogEventType, string> = {
   skill: 'text-tertiary', plugin: 'text-track-image',
   info: 'text-on-surface-variant/50', warning: 'text-track-text',
   error: 'text-error', timeline_snapshot: 'text-track-video',
+  mg_start: 'text-track-text', mg_end: 'text-track-animation',
 };
 
 export function AgentPanel() {
@@ -86,8 +88,6 @@ export function AgentPanel() {
 function RequirementsView() {
   const status = useAgentStore((s) => s.requirementsStatus);
   const messages = useAgentStore((s) => s.requirementsMessages);
-  const creativeBrief = useAgentStore((s) => s.creativeBrief);
-  const productionPlan = useAgentStore((s) => s.productionPlan);
   const addMessage = useAgentStore((s) => s.addRequirementsMessage);
   const setStatus = useAgentStore((s) => s.setRequirementsStatus);
   const setBrief = useAgentStore((s) => s.setCreativeBrief);
@@ -95,7 +95,6 @@ function RequirementsView() {
   const setSession = useAgentStore((s) => s.setRequirementsSession);
   const setPipelineId = useAgentStore((s) => s.setPipelineId);
   const updatePhase = useAgentStore((s) => s.updatePhase);
-  const reviewMode = useAgentStore((s) => s.reviewMode);
   const setReviewMode = useAgentStore((s) => s.setReviewMode);
   const [topic, setTopic] = useState('');
   const [input, setInput] = useState('');
@@ -124,6 +123,7 @@ function RequirementsView() {
       if (draft.sessionId) setSession(draft.sessionId);
     }
     setDraftLoaded(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- store actions are stable; draft loading must run once
   }, [draftLoaded]);
 
   useEffect(() => {
@@ -405,8 +405,9 @@ function BottomBar() {
   const pipelineId = useAgentStore((s) => s.pipelineId);
   const error = useAgentStore((s) => s.error);
   const pipelineSummary = useAgentStore((s) => s.pipelineSummary);
+  const mgTotal = useAgentStore((s) => s.mgTotal);
+  const mgDone = useAgentStore((s) => s.mgDone);
   const addLogEntry = useAgentStore((s) => s.addLogEntry);
-  const setPipelineSummary = useAgentStore((s) => s.setPipelineSummary);
   const updatePhase = useAgentStore((s) => s.updatePhase);
   const setPipelineId = useAgentStore((s) => s.setPipelineId);
   const setError = useAgentStore((s) => s.setError);
@@ -416,24 +417,14 @@ function BottomBar() {
   const esRef = useRef<EventSource | null>(null);
   const lastTimelineRef = useRef<Timeline | null>(null);
   const simTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // SSE 断线重连定时器
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 标记当前管线是否为离线模拟，避免对假 pipeline_id 发起真实 SSE 连接
   const simulatedRef = useRef(false);
 
   const running = pipelineId !== null && phase !== 'completed' && phase !== 'failed' && phase !== 'idle';
 
-  useEffect(() => {
-    if (pipelineId && running && !esRef.current && !simulatedRef.current) {
-      openSSE(pipelineId);
-    }
-  }, [pipelineId, running]);
-
-  useEffect(() => () => {
-    esRef.current?.close();
-    simTimersRef.current.forEach((t) => clearTimeout(t));
-    simTimersRef.current.clear();
-  }, []);
-
-  const openSSE = (pid: string) => {
+  const openSSE = useCallback((pid: string) => {
     esRef.current?.close();
     const es = new EventSource(pipelineApi.getTraceStreamUrl(pid));
     esRef.current = es;
@@ -527,29 +518,75 @@ function BottomBar() {
             detail: (d.detail as Record<string, unknown>) || null,
           });
           break;
+        case 'mg_start':
+          useAgentStore.getState().mgStarted();
+          addLogEntry({
+            timestamp: Date.now(),
+            agent: (d.agent as string) || 'animation',
+            type: 'mg_start',
+            summary: (d.summary || d.message || 'MG 生成开始') as string,
+            detail: (d.detail as Record<string, unknown>) || null,
+          });
+          break;
+        case 'mg_end':
+          useAgentStore.getState().mgFinished();
+          addLogEntry({
+            timestamp: Date.now(),
+            agent: (d.agent as string) || 'animation',
+            type: 'mg_end',
+            summary: (d.summary || d.message || 'MG 生成完成') as string,
+            detail: (d.detail as Record<string, unknown>) || null,
+          });
+          break;
         default:
           break;
       }
     };
 
     es.onerror = () => {
-      // 后端在 done/error 后会主动关闭流；若尚未完成才视为异常中断
+      // 管线可能长达 30-60 分钟：后端流 600s 硬上限/网络抖动都会触发 onerror。
+      // 不能永久关闭——否则最终 done/timeline_snapshot 事件永远收不到、审阅视图缺失。
+      // 方案：释放引用并定时重连（后端会重放全部事件，finish 有幂等守卫）。
       if (!finished) {
-        addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'warning', summary: 'SSE 连接中断' });
+        esRef.current = null;
+        if (!retryTimerRef.current) {
+          retryTimerRef.current = setTimeout(() => {
+            retryTimerRef.current = null;
+            if (!finished && !esRef.current) openSSE(pid);
+          }, 3000);
+        }
+        addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'warning', summary: 'SSE 连接中断，3s 后重连…' });
       }
-      es.close();
-      esRef.current = null;
     };
-  };
+  }, [addLogEntry, updatePhase]);
+
+  useEffect(() => {
+    if (pipelineId && running && !esRef.current && !simulatedRef.current) {
+      openSSE(pipelineId);
+    }
+  }, [pipelineId, running, openSSE]);
+
+  useEffect(() => () => {
+    esRef.current?.close();
+    if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+    simTimersRef.current.forEach((t) => clearTimeout(t));
+    simTimersRef.current.clear();
+  }, []);
 
   const launch = async () => {
     setError(null);
     simulatedRef.current = false;
+    useAgentStore.getState().resetMgProgress();
     updatePhase('structure', 5);
     setLaunching(true);
     addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'info', summary: `管线启动: ${topic || '未命名选题'}` });
     try {
       const st = useProjectStore.getState();
+      const audioDur = st.audioDurationSec || 0;
+      const plan = useAgentStore.getState().productionPlan;
+      const sceneCount = plan?.scenes?.length ?? 0;
+      // 动画阶段逐片段生成耗时长：按音频时长×4 与场景数×240s 取大者，避免管线误超时
+      const pipelineTimeoutSec = Math.max(1800, audioDur * 4, sceneCount * 240);
       const res = await pipelineApi.runAsync({
         persona_id: st.personaId ?? 'default',
         category_plugin_id: st.pluginId ?? 'knowledge_longform',
@@ -565,6 +602,7 @@ function BottomBar() {
           voice_id: st.voiceId || undefined,
           creative_brief: useAgentStore.getState().creativeBrief ?? undefined,
           production_plan: useAgentStore.getState().productionPlan ?? undefined,
+          pipeline_timeout_sec: pipelineTimeoutSec,
         },
       });
       setPipelineId(res.pipeline_id);
@@ -634,6 +672,18 @@ function BottomBar() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* MG 动画逐片段进度（动画阶段） */}
+      {mgTotal > 0 && (
+        <div className="flex items-center gap-2 px-3 pt-1.5">
+          <span className="text-caption text-track-animation shrink-0">动画片段</span>
+          <div className="flex-1 h-1 bg-surface-container rounded-cw-full overflow-hidden">
+            <div className="h-full bg-track-animation transition-all duration-short3"
+              style={{ width: `${Math.min(100, Math.round((mgDone / mgTotal) * 100))}%` }} />
+          </div>
+          <span className="text-caption font-mono text-on-surface-variant shrink-0">{mgDone}/{mgTotal}</span>
         </div>
       )}
 

@@ -15,7 +15,7 @@ test.describe('编辑器冒烟测试', () => {
     expect(errors).toEqual([]);
   });
 
-  test('项目加载失败时回退到首页', async ({ page }) => {
+  test('项目加载失败时回退到本地空项目（演示模式）', async ({ page }) => {
     await page.route(/https?:\/\/[^/]+\/health(\?|$)/, (route) =>
       route.fulfill({ json: { status: 'ok', service: 'clipwright-engine' } }),
     );
@@ -26,7 +26,10 @@ test.describe('编辑器冒烟测试', () => {
     );
 
     await page.goto('/editor/proj_bad_id');
-    await page.waitForURL('**/', { timeout: 15_000 });
-    await expect(page).toHaveURL(/\/$/);
+    // 当前设计：加载失败不跳转首页，而是留在编辑器打开本地空项目（演示模式）
+    await expect(page).toHaveURL(/\/editor\/proj_bad_id$/, { timeout: 15_000 });
+    await expect(page.locator('canvas').first()).toBeVisible({ timeout: 15_000 });
+    // 时间轴仍在，且未崩溃
+    await expect(page.locator('canvas').count()).resolves.toBeGreaterThanOrEqual(2);
   });
 });

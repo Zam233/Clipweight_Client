@@ -3,7 +3,7 @@ import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
 import { typeMakerApi } from '@/services/api';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import { Shapes, Plus, Copy, Trash2, Pencil, Film } from 'lucide-react';
+import { Plus, Copy, Trash2, Pencil, Film } from 'lucide-react';
 
 interface VideoType {
   id: string;

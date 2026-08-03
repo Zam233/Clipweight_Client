@@ -907,7 +907,7 @@ export class TimelineEngine {
         const insertIdx = dropTrackIdx >= 0 && dropTrackIdx <= tracks.length
           ? dropTrackIdx + 1
           : (sameKindTracks.length > 0 ? tracks.indexOf(sameKindTracks[sameKindTracks.length - 1]) + 1 : tracks.length);
-        const tid = store.addTrack(clipKind);
+        const tid = store.addTrack(clipKind, undefined, insertIdx);
         targetTrack = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
         if (!targetTrack) return;
       }

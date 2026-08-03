@@ -1,6 +1,7 @@
 import { memo, useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useVoiceStore } from '@/stores/voiceStore';
+import { useProjectStore } from '@/stores/projectStore';
 import { voiceApi } from '@/services/api';
 import { Button, Badge } from '@/components/ui';
 import { AudioPlayer } from '@/components/shared/AudioPlayer';
@@ -31,16 +32,17 @@ export function VoicePage({ embedded = false, onSelect }: { embedded?: boolean; 
 
   useEffect(() => { fetchVoices(); }, [fetchVoices]);
 
-  // Persist voice selection for pipeline (skipped in embedded/modal mode)
+  // Persist voice selection for pipeline (skipped in embedded/modal mode).
+  // 持久化的是用户实际选择的 voiceId（projectStore），而不是列表第一项。
   useEffect(() => {
     if (embedded) return;
-    const persistVoicePreferences = (state: ReturnType<typeof useVoiceStore.getState>) => {
-      const voiceId = state.voices[0]?.id ?? null;
+    const persistVoicePreferences = (state: ReturnType<typeof useProjectStore.getState>) => {
+      const voiceId = state.voiceId ?? null;
       localStorage.setItem('clipwright_voice_prefs', JSON.stringify({ voiceId, autoDub: true }));
     };
 
-    const unsub = useVoiceStore.subscribe(persistVoicePreferences);
-    persistVoicePreferences(useVoiceStore.getState());
+    const unsub = useProjectStore.subscribe(persistVoicePreferences);
+    persistVoicePreferences(useProjectStore.getState());
     return () => unsub();
   }, [embedded]);
 

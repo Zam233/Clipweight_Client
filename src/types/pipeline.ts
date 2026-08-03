@@ -97,7 +97,9 @@ export type LogEventType =
   | 'info'
   | 'warning'
   | 'error'
-  | 'timeline_snapshot';
+  | 'timeline_snapshot'
+  | 'mg_start'
+  | 'mg_end';
 
 /** A single log entry from the pipeline execution log */
 export interface LogEntry {

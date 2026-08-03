@@ -51,9 +51,10 @@ function loadLayout() {
     return {
       panels: raw?.panels && typeof raw.panels === 'object'
         ? {
-          assets: Boolean(raw.panels.assets),
-          properties: Boolean(raw.panels.properties),
-          agent: Boolean(raw.panels.agent),
+          // 缺失的键视为默认可见（旧版本数据没有 agent 键时不应把面板永久隐藏）
+          assets: raw.panels.assets === undefined ? true : Boolean(raw.panels.assets),
+          properties: raw.panels.properties === undefined ? true : Boolean(raw.panels.properties),
+          agent: raw.panels.agent === undefined ? true : Boolean(raw.panels.agent),
         }
         : { assets: true, properties: true, agent: true },
       panelWidths: raw?.panelWidths && typeof raw.panelWidths === 'object'

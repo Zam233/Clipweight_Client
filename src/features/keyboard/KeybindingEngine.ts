@@ -91,6 +91,8 @@ export class KeybindingEngine {
     });
 
     if (binding) {
+      // 长按不重复触发（避免 Space 反复播放/暂停、s 重复切分、历史栈被刷屏）
+      if (e.repeat) return;
       e.preventDefault();
       e.stopPropagation();
       binding.handler();

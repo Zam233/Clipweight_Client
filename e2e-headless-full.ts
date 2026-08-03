@@ -155,21 +155,39 @@ async function main() {
 
     // ═══ 5. 审阅 ═══
     log('STEP 5/6 审阅时间线：等待 TimelineDiffView...');
-    const diffOk = await waitFor(async () => {
+    // 记录当前项目 id（编辑器 URL 中的 proj_xxx），供导出页使用
+    const editorUrl = page.url();
+    const projMatch = editorUrl.match(/\/editor\/([A-Za-z0-9_-]+)/);
+    const projectId = projMatch ? projMatch[1] : '';
+    log(`项目 id: ${projectId}`);
+    // 两种成功路径：出现「全部接受」（有差异）或「无差异」提示（Agent 时间线与当前一致）
+    let accepted = false;
+    const reviewOk = await waitFor(async () => {
       const t = await page.textContent('body').catch(() => '');
-      return t.includes('全部接受');
-    }, 120000, 3000);
-    if (diffOk) {
-      await page.locator('button', { hasText: '全部接受' }).first().click({ timeout: 8000 });
-      log('已接受 Agent 时间线');
-      await page.waitForTimeout(3000);
+      if (t.includes('全部接受')) return true;
+      if (t.includes('无差异')) return true;
+      return false;
+    }, 180000, 3000);
+    if (reviewOk) {
+      const t = await page.textContent('body').catch(() => '');
+      if (t.includes('全部接受')) {
+        await page.locator('button', { hasText: '全部接受' }).first().click({ timeout: 8000 });
+        accepted = true;
+        log('已接受 Agent 时间线');
+      } else {
+        await page.locator('button', { hasText: '关闭' }).first().click({ timeout: 8000 }).catch(() => {});
+        log('Agent 时间线与当前一致，无需合并');
+      }
+      // 等待编辑器 5s 防抖自动保存把接受后的时间线写回后端，导出页才能取到
+      await page.waitForTimeout(8000);
     } else {
-      log('WARN 未出现审阅视图（可能已自动采纳），继续');
+      log('WARN 未出现审阅视图，继续（将直接以当前时间线渲染）');
     }
 
     // ═══ 6. 渲染 ═══
-    log('STEP 6/6 导出渲染：导航到 /export...');
-    await page.goto(`${FRONTEND}/export`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    log('STEP 6/6 导出渲染：导航到导出页...');
+    if (!projectId) throw new Error('未获取 projectId，无法进入导出页');
+    await page.goto(`${FRONTEND}/export/${projectId}`, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(3000);
     const renderBtn = page.locator('button', { hasText: '加入渲染队列' });
     const btnVisible = await renderBtn.isVisible({ timeout: 15000 }).catch(() => false);

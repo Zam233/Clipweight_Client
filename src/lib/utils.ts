@@ -31,7 +31,7 @@ export function uid(prefix = ''): string {
 
 /** Format seconds to timecode HH:MM:SS:FF */
 export function formatTimecode(seconds: number, fps = 30): string {
-  if (fps <= 0 || !isFinite(fps)) return '00:00:00:00';
+  if (!isFinite(seconds) || seconds < 0 || fps <= 0 || !isFinite(fps)) return '00:00:00:00';
   const totalFrames = Math.round(seconds * fps);
   const ff = totalFrames % Math.round(fps);
   const totalSecs = Math.floor(totalFrames / Math.round(fps));
@@ -45,8 +45,11 @@ export function formatTimecode(seconds: number, fps = 30): string {
 
 /** Format seconds to short display (e.g., "1:23.4") */
 export function formatTimeShort(seconds: number): string {
-  const mm = Math.floor(seconds / 60);
-  const ss = (seconds % 60).toFixed(1);
+  if (!isFinite(seconds) || seconds < 0) return '0s';
+  // 先四舍五入到 0.1s 再拆分，避免 59.96 → "60.0s"
+  const rounded = Math.round(seconds * 10) / 10;
+  const mm = Math.floor(rounded / 60);
+  const ss = (rounded % 60).toFixed(1);
   return mm > 0 ? `${mm}:${ss.padStart(4, '0')}` : `${ss}s`;
 }
 

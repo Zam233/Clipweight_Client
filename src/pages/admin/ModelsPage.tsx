@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ConsoleShell, ConsoleHeading, StatusPill } from './ConsoleShell';
 import { getApiClient } from '@/services/api';
 import { Button } from '@/components/ui';
-import { Cpu, Play, Loader2, CheckCircle2, XCircle, Database, Layers } from 'lucide-react';
+import { Cpu, Play, Loader2, Database, Layers } from 'lucide-react';
 
 interface TestResult { status: 'idle' | 'running' | 'ok' | 'fail'; latencyMs?: number; detail?: string; }
 

@@ -1,5 +1,5 @@
 import { getApiClient } from './client';
-import type { Project, ProjectSummary, ProjectSaveRequest, HealthResponse, PluginInfo, AnimationDef } from '@/types/api';
+import type { Project, ProjectSummary, ProjectSaveRequest, HealthResponse, AnimationDef } from '@/types/api';
 
 export const projectApi = {
   /** Create a new project (backend assigns id) */

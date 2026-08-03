@@ -33,8 +33,6 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
   const [confirming, setConfirming] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const text = planMarkdown || briefToText(brief);
-
   const onSelection = useCallback(() => {
     // 评注输入弹层打开时，忽略冒泡上来的 keyup/mouseup，避免清空 toolbarPos 导致输入框被卸载
     if (showComment) return;
@@ -107,6 +105,11 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
       addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
         content: '已确认规划书，启动管线中…请切换到「执行日志」标签查看进度。' });
       try {
+        const audioDur = st.audioDurationSec || 0;
+        const plan = useAgentStore.getState().productionPlan;
+        const sceneCount = plan?.scenes?.length ?? 0;
+        // 动画阶段逐片段生成耗时长：按音频时长×4 与场景数×240s 取大者，避免管线误超时
+        const pipelineTimeoutSec = Math.max(1800, audioDur * 4, sceneCount * 240);
         const res = await pipelineApi.runAsync({
           persona_id: st.personaId ?? 'default',
           category_plugin_id: st.pluginId ?? 'knowledge_longform',
@@ -122,6 +125,7 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
             voice_id: st.voiceId || undefined,
             creative_brief: useAgentStore.getState().creativeBrief ?? undefined,
             production_plan: useAgentStore.getState().productionPlan ?? undefined,
+            pipeline_timeout_sec: pipelineTimeoutSec,
           },
         });
         useAgentStore.getState().setPipelineId(res.pipeline_id);
@@ -294,13 +298,4 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
       )}
     </div>
   );
-}
-
-function briefToText(brief: ReviewPanelProps['brief']): string {
-  if (!brief) return '';
-  const lines = [`# ${brief.title}`, '', `概述：${brief.overview}`, `目标受众：${brief.target_audience}`,
-    `核心信息：${brief.core_message}`, `风格方向：${brief.style_direction}`,
-    `结构建议：${brief.structure_suggestion}`, `时长预估：${brief.duration_estimate}`];
-  if (brief.key_elements?.length) lines.push(`关键元素：${brief.key_elements.join('、')}`);
-  return lines.join('\n');
 }

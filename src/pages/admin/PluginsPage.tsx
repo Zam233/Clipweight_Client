@@ -377,18 +377,4 @@ function buildConfigYaml(fields: Record<string, PluginConfigField>): string | nu
   return lines.join('\n');
 }
 
-function jsonToYaml(obj: Record<string, unknown> | null, depth = 0): string {
-  if (!obj || Object.keys(obj).length === 0) return '';
-  const indent = '  '.repeat(depth);
-  return Object.entries(obj)
-    .map(([k, v]) => {
-      if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
-        return `${indent}${k}:\n${jsonToYaml(v as Record<string, unknown>, depth + 1)}`;
-      }
-      if (typeof v === 'string') return `${indent}${k}: "${v}"`;
-      return `${indent}${k}: ${v}`;
-    })
-    .join('\n');
-}
-
 const DEMO_PLUGINS: PluginItem[] = [];

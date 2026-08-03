@@ -1,17 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useProjectStore } from '@/stores/projectStore';
-import { useAgentStore, clearRequirementsDraft } from '@/stores/agentStore';
-import { useTimelineStore } from '@/stores/timelineStore';
+import { clearRequirementsDraft } from '@/stores/agentStore';
 import {
-  healthApi, personaApi, projectApi, assetApi, pipelineApi, typeMakerApi,
+  healthApi, personaApi, projectApi, assetApi, typeMakerApi,
   getApiClient,
 } from '@/services/api';
 import { Button, Badge } from '@/components/ui';
 import {
-  Film, Settings, Sparkles, ArrowRight, Plus, Bot, ListChecks,
+  Film, Settings, ArrowRight, Plus, Bot, ListChecks,
   PenLine, PackageCheck, Clock, Layers, Wand2, Mic, Image as ImageIcon,
-  History, Trash2, PlayCircle, Upload, X, Check, Loader2, AudioLines,
+  Upload, X, Check, Loader2, AudioLines,
   Scissors, FileText, FolderOpen, Clapperboard,
 } from 'lucide-react';
 import { ProjectCard, type ProjectCardData } from '@/components/shared/ProjectCard';
@@ -261,21 +260,28 @@ export function HomePage() {
     } catch { /* ignore */ }
 
     // Create project on backend
-    if (backend === 'online') {
-      try {
-        const project = await projectApi.create({
-          name: topic.trim() || '未命名项目',
-          timeline: null,
-          persona_id: personaId || undefined,
-          plugin_id: pluginId || undefined,
-        });
-        st.setProjectId(project.id);
-        // 仅在项目创建成功后清除旧 draft，失败则保留草稿
-        clearRequirementsDraft();
-        navigate({ to: '/editor/$projectId', params: { projectId: project.id } });
-        return;
-      } catch {
-        // Fall through — offline
+    // 若健康检查尚未完成（'checking'），先显式探测一次，避免误判为离线
+    if (backend === 'online' || backend === 'checking') {
+      let online = backend === 'online';
+      if (!online) {
+        try { await healthApi.check(); online = true; } catch { online = false; }
+      }
+      if (online) {
+        try {
+          const project = await projectApi.create({
+            name: topic.trim() || '未命名项目',
+            timeline: null,
+            persona_id: personaId || undefined,
+            plugin_id: pluginId || undefined,
+          });
+          st.setProjectId(project.id);
+          // 仅在项目创建成功后清除旧 draft，失败则保留草稿
+          clearRequirementsDraft();
+          navigate({ to: '/editor/$projectId', params: { projectId: project.id } });
+          return;
+        } catch {
+          // Fall through — offline
+        }
       }
     }
     // Offline / backend create failed → open a local empty project (demo mode)
@@ -289,13 +295,19 @@ export function HomePage() {
     setLaunching(true);
     const st = useProjectStore.getState();
     st.setProjectName('未命名项目');
-    if (backend === 'online') {
-      try {
-        const project = await projectApi.create({ name: '未命名项目', timeline: null });
-        st.setProjectId(project.id);
-        navigate({ to: '/editor/$projectId', params: { projectId: project.id } });
-        return;
-      } catch { /* fall through */ }
+    if (backend === 'online' || backend === 'checking') {
+      let online = backend === 'online';
+      if (!online) {
+        try { await healthApi.check(); online = true; } catch { online = false; }
+      }
+      if (online) {
+        try {
+          const project = await projectApi.create({ name: '未命名项目', timeline: null });
+          st.setProjectId(project.id);
+          navigate({ to: '/editor/$projectId', params: { projectId: project.id } });
+          return;
+        } catch { /* fall through */ }
+      }
     }
     // Offline → open a local empty project (demo mode)
     const localId = uid('proj');
@@ -345,7 +357,7 @@ export function HomePage() {
       <Backdrop />
 
       <div className="relative z-10 flex flex-col min-h-full">
-        <TopBar backend={backend} />
+        <TopBar />
         <RulerStrip />
 
         <main className="flex-1 w-full max-w-[1200px] mx-auto px-8 pb-10">
@@ -844,7 +856,7 @@ function RulerStrip() {
   );
 }
 
-function TopBar({ backend }: { backend: 'checking' | 'online' | 'offline' }) {
+function TopBar() {
   const navigate = useNavigate();
   return (
     <header className="flex items-center gap-3 px-8 py-4 max-w-[1200px] w-full mx-auto">

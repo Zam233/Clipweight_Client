@@ -54,7 +54,10 @@ test.describe('真实后端集成测试', () => {
   });
 
   test('Pipeline 预测脚本 API 可用', async ({ request }) => {
-    const res = await request.post(`${BASE}/api/pipeline/predict-script?script_text=测试文稿`);
+    // script_text 必须放在 JSON body（FastAPI Pydantic body model），不能作为 query 参数
+    const res = await request.post(`${BASE}/api/pipeline/predict-script`, {
+      data: { script_text: '测试文稿' },
+    });
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body).toBeDefined();

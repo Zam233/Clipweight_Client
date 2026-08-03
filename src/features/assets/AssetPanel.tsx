@@ -1,19 +1,18 @@
-import { memo, useState, useCallback, useEffect } from 'react';
+import { memo, useState, useCallback, useEffect, useRef } from 'react';
 import { useAssetStore } from '@/stores/assetStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
-import { useSelectionStore } from '@/stores/selectionStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { assetApi, getApiClient } from '@/services/api';
 import { mediaManager } from '@/services/media/mediaManager';
-import { Button, Badge } from '@/components/ui';
+import { Button } from '@/components/ui';
 import { uid, normalizeClipKind } from '@/lib/utils';
 import { DubView } from './DubView';
 import { PluginPanel } from './PluginPanel';
 import type { Asset, MaterialSearchResult } from '@/types/api';
 import type { ClipKind } from '@/types/timeline';
-import { Sparkles, FolderOpen, History, Upload, Search, Plus, Mic, AudioLines, Puzzle, X, Heart, Check } from 'lucide-react';
+import { Sparkles, FolderOpen, History, Upload, Search, Plus, Mic, Puzzle, X, Heart, Check } from 'lucide-react';
 
 type Tab = 'ai' | 'library' | 'history' | 'dub' | 'plugins';
 
@@ -169,7 +168,8 @@ export function AssetPanel() {
         </div>
         <label className="p-2 rounded-cw-sm bg-primary-container text-on-primary-container hover:opacity-90 transition-opacity cursor-pointer">
           <Upload className="w-3.5 h-3.5" />
-          <input type="file" multiple className="hidden" onChange={(e) => handleUpload(e.target.files)} />
+          <input id="asset-upload-input" type="file" multiple className="hidden"
+            onChange={(e) => { handleUpload(e.target.files); e.target.value = ''; }} />
         </label>
       </div>
 
@@ -218,7 +218,7 @@ export function AssetPanel() {
               </div>
             )}
             {!isLoading && (activeTab === 'library' ? filtered : history).length === 0 && (
-              <EmptyAssets onUpload={() => document.querySelector<HTMLInputElement>('input[type=file]')?.click()} />
+              <EmptyAssets onUpload={() => document.getElementById('asset-upload-input')?.click()} />
             )}
           </>
         )}
@@ -342,19 +342,25 @@ function AIMatchView() {
     }
   };
   const [visionResult, setVisionResult] = useState<string | null>(null);
+  const searchSeqRef = useRef(0);
 
   useEffect(() => { assetApi.listSources().then(setSources).catch(() => {}); }, []);
 
   const doSearch = async (q: string) => {
     const queryText = q.trim() || '通用 B-roll 空镜';
+    const seq = ++searchSeqRef.current;
     setSearching(true);
     setSearched(true);
     try {
-      const res = await assetApi.searchMaterials({ query: queryText, limit: 12 });
+      const res = await assetApi.searchMaterials({ query: queryText, limit: 12, source: selSources.length > 0 ? selSources : undefined });
+      if (seq !== searchSeqRef.current) return; // 忽略过期响应
       setResults(Array.isArray(res) ? res : []);
     } catch {
+      if (seq !== searchSeqRef.current) return;
       setResults(demoMatches(queryText));
-    } finally { setSearching(false); }
+    } finally {
+      if (seq === searchSeqRef.current) setSearching(false);
+    }
   };
 
   const doVisionImport = async () => {
@@ -377,6 +383,8 @@ function AIMatchView() {
   const addResult = (r: MaterialSearchResult) => {
     const store = useTimelineStore.getState();
     const kind = normalizeClipKind('video'); // MaterialSearchResult 无 kind 字段，默认为 video
+    // 先快照历史再建轨道，避免撤销后残留空轨道
+    useHistoryStore.getState().pushState(store.timeline, 'ai-match');
     let track = store.timeline.tracks.find((t) => t.kind === kind);
     if (!track) {
       const tid = store.addTrack(kind);
@@ -384,7 +392,6 @@ function AIMatchView() {
     }
     if (!track) return;
     const lastEnd = track.clips.reduce((m, c) => Math.max(m, c.start_sec + c.duration_sec), 0);
-    useHistoryStore.getState().pushState(store.timeline, 'ai-match');
     store.addClip(track.id, {
       kind, asset_id: r.id, start_sec: lastEnd,
       duration_sec: r.duration_sec != null && r.duration_sec > 0 ? r.duration_sec : 5, metadata: { title: r.title, source: r.source },

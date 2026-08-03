@@ -56,13 +56,15 @@ export function DubView() {
 
   const handleAddToTimeline = () => {
     const store = useTimelineStore.getState();
+    // 先快照历史（addTrack 之前），避免撤销后残留空轨道
+    useHistoryStore.getState().pushState(store.timeline, 'add-dub');
     let track = store.timeline.tracks.find((t) => t.kind === 'audio');
     if (!track) {
       const tid = store.addTrack('audio');
-      track = store.timeline.tracks.find((t) => t.id === tid);
+      // addTrack 后必须重读 store 状态（旧快照不含新轨道）
+      track = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
     }
     if (!track) return;
-    useHistoryStore.getState().pushState(store.timeline, 'add-dub');
     let atSec = track.clips.reduce((m, c) => Math.max(m, c.start_sec + c.duration_sec), 0);
     const segs = dubSegments.filter((s) => s.audio_url);
     const fallbackDur = segs.length ? dubTotal / segs.length : 3;

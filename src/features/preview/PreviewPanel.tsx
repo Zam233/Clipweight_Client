@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { usePreviewStore } from '@/stores/previewStore';
-import { useSelectionStore } from '@/stores/selectionStore';
 import { TRACK_COLORS } from '@/types/timeline';
 import type { Clip, Track } from '@/types/timeline';
 import { formatTimecode, clamp } from '@/lib/utils';
@@ -58,6 +57,7 @@ export function PreviewPanel() {
     for (const track of timeline.tracks) {
       if (track.kind !== 'audio' && track.kind !== 'waveform') continue;
       for (const clip of track.clips) {
+        if (clip.enabled === false) continue; // 禁用的片段不发声（与画面渲染一致）
         const entry = mediaManager.get(clip.asset_id);
         const el = entry?.audioEl ?? entry?.videoEl;
         if (!el) continue;
@@ -99,8 +99,9 @@ export function PreviewPanel() {
 
       if (looping) {
         // Loop region (or the whole timeline if no In/Out markers set)
-        const lo = region ? region.start : 0;
-        const hi = region ? region.end : dur;
+        // 钳位到时间线范围内：时间线被修剪变短后，标记可能越界
+        const lo = Math.min(Math.max(region ? region.start : 0, 0), dur);
+        const hi = Math.min(Math.max(region ? region.end : dur, lo + 0.01), dur);
         const span = hi - lo;
         if (span > 0) {
           if (next >= hi) next = lo + ((next - hi) % span); // carry overshoot
@@ -310,7 +311,12 @@ export function PreviewPanel() {
             </button>
           </Tooltip>
           <Tooltip content="全屏">
-            <button onClick={() => { setFullscreen(true); wrapRef.current?.requestFullscreen?.(); }}
+            <button onClick={() => {
+              // 全屏请求可能被浏览器拒绝：成功后才置位，避免 UI 状态与实际不一致
+              wrapRef.current?.requestFullscreen?.()
+                .then(() => setFullscreen(true))
+                .catch(() => setFullscreen(false));
+            }}
               className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
               <Maximize className="w-3.5 h-3.5" />
             </button>

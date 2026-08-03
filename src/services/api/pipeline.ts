@@ -1,7 +1,6 @@
 import { getApiClient } from './client';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { PipelineRequest, PipelineState } from '@/types/pipeline';
-import type { Timeline } from '@/types/timeline';
 
 export const pipelineApi = {
   /** Run pipeline v2 (dynamic routing + self-heal) */

@@ -333,7 +333,7 @@ export function PersonaForgePage() {
 /** Offline simulation: each user message advances 1-2 dimensions. */
 function simulateProgress(
   prev: Record<Dimension, number>,
-  userText: string,
+  _userText: string,
 ): { progress: Record<Dimension, number>; draft: Partial<ParameterLayer>; reply: string } {
   const order: Dimension[] = ['identity', 'language', 'rhythm', 'visual', 'audio', 'constraints'];
   const next = { ...prev };
@@ -370,14 +370,12 @@ const KB_CHUNK_LIMIT = 6000;
 function normalizeProgress(prog: Record<string, number>): Record<string, number> {
   const vals = Object.values(prog).filter((v) => v > 0);
   if (vals.length === 0) return prog;
-  if (vals.every((v) => v <= 1)) {
-    const scaled: Record<string, number> = {};
-    for (const [k, v] of Object.entries(prog)) {
-      scaled[k] = Math.round(v * 100);
-    }
-    return scaled;
+  // 逐键归一化：混合 0-1 与 0-100 的比例时也按各自尺度处理，避免 0.x 渲染为 0%
+  const scaled: Record<string, number> = {};
+  for (const [k, v] of Object.entries(prog)) {
+    scaled[k] = v <= 1 ? Math.round(v * 100) : v;
   }
-  return prog;
+  return scaled;
 }
 
 function splitByH1(text: string): { heading: string; content: string }[] {

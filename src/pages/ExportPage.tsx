@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -13,7 +13,16 @@ import {
   XCircle, ArrowLeft, HardDrive, Zap,
 } from 'lucide-react';
 
-const PRESETS: Record<string, { name: string; width: number; height: number; fps: number; bitrate: string; icon: string }> = {
+interface PresetDef {
+  name: string;
+  width: number;
+  height: number;
+  fps: number;
+  bitrate: string;
+  icon: string;
+}
+
+const PRESETS: Record<string, PresetDef> = {
   bilibili: { name: 'Bilibili 1080p', width: 1920, height: 1080, fps: 30, bitrate: '6M', icon: '📺' },
   bilibili_4k: { name: 'Bilibili 4K', width: 3840, height: 2160, fps: 30, bitrate: '20M', icon: '🎞️' },
   youtube: { name: 'YouTube 1080p', width: 1920, height: 1080, fps: 30, bitrate: '8M', icon: '▶️' },
@@ -64,7 +73,7 @@ export function ExportPage() {
   const [settings, setSettings] = useState<ExportSettings>({
     preset: 'bilibili', width: 1920, height: 1080, fps: 30, bitrate: '6M',
   });
-  const [apiPresets, setApiPresets] = useState<Record<string, any> | null>(null);
+  const [apiPresets, setApiPresets] = useState<Record<string, Partial<PresetDef>> | null>(null);
   const [loadingPresets, setLoadingPresets] = useState(true);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -74,7 +83,7 @@ export function ExportPage() {
     renderApi.getPresets()
       .then((presets) => {
         if (presets && typeof presets === 'object' && !Array.isArray(presets)) {
-          setApiPresets(presets as Record<string, unknown>);
+          setApiPresets(presets);
         }
       })
       .catch(() => {
@@ -112,7 +121,15 @@ export function ExportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const presets = apiPresets && Object.keys(apiPresets).length > 0 ? { ...PRESETS, ...apiPresets } : PRESETS;
+  // 合并后端预设与内置预设；后端字段缺失时回落到内置默认值，避免 NaN/undefined 设置
+  const presets = useMemo(() => {
+    if (!apiPresets || Object.keys(apiPresets).length === 0) return PRESETS;
+    const merged: Record<string, PresetDef> = { ...PRESETS };
+    for (const [id, p] of Object.entries(apiPresets)) {
+      merged[id] = { ...(merged[id] ?? { name: id, icon: '📦', width: 1920, height: 1080, fps: 30, bitrate: '6M' }), ...p };
+    }
+    return merged;
+  }, [apiPresets]);
 
   const applyPreset = (id: string) => {
     const p = presets[id];
@@ -125,7 +142,9 @@ export function ExportPage() {
     if (timeline.tracks.length === 0) return;
     setSubmitting(true);
     const taskId = uid('render');
-    const filename = `${projectName.replace(/\s+/g, '_')}_${settings.width}x${settings.height}.mp4`;
+    // 文件名消毒：去掉路径分隔符与非法字符，空名称用默认值兜底
+    const safeName = (projectName.trim() || 'project').replace(/[\\/:*?"<>|\s]+/g, '_');
+    const filename = `${safeName}_${settings.width}x${settings.height}.mp4`;
     const item: QueueItem = {
       task_id: taskId, status: 'pending', progress: 0,
       label: projectName, presetName: presets[presetId].name,
@@ -180,9 +199,15 @@ export function ExportPage() {
       }
     };
     es.onerror = () => {
-      // 连接错误：若任务仍在本地队列中显示为进行中，保留状态等待下次恢复
+      // 连接错误：任务若仍显示进行中，标记为失败（避免永远卡在渲染中）；
+      // 已完成的流（后端主动关闭）不会走到这里
       es.close();
       esRefs.current.delete(taskId);
+      setQueue((q) => q.map((it) =>
+        it.task_id === taskId && (it.status === 'pending' || it.status === 'rendering')
+          ? { ...it, status: 'failed', detail: '进度流中断，请重试' }
+          : it,
+      ));
     };
   };
 
@@ -403,13 +428,27 @@ function NumField({ label, value, onChange, min, max, step }: {
   label: string; value: number; onChange: (v: number) => void;
   min?: number; max?: number; step?: number;
 }) {
+  const [text, setText] = useState(String(value));
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setText(String(value));
+  }, [value, focused]);
   return (
     <div>
       <label className="block text-label text-on-surface-variant mb-1">{label}</label>
       <input
         type="number"
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        value={text}
+        onFocus={() => setFocused(true)}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          setFocused(false);
+          const raw = Number(text);
+          if (text.trim() === '' || !isFinite(raw) || raw <= 0) { setText(String(value)); return; }
+          const lo = min ?? raw;
+          const hi = max ?? raw;
+          onChange(Math.min(Math.max(raw, lo), hi));
+        }}
         min={min} max={max} step={step}
         className="w-full bg-surface rounded-cw-xs px-2 py-1.5 text-body-sm font-mono text-on-surface outline-none border border-outline-variant/30 focus:border-primary"
       />

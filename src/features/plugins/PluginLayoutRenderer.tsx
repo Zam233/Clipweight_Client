@@ -15,6 +15,8 @@ import type { UILayout, UIWidget, UIRenderState } from './types';
 export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
   const [state, setState] = useState<UIRenderState>({});
   const updatingRef = useRef(false);
+  // 动作序号：丢弃过期响应，避免快速连点导致旧响应覆盖新状态
+  const actionSeqRef = useRef(0);
 
   const setUIState = useCallback((key: string, value: unknown) => {
     if (updatingRef.current) return;
@@ -46,6 +48,7 @@ export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
       };
 
       const body = action.body ? resolveBody(action.body) : undefined;
+      const seq = ++actionSeqRef.current;
 
       // Set loading state
       if (action.loadingKey) {
@@ -85,10 +88,12 @@ export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
         }
 
         if (action.errorKey) updates[action.errorKey] = null;
+        if (seq !== actionSeqRef.current) return; // 过期响应，丢弃
         updatingRef.current = true;
         setState((s) => ({ ...s, ...updates }));
         updatingRef.current = false;
       } catch (e: unknown) {
+        if (seq !== actionSeqRef.current) return;
         const errMsg = e instanceof Error ? e.message : '请求失败';
         const updates: Record<string, unknown> = {};
         if (action.loadingKey) updates[action.loadingKey] = false;
@@ -103,7 +108,7 @@ export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
 
   const renderWidget = useMemo(
     () =>
-      (widget: UIWidget): React.ReactNode => {
+      (widget: UIWidget, idx: number): React.ReactNode => {
         const vis = widget.visibleWhen ? getValue(widget.visibleWhen) : true;
         if (!vis) return null;
 
@@ -201,11 +206,11 @@ export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
           case 'row': {
             return (
               <div
-                key={`row-${widget.children.length}`}
+                key={`row-${idx}`}
                 className="flex items-center gap-2"
                 style={{ gap: widget.gap != null ? `${widget.gap * 4}px` : undefined }}
               >
-                {widget.children.map(renderWidget)}
+                {widget.children.map((w, i) => renderWidget(w, i))}
               </div>
             );
           }
@@ -213,20 +218,20 @@ export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
           case 'column': {
             return (
               <div
-                key={`col-${widget.children.length}`}
+                key={`col-${idx}`}
                 className="flex flex-col"
                 style={{ gap: widget.gap != null ? `${widget.gap * 4}px` : '12px' }}
               >
-                {widget.children.map(renderWidget)}
+                {widget.children.map((w, i) => renderWidget(w, i))}
               </div>
             );
           }
 
           case 'group': {
             return (
-              <div key={widget.title} className="rounded-cw-sm border border-outline-variant/20 p-3 space-y-3">
+              <div key={`group-${idx}`} className="rounded-cw-sm border border-outline-variant/20 p-3 space-y-3">
                 {widget.title && <h4 className="text-label font-medium text-on-surface-variant">{widget.title}</h4>}
-                {widget.children.map(renderWidget)}
+                {widget.children.map((w, i) => renderWidget(w, i))}
               </div>
             );
           }
@@ -238,5 +243,5 @@ export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
     [getValue, handleAction, setUIState],
   );
 
-  return <div className="space-y-3">{layout.widgets.map(renderWidget)}</div>;
+  return <div className="space-y-3">{layout.widgets.map((w, i) => renderWidget(w, i))}</div>;
 }

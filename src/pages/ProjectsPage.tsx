@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useSettingsStore } from '@/stores/settingsStore';
 import { projectApi } from '@/services/api';
 import { ProjectCard, type ProjectCardData } from '@/components/shared/ProjectCard';
-import { Button, Badge } from '@/components/ui';
+import { Badge } from '@/components/ui';
 import {
   Film, ArrowLeft, Search, FolderOpen, Folder, X, Plus,
   Loader2, PackageOpen, Tag,
@@ -17,7 +16,6 @@ const GRADIENTS: [string, string][] = [
 /* ── page ──────────────────────────────────────────────── */
 export function ProjectsPage() {
   const navigate = useNavigate();
-  const apiBaseUrl = useSettingsStore((s) => s.apiBaseUrl);
 
   const [projects, setProjects] = useState<ProjectCardData[]>([]);
   const [loading, setLoading] = useState(true);

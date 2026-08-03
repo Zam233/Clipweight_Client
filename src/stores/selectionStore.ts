@@ -26,7 +26,7 @@ interface SelectionState {
   selectClipsInRange: (startSec: number, endSec: number, trackIds?: string[]) => void;
 }
 
-export const useSelectionStore = create<SelectionState>((set, get) => ({
+export const useSelectionStore = create<SelectionState>((set) => ({
   selectedClipIds: [],
   selectedTrackId: null,
   toolMode: 'select',

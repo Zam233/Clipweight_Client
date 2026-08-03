@@ -83,7 +83,7 @@ export const assetApi = {
   async searchMaterials(request: MaterialSearchRequest): Promise<MaterialSearchResult[]> {
     const params: Record<string, string> = { query: request.query };
     if (request.limit) params.top_k = String(request.limit);
-    if (request.source) params.sources = request.source;
+    if (request.source) params.sources = Array.isArray(request.source) ? request.source.join(',') : request.source;
     const { data } = await getApiClient().post('/api/material/search', null, { params });
     if (!Array.isArray(data)) return [];
     // Backend nests fields under `asset`; flatten to the frontend shape

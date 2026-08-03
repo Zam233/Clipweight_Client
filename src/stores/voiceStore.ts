@@ -11,6 +11,8 @@ interface VoiceState {
   cloneStep: CloneStep;
   previewUrl: string | null;
   previewLoading: boolean;
+  /** 合成请求序号，用于丢弃过期响应 */
+  previewSeq: number;
 
   fetchVoices: () => Promise<void>;
   cloneVoice: (file: File, name: string, provider?: string) => Promise<boolean>;
@@ -28,6 +30,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   cloneStep: 'idle',
   previewUrl: null,
   previewLoading: false,
+  previewSeq: 0,
 
   fetchVoices: async () => {
     set({ loading: true, error: null });
@@ -73,11 +76,14 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   },
 
   synthesizePreview: async (voiceId, text) => {
+    const seq = ++get().previewSeq;
     set({ previewLoading: true, previewUrl: null, error: null });
     try {
       const res = await voiceApi.synthesize({ voice_id: voiceId, text });
+      if (seq !== get().previewSeq) return; // 过期响应（用户已切换音色）不覆盖新状态
       set({ previewUrl: voiceApi.getAudioUrl(res.audio_url), previewLoading: false });
     } catch (e: unknown) {
+      if (seq !== get().previewSeq) return;
       const detail =
         (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
         (e instanceof Error ? e.message : '合成失败');

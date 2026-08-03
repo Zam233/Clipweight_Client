@@ -13,6 +13,8 @@ interface SliderProps {
 }
 
 function Slider({ value, onChange, min = 0, max = 100, step = 1, label, className }: SliderProps) {
+  // 值超出 [min,max]（如后端返回的越界数据）时：滑块钳位，标签显示真实值
+  const clamped = Math.min(Math.max(value, min), max);
   return (
     <div className={cn('flex items-center gap-2', className)}>
       {label && (
@@ -25,7 +27,7 @@ function Slider({ value, onChange, min = 0, max = 100, step = 1, label, classNam
         min={min}
         max={max}
         step={step}
-        value={value}
+        value={clamped}
         onChange={(e) => onChange(Number(e.target.value))}
         className="flex-1 h-1.5 rounded-cw-full appearance-none cursor-pointer
           bg-outline-variant accent-primary

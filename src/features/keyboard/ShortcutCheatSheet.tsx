@@ -22,7 +22,7 @@ export function ShortcutCheatSheet({ open, onClose }: { open: boolean; onClose: 
       map.get(b.category)!.push({ combo: b.combo, label: b.label });
     }
     return [...map.entries()];
-  }, [open]);
+  }, []);
 
   if (!open) return null;
 

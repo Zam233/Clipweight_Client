@@ -43,6 +43,8 @@ test.describe('编辑器功能测试 (Stage 10-12)', () => {
 
     // 等待保存完成（可能会改变 DOM）
     await page.waitForTimeout(500);
+    // 验证确实发出了保存请求
+    expect(saveCalled).toBe(true);
     // 验证保存按钮仍然存在（没有崩溃）
     await expect(page.getByRole('button', { name: /保存/ })).toBeVisible();
   });

@@ -329,7 +329,7 @@ export function drawClip(
   ctx.clip();
 
   if (track.kind === 'audio' || track.kind === 'waveform') {
-    drawWaveform(ctx, clip, x, y, w, h, color);
+    drawWaveform(ctx, clip, x, y, w, h);
   } else if (track.kind === 'video' || track.kind === 'image') {
     drawVideoContent(ctx, clip, x, y, w, h);
   } else if (track.kind === 'text' || track.kind === 'caption') {
@@ -416,7 +416,7 @@ function clipLabel(clip: Clip, kind: ClipKind): string {
 
 function drawWaveform(
   ctx: CanvasRenderingContext2D, clip: Clip,
-  x: number, y: number, w: number, h: number, color: string,
+  x: number, y: number, w: number, h: number,
 ) {
   const barW = 2.5;
   const gap = 1.5;

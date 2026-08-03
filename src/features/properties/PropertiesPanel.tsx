@@ -88,7 +88,8 @@ export function PropertiesPanel() {
       <div className="flex-1 overflow-y-auto min-h-0">
         {selectedClipIds.length === 0 && <NoSelection />}
         {selectedClipIds.length > 1 && (
-          <BatchEditSection count={selectedClipIds.length} set={set} pushHistory={pushHistory} />
+          <BatchEditSection count={selectedClipIds.length} set={set} pushHistory={pushHistory}
+            initial={clip ? { speed: clip.speed, volume: clip.volume, opacity: clip.opacity } : { speed: 1, volume: 1, opacity: 1 }} />
         )}
         {clip && (
           <div className="p-3 space-y-4">
@@ -401,15 +402,39 @@ function TransformSection({ clip, pushHistory, set }: {
   const y = t.y ?? 0;
   const scale = t.scale ?? 1;
   const rotation = t.rotation ?? 0;
+  const { updateClip } = useTimelineStore.getState();
 
   const setTransform = (patch: Partial<{ x: number; y: number; scale: number; rotation: number }>) => {
     pushHistory();
-    set({ metadata: { ...clip.metadata, transform: { x, y, scale, rotation, ...patch } } });
+    const apply = (c: Clip) => {
+      const prev = (c.metadata?.transform ?? {}) as { x?: number; y?: number; scale?: number; rotation?: number };
+      updateClip(c.id, {
+        metadata: { ...c.metadata, transform: { x: prev.x ?? 0, y: prev.y ?? 0, scale: prev.scale ?? 1, rotation: prev.rotation ?? 0, ...patch } },
+      });
+    };
+    const sel = useSelectionStore.getState().selectedClipIds;
+    if (sel.length > 1) {
+      // 多选时逐个合并各自 metadata，避免用第一个片段的 metadata 覆盖其他片段
+      sel.forEach((id) => {
+        const c = useTimelineStore.getState().getClip(id);
+        if (c) apply(c);
+      });
+    } else {
+      apply(clip);
+    }
   };
 
   const reset = () => {
     pushHistory();
-    set({ metadata: { ...clip.metadata, transform: { x: 0, y: 0, scale: 1, rotation: 0 } } });
+    const sel = useSelectionStore.getState().selectedClipIds;
+    if (sel.length > 1) {
+      sel.forEach((id) => {
+        const c = useTimelineStore.getState().getClip(id);
+        if (c) updateClip(c.id, { metadata: { ...c.metadata, transform: { x: 0, y: 0, scale: 1, rotation: 0 } } });
+      });
+    } else {
+      set({ metadata: { ...clip.metadata, transform: { x: 0, y: 0, scale: 1, rotation: 0 } } });
+    }
   };
 
   return (
@@ -597,7 +622,8 @@ function NumberInput({ value, onChange }: { value: number; onChange: (v: number)
   }, [value, focused]);
   const commit = () => {
     const v = Number(text);
-    if (text.trim() !== '' && !isNaN(v)) onChange(v);
+    // Infinity（如 1e999）会污染时间线时长并让合成器 NaN，必须拒绝
+    if (text.trim() !== '' && !isNaN(v) && isFinite(v)) onChange(v);
     else setText(String(round2(value))); // revert invalid/empty input
   };
   return (
@@ -657,14 +683,19 @@ function TransitionSelect({ value, onChange }: { value: string; onChange: (v: st
   );
 }
 
-function BatchEditSection({ count, set, pushHistory }: { count: number; set: (u: Partial<Clip>) => void; pushHistory: () => void }) {
+function BatchEditSection({ count, set, pushHistory, initial }: {
+  count: number;
+  set: (u: Partial<Clip>) => void;
+  pushHistory: () => void;
+  initial: Pick<Clip, 'speed' | 'volume' | 'opacity'>;
+}) {
   return (
     <Section title={`批量编辑 · ${count} 个片段`}>
-      <Slider label="速度（全部）" min={0.25} max={4} step={0.25} value={1}
+      <Slider label="速度（全部）" min={0.25} max={4} step={0.25} value={initial.speed}
         onChange={(v) => { pushHistory(); set({ speed: v }); }} />
-      <Slider label="音量（全部）" min={0} max={1} step={0.05} value={1}
+      <Slider label="音量（全部）" min={0} max={1} step={0.05} value={initial.volume}
         onChange={(v) => { pushHistory(); set({ volume: v }); }} />
-      <Slider label="不透明度（全部）" min={0} max={1} step={0.05} value={1}
+      <Slider label="不透明度（全部）" min={0} max={1} step={0.05} value={initial.opacity}
         onChange={(v) => { pushHistory(); set({ opacity: v }); }} />
     </Section>
   );

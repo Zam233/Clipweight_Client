@@ -15,7 +15,7 @@ interface TimelineState {
   updateTimelineMeta: (meta: Partial<Pick<Timeline, 'width' | 'height' | 'fps' | 'duration_sec'>>) => void;
 
   // Track actions
-  addTrack: (kind: ClipKind, name?: string) => string;
+  addTrack: (kind: ClipKind, name?: string, index?: number) => string;
   removeTrack: (trackId: string) => void;
   reorderTrack: (trackId: string, newIndex: number) => void;
   toggleTrackLock: (trackId: string) => void;
@@ -77,23 +77,27 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
       return { timeline, isDirty: true };
     }),
 
-  addTrack: (kind, name) => {
+  addTrack: (kind, name, index) => {
     const id = uid('track');
     set((state) => {
-      const index = state.timeline.tracks.length;
+      const insertAt = index === undefined
+        ? state.timeline.tracks.length
+        : Math.max(0, Math.min(index, state.timeline.tracks.length));
       const track: Track = {
         id,
-        name: name || `${kind.toUpperCase()} ${index + 1}`,
+        name: name || `${kind.toUpperCase()} ${insertAt + 1}`,
         kind,
-        index,
+        index: insertAt,
         clips: [],
         locked: false,
         muted: false,
       };
+      const tracks = [...state.timeline.tracks];
+      tracks.splice(insertAt, 0, track);
       return {
         timeline: {
           ...state.timeline,
-          tracks: [...state.timeline.tracks, track],
+          tracks: tracks.map((t, i) => (t.index === i ? t : { ...t, index: i })),
         },
         isDirty: true,
       };
@@ -176,7 +180,9 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     set((state) => {
       const clip = createDefaultClip({ ...clipData, id, track_id: trackId });
       const tracks = state.timeline.tracks.map((t) =>
-        t.id === trackId ? { ...t, clips: [...t.clips, clip] } : t,
+        t.id === trackId
+          ? { ...t, clips: [...t.clips, clip].sort((a, b) => a.start_sec - b.start_sec) }
+          : t,
       );
       return {
         timeline: {
@@ -242,7 +248,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
       const updatedClip = { ...movedClip, track_id: targetTrackId, start_sec: newStartSec };
       const tracks = tracksWithout.map((t) =>
         t.id === targetTrackId
-          ? { ...t, clips: [...t.clips, updatedClip] }
+          ? { ...t, clips: [...t.clips, updatedClip].sort((a, b) => a.start_sec - b.start_sec) }
           : t,
       );
       return {

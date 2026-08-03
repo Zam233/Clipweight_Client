@@ -120,13 +120,13 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
   setMarkerIn: () => {
     const { currentTimeSec, loopRegion, durationSec } = get();
     const end = loopRegion?.end ?? durationSec;
-    // Ensure start < end to avoid an inverted (jamming) region
-    set({ loopRegion: { start: Math.min(currentTimeSec, end - 0.01), end } });
+    // Ensure start < end to avoid an inverted (jamming) region; clamp to >= 0
+    set({ loopRegion: { start: Math.min(Math.max(currentTimeSec, 0), Math.max(end - 0.01, 0)), end } });
   },
   setMarkerOut: () => {
-    const { currentTimeSec, loopRegion } = get();
+    const { currentTimeSec, loopRegion, durationSec } = get();
     const start = loopRegion?.start ?? 0;
-    set({ loopRegion: { start, end: Math.max(currentTimeSec, start + 0.01) } });
+    set({ loopRegion: { start, end: Math.min(Math.max(currentTimeSec, start + 0.01), Math.max(durationSec, start + 0.01)) } });
   },
   setPlaybackSpeed: (speed) => set({ playbackSpeed: Math.max(0.25, Math.min(4, speed)) }),
   resetPreview: () =>

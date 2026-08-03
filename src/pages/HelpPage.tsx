@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { StandardLayout } from '@/layouts/StandardLayout';
-import { Badge } from '@/components/ui';
 import {
   ArrowLeft, Keyboard, MousePointer2, Film, Bot, Layers,
   BookOpen, Zap, Search,

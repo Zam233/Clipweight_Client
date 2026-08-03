@@ -16,6 +16,8 @@ export function usePluginUI(pluginId: string) {
 
   useEffect(() => {
     let alive = true;
+    // 切换插件时清空旧布局，避免上一个插件的 UI 残留
+    setLayout(null);
     setLoading(true);
     setError(null);
     (async () => {

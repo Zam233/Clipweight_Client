@@ -149,6 +149,7 @@ async function main() {
         console.log(`[e2e]   Waiting for plan... (${(i+1)*4}s)`);
       }
     }
+    if (!planReady) console.warn('[e2e] WARN: plan not detected in 6 min, continuing anyway');
 
     // ─── Step 10: Confirm plan ───
     console.log('[e2e] ===== Step 10: Confirm plan =====');

@@ -8,7 +8,10 @@ export function loadPref<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(`clipwright.${key}`);
     if (raw == null) return fallback;
-    return { ...fallback, ...JSON.parse(raw) } as T;
+    const parsed = JSON.parse(raw);
+    // 只合并普通对象；字符串/数字/null 等异常数据直接回退默认值
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return fallback;
+    return { ...fallback, ...parsed } as T;
   } catch {
     return fallback;
   }

@@ -15,6 +15,37 @@ describe('timelineStore', () => {
     expect(tracks[0].kind).toBe('video');
   });
 
+  it('adds a track at a specific index (dropAssetAt insert position)', () => {
+    useTimelineStore.getState().addTrack('video', 'V1');
+    useTimelineStore.getState().addTrack('text', 'T1');
+    // 在位置 1（两条轨道之间）插入
+    const id = useTimelineStore.getState().addTrack('video', 'V2', 1);
+    const tracks = useTimelineStore.getState().timeline.tracks;
+    expect(tracks.map((t) => t.id)).toEqual([tracks[0].id, id, tracks[2].id]);
+    expect(tracks.map((t) => t.index)).toEqual([0, 1, 2]);
+    expect(tracks[1].name).toBe('V2');
+  });
+
+  it('adds a track with an out-of-range index clamped', () => {
+    useTimelineStore.getState().addTrack('video');
+    useTimelineStore.getState().addTrack('audio', 'A1', 99);
+    const tracks = useTimelineStore.getState().timeline.tracks;
+    expect(tracks).toHaveLength(2);
+    expect(tracks[1].kind).toBe('audio');
+  });
+
+  it('keeps clips sorted by start_sec after addClip/moveClip', () => {
+    const tid = useTimelineStore.getState().addTrack('video');
+    useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 10, duration_sec: 2 });
+    const mid = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 0, duration_sec: 2 });
+    const clips = useTimelineStore.getState().timeline.tracks[0].clips;
+    expect(clips.map((c) => c.start_sec)).toEqual([0, 10]);
+    // moveClip 也保持有序
+    useTimelineStore.getState().moveClip(mid, tid, 5);
+    const after = useTimelineStore.getState().timeline.tracks[0].clips;
+    expect(after.map((c) => c.start_sec)).toEqual([5, 10]);
+  });
+
   it('adds a clip to a track', () => {
     const tid = useTimelineStore.getState().addTrack('video');
     const cid = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 0, duration_sec: 5 });

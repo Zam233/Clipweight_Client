@@ -25,7 +25,7 @@ interface AssetState {
   clearAssets: () => void;
 }
 
-export const useAssetStore = create<AssetState>((set, get) => ({
+export const useAssetStore = create<AssetState>((set) => ({
   activeTab: 'library',
   assets: [],
   searchResults: [],

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    [
+    	"oh-my-opencode",
+    	{
+    		"agents": {
+    			"sisyphus": {
+    				"model": "deepseek/deepseek-v4-flash"
+    			}
+    		}
+    	}
+    ],
+    [
+    	"opencode-eyesight",
+    		{
+    		"model": "tokenplan/qwen3.8-max",
+    		"promptFile": "./image-prompt.md"
+    		}
+    ]
+  ]
+}

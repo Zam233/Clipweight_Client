@@ -69,7 +69,10 @@ export function EditorToolbar() {
         if (sel.includes(c.id)) found.push(c);
       }
     }
-    if (found.length > 0) clipClipboard.clips = found;
+    if (found.length > 0) {
+      // 按起始时间排序：粘贴偏移以最早的片段为锚点
+      clipClipboard.clips = [...found].sort((a, b) => a.start_sec - b.start_sec);
+    }
   };
 
   const handlePaste = () => {

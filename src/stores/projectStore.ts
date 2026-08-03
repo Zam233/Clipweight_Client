@@ -118,6 +118,6 @@ export const useProjectStore = create<ProjectState>((set) => ({
       requirementsScript: '',
       requirementsAudioDuration: 0,
       materialSourceIds: [],
-      dubSegments: [],
+      dubSegments: null,
     }),
 }));

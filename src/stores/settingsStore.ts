@@ -38,14 +38,17 @@ interface SettingsState {
 
 /** Load persisted editor preferences. */
 function loadEditorPrefs() {
-  return loadPref('editorPrefs', {
-    snapEnabled: true,
-    snapThresholdPx: 8,
-    snapToGrid: false,
-    snapGridSec: 1,
-    showFramesInRuler: false,
-    theme: 'dark' as 'dark' | 'light',
-  });
+  const raw = loadPref<Record<string, unknown>>('editorPrefs', {});
+  const num = (v: unknown, def: number, lo: number, hi: number) =>
+    typeof v === 'number' && isFinite(v) ? Math.min(Math.max(v, lo), hi) : def;
+  return {
+    snapEnabled: typeof raw.snapEnabled === 'boolean' ? raw.snapEnabled : true,
+    snapThresholdPx: num(raw.snapThresholdPx, 8, 0, 100),
+    snapToGrid: typeof raw.snapToGrid === 'boolean' ? raw.snapToGrid : false,
+    snapGridSec: num(raw.snapGridSec, 1, 0.05, 60),
+    showFramesInRuler: typeof raw.showFramesInRuler === 'boolean' ? raw.showFramesInRuler : false,
+    theme: raw.theme === 'light' ? ('light' as const) : ('dark' as const),
+  };
 }
 
 const prefs = loadEditorPrefs();

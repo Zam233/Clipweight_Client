@@ -25,11 +25,16 @@ export function useGlobalKeybindings() {
       const sel = useSelectionStore.getState().selectedClipIds;
       const store = useTimelineStore.getState();
       const t = usePreviewStore.getState().currentTimeSec;
+      // 一次手势只推一个撤销点：先快照再批量切分
+      let pushed = false;
       for (const cid of sel) {
         for (const tr of store.timeline.tracks) {
           const clip = tr.clips.find((c) => c.id === cid);
           if (clip && t > clip.start_sec && t < clip.start_sec + clip.duration_sec) {
-            useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'split');
+            if (!pushed) {
+              useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'split');
+              pushed = true;
+            }
             store.splitClip(clip.id, t);
             break;
           }
@@ -88,7 +93,10 @@ export function useGlobalKeybindings() {
           if (sel.includes(c.id)) found.push(c);
         }
       }
-      if (found.length > 0) clipClipboard.clips = found;
+      if (found.length > 0) {
+        // 按起始时间排序：粘贴偏移以最早的片段为锚点
+        clipClipboard.clips = [...found].sort((a, b) => a.start_sec - b.start_sec);
+      }
     };
 
     const pasteClips = () => {
@@ -122,7 +130,7 @@ export function useGlobalKeybindings() {
         }
       }
       if (found.length > 0) {
-        clipClipboard.clips = found;
+        clipClipboard.clips = [...found].sort((a, b) => a.start_sec - b.start_sec);
         useHistoryStore.getState().pushState(store.timeline, 'cut');
         sel.forEach((id) => store.removeClip(id));
         useSelectionStore.getState().deselectAll();
@@ -279,12 +287,13 @@ export function useGlobalKeybindings() {
       if (sel.length === 0) return;
       const store = useTimelineStore.getState();
       const t = usePreviewStore.getState().currentTimeSec;
+      // 一次手势只推一个撤销点
+      useHistoryStore.getState().pushState(store.timeline, 'add-keyframe');
       for (const cid of sel) {
         const clip = store.getClip(cid);
         if (!clip) continue;
         const relT = clip.duration_sec > 0 ? (t - clip.start_sec) / clip.duration_sec : 0;
         if (relT < 0 || relT > 1) continue;
-        useHistoryStore.getState().pushState(store.timeline, 'add-keyframe');
         const existing = clip.keyframes?.find((k) => Math.abs(k.time - relT) < 0.005);
         if (existing) {
           store.updateClip(cid, {
@@ -389,8 +398,6 @@ export function useGlobalKeybindings() {
           }
         },
       },
-      { id: 'zoom-fit-all', combo: 'shift+f', label: '缩放适配选中片段', category: '时间轴',
-        handler: () => {}, /* handled by TimelinePanel engine ref */ },
       { id: 'nudge-left', combo: 'shift+[', label: '左移一帧', category: '编辑',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: nudgeLeft },
