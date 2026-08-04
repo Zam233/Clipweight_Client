@@ -36,6 +36,15 @@ export function PersonaDetailPage() {
   const [kbBusy, setKbBusy] = useState(false);
   const [kbStatus, setKbStatus] = useState('');
   const [voices, setVoices] = useState<VoiceRecord[]>([]);
+  const [knowledge, setKnowledge] = useState<Awaited<ReturnType<typeof personaApi.getKnowledge>>>([]);
+  const [kbListError, setKbListError] = useState('');
+  const [ragBusy, setRagBusy] = useState(false);
+  const [ragStatusText, setRagStatusText] = useState('');
+  const [promptSaving, setPromptSaving] = useState(false);
+  const [promptError, setPromptError] = useState('');
+  const [visionPrompt, setVisionPrompt] = useState('');
+  const [visionPromptSaving, setVisionPromptSaving] = useState(false);
+  const [visionPromptError, setVisionPromptError] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -46,10 +55,63 @@ export function PersonaDetailPage() {
       } catch {
         if (alive) setPersona(makeShell(personaId));
       }
+      // Prompt 与知识库走独立路由（GET /prompt、GET /knowledge）
+      personaApi.getPrompt(personaId)
+        .then((r) => { if (alive) setPrompt(r.prompt ?? ''); })
+        .catch(() => {});
+      personaApi.getVisionPrompt(personaId)
+        .then((r) => { if (alive) setVisionPrompt(r.vision_prompt ?? ''); })
+        .catch(() => {});
+      personaApi.getKnowledge(personaId)
+        .then((docs) => { if (alive) setKnowledge(docs); })
+        .catch(() => { if (alive) setKbListError('知识库加载失败：后端不可达'); });
     })();
     voiceApi.list().then((v) => { if (alive) setVoices(v); }).catch(() => {});
     return () => { alive = false; };
   }, [personaId]);
+
+  const savePrompt = async () => {
+    setPromptSaving(true);
+    setPromptError('');
+    try {
+      await personaApi.updatePrompt(personaId, prompt);
+    } catch {
+      setPromptError('Prompt 保存失败：后端未连接或请求被拒绝');
+    }
+    setPromptSaving(false);
+  };
+
+  const saveVisionPrompt = async () => {
+    setVisionPromptSaving(true);
+    setVisionPromptError('');
+    try {
+      await personaApi.updateVisionPrompt(personaId, visionPrompt);
+    } catch {
+      setVisionPromptError('视觉需求 Prompt 保存失败：后端未连接或请求被拒绝');
+    }
+    setVisionPromptSaving(false);
+  };
+
+  const runRag = async (op: 'index' | 'status' | 'delete') => {
+    setRagBusy(true);
+    setRagStatusText('');
+    try {
+      if (op === 'index') {
+        const r = await personaApi.ragIndex(personaId);
+        setRagStatusText(`索引完成：${r.total_chunks ?? 0} 个片段 / ${r.total_docs ?? 0} 篇文档`);
+      } else if (op === 'status') {
+        const r = await personaApi.ragStatus(personaId);
+        setRagStatusText(`索引状态：${r.indexed ? '已索引' : '未索引'} · 文档 ${r.knowledge_doc_count} 篇`);
+      } else {
+        await personaApi.ragDelete(personaId);
+        setRagStatusText('向量索引已删除');
+      }
+    } catch {
+      setRagStatusText('操作失败：后端不可达或索引服务异常');
+    } finally {
+      setRagBusy(false);
+    }
+  };
 
   const save = async () => {
     if (!persona) return;
@@ -87,6 +149,9 @@ export function PersonaDetailPage() {
         source: 'upload',
       });
       setKbStatus(`已上传「${file.name}」并完成向量索引`);
+      personaApi.getKnowledge(persona.persona_id)
+        .then((docs) => setKnowledge(docs))
+        .catch(() => {});
     } catch {
       setKbStatus('上传失败：后端不可达或索引服务异常');
     } finally {
@@ -219,6 +284,28 @@ export function PersonaDetailPage() {
               placeholder="你是「扎姆」，一个批判型知识区 UP 主……"
               className="w-full bg-surface-container rounded-cw-md px-4 py-3 text-body-sm font-mono text-on-surface
                 outline-none border border-outline-variant/30 focus:border-primary resize-y leading-relaxed" />
+            <div className="mt-3 flex items-center gap-3">
+              {promptError && <span className="text-caption text-error">{promptError}</span>}
+              <Button variant="outline" size="sm" onClick={savePrompt} disabled={promptSaving}>
+                <Save className="w-4 h-4" /> {promptSaving ? '保存中…' : '保存 Prompt'}
+              </Button>
+              <span className="text-caption text-on-surface-variant/60">GET/PUT /api/persona/{personaId}/prompt</span>
+            </div>
+
+            <div className="h-px bg-outline-variant/30 my-6" />
+
+            <p className="text-label-sm text-on-surface-variant mb-2">视觉需求 Prompt（注入结构/动画/MG 生成的画面风格）</p>
+            <textarea value={visionPrompt} onChange={(e) => setVisionPrompt(e.target.value)} rows={8}
+              placeholder="画面整体为科技感冷色调，配合节奏明快的 MG 动效……"
+              className="w-full bg-surface-container rounded-cw-md px-4 py-3 text-body-sm font-mono text-on-surface
+                outline-none border border-outline-variant/30 focus:border-primary resize-y leading-relaxed" />
+            <div className="mt-3 flex items-center gap-3">
+              {visionPromptError && <span className="text-caption text-error">{visionPromptError}</span>}
+              <Button variant="outline" size="sm" onClick={saveVisionPrompt} disabled={visionPromptSaving}>
+                <Save className="w-4 h-4" /> {visionPromptSaving ? '保存中…' : '保存视觉需求 Prompt'}
+              </Button>
+              <span className="text-caption text-on-surface-variant/60">GET/PUT /api/persona/{personaId}/vision-prompt</span>
+            </div>
           </div>
         )}
 
@@ -230,6 +317,37 @@ export function PersonaDetailPage() {
               </h4>
               <p className="text-label-sm text-on-surface-variant mb-3">在已索引的知识库文档中检索相关内容。</p>
               <RagSearch personaId={persona.persona_id} />
+            </div>
+            <div className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-5">
+              <h4 className="text-body-sm font-medium text-on-surface mb-1">
+                <Database className="w-3.5 h-3.5 inline mr-1.5" />RAG 索引管理
+              </h4>
+              <p className="text-label-sm text-on-surface-variant mb-3">建立、查看或删除该人格的向量索引。</p>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => runRag('index')} disabled={ragBusy}>建立/重建索引</Button>
+                <Button size="sm" variant="outline" onClick={() => runRag('status')} disabled={ragBusy}>查看状态</Button>
+                <Button size="sm" variant="outline" onClick={() => runRag('delete')} disabled={ragBusy}>删除索引</Button>
+              </div>
+              {ragStatusText && <p className="text-caption text-on-surface-variant mt-2">{ragStatusText}</p>}
+            </div>
+            <div className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-5">
+              <h4 className="text-body-sm font-medium text-on-surface mb-2">
+                <FileText className="w-3.5 h-3.5 inline mr-1.5" />知识库文档（{knowledge.length}）
+              </h4>
+              {knowledge.length === 0 ? (
+                <p className="text-label-sm text-on-surface-variant/70">{kbListError || '暂无文档，上传后将在此列出。'}</p>
+              ) : (
+                <ul className="space-y-2">
+                  {knowledge.map((doc) => (
+                    <li key={doc.id} className="bg-surface rounded-cw-xs border border-outline-variant/20 px-3 py-2">
+                      <p className="text-body-sm text-on-surface">{doc.title || '(无标题)'}</p>
+                      <p className="text-caption text-on-surface-variant/70 font-mono">
+                        {doc.source || 'upload'}{doc.created_at ? ` · ${doc.created_at}` : ''}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <div className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-5 text-center">
               <Database className="w-6 h-6 text-on-surface-variant/40 mx-auto mb-1.5" />

@@ -53,6 +53,12 @@ export const personaApi = {
     return data;
   },
 
+  /** List knowledge documents for a persona */
+  async getKnowledge(personaId: string) {
+    const { data } = await getApiClient().get(`/api/persona/${personaId}/knowledge`);
+    return data as Array<{ id: string; title?: string; content: string; source?: string; created_at?: string }>;
+  },
+
   /** Run RAG query against a persona's knowledge base */
   async ragQuery(personaId: string, query: string) {
     const { data } = await getApiClient().post(
@@ -60,6 +66,53 @@ export const personaApi = {
       { query },
     );
     return data as { answer?: string; chunks?: Array<{ content: string; score: number }> };
+  },
+
+  /** Build/refresh a persona's vector index */
+  async ragIndex(personaId: string, forceRebuild = false) {
+    const { data } = await getApiClient().post(
+      `/api/persona/${personaId}/rag/index`,
+      { force_rebuild: forceRebuild },
+    );
+    return data as { status: string; persona_id: string; total_docs?: number; total_chunks?: number };
+  },
+
+  /** Query a persona's vector index status */
+  async ragStatus(personaId: string) {
+    const { data } = await getApiClient().get(`/api/persona/${personaId}/rag/status`);
+    return data as { persona_id: string; has_index: boolean; knowledge_doc_count: number; indexed: boolean };
+  },
+
+  /** Delete a persona's vector index */
+  async ragDelete(personaId: string) {
+    const { data } = await getApiClient().delete(`/api/persona/${personaId}/rag/index`);
+    return data as { status: string; persona_id: string };
+  },
+
+  // ── Prompt 管理 ──
+
+  /** Get a persona's prompt instruction */
+  async getPrompt(personaId: string) {
+    const { data } = await getApiClient().get(`/api/persona/${personaId}/prompt`);
+    return data as { persona_id: string; prompt: string };
+  },
+
+  /** Save/update a persona's prompt instruction */
+  async updatePrompt(personaId: string, prompt: string) {
+    const { data } = await getApiClient().put(`/api/persona/${personaId}/prompt`, { prompt });
+    return data as { status: string; persona_id: string };
+  },
+
+  /** Get a persona's vision prompt instruction */
+  async getVisionPrompt(personaId: string) {
+    const { data } = await getApiClient().get(`/api/persona/${personaId}/vision-prompt`);
+    return data as { persona_id: string; vision_prompt: string };
+  },
+
+  /** Save/update a persona's vision prompt instruction */
+  async updateVisionPrompt(personaId: string, visionPrompt: string) {
+    const { data } = await getApiClient().put(`/api/persona/${personaId}/vision-prompt`, { vision_prompt: visionPrompt });
+    return data as { status: string; persona_id: string };
   },
 
   // ── Chat Forge ──
@@ -99,12 +152,52 @@ export const personaApi = {
     return data;
   },
 
+  /** Get a chat forge session's current state */
+  async chatForgeState(sessionId: string) {
+    const { data } = await getApiClient().get(`/api/persona/forge/chat/state/${sessionId}`);
+    return data as Record<string, unknown>;
+  },
+
   // ── PersonaForge (from prompt) ──
 
   /** Generate persona from description */
-  async forgeFromPrompt(description: string) {
+  async forgeFromPrompt(description: string, personaId: string, personaName?: string) {
     const { data } = await getApiClient().post('/api/persona/forge/from-prompt', {
       description,
+      persona_id: personaId,
+      persona_name: personaName ?? '',
+    });
+    return data;
+  },
+
+  // ── PersonaForge (extended modes) ──
+
+  /** Generate persona from a script/口播文本 (POST /from-script) */
+  async forgeFromScript(script: string, personaId: string, personaName?: string, scriptFormat = 'txt') {
+    const { data } = await getApiClient().post('/api/persona/forge/from-script', {
+      script,
+      persona_id: personaId,
+      persona_name: personaName ?? '',
+      script_format: scriptFormat,
+    });
+    return data;
+  },
+
+  /** Dialogue guidance: generate next guiding questions (POST /dialogue/generate-questions) */
+  async forgeDialogueQuestions(personaId: string, existingAnswers?: Record<string, unknown>) {
+    const { data } = await getApiClient().post('/api/persona/forge/dialogue/generate-questions', {
+      persona_id: personaId,
+      existing_answers: existingAnswers,
+    });
+    return data as Array<{ question?: string; category?: string; field?: string }>;
+  },
+
+  /** Dialogue guidance: build persona from Q&A answers (POST /dialogue/build) */
+  async forgeDialogueBuild(personaId: string, answers: Record<string, unknown>, personaName?: string) {
+    const { data } = await getApiClient().post('/api/persona/forge/dialogue/build', {
+      persona_id: personaId,
+      persona_name: personaName ?? '',
+      answers,
     });
     return data;
   },

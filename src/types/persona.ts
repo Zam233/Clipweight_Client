@@ -64,6 +64,7 @@ export interface Persona {
   version: string;
   parameter: ParameterLayer;
   prompt?: string;
+  vision_prompt?: string;
   parent_id?: string | null;
   created_at?: string;
   updated_at?: string;
