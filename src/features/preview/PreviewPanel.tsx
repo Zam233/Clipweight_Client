@@ -3,6 +3,7 @@ import { useTimelineStore } from '@/stores/timelineStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { TRACK_COLORS } from '@/types/timeline';
 import type { Clip, Track } from '@/types/timeline';
+import { captionBaselineY, captionFontSize } from './captionLayout';
 import { formatTimecode, clamp } from '@/lib/utils';
 import { mediaManager } from '@/services/media/mediaManager';
 import { interpolateProperties } from '@/features/timeline/engine/easing';
@@ -449,24 +450,72 @@ function drawClipToPreview(
     case 'text':
     case 'caption': {
       const text = clip.text || '文字';
-      const fontSize = (clip.font_size ?? 48) * (fh / 1080) * tf.scale;
-      ctx.font = `600 ${fontSize}px 'Noto Sans SC','PingFang SC',sans-serif`;
+      // Min-dimension scaling keeps caption text fitting portrait frames too
+      // (height-only scaling overflows 1080x1920 exports).
+      const fontSize = captionFontSize(clip.font_size ?? 48, fw, fh, tf.scale);
+      // Font family comes from clip.font (was hardcoded); apply weight + italic
+      const fontStyle = clip.font_italic ? 'italic' : 'normal';
+      const fontWeight = clip.font_weight || 'normal';
+      ctx.font = `${fontStyle} ${fontWeight} ${fontSize}px ${quoteFontFamily(clip.font)}`;
+      // Letter spacing (feature-detected; unsupported browsers ignore it)
+      const hasLetterSpacing = 'letterSpacing' in ctx;
+      const letterSpacingPx = clip.letter_spacing ?? 0;
+      if (hasLetterSpacing && letterSpacingPx !== 0) {
+        (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${letterSpacingPx}px`;
+      }
       // Horizontal alignment from clip.text_align
       const align = clip.text_align ?? 'center';
       ctx.textAlign = align as CanvasTextAlign;
       ctx.textBaseline = 'middle';
       ctx.fillStyle = clip.font_color || '#FFFFFF';
-      ctx.shadowColor = 'rgba(0,0,0,0.6)';
-      ctx.shadowBlur = 8;
-      const baseY = track.kind === 'caption' ? fy + fh * 0.85 : fy + fh / 2;
+      const baseY = track.kind === 'caption' ? fy + captionBaselineY(fh) : fy + fh / 2;
       const baseX = align === 'left' ? fx + fw * 0.05 : align === 'right' ? fx + fw * 0.95 : fx + fw / 2;
+      const maxWidth = fw * 0.9;
       // Apply position offset + rotation about the text anchor
       ctx.save();
       ctx.translate(baseX + tf.x * fw, baseY + tf.y * fh);
       if (tf.rotation !== 0) ctx.rotate((tf.rotation * Math.PI) / 180);
-      ctx.fillText(text, 0, 0, fw * 0.9);
+
+      // Drop shadow (from style fields)
+      const shadowColor = clip.shadow_color || '';
+      const shadowX = clip.shadow_x ?? 0;
+      const shadowY = clip.shadow_y ?? 0;
+      const shadowBlur = clip.shadow_blur ?? 0;
+      if (shadowBlur > 0 && shadowColor) {
+        ctx.shadowColor = shadowColor;
+        ctx.shadowOffsetX = shadowX;
+        ctx.shadowOffsetY = shadowY;
+        ctx.shadowBlur = shadowBlur;
+      }
+
+      // Glow pass — blurred halo rendered behind the glyphs, offsets zeroed
+      const glowColor = clip.glow_color || '';
+      const glowWidth = clip.glow_width ?? 0;
+      if (glowWidth > 0 && glowColor) {
+        ctx.save();
+        ctx.shadowColor = glowColor;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+        ctx.shadowBlur = glowWidth;
+        ctx.fillText(text, 0, 0, maxWidth);
+        ctx.restore();
+      }
+
+      // Stroke before fill so the fill covers the inner half of the outline
+      const strokeColor = clip.stroke_color || '#000000';
+      const strokeWidth = clip.stroke_width ?? 0;
+      if (strokeWidth > 0 && strokeColor) {
+        ctx.lineWidth = strokeWidth;
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = strokeColor;
+        ctx.strokeText(text, 0, 0, maxWidth);
+      }
+      ctx.fillText(text, 0, 0, maxWidth);
       ctx.restore();
-      ctx.shadowBlur = 0;
+
+      if (hasLetterSpacing && letterSpacingPx !== 0) {
+        (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '0px';
+      }
       ctx.textAlign = 'left';
       break;
     }
@@ -514,6 +563,16 @@ export function getClipTransform(clip: Clip): Transform2D {
     scale: t.scale ?? 1,
     rotation: t.rotation ?? 0,
   };
+}
+
+/**
+ * Build a canvas-safe font-family token from a single family name.
+ * Multi-word families (e.g. "Noto Sans SC") must be quoted; null → default stack.
+ */
+function quoteFontFamily(family: string | null | undefined): string {
+  if (!family) return "'Noto Sans SC','PingFang SC',sans-serif";
+  if (/^['"]/.test(family)) return family; // already quoted / a full stack
+  return family.includes(' ') ? `'${family}'` : family;
 }
 
 /**

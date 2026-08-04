@@ -77,6 +77,19 @@ export interface Clip {
   font_color?: string | null;
   text_align?: TextAlign | null;
 
+  // Caption style (text / caption only) — aligned with backend schema/timeline.py
+  font_weight?: string | null;
+  font_italic?: boolean | null;
+  letter_spacing?: number | null;
+  stroke_width?: number | null;
+  stroke_color?: string | null;
+  shadow_x?: number | null;
+  shadow_y?: number | null;
+  shadow_color?: string | null;
+  shadow_blur?: number | null;
+  glow_color?: string | null;
+  glow_width?: number | null;
+
   // Transitions
   transition_in?: string | null;
   transition_out?: string | null;
@@ -159,6 +172,17 @@ export function createDefaultClip(
     font_size: null,
     font_color: null,
     text_align: null,
+    font_weight: null,
+    font_italic: null,
+    letter_spacing: null,
+    stroke_width: null,
+    stroke_color: null,
+    shadow_x: null,
+    shadow_y: null,
+    shadow_color: null,
+    shadow_blur: null,
+    glow_color: null,
+    glow_width: null,
     transition_in: null,
     transition_out: null,
     transition_duration_sec: null,
@@ -184,7 +208,16 @@ export const TRACK_COLORS: Record<ClipKind, string> = {
   animation: '#FF6B6B',
 };
 
-/** Compute total duration from tracks */
+/**
+ * Compute total duration from tracks.
+ *
+ * This is the TIMELINE length (max end across all clips) and is intentionally
+ * NOT clamped. The backend ASS renderer clamps each caption Dialogue end to the
+ * actual output duration (Dialogue End = min(start + dur, actual duration)), so
+ * a rendered caption tail can never exceed the timeline length. Keep this
+ * function as-is: the timeline duration and the ASS-clamped caption end stay
+ * consistent by construction.
+ */
 export function computeTotalDuration(tracks: Track[]): number {
   let maxEnd = 0;
   for (const track of tracks) {
