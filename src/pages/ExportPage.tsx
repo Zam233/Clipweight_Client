@@ -3,6 +3,7 @@ import { useNavigate, useParams } from '@tanstack/react-router';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { renderApi, projectApi } from '@/services/api';
+import { toast } from '@/stores/toastStore';
 import { createEmptyTimeline } from '@/types/timeline';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge } from '@/components/ui';
@@ -10,7 +11,7 @@ import { uid, formatTimecode } from '@/lib/utils';
 import type { ExportSettings, RenderProgress } from '@/types/api';
 import {
   Download, Clapperboard, Gauge, Cpu, Film, Loader2, CheckCircle2,
-  XCircle, ArrowLeft, HardDrive, Zap,
+  XCircle, ArrowLeft, HardDrive, Zap, RotateCcw,
 } from 'lucide-react';
 
 interface PresetDef {
@@ -38,6 +39,9 @@ interface QueueItem extends RenderProgress {
   filename?: string;
   output_path?: string;
   simulated?: boolean;
+  /** 重试所需的原始提交参数（U14） */
+  retrySettings?: ExportSettings;
+  retryFilename?: string;
 }
 
 /**
@@ -105,14 +109,19 @@ export function ExportPage() {
           const known = new Set(q.map((it) => it.task_id));
           const restored: QueueItem[] = active
             .filter((t) => !known.has(t.task_id))
-            .map((t) => ({
-              task_id: t.task_id,
-              status: t.status,
-              progress: t.progress ?? 0,
-              label: '恢复的任务',
-              presetName: '—',
-              startedAt: new Date().toLocaleTimeString(),
-            }));
+            .map((t) => {
+              // U18: 尽量从后端任务的文件名恢复原始项目名与预设信息
+              const parsed = parseRestoredTask(t);
+              return {
+                task_id: t.task_id,
+                status: t.status,
+                progress: t.progress ?? 0,
+                label: parsed.label,
+                presetName: parsed.presetName,
+                startedAt: new Date().toLocaleTimeString(),
+                filename: parsed.filename,
+              };
+            });
           return [...restored, ...q];
         });
         active.forEach((t) => openSSE(t.task_id));
@@ -127,7 +136,15 @@ export function ExportPage() {
     if (!apiPresets || Object.keys(apiPresets).length === 0) return PRESETS;
     const merged: Record<string, PresetDef> = { ...PRESETS };
     for (const [id, p] of Object.entries(apiPresets)) {
-      merged[id] = { ...(merged[id] ?? { name: id, icon: '📦', width: 1920, height: 1080, fps: 30, bitrate: '6M' }), ...p };
+      // 过滤 undefined 字段：后端预设缺 name/icon 时保留内置预设的值（U15）
+      const clean = Object.fromEntries(
+        Object.entries(p).filter(([, v]) => v !== undefined),
+      ) as Partial<PresetDef>;
+      const fallback: PresetDef = {
+        name: id, icon: merged[id]?.icon ?? '📦',
+        width: 1920, height: 1080, fps: 30, bitrate: '6M',
+      };
+      merged[id] = { ...(merged[id] ?? fallback), ...clean };
     }
     return merged;
   }, [apiPresets]);
@@ -150,6 +167,7 @@ export function ExportPage() {
       task_id: taskId, status: 'pending', progress: 0,
       label: projectName, presetName: presets[presetId].name,
       startedAt: new Date().toLocaleTimeString(), filename,
+      retrySettings: { ...settings }, retryFilename: filename,
     };
     setQueue((q) => [item, ...q]);
 
@@ -164,10 +182,31 @@ export function ExportPage() {
       if (realId !== taskId) updateQueue(taskId, { task_id: realId });
       openSSE(realId);
     } catch {
-      // Offline: simulate render progress
+      // Offline: simulate render progress — 明确提示这是演示模式（U3）
+      toast('后端离线，无法真实渲染，已进入演示模式', 'error');
       simulateRender(taskId);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // U14: 使用原始提交参数重新提交渲染任务
+  const retryRender = async (taskId: string) => {
+    const item = queue.find((it) => it.task_id === taskId);
+    if (!item?.retrySettings || !item.retryFilename) return;
+    updateQueue(taskId, { status: 'pending', progress: 0, detail: undefined, phase: undefined, simulated: undefined });
+    try {
+      const res = await renderApi.submitQueue({
+        timeline: useTimelineStore.getState().exportTimeline(),
+        output_path: `renders/${item.retryFilename}`,
+        settings: item.retrySettings,
+      });
+      const realId = res.task_id ?? taskId;
+      if (realId !== taskId) updateQueue(taskId, { task_id: realId });
+      openSSE(realId);
+    } catch {
+      updateQueue(taskId, { status: 'failed', detail: '重试失败 — 后端不可达' });
+      toast('重试失败 — 后端不可达', 'error');
     }
   };
 
@@ -190,7 +229,7 @@ export function ExportPage() {
         es.close();
         esRefs.current.delete(taskId);
       } else if (d.type === 'failed') {
-        updateQueue(taskId, { status: 'failed', output_path: d.output_path });
+        updateQueue(taskId, { status: 'failed', detail: d.detail ?? '渲染失败', output_path: d.output_path });
         es.close();
         esRefs.current.delete(taskId);
       } else if (d.type === 'timeout') {
@@ -246,7 +285,8 @@ export function ExportPage() {
     simulateTimers.current.forEach((timer) => clearInterval(timer));
   }, []);
 
-  const estSize = estimateSize(timeline.duration_sec, settings.bitrate);
+  const timelineEmpty = !timeline.duration_sec || timeline.tracks.length === 0;
+  const estSize = timelineEmpty ? '—' : estimateSize(timeline.duration_sec, settings.bitrate);
 
   return (
     <StandardLayout title="导出与渲染">
@@ -354,7 +394,7 @@ export function ExportPage() {
           ) : (
             <div className="space-y-2.5">
               {queue.map((item) => (
-                <QueueCard key={item.task_id} item={item} />
+                <QueueCard key={item.task_id} item={item} onRetry={() => retryRender(item.task_id)} />
               ))}
             </div>
           )}
@@ -364,7 +404,7 @@ export function ExportPage() {
   );
 }
 
-function QueueCard({ item }: { item: QueueItem }) {
+function QueueCard({ item, onRetry }: { item: QueueItem; onRetry?: () => void }) {
   const active = item.status === 'rendering' || item.status === 'pending';
   return (
     <div className={`bg-surface-container border rounded-cw-md p-3.5 transition-colors duration-short3 ${
@@ -395,8 +435,8 @@ function QueueCard({ item }: { item: QueueItem }) {
           {item.status === 'failed' ? '失败' : `${item.progress}%`}
         </span>
         {item.status === 'completed' && item.simulated && (
-          <span className="px-2 py-1 rounded-cw-sm bg-surface-container-high text-caption text-on-surface-variant"
-            title="演示模式 — 连接后端后可真实渲染导出">
+          <span className="px-2 py-1 rounded-cw-sm border border-track-text/50 bg-track-text/10 text-caption font-medium text-track-text"
+            title="演示模式 — 未真实渲染，仅本地模拟进度">
             演示模式
           </span>
         )}
@@ -409,7 +449,20 @@ function QueueCard({ item }: { item: QueueItem }) {
             <Download className="w-4 h-4" />
           </a>
         )}
+        {item.status === 'failed' && onRetry && (
+          <button
+            onClick={onRetry}
+            className="flex items-center gap-1 px-2 py-1 rounded-cw-sm border border-error/40 bg-error/10 text-caption font-medium text-error hover:bg-error/20 transition-colors cursor-pointer"
+            title="使用相同参数重新提交渲染"
+          >
+            <RotateCcw className="w-3 h-3" /> 重试
+          </button>
+        )}
       </div>
+      {/* 失败详情（U14） */}
+      {item.status === 'failed' && item.detail && (
+        <p className="mt-1.5 text-caption text-error">{item.detail}</p>
+      )}
       {/* progress bar */}
       <div className="mt-2.5 h-1.5 bg-surface rounded-cw-full overflow-hidden">
         <div
@@ -457,8 +510,24 @@ function NumField({ label, value, onChange, min, max, step }: {
   );
 }
 
-function phaseLabel(p: string): string {
-  const map: Record<string, string> = { prepare: '准备', trim: '裁剪', concat: '拼接', text: '文字', mg: '动画', overlay: '叠加', audio: '音频', done: '完成' };
+/**
+ * U18: 从恢复的后端任务中解析原始标签与预设名。
+ * 文件名形如 `renders/项目名_1920x1080.mp4`：去前缀与 `_WxH.mp4` 后缀恢复项目名，
+ * 由高度推导预设名（如 `1080p`）；无法解析时回退到通用占位。
+ */
+function parseRestoredTask(t: RenderProgress): { label: string; presetName: string; filename?: string } {
+  const extra = t as RenderProgress & { filename?: string; output_path?: string };
+  const raw = extra.filename ?? extra.output_path;
+  if (raw) {
+    const base = raw.split(/[/\\]/).filter(Boolean).pop() ?? '';
+    const m = base.match(/^(.+)_(\d+)x(\d+)\.mp4$/i);
+    if (m) return { label: m[1], presetName: `${m[3]}p`, filename: base };
+    if (base) return { label: base.replace(/\.mp4$/i, ''), presetName: '—', filename: base };
+  }
+  return { label: '恢复的任务', presetName: '—' };
+}
+
+function phaseLabel(p: string): string {  const map: Record<string, string> = { prepare: '准备', trim: '裁剪', concat: '拼接', text: '文字', mg: '动画', overlay: '叠加', audio: '音频', done: '完成' };
   return map[p] ?? p;
 }
 

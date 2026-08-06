@@ -55,7 +55,9 @@ export function ProjectsPage() {
 
   useEffect(() => {
     let alive = true;
-    loadProjects().then(() => { if (alive) setLoading(false); });
+    loadProjects()
+      .catch(() => {})
+      .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, []);
 
@@ -106,35 +108,35 @@ export function ProjectsPage() {
     try {
       const updated = await projectApi.rename(proj.id, name);
       setProjects((prev) => prev.map((p) => (p.id === proj.id ? { ...p, name: updated.name } : p)));
-    } catch { /* offline */ }
+    } catch { toast('重命名失败', 'error'); }
   };
 
   const handleMoveFolder = async (proj: ProjectCardData, folder: string) => {
     try {
       await projectApi.setFolder(proj.id, folder);
       setProjects((prev) => prev.map((p) => (p.id === proj.id ? { ...p, folder } : p)));
-    } catch { /* offline */ }
+    } catch { toast('移动文件夹失败', 'error'); }
   };
 
   const handleAddTag = async (proj: ProjectCardData, tag: string) => {
     try {
       await projectApi.addTag(proj.id, tag);
       setProjects((prev) => prev.map((p) => (p.id === proj.id ? { ...p, tags: [...(p.tags || []), tag] } : p)));
-    } catch { /* offline */ }
+    } catch { toast('添加标签失败', 'error'); }
   };
 
   const handleRemoveTag = async (proj: ProjectCardData, tag: string) => {
     try {
       await projectApi.removeTag(proj.id, tag);
       setProjects((prev) => prev.map((p) => (p.id === proj.id ? { ...p, tags: (p.tags || []).filter((t) => t !== tag) } : p)));
-    } catch { /* offline */ }
+    } catch { toast('移除标签失败', 'error'); }
   };
 
   const handleDuplicate = async (proj: ProjectCardData) => {
     try {
       await projectApi.duplicate(proj.id);
       await loadProjects();
-    } catch { /* offline */ }
+    } catch { toast('复制项目失败', 'error'); }
   };
 
   const handleRefreshThumbnail = (proj: ProjectCardData) => {
@@ -149,7 +151,7 @@ export function ProjectsPage() {
       try {
         await projectApi.renameFolder(oldName, newName.trim());
         await loadProjects();
-      } catch { /* offline */ }
+      } catch { toast('重命名文件夹失败', 'error'); }
     }
   };
 
@@ -159,7 +161,7 @@ export function ProjectsPage() {
         await projectApi.deleteFolder(folderName);
         await loadProjects();
         if (selectedFolder === folderName) setSelectedFolder(null);
-      } catch { /* offline */ }
+      } catch { toast('删除文件夹失败', 'error'); }
     }
   };
 

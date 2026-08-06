@@ -60,3 +60,32 @@ describe('KeybindingEngine target guard', () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 });
+
+function fireKeyDownEvent(engine: KeybindingEngine, tag: string, key: string, init: KeyboardEventInit = {}): KeyboardEvent {
+  const el = document.createElement(tag);
+  document.body.appendChild(el);
+  engine.attach();
+  const evt = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init });
+  el.dispatchEvent(evt);
+  engine.detach();
+  document.body.removeChild(el);
+  return evt;
+}
+
+describe('KeybindingEngine browser-reserved combos', () => {
+  it('ctrl+e fires handler and prevents default (blocks address-bar focus)', () => {
+    const engine = new KeybindingEngine();
+    const handler = registerShortcut(engine, 'ctrl+e');
+    const evt = fireKeyDownEvent(engine, 'DIV', 'e', { ctrlKey: true });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(evt.defaultPrevented).toBe(true);
+  });
+
+  it("'/' (no modifier) fires handler and prevents default", () => {
+    const engine = new KeybindingEngine();
+    const handler = registerShortcut(engine, '/');
+    const evt = fireKeyDownEvent(engine, 'DIV', '/');
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(evt.defaultPrevented).toBe(true);
+  });
+});

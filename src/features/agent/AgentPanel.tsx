@@ -276,6 +276,8 @@ function RequirementsView() {
         // 设置 pipelineId + 运行相位，BottomBar 的 effect 会自动挂接 SSE 追踪
         setPipelineId(res.pipeline_id);
         updatePhase('structure', 5);
+        // 持久化到 sessionStorage：页面刷新后 BottomBar 挂载时可恢复并自动重连 SSE
+        try { sessionStorage.setItem('cw_pipeline_id', res.pipeline_id); } catch { /* ignore */ }
       }
     } catch {
       setStatus('plan_ready');
@@ -322,7 +324,10 @@ function RequirementsView() {
             <div className={`max-w-[85%] rounded-cw-md px-3 py-2 text-body-sm leading-relaxed ${m.role === 'user'
               ? 'bg-primary-container text-on-primary-container rounded-br-cw-xs whitespace-pre-wrap'
               : 'bg-surface-container text-on-surface rounded-bl-cw-xs border border-outline-variant/20'}`}>
-              {m.role === 'user' ? m.content : <Markdown text={m.content} />}
+              {m.role === 'user'
+                ? m.content
+                // 带简报/规划书卡片的消息：正文往往嵌入了同一份内容的 markdown，跳过以避免重复渲染
+                : (!m.creative_brief && !m.production_plan ? <Markdown text={m.content} /> : null)}
               {m.creative_brief && (
                 <div className="mt-2 pt-2 border-t border-outline-variant/20">
                   <BriefCard brief={m.creative_brief} onConfirm={confirmBrief} busy={busy} onReview={() => setReviewMode('brief')} />
@@ -503,6 +508,9 @@ function BottomBar() {
   const lastTimelineRef = useRef<Timeline | null>(null);
   // SSE 断线重连定时器
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // SSE 连续失败计数（任何一次成功 onmessage/onopen 都会清零）
+  const retryCountRef = useRef(0);
+  const [sseDisconnected, setSseDisconnected] = useState(false);
 
   const running = pipelineId !== null && phase !== 'completed' && phase !== 'failed' && phase !== 'idle';
 
@@ -538,10 +546,21 @@ function BottomBar() {
       }
       es.close();
       esRef.current = null;
+      // 管线到达终态：清除持久化的 pipelineId，避免刷新后误重连
+      try { sessionStorage.removeItem('cw_pipeline_id'); } catch { /* ignore */ }
+    };
+
+    es.onopen = () => {
+      // 连接成功：清零连续失败计数并恢复横幅
+      retryCountRef.current = 0;
+      setSseDisconnected(false);
     };
 
     // 后端 SSE 不带 event: 字段，所有事件都走默认 message，类型在 payload 的 type 中。
     es.onmessage = (e) => {
+      // 任何一条成功事件都说明连接健康，清零重连计数
+      retryCountRef.current = 0;
+      setSseDisconnected(false);
       let d: Record<string, unknown>;
       try {
         d = JSON.parse((e as MessageEvent).data);
@@ -629,8 +648,16 @@ function BottomBar() {
       // 管线可能长达 30-60 分钟：后端流 600s 硬上限/网络抖动都会触发 onerror。
       // 不能永久关闭——否则最终 done/timeline_snapshot 事件永远收不到、审阅视图缺失。
       // 方案：释放引用并定时重连（后端会重放全部事件，finish 有幂等守卫）。
+      // 但重连必须有上限：连续失败 5 次后判定为断线，停止重连并提示用户手动刷新。
       if (!finished) {
         esRef.current = null;
+        retryCountRef.current += 1;
+        if (retryCountRef.current >= 5) {
+          setSseDisconnected(true);
+          addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'error',
+            summary: 'SSE 连接已断开（多次重连失败），请手动刷新恢复追踪' });
+          return;
+        }
         if (!retryTimerRef.current) {
           retryTimerRef.current = setTimeout(() => {
             retryTimerRef.current = null;
@@ -641,6 +668,20 @@ function BottomBar() {
       }
     };
   }, [addLogEntry, updatePhase]);
+
+  // 页面刷新后 store 被重置：从 sessionStorage 恢复运行中的 pipelineId 并重新挂接 SSE。
+  // confirmPlan 启动管线时写入 cw_pipeline_id，finish（终态）时清除。
+  useEffect(() => {
+    let stored: string | null = null;
+    try { stored = sessionStorage.getItem('cw_pipeline_id'); } catch { /* ignore */ }
+    if (stored && !useAgentStore.getState().pipelineId) {
+      useAgentStore.getState().setPipelineId(stored);
+      // phase 刷新后回落为 idle，恢复为运行相位以触发下方 SSE 挂接 effect
+      if (useAgentStore.getState().phase === 'idle') {
+        useAgentStore.getState().updatePhase('structure');
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (pipelineId && running && !esRef.current) {
@@ -655,6 +696,11 @@ function BottomBar() {
 
   return (
     <div className="border-t border-outline-variant/20 shrink-0 bg-surface-container-low">
+      {sseDisconnected && (
+        <div className="px-3 py-1.5 text-caption font-medium text-error bg-error/10 border-b border-error/30">
+          连接已断开
+        </div>
+      )}
       {running && (
         <div className="px-3 pt-2 space-y-0.5">
           {PHASE_ORDER.map((p) => {

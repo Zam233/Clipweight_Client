@@ -36,22 +36,13 @@ export function SettingsPage() {
 
   return (
     <StandardLayout title="全局设置">
-      <div className="max-w-2xl space-y-6">
+      <div className="max-w-2xl mx-auto space-y-6">
         {/* API connection */}
         <Card icon={<Server className="w-4 h-4" />} title="后端连接">
           <Field label="API 地址">
             <input
               value={s.apiBaseUrl}
               onChange={(e) => s.setApiBaseUrl(e.target.value)}
-              onBlur={resetApiClient}
-              className="w-full bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm font-mono text-on-surface
-                outline-none border border-outline-variant/30 focus:border-primary"
-            />
-          </Field>
-          <Field label="WebSocket 地址">
-            <input
-              value={s.wsUrl}
-              onChange={(e) => s.setWsUrl(e.target.value)}
               onBlur={resetApiClient}
               className="w-full bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm font-mono text-on-surface
                 outline-none border border-outline-variant/30 focus:border-primary"

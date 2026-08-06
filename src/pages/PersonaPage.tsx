@@ -197,7 +197,7 @@ const PersonaCard = memo(function PersonaCardImpl({ persona, onOpen }: { persona
         <h3 className="text-title-sm font-semibold text-on-surface mt-2.5 group-hover:text-primary transition-colors">
           {persona.persona_name}
         </h3>
-        <p className="text-label-sm text-on-surface-variant mt-0.5">{persona.parameter.identity.positioning ?? tone}</p>
+        <p className="text-label-sm text-on-surface-variant mt-0.5">{persona.parameter.identity.positioning ?? tone ?? '未设置'}</p>
       </div>
 
       <div className="px-4 pb-4 space-y-3">

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { ProjectCard, type ProjectCardData } from '@/components/shared/ProjectCard';
 import { fmtDur, relTime, uid } from '@/lib/utils';
+import { toast } from '@/stores/toastStore';
 
 /* ── types ─────────────────────────────────────────────── */
 interface PersonaOpt { id: string; name: string; tone: string }
@@ -320,8 +321,11 @@ export function HomePage() {
   const handleDeleteProject = async (projectId: string) => {
     try {
       await projectApi.remove(projectId);
-    } catch { /* offline — still remove from local state */ }
-    setProjects((prev) => prev.filter((project) => project.id !== projectId));
+      setProjects((prev) => prev.filter((project) => project.id !== projectId));
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      toast(`删除失败：${reason}，项目已保留`, 'error');
+    }
   };
 
   const reloadProjects = async () => {
@@ -347,7 +351,9 @@ export function HomePage() {
     try {
       await projectApi.duplicate(project.id);
       await reloadProjects();
-    } catch { /* offline */ }
+    } catch {
+      toast('复制项目失败 — 后端不可达', 'error');
+    }
   };
 
   return (
@@ -749,8 +755,14 @@ export function HomePage() {
                 <div className="col-span-12 flex flex-col items-center justify-center py-12 text-center gap-2
                   border border-dashed border-outline-variant/30 rounded-cw-md">
                   <FolderOpen className="w-8 h-8 text-on-surface-variant/40" />
-                  <p className="text-body-sm text-on-surface-variant">还没有项目</p>
-                  <p className="text-caption text-on-surface-variant/60">在上方填写选题并点击「开始创作」创建你的第一个视频</p>
+                  <p className="text-body-sm text-on-surface-variant">
+                    {dataMode === 'demo' ? '演示数据 · 暂无后端项目' : '还没有项目'}
+                  </p>
+                  <p className="text-caption text-on-surface-variant/60">
+                    {dataMode === 'demo'
+                      ? '后端未连接，当前展示的是演示数据；连接后端后这里会显示你的真实项目'
+                      : '在上方填写选题并点击「开始创作」创建你的第一个视频'}
+                  </p>
                 </div>
               )}
             </div>

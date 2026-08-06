@@ -42,6 +42,25 @@ export function getApiClient(): AxiosInstance {
         if (err.response?.status === 503) {
           console.warn('[API] Service busy, retry later');
         }
+        // 422：FastAPI 校验错误，detail 可能是字符串或 [{loc, msg, type}] 数组——归一化为 userMessage
+        if (err.response?.status === 422) {
+          const detail = (err.response.data as { detail?: unknown } | undefined)?.detail;
+          let friendly: string | null = null;
+          if (typeof detail === 'string') {
+            friendly = detail;
+          } else if (Array.isArray(detail) && detail.length > 0) {
+            const first = detail[0] as { msg?: unknown } | undefined;
+            if (typeof first?.msg === 'string') friendly = first.msg;
+          }
+          if (friendly) (err as { userMessage?: string }).userMessage = friendly;
+        }
+        // 400：detail 为字符串时透传为 userMessage
+        if (err.response?.status === 400) {
+          const detail = (err.response.data as { detail?: unknown } | undefined)?.detail;
+          if (typeof detail === 'string') {
+            (err as { userMessage?: string }).userMessage = detail;
+          }
+        }
         return Promise.reject(err);
       },
     );
