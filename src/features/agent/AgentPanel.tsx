@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAgentStore, loadRequirementsDraft, clearRequirementsDraft } from '@/stores/agentStore';
 import { useProjectStore } from '@/stores/projectStore';
+import { useSelectionStore } from '@/stores/selectionStore';
+import { useTimelineStore } from '@/stores/timelineStore';
 import { Markdown } from '@/components/shared/Markdown';
 import { TimelineDiffView } from './TimelineDiffView';
 import { resolveMessageAttachments } from './requirementsAttachments';
@@ -8,11 +10,11 @@ import { pipelineApi, requirementsApi } from '@/services/api';
 import { Button } from '@/components/ui';
 import { uid } from '@/lib/utils';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
-import type { Timeline } from '@/types/timeline';
+import type { Timeline, Clip, ClipKind } from '@/types/timeline';
 import type { RequirementsStatus } from '@/types/persona';
 import {
   Bot, Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
-  MessageSquareText, ChevronDown, ChevronRight,
+  MessageSquareText, ChevronDown, ChevronRight, X,
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<PipelinePhase, string> = {
@@ -107,6 +109,19 @@ function RequirementsView() {
   const [draftLoaded, setDraftLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // 选中素材标签（C6）：订阅时间轴选中片段与当前时间线
+  const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
+  const timeline = useTimelineStore((s) => s.timeline);
+  const selectedClips = selectedClipIds
+    .map((id) => {
+      for (const track of timeline.tracks) {
+        const c = track.clips.find((clip) => clip.id === id);
+        if (c) return { clip: c, kind: track.kind };
+      }
+      return null;
+    })
+    .filter((x): x is { clip: Clip; kind: ClipKind } => x !== null);
+
   useEffect(() => {
     if (draftLoaded) return;
     // Guard: if store already has messages (e.g. from auto-start or StrictMode re-mount),
@@ -173,6 +188,36 @@ function RequirementsView() {
     } catch {
       addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
         content: '（离线演示）已记录你的需求。' });
+    } finally { setBusy(false); }
+  };
+
+  // 选中素材 + 自然语言指令 → 时间线编辑（C6）：走 /edit 端点，返回 proposed_timeline 触发 diff 审阅
+  const sendEdit = async (sessionId: string, message: string) => {
+    const labels = selectedClips.map(({ clip, kind }) => {
+      const label = clipText(clip, kind);
+      return `${label}(${kind})`;
+    });
+    const content = `【选中素材】${labels.join('、')}\n${message}`;
+    addMessage({ id: uid('m'), role: 'user', content, timestamp: new Date().toISOString() });
+    setBusy(true);
+    try {
+      const res = await requirementsApi.edit({
+        session_id: sessionId,
+        message,
+        timeline: useTimelineStore.getState().timeline,
+        selected_clip_ids: selectedClipIds,
+      });
+      if (res.proposed_timeline) {
+        // 触发既有 TimelineDiffView 审阅覆盖层；接受/合并时 TimelineDiffView 会注册真实媒体
+        useAgentStore.getState().setAgentTimeline(res.proposed_timeline);
+      }
+      const att = resolveMessageAttachments(res.status, null, null);
+      addMessage({ id: uid('m'), role: 'assistant', content: res.reply ?? '已根据你的指令调整时间线。',
+        timestamp: new Date().toISOString(),
+        creative_brief: att.creative_brief, production_plan: att.production_plan });
+    } catch {
+      addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+        content: '（离线演示）已记录你的时间线编辑指令。' });
     } finally { setBusy(false); }
   };
 
@@ -301,20 +346,48 @@ function RequirementsView() {
 
       {messages.length > 0 && status !== 'pipeline_running' && (
         <div className="p-3 border-t border-outline-variant/20 shrink-0">
+          {selectedClips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 mb-2">
+              <span className="text-caption text-on-surface-variant/60">选中素材</span>
+              {selectedClips.map(({ clip, kind }) => (
+                <span key={clip.id}
+                  className="flex items-center gap-1.5 px-2 py-0.5 rounded-cw-full bg-primary-container/60 text-label-sm text-on-primary-container">
+                  <span className="text-caption text-primary uppercase">{kind}</span>
+                  <span className="max-w-[130px] truncate">{clipText(clip, kind)}</span>
+                  <button onClick={() => useSelectionStore.getState().selectClip(clip.id, true)}
+                    className="hover:text-error cursor-pointer" title="移除标签">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+              <button onClick={() => useSelectionStore.getState().deselectAll()}
+                className="text-caption text-on-surface-variant/60 hover:text-error cursor-pointer">
+                清除全部
+              </button>
+            </div>
+          )}
           <div className="flex gap-2">
             <input value={input} onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter') return;
                 if (busy) return; // 与发送按钮一致，避免并发重复发送
                 const sid = useAgentStore.getState().requirementsSessionId;
-                if (input.trim() && sid) { const m = input; setInput(''); sendChat(sid, m); }
+                if (input.trim() && sid) {
+                  const m = input; setInput('');
+                  if (selectedClipIds.length > 0) sendEdit(sid, m);
+                  else sendChat(sid, m);
+                }
               }}
-              placeholder="继续与需求 Agent 对话…"
+              placeholder={selectedClipIds.length > 0 ? '描述对选中素材的修改…（如：换一个更明亮的素材）' : '继续与需求 Agent 对话…'}
               className="flex-1 bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm text-on-surface
                 outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50" />
             <Button size="icon" onClick={() => {
               const sid = useAgentStore.getState().requirementsSessionId;
-              if (input.trim() && sid) { const m = input; setInput(''); sendChat(sid, m); }
+              if (input.trim() && sid) {
+                const m = input; setInput('');
+                if (selectedClipIds.length > 0) sendEdit(sid, m);
+                else sendChat(sid, m);
+              }
             }}             disabled={!input.trim() || busy}>
               <Send className="w-3.5 h-3.5" />
             </Button>
@@ -788,6 +861,14 @@ export function demoBrief(topic: string) {
     key_elements: ['数据可视化', '关键词标注', 'B-roll 穿插'],
     special_requirements: [],
   };
+}
+
+/** 选中素材标签的显示文案：文字/字幕取 text，否则 metadata.title 或 asset_id。 */
+function clipText(clip: Clip, kind: string): string {
+  if ((kind === 'text' || kind === 'caption') && clip.text) return clip.text;
+  if (clip.metadata && typeof clip.metadata.title === 'string') return clip.metadata.title as string;
+  if (clip.asset_id) return clip.asset_id;
+  return kind;
 }
 
 function demoPlanMarkdown(topic: string) {
