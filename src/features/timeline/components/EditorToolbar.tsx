@@ -20,18 +20,18 @@ import {
 } from 'lucide-react';
 
 /**
- * EditorToolbar �?top transport + panel toggles + project actions.
+ * EditorToolbar — top transport + panel toggles + project actions.
  */
 
 /** In-memory clip clipboard (shared with keyboard shortcuts). */
 export const clipClipboard: { clips: Clip[] } = { clips: [] };
 
-/** 导入类操作错误归类：400 �?格式错误�?22 �?数据校验失败，其�?�?后端不可达�?*/
-function extractImportError(err: unknown, actionLabel: string): string {
+/** 导入类操作错误归类：400 → 格式错误，422 → 数据校验失败，其他 → 后端不可达。 */
+export function extractImportError(err: unknown, actionLabel: string): string {
   const status = (err as { response?: { status?: number } } | null)?.response?.status;
-  if (status === 400) return `${actionLabel} �?格式错误：请检查文件内容后重试`;
-  if (status === 422) return `${actionLabel} �?数据校验失败，请检查文件`;
-  return `${actionLabel} �?后端不可达`;
+  if (status === 400) return `${actionLabel} — 格式错误：请检查文件内容后重试`;
+  if (status === 422) return `${actionLabel} — 数据校验失败，请检查文件`;
+  return `${actionLabel} — 后端不可达`;
 }
 
 export function EditorToolbar() {
@@ -78,7 +78,7 @@ export function EditorToolbar() {
       }
     }
     if (found.length > 0) {
-      // 按起始时间排序：粘贴偏移以最早的片段为锚�?
+      // 按起始时间排序：粘贴偏移以最早的片段为锚点
       clipClipboard.clips = [...found].sort((a, b) => a.start_sec - b.start_sec);
     }
   };
@@ -268,7 +268,7 @@ export function EditorToolbar() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      toast('EDL 导出失败 �?后端不可�?, 'error');
+      toast('EDL 导出失败 — 后端不可达', 'error');
     }
   };
 
@@ -299,7 +299,7 @@ export function EditorToolbar() {
         useHistoryStore.getState().pushState(store.timeline, 'import-json');
         store.setTimeline(data);
       } catch {
-        toast('JSON 导入失败 �?文件格式无效', 'error');
+        toast('JSON 导入失败 — 文件格式无效', 'error');
       }
     };
     input.click();
@@ -369,7 +369,7 @@ export function EditorToolbar() {
         ) : (
           <div className="flex flex-col cursor-pointer" onClick={() => { setDraftName(projectName); setEditingName(true); }}>
             <span className="text-title-sm font-medium text-on-surface leading-tight hover:text-primary transition-colors">{projectName}</span>
-            <span className="text-caption text-on-surface-variant leading-tight">点击重命�?/span>
+            <span className="text-caption text-on-surface-variant leading-tight">点击重命名</span>
           </div>
         )}
       </div>
@@ -406,13 +406,13 @@ export function EditorToolbar() {
 
       {/* Transport controls (centered) */}
       <div className="flex-1 flex items-center justify-center gap-1">
-        <Tooltip side="bottom" content="跳到开�?(Home)">
+        <Tooltip side="bottom" content="跳到开头 (Home)">
           <button onClick={seekToStart}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <SkipBack className="w-4 h-4" />
           </button>
         </Tooltip>
-        <Tooltip side="bottom" content="上一�?(�?">
+        <Tooltip side="bottom" content="上一帧 (←)">
           <button onClick={stepBackward}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <StepBack className="w-4 h-4" />
@@ -425,7 +425,7 @@ export function EditorToolbar() {
         >
           {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
         </button>
-        <Tooltip side="bottom" content="下一�?(�?">
+        <Tooltip side="bottom" content="下一帧 (→)">
           <button onClick={stepForward}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <StepForward className="w-4 h-4" />
@@ -459,7 +459,7 @@ export function EditorToolbar() {
             <Download className="w-4 h-4" />
           </button>
         </Tooltip>
-        <Tooltip side="bottom" content="音频转字�?>
+        <Tooltip side="bottom" content="音频转字幕">
           <button onClick={handleAudioTranscribe}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
             <Mic className="w-4 h-4" />
@@ -495,13 +495,13 @@ export function EditorToolbar() {
             <PanelLeft className="w-4 h-4" />
           </button>
         </Tooltip>
-        <Tooltip side="bottom" content="Agent 副驾�?>
+        <Tooltip side="bottom" content="Agent 副驾驶">
           <button onClick={() => togglePanel('agent')}
             className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panels.agent ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
             <Bot className="w-4 h-4" />
           </button>
         </Tooltip>
-        <Tooltip side="bottom" content="属性面�?>
+        <Tooltip side="bottom" content="属性面板">
           <button onClick={() => togglePanel('properties')}
             className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panels.properties ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
             <PanelRight className="w-4 h-4" />
@@ -549,7 +549,7 @@ function SaveStatusIndicator() {
     return (
       <span className="flex items-center gap-1 text-caption text-on-surface-variant">
         <Loader2 className="w-3 h-3 animate-spin" />
-        保存中�?
+        保存中…
       </span>
     );
   }
@@ -558,7 +558,7 @@ function SaveStatusIndicator() {
   }
   if (lastSavedAt) {
     const time = new Date(lastSavedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    return <span className="text-caption text-on-surface-variant">已保�?{time}</span>;
+    return <span className="text-caption text-on-surface-variant">已保存 {time}</span>;
   }
   return null;
 }
