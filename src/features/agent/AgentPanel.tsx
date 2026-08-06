@@ -12,7 +12,7 @@ import type { Timeline } from '@/types/timeline';
 import type { RequirementsStatus } from '@/types/persona';
 import {
   Bot, Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
-  MessageSquareText, Play, ChevronDown, ChevronRight,
+  MessageSquareText, ChevronDown, ChevronRight,
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<PipelinePhase, string> = {
@@ -425,18 +425,11 @@ function BottomBar() {
   const mgDone = useAgentStore((s) => s.mgDone);
   const addLogEntry = useAgentStore((s) => s.addLogEntry);
   const updatePhase = useAgentStore((s) => s.updatePhase);
-  const setPipelineId = useAgentStore((s) => s.setPipelineId);
-  const setError = useAgentStore((s) => s.setError);
 
-  const [topic, setTopic] = useState('');
-  const [launching, setLaunching] = useState(false);
   const esRef = useRef<EventSource | null>(null);
   const lastTimelineRef = useRef<Timeline | null>(null);
-  const simTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   // SSE 断线重连定时器
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 标记当前管线是否为离线模拟，避免对假 pipeline_id 发起真实 SSE 连接
-  const simulatedRef = useRef(false);
 
   const running = pipelineId !== null && phase !== 'completed' && phase !== 'failed' && phase !== 'idle';
 
@@ -577,7 +570,7 @@ function BottomBar() {
   }, [addLogEntry, updatePhase]);
 
   useEffect(() => {
-    if (pipelineId && running && !esRef.current && !simulatedRef.current) {
+    if (pipelineId && running && !esRef.current) {
       openSSE(pipelineId);
     }
   }, [pipelineId, running, openSSE]);
@@ -585,79 +578,7 @@ function BottomBar() {
   useEffect(() => () => {
     esRef.current?.close();
     if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
-    simTimersRef.current.forEach((t) => clearTimeout(t));
-    simTimersRef.current.clear();
   }, []);
-
-  const launch = async () => {
-    setError(null);
-    simulatedRef.current = false;
-    useAgentStore.getState().resetMgProgress();
-    updatePhase('structure', 5);
-    setLaunching(true);
-    addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'info', summary: `管线启动: ${topic || '未命名选题'}` });
-    try {
-      const st = useProjectStore.getState();
-      const audioDur = st.audioDurationSec || 0;
-      const plan = useAgentStore.getState().productionPlan;
-      const sceneCount = plan?.scenes?.length ?? 0;
-      // 动画阶段逐片段生成耗时长：按音频时长×4 与场景数×240s 取大者，避免管线误超时
-      const pipelineTimeoutSec = Math.max(1800, audioDur * 4, sceneCount * 240);
-      const res = await pipelineApi.runAsync({
-        persona_id: st.personaId ?? 'default',
-        category_plugin_id: st.pluginId ?? 'knowledge_longform',
-        topic: topic || '未命名选题',
-        use_v2: true,
-        extra_params: {
-          script_text: st.scriptText || undefined,
-          audio_duration_sec: st.audioDurationSec || undefined,
-          split_mode: st.splitMode || undefined,
-          video_mode: st.videoMode || undefined,
-          audio_path: st.audioPath || undefined,
-          auto_dub: st.autoDub,
-          voice_id: st.voiceId || undefined,
-          creative_brief: useAgentStore.getState().creativeBrief ?? undefined,
-          production_plan: useAgentStore.getState().productionPlan ?? undefined,
-          pipeline_timeout_sec: pipelineTimeoutSec,
-        },
-      });
-      setPipelineId(res.pipeline_id);
-      openSSE(res.pipeline_id);
-    } catch {
-      simulatePipeline();
-    } finally {
-      setLaunching(false);
-    }
-  };
-
-  const simulatePipeline = () => {
-    simulatedRef.current = true;
-    setPipelineId(uid('pl'));
-    let i = 0;
-    const schedule = (fn: () => void, ms: number) => {
-      const t = setTimeout(() => {
-        simTimersRef.current.delete(t);
-        fn();
-      }, ms);
-      simTimersRef.current.add(t);
-    };
-    const step = () => {
-      if (i >= PHASE_ORDER.length) {
-        updatePhase('completed', 100);
-        addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'info', summary: '管线完成（演示模式）' });
-        return;
-      }
-      const p = PHASE_ORDER[i];
-      addLogEntry({ timestamp: Date.now(), agent: PHASE_LABELS[p], type: 'agent_start', summary: `${PHASE_LABELS[p]} 启动` });
-      schedule(() => {
-        addLogEntry({ timestamp: Date.now(), agent: PHASE_LABELS[p], type: 'agent_end', summary: `${PHASE_LABELS[p]} 完成 (0.7s)` });
-      }, 600);
-      updatePhase(p, Math.round(((i + 1) / PHASE_ORDER.length) * 90));
-      i++;
-      schedule(step, 700);
-    };
-    step();
-  };
 
   return (
     <div className="border-t border-outline-variant/20 shrink-0 bg-surface-container-low">
@@ -718,18 +639,6 @@ function BottomBar() {
           )}
         </div>
       )}
-
-      <div className="p-2 flex items-center gap-2">
-        <input value={topic} onChange={(e) => setTopic(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && launch()}
-          placeholder="选题 / 指令…"
-          className="flex-1 bg-surface-container rounded-cw-xs px-2.5 py-1.5 text-body-sm text-on-surface
-            outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50" />
-        <Button size="sm" onClick={launch} disabled={launching || running}>
-          {launching || running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-          {running ? '运行中' : '启动'}
-        </Button>
-      </div>
     </div>
   );
 }
