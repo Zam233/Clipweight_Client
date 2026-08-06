@@ -7,11 +7,16 @@ import { Slider, Badge } from '@/components/ui';
 import { Tooltip } from '@/components/ui';
 import { TRACK_COLORS } from '@/types/timeline';
 import { EASING_NAMES, interpolateProperties } from '@/features/timeline/engine/easing';
-import { ANIMATION_PRESETS, presetKeyframes } from './animationPresets';
-import type { Clip } from '@/types/timeline';
+import {
+  ANIMATION_PRESETS, presetKeyframes, backendPresetsToPresets,
+  type AnimationPreset, type BackendAnimationDef,
+} from './animationPresets';
+import { animationApi } from '@/services/api';
+import { sectionsForKind } from './sectionsForKind';
+import type { Clip, ClipKind } from '@/types/timeline';
 import {
   SlidersHorizontal, Type, Diamond, Plus, Trash2, ChevronLeft, ChevronRight,
-  Move, RotateCcw, Wand2, Eye, EyeOff,
+  Move, RotateCcw, Wand2, Eye, EyeOff, Shapes, BarChart3, Image as ImageIcon,
 } from 'lucide-react';
 
 // Coalesce rapid history pushes (slider drag / number input / typing) into a single
@@ -32,11 +37,13 @@ export function PropertiesPanel() {
   const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
   const timeline = useTimelineStore((s) => s.timeline);
   const updateClip = useTimelineStore((s) => s.updateClip);
+  const updateTrackClips = useTimelineStore((s) => s.updateTrackClips);
 
   // Resolve first selected clip
   let clip: Clip | null = null;
   let trackKind = 'video';
   let trackName = '';
+  let trackId = '';
   if (selectedClipIds.length > 0) {
     outer: for (const track of timeline.tracks) {
       for (const c of track.clips) {
@@ -44,6 +51,7 @@ export function PropertiesPanel() {
           clip = c;
           trackKind = track.kind;
           trackName = track.name;
+          trackId = track.id;
           break outer;
         }
       }
@@ -69,7 +77,21 @@ export function PropertiesPanel() {
     }
   };
 
+  // Style edits cascade to every clip on the same caption layer (ONE history point);
+  // text clips keep per-clip updateClip.
+  const applyStyle = (updates: Partial<Clip>) => {
+    pushHistory();
+    if (trackKind === 'caption' && trackId) {
+      updateTrackClips(trackId, updates);
+    } else {
+      set(updates);
+    }
+  };
+
   const color = TRACK_COLORS[trackKind as keyof typeof TRACK_COLORS] ?? '#4F8CFF';
+
+  // 按素材类型决定渲染哪些分区（sectionsForKind 为单一事实来源）
+  const sections = clip ? sectionsForKind(trackKind as ClipKind) : [];
 
   return (
     <div className="flex flex-col h-full bg-surface-container-low">
@@ -190,8 +212,23 @@ export function PropertiesPanel() {
               )}
             </Section>
 
+            {/* Shape (shape only) */}
+            {sections.includes('shape') && (
+              <ShapeSection clip={clip} pushHistory={pushHistory} set={set} />
+            )}
+
+            {/* Waveform (waveform only) */}
+            {sections.includes('waveform') && (
+              <WaveformSection clip={clip} pushHistory={pushHistory} set={set} />
+            )}
+
+            {/* Image fit (image only) */}
+            {sections.includes('image') && (
+              <ImageSection clip={clip} pushHistory={pushHistory} set={set} />
+            )}
+
             {/* Transform (video / image) */}
-            {(trackKind === 'video' || trackKind === 'image') && (
+            {sections.includes('transform') && sections.includes('fx') && (
               <>
                 <TransformSection clip={clip} pushHistory={pushHistory} set={set} />
                 <Section title="效果">
@@ -209,8 +246,8 @@ export function PropertiesPanel() {
               </>
             )}
 
-            {/* Text properties */}
-            {(trackKind === 'text' || trackKind === 'caption') && (
+            {/* Text content (style fields live in the 字幕样式 section below) */}
+            {sections.includes('text') && (
               <Section title="文字" icon={<Type className="w-3 h-3" />}>
                 <Row label="内容">
                   <textarea
@@ -221,21 +258,16 @@ export function PropertiesPanel() {
                       outline-none border border-outline-variant/30 focus:border-primary resize-none"
                   />
                 </Row>
-                <Row label="字号">
-                  <NumberInput value={clip.font_size ?? 48} onChange={(v) => { pushHistory(); set({ font_size: Math.max(8, v) }); }} />
-                </Row>
-                <Row label="颜色">
-                  <input
-                    type="color"
-                    value={clip.font_color ?? '#FFFFFF'}
-                    onChange={(e) => { pushHistory(); set({ font_color: e.target.value }); }}
-                    className="w-8 h-7 rounded-cw-xs border border-outline-variant/40 bg-transparent cursor-pointer"
-                  />
-                </Row>
+              </Section>
+            )}
+
+            {/* Caption / text style — on caption tracks every control cascades to the whole layer */}
+            {sections.includes('captionStyle') && (
+              <Section title="字幕样式" icon={<Type className="w-3 h-3" />}>
                 <Row label="字体族">
                   <select
                     value={clip.font ?? 'Inter'}
-                    onChange={(e) => { pushHistory(); set({ font: e.target.value }); }}
+                    onChange={(e) => applyStyle({ font: e.target.value })}
                     className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
                       outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
                   >
@@ -244,10 +276,43 @@ export function PropertiesPanel() {
                     ))}
                   </select>
                 </Row>
+                <Row label="字号">
+                  <NumberInput value={clip.font_size ?? 48} onChange={(v) => applyStyle({ font_size: Math.max(8, v) })} />
+                </Row>
+                <Row label="颜色">
+                  <input
+                    type="color"
+                    value={clip.font_color ?? '#FFFFFF'}
+                    onChange={(e) => applyStyle({ font_color: e.target.value })}
+                    className="w-8 h-7 rounded-cw-xs border border-outline-variant/40 bg-transparent cursor-pointer"
+                  />
+                </Row>
+                <Row label="粗细">
+                  <select
+                    value={clip.font_weight ?? 'normal'}
+                    onChange={(e) => applyStyle({ font_weight: e.target.value })}
+                    className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
+                      outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                  >
+                    <option value="normal">常规</option>
+                    <option value="bold">加粗</option>
+                  </select>
+                </Row>
+                <Row label="斜体">
+                  <select
+                    value={clip.font_italic ? 'italic' : 'normal'}
+                    onChange={(e) => applyStyle({ font_italic: e.target.value === 'italic' })}
+                    className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
+                      outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                  >
+                    <option value="normal">常规</option>
+                    <option value="italic">斜体</option>
+                  </select>
+                </Row>
                 <Row label="对齐">
                   <select
-                    value={clip.text_align ?? 'left'}
-                    onChange={(e) => { pushHistory(); set({ text_align: e.target.value as 'left' | 'center' | 'right' }); }}
+                    value={clip.text_align ?? (trackKind === 'caption' ? 'center' : 'left')}
+                    onChange={(e) => applyStyle({ text_align: e.target.value as 'left' | 'center' | 'right' })}
                     className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
                       outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
                   >
@@ -255,6 +320,48 @@ export function PropertiesPanel() {
                     <option value="center">居中对齐</option>
                     <option value="right">右对齐</option>
                   </select>
+                </Row>
+                <Row label="字距">
+                  <NumberInput value={clip.letter_spacing ?? 0} onChange={(v) => applyStyle({ letter_spacing: v })} />
+                </Row>
+                <Row label="描边宽度">
+                  <NumberInput value={clip.stroke_width ?? 0} onChange={(v) => applyStyle({ stroke_width: Math.max(0, v) })} />
+                </Row>
+                <Row label="描边颜色">
+                  <input
+                    type="color"
+                    value={clip.stroke_color ?? '#000000'}
+                    onChange={(e) => applyStyle({ stroke_color: e.target.value })}
+                    className="w-8 h-7 rounded-cw-xs border border-outline-variant/40 bg-transparent cursor-pointer"
+                  />
+                </Row>
+                <Row label="阴影 X">
+                  <NumberInput value={clip.shadow_x ?? 0} onChange={(v) => applyStyle({ shadow_x: v })} />
+                </Row>
+                <Row label="阴影 Y">
+                  <NumberInput value={clip.shadow_y ?? 0} onChange={(v) => applyStyle({ shadow_y: v })} />
+                </Row>
+                <Row label="阴影模糊">
+                  <NumberInput value={clip.shadow_blur ?? 0} onChange={(v) => applyStyle({ shadow_blur: Math.max(0, v) })} />
+                </Row>
+                <Row label="阴影颜色">
+                  <input
+                    type="color"
+                    value={clip.shadow_color ?? '#000000'}
+                    onChange={(e) => applyStyle({ shadow_color: e.target.value })}
+                    className="w-8 h-7 rounded-cw-xs border border-outline-variant/40 bg-transparent cursor-pointer"
+                  />
+                </Row>
+                <Row label="发光宽度">
+                  <NumberInput value={clip.glow_width ?? 0} onChange={(v) => applyStyle({ glow_width: Math.max(0, v) })} />
+                </Row>
+                <Row label="发光颜色">
+                  <input
+                    type="color"
+                    value={clip.glow_color ?? '#FFFFFF'}
+                    onChange={(e) => applyStyle({ glow_color: e.target.value })}
+                    className="w-8 h-7 rounded-cw-xs border border-outline-variant/40 bg-transparent cursor-pointer"
+                  />
                 </Row>
               </Section>
             )}
@@ -300,11 +407,37 @@ function AnimationSection({ clip }: { clip: Clip }) {
   const setCurrentTime = usePreviewStore((s) => s.setCurrentTime);
   const currentTimeSec = usePreviewStore((s) => s.currentTimeSec);
   const [activeCat, setActiveCat] = useState<string>('入场');
+  const [presets, setPresets] = useState<AnimationPreset[]>(ANIMATION_PRESETS);
+  const [presetSource, setPresetSource] = useState<'backend' | 'static'>('static');
+
+  // 挂载时请求后端动画预设（list + onscreen + transitions）；离线回退静态 ANIMATION_PRESETS
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [list, onscreen, transitions] = await Promise.all([
+          animationApi.list(),
+          animationApi.onscreen(),
+          animationApi.transitions(),
+        ]);
+        const mapped = backendPresetsToPresets(
+          [...list, ...onscreen, ...transitions] as unknown as BackendAnimationDef[],
+        );
+        if (alive && mapped.length > 0) {
+          setPresets(mapped);
+          setPresetSource('backend');
+        }
+      } catch {
+        // 后端离线：保持静态预设兜底
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   const pushHistory = () => pushHistoryCoalesced('animation');
 
   const applyPreset = (presetId: string) => {
-    const preset = ANIMATION_PRESETS.find((p) => p.id === presetId);
+    const preset = presets.find((p) => p.id === presetId);
     if (!preset) return;
     pushHistory();
     // Merge preset keyframes with existing ones (preset wins on same time)
@@ -316,7 +449,7 @@ function AnimationSection({ clip }: { clip: Clip }) {
   };
 
   const categories = ['入场', '出场', '强调', '循环'];
-  const visible = ANIMATION_PRESETS.filter((p) => p.category === activeCat);
+  const visible = presets.filter((p) => p.category === activeCat);
 
   // Playhead position within clip (0-1) for the strip
   const localT = clip.duration_sec > 0
@@ -332,6 +465,9 @@ function AnimationSection({ clip }: { clip: Clip }) {
 
   return (
     <Section title="动画 Animation" icon={<Wand2 className="w-3 h-3" />}>
+      <p className="text-caption text-on-surface-variant/60 mb-2">
+        {presetSource === 'backend' ? `在线预设 · ${presets.length} 个（来自后端）` : '离线预设 · 静态内置'}
+      </p>
       {/* category tabs */}
       <div className="flex gap-1 mb-2">
         {categories.map((c) => (
@@ -346,6 +482,9 @@ function AnimationSection({ clip }: { clip: Clip }) {
 
       {/* preset grid */}
       <div className="grid grid-cols-3 gap-1.5 mb-3">
+        {visible.length === 0 && (
+          <p className="col-span-3 text-center text-caption text-on-surface-variant/50 py-1.5">该分类暂无预设</p>
+        )}
         {visible.map((p) => (
           <button key={p.id} onClick={() => applyPreset(p.id)} title={`应用「${p.name}」动画`}
             className="flex flex-col items-center gap-1 px-1 py-2 rounded-cw-sm bg-surface-container-high border border-outline-variant/20
@@ -452,6 +591,94 @@ function TransformSection({ clip, pushHistory, set }: {
           bg-surface-container-high text-on-surface-variant text-label-sm hover:text-on-surface
           hover:bg-surface-container transition-colors cursor-pointer">
         <RotateCcw className="w-3 h-3" /> 重置变换
+      </button>
+    </Section>
+  );
+}
+
+/**
+ * ShapeSection — shape clip 专属：形状类型 + 填充色。
+ */
+function ShapeSection({ clip, pushHistory, set }: {
+  clip: Clip;
+  pushHistory: () => void;
+  set: (u: Partial<Clip>) => void;
+}) {
+  return (
+    <Section title="形状" icon={<Shapes className="w-3 h-3" />}>
+      <Row label="形状">
+        <select
+          value={clip.shape ?? 'rect'}
+          onChange={(e) => { pushHistory(); set({ shape: e.target.value }); }}
+          className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
+            outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+        >
+          <option value="rect">矩形</option>
+          <option value="ellipse">椭圆</option>
+        </select>
+      </Row>
+      <Row label="填充色">
+        <input
+          type="color"
+          value={clip.fill ?? '#FFFFFF'}
+          onChange={(e) => { pushHistory(); set({ fill: e.target.value }); }}
+          className="w-8 h-7 rounded-cw-xs border border-outline-variant/40 bg-transparent cursor-pointer"
+        />
+      </Row>
+    </Section>
+  );
+}
+
+/**
+ * WaveformSection — waveform clip 专属：柱数 + 柱宽。
+ */
+function WaveformSection({ clip, pushHistory, set }: {
+  clip: Clip;
+  pushHistory: () => void;
+  set: (u: Partial<Clip>) => void;
+}) {
+  return (
+    <Section title="波形" icon={<BarChart3 className="w-3 h-3" />}>
+      <Row label="柱数">
+        <NumberInput value={clip.bar_count ?? 32} onChange={(v) => { pushHistory(); set({ bar_count: Math.round(Math.min(256, Math.max(8, v))) }); }} />
+      </Row>
+      <Row label="柱宽">
+        <NumberInput value={clip.bar_width ?? 0.5} onChange={(v) => { pushHistory(); set({ bar_width: Math.min(1, Math.max(0.1, v)) }); }} />
+      </Row>
+    </Section>
+  );
+}
+
+/**
+ * ImageSection — image clip 专属：适配方式 + 重置裁切区域。
+ */
+function ImageSection({ clip, pushHistory, set }: {
+  clip: Clip;
+  pushHistory: () => void;
+  set: (u: Partial<Clip>) => void;
+}) {
+  return (
+    <Section title="适配" icon={<ImageIcon className="w-3 h-3" />}>
+      <Row label="适配方式">
+        <select
+          value={clip.image_fit ?? 'cover'}
+          onChange={(e) => { pushHistory(); set({ image_fit: e.target.value as Clip['image_fit'] }); }}
+          className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
+            outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+        >
+          <option value="cover">铺满 (cover)</option>
+          <option value="contain">完整 (contain)</option>
+          <option value="free">自由 (free)</option>
+        </select>
+      </Row>
+      <button
+        onClick={() => { pushHistory(); set({ image_rect: null }); }}
+        disabled={!clip.image_rect}
+        className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-cw-xs
+          bg-surface-container-high text-on-surface-variant text-label-sm hover:text-on-surface
+          hover:bg-surface-container transition-colors disabled:opacity-30 disabled:cursor-default cursor-pointer"
+      >
+        <RotateCcw className="w-3 h-3" /> 重置裁切区域
       </button>
     </Section>
   );
