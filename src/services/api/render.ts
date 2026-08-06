@@ -11,6 +11,28 @@ export interface ExportPreset {
   icon: string;
 }
 
+/**
+ * Render progress SSE event. Backend B12: `completed`/`failed` events now
+ * include `output_path` — the relative rendered file path, e.g.
+ * `renders/渲染完成-发布会.mp4`.
+ */
+export interface RenderProgressEvent extends RenderProgress {
+  output_path?: string;
+}
+
+/**
+ * Build the render download URL path. Prefers the basename (last path segment)
+ * of the SSE `output_path` so CJK/unicode filenames survive; falls back to
+ * `fallbackFilename` when no `output_path` was received. The chosen filename is
+ * URL-encoded for safe insertion into the URL path.
+ */
+export function buildRenderDownloadUrl(outputPath?: string, fallbackFilename?: string): string {
+  const basename = outputPath ? outputPath.split(/[/\\]/).filter(Boolean).pop() : undefined;
+  const filename = (basename ?? fallbackFilename ?? '').trim();
+  if (!filename) return '';
+  return `/api/render/download/${encodeURIComponent(filename)}`;
+}
+
 export const renderApi = {
   /** Start a render job */
   async start(request: RenderRequest) {
@@ -49,9 +71,9 @@ export const renderApi = {
   },
 
   /** Download rendered file */
-  getDownloadUrl(filename: string): string {
+  getDownloadUrl(filename: string, outputPath?: string): string {
     const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
-    return `${base}/api/render/download/${filename}`;
+    return `${base}${buildRenderDownloadUrl(outputPath, filename)}`;
   },
 
   /** Get video thumbnail */

@@ -48,9 +48,20 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     if (undoStack.length === 0) return null;
     const entry = undoStack[undoStack.length - 1];
     const current = useTimelineStore.getState().timeline;
+
+    // 当前时间线含不可克隆值（函数/DOM/Symbol 等）时跳过 redo 快照，但仍出栈
+    let snapshot: Timeline | null = null;
+    try {
+      snapshot = structuredClone(current);
+    } catch {
+      snapshot = null;
+    }
+
     set((state) => ({
       undoStack: state.undoStack.slice(0, -1),
-      redoStack: [...state.redoStack, { timestamp: Date.now(), label: 'redo', timeline: structuredClone(current) }],
+      redoStack: snapshot
+        ? [...state.redoStack, { timestamp: Date.now(), label: 'redo', timeline: snapshot }]
+        : state.redoStack,
     }));
     return entry.timeline;
   },
@@ -60,9 +71,20 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     if (redoStack.length === 0) return null;
     const entry = redoStack[redoStack.length - 1];
     const current = useTimelineStore.getState().timeline;
+
+    // 当前时间线含不可克隆值时跳过 undo 快照，但仍出栈
+    let snapshot: Timeline | null = null;
+    try {
+      snapshot = structuredClone(current);
+    } catch {
+      snapshot = null;
+    }
+
     set((state) => ({
       redoStack: state.redoStack.slice(0, -1),
-      undoStack: [...state.undoStack, { timestamp: Date.now(), label: 'undo', timeline: structuredClone(current) }],
+      undoStack: snapshot
+        ? [...state.undoStack, { timestamp: Date.now(), label: 'undo', timeline: snapshot }]
+        : state.undoStack,
     }));
     return entry.timeline;
   },

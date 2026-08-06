@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useProjectStore } from '@/stores/projectStore';
 import { clearRequirementsDraft } from '@/stores/agentStore';
+import { useBackendHealth } from './useBackendHealth';
 import {
   healthApi, personaApi, projectApi, assetApi, typeMakerApi,
   getApiClient,
@@ -97,7 +98,7 @@ export function HomePage() {
   const navigate = useNavigate();
 
   const [guardNotice, setGuardNotice] = useState<string | null>(null);
-  const [backend, setBackend] = useState<'checking' | 'online' | 'offline'>('checking');
+  const backend = useBackendHealth();
   const [dataMode, setDataMode] = useState<'live' | 'demo'>('demo');
   const [personas, setPersonas] = useState<PersonaOpt[]>(DEMO_PERSONAS);
   const [plugins, setPlugins] = useState<PluginOpt[]>(DEMO_PLUGINS);
@@ -126,9 +127,6 @@ export function HomePage() {
       sessionStorage.removeItem('cw_guard_notice');
       queueMicrotask(() => alive && setGuardNotice(notice));
     }
-    healthApi.check()
-      .then(() => alive && setBackend('online'))
-      .catch(() => alive && setBackend('offline'));
 
     (async () => {
       try {

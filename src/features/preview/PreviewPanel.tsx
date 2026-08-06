@@ -146,7 +146,12 @@ export function PreviewPanel() {
     let raf = 0;
     let lastW = 0;
     let lastH = 0;
-    const last = { t: -1, tl: null as unknown, safe: false, zoom: -1 };
+    const last = { t: -1, tl: null as unknown, safe: false, zoom: -1, mv: -1 };
+
+    // Re-render when media state changes (e.g. an asset errors while loading) —
+    // otherwise the failed clip would stay a silent black frame until the playhead moves.
+    let mediaVersion = 0;
+    const unsubMedia = mediaManager.onChange(() => { mediaVersion++; });
 
     const draw = () => {
       const dpr = window.devicePixelRatio || 1;
@@ -235,11 +240,12 @@ export function PreviewPanel() {
       const t = pst.currentTimeSec;
       const safe = pst.showSafeArea;
       const zoom = pst.zoomLevel;
-      if (t !== last.t || tl !== last.tl || safe !== last.safe || zoom !== last.zoom) {
+      if (t !== last.t || tl !== last.tl || safe !== last.safe || zoom !== last.zoom || mediaVersion !== last.mv) {
         last.t = t;
         last.tl = tl;
         last.safe = safe;
         last.zoom = zoom;
+        last.mv = mediaVersion;
         draw();
       }
       raf = requestAnimationFrame(loop);
@@ -252,6 +258,7 @@ export function PreviewPanel() {
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      unsubMedia();
     };
   }, []);
 
@@ -284,9 +291,7 @@ export function PreviewPanel() {
           <Tooltip content="播放速度">
             <button onClick={() => {
               const speeds = [0.5, 1, 1.5, 2];
-              const idx = speeds.indexOf(playbackSpeed);
-              const next = speeds[(idx === -1 ? 0 : idx + 1) % speeds.length];
-              setPlaybackSpeed(next);
+              setPlaybackSpeed(nextPlaybackSpeed(playbackSpeed, speeds));
             }}
               className="px-1.5 py-0.5 rounded-cw-xs font-mono text-caption text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer min-w-[38px] text-center">
               {playbackSpeed}×
@@ -405,6 +410,13 @@ function drawClipToPreview(
       // Try real media first (uploaded video/image)
       const entry = mediaManager.get(clip.asset_id);
       const videoEl = entry?.videoEl;
+
+      // Media failed to load (404 / network) — show an explicit placeholder instead of silent black
+      if (entry?.error) {
+        drawErrorPlaceholder(ctx, fx, fy, fw, fh);
+        break;
+      }
+
       let drewReal = false;
 
       if (track.kind === 'image' && entry?.url) {
@@ -595,6 +607,25 @@ function quoteFontFamily(family: string | null | undefined): string {
 }
 
 /**
+ * Draw a "素材加载失败" placeholder for media that failed to load (entry.error).
+ * Dark box + centered label — deliberately minimal (fillRect + fillText).
+ */
+function drawErrorPlaceholder(
+  ctx: CanvasRenderingContext2D,
+  fx: number, fy: number, fw: number, fh: number,
+) {
+  ctx.fillStyle = '#16181F';
+  ctx.fillRect(fx, fy, fw, fh);
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.font = "500 14px 'Inter','Noto Sans SC',sans-serif";
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('素材加载失败', fx + fw / 2, fy + fh / 2);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
+/**
  * Draw an image/video source covering the frame rect (object-fit: cover),
  * applying position offset, scale and rotation about the frame center.
  */
@@ -726,4 +757,18 @@ function AudioLevelMeter() {
       style={{ imageRendering: 'pixelated' }}
     />
   );
+}
+
+/**
+ * 播放速度循环：从 speeds 列表中选择下一个档位。
+ * 若当前值不在列表中（例如来自其他路径的自定义速度），从头档开始。
+ * Advance the play-speed cycle: pick the next entry in `speeds`.
+ * If `current` is not present (a custom value from another path), start from speeds[0].
+ * Empty list → return `current` unchanged (graceful no-op).
+ */
+export function nextPlaybackSpeed(current: number, speeds: number[]): number {
+  if (speeds.length === 0) return current;
+  const idx = speeds.indexOf(current);
+  const nextIndex = idx === -1 ? 0 : (idx + 1) % speeds.length;
+  return speeds[nextIndex];
 }

@@ -12,6 +12,7 @@ import {
   type AnimationPreset, type BackendAnimationDef,
 } from './animationPresets';
 import { animationApi } from '@/services/api';
+import { shouldPush } from './historyCoalesce';
 import { sectionsForKind } from './sectionsForKind';
 import type { Clip, ClipKind } from '@/types/timeline';
 import {
@@ -20,13 +21,11 @@ import {
 } from 'lucide-react';
 
 // Coalesce rapid history pushes (slider drag / number input / typing) into a single
-// undo point. The first push captures the pre-edit state; pushes within the window
-// are skipped so one gesture ≠ dozens of undo steps.
-let _lastHistoryPush = 0;
-function pushHistoryCoalesced(label: string, windowMs = 600) {
-  const now = Date.now();
-  if (now - _lastHistoryPush < windowMs) return;
-  _lastHistoryPush = now;
+// undo point, scoped PER CLIP so switching clips always opens a fresh window.
+// The first push captures the pre-edit state; pushes within the window are skipped
+// so one gesture ≠ dozens of undo steps. 合并窗口按片段隔离。
+function pushHistoryCoalesced(clipId: string, label: string) {
+  if (!shouldPush(clipId)) return;
   useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, label);
 }
 
@@ -58,7 +57,7 @@ export function PropertiesPanel() {
     }
   }
 
-  const pushHistory = () => pushHistoryCoalesced('property');
+  const pushHistory = () => pushHistoryCoalesced(clip?.id ?? selectedClipIds[0] ?? '', 'property');
 
   const batchUpdate = (updates: Partial<Clip>) => {
     if (selectedClipIds.length > 1) {
@@ -434,7 +433,7 @@ function AnimationSection({ clip }: { clip: Clip }) {
     return () => { alive = false; };
   }, []);
 
-  const pushHistory = () => pushHistoryCoalesced('animation');
+  const pushHistory = () => pushHistoryCoalesced(clip.id, 'animation');
 
   const applyPreset = (presetId: string) => {
     const preset = presets.find((p) => p.id === presetId);
@@ -701,7 +700,7 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
     : 0;
   const inClip = currentTimeSec >= clip.start_sec && currentTimeSec <= clip.start_sec + clip.duration_sec;
 
-  const pushHistory = () => pushHistoryCoalesced('keyframe');
+  const pushHistory = () => pushHistoryCoalesced(clip.id, 'keyframe');
 
   // Current interpolated values at playhead (for the "add keyframe" snapshot)
   const liveProps = interpolateProperties(clip.keyframes, localT);

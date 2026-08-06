@@ -30,7 +30,14 @@ export function getApiClient(): AxiosInstance {
       (res) => res,
       (err) => {
         if (err.response?.status === 401) {
-          // TODO: redirect to login
+          console.warn('[API] Unauthorized (401) — 登录已失效，请重新登录');
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('cw:unauthorized', {
+                detail: { status: 401, url: err.config?.url },
+              }),
+            );
+          }
         }
         if (err.response?.status === 503) {
           console.warn('[API] Service busy, retry later');

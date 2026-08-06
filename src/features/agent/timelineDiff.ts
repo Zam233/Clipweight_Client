@@ -126,10 +126,33 @@ export function mergeTimeline(
     if (!acceptIds.has(mod.proposed.id)) continue;
     for (const track of result.tracks) {
       const idx = track.clips.findIndex((c) => c.id === mod.proposed.id);
-      if (idx >= 0) {
-        // Keep it on its current track but adopt proposed field values
+      if (idx < 0) continue;
+
+      if (track.id === mod.proposed.track_id) {
+        // Same track: keep it in place but adopt proposed field values
         track.clips[idx] = { ...mod.proposed, track_id: track.id };
+      } else {
+        // Track migration: Agent moved the clip to a different track_id
+        track.clips.splice(idx, 1);
+
+        let target = result.tracks.find((t) => t.id === mod.proposed.track_id);
+        if (!target) {
+          // Agent 引入了新轨道 → 按片段类型创建一个最小轨道，避免静默丢弃片段
+          target = {
+            id: mod.proposed.track_id,
+            name: `${mod.proposed.kind} ${result.tracks.length + 1}`,
+            kind: mod.proposed.kind,
+            index: result.tracks.length,
+            clips: [],
+            locked: false,
+            muted: false,
+          } satisfies Track;
+          result.tracks.push(target);
+        }
+        target.clips.push(structuredClone(mod.proposed));
+        target.clips.sort((a, b) => a.start_sec - b.start_sec);
       }
+      break;
     }
   }
 

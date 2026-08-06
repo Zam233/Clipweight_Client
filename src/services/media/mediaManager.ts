@@ -30,6 +30,8 @@ interface MediaEntry {
   thumbnails: Map<number, string>;
   /** true when url is a blob: object URL that must be revoked on unregister */
   isObjectUrl?: boolean;
+  /** true when the media element fired an error event (404 / network) — keeps url for retry */
+  error?: boolean;
 }
 
 class MediaManager {
@@ -59,6 +61,10 @@ class MediaManager {
         entry.durationSec = v.duration;
         this.notify(assetId);
       });
+      v.addEventListener('error', () => {
+        entry.error = true;
+        this.notify(assetId);
+      });
       entry.videoEl = v;
     } else if (kind === 'audio') {
       const a = new Audio();
@@ -68,11 +74,19 @@ class MediaManager {
         entry.durationSec = a.duration;
         this.notify(assetId);
       });
+      a.addEventListener('error', () => {
+        entry.error = true;
+        this.notify(assetId);
+      });
       entry.audioEl = a;
     } else {
       // image: probe dimensions via an Image
       const img = new Image();
       img.src = url;
+      img.onerror = () => {
+        entry.error = true;
+        this.notify(assetId);
+      };
     }
 
     this.entries.set(assetId, entry);
@@ -89,6 +103,10 @@ class MediaManager {
       v.muted = true;
       v.crossOrigin = 'anonymous';
       v.addEventListener('loadedmetadata', () => { entry.durationSec = v.duration; this.notify(assetId); });
+      v.addEventListener('error', () => {
+        entry.error = true;
+        this.notify(assetId);
+      });
       entry.videoEl = v;
     } else if (kind === 'audio') {
       const a = new Audio();
@@ -96,6 +114,10 @@ class MediaManager {
       a.preload = 'metadata';
       a.crossOrigin = 'anonymous';
       a.addEventListener('loadedmetadata', () => { entry.durationSec = a.duration; this.notify(assetId); });
+      a.addEventListener('error', () => {
+        entry.error = true;
+        this.notify(assetId);
+      });
       entry.audioEl = a;
     }
     this.entries.set(assetId, entry);

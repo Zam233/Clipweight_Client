@@ -8,6 +8,7 @@ import {
   Loader2, PackageOpen, Tag,
 } from 'lucide-react';
 import { fmtDur, relTime } from '@/lib/utils';
+import { toast } from '@/stores/toastStore';
 
 const GRADIENTS: [string, string][] = [
   ['#A855F7', '#4F8CFF'], ['#4F8CFF', '#34D399'], ['#FF6B6B', '#FBBF24'], ['#34D399', '#F59E0B'],
@@ -92,8 +93,13 @@ export function ProjectsPage() {
   };
 
   const handleDelete = async (proj: ProjectCardData) => {
-    try { await projectApi.remove(proj.id); } catch { /* offline */ }
-    setProjects((prev) => prev.filter((p) => p.id !== proj.id));
+    try {
+      await projectApi.remove(proj.id);
+      setProjects((prev) => prev.filter((p) => p.id !== proj.id));
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      toast(`删除失败：${reason}，项目已保留`, 'error');
+    }
   };
 
   const handleRename = async (proj: ProjectCardData, name: string) => {

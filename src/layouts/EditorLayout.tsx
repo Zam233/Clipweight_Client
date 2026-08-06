@@ -62,20 +62,30 @@ export function EditorLayout() {
     };
   }, []);
 
-  const handleDividerMouseDown = useCallback(
-    (panel: 'assets' | 'properties' | 'timeline', e: React.MouseEvent) => {
-      e.preventDefault();
+  // Shared drag core — both the mouse and pointer (touch/pen) paths funnel into
+  // this so the resize math stays identical. Idempotent per coordinate: if both
+  // pointer and compatibility mouse events fire for one gesture, applying the
+  // same delta twice yields the same width.
+  const beginDividerDrag = useCallback(
+    (panel: 'assets' | 'properties' | 'timeline', clientX: number, clientY: number) => {
+      // If a gesture fired both pointerdown and mousedown, drop the previous
+      // listeners before re-arming so a single drag never accumulates doubles.
+      if (activeDragRef.current) {
+        activeDragRef.current.cleanup();
+        activeDragRef.current = null;
+      }
+
       setDragging(panel);
       dragStartRef.current = {
-        x: e.clientX,
-        y: e.clientY,
+        x: clientX,
+        y: clientY,
         w: panel === 'assets' ? panelWidths.assets : panelWidths.properties,
         h: timelineHeight,
       };
 
-      const handleMouseMove = (ev: MouseEvent) => {
-        const dx = ev.clientX - dragStartRef.current.x;
-        const dy = ev.clientY - dragStartRef.current.y;
+      const applyDrag = (mx: number, my: number) => {
+        const dx = mx - dragStartRef.current.x;
+        const dy = my - dragStartRef.current.y;
         if (panel === 'assets') {
           setPanelWidth('assets', dragStartRef.current.w + dx);
         } else if (panel === 'properties') {
@@ -85,21 +95,44 @@ export function EditorLayout() {
         }
       };
 
-      const handleMouseUp = () => {
+      const handleMouseMove = (ev: MouseEvent) => applyDrag(ev.clientX, ev.clientY);
+      const handlePointerMove = (ev: PointerEvent) => applyDrag(ev.clientX, ev.clientY);
+
+      const endDrag = () => {
         setDragging(null);
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
+        document.removeEventListener('pointermove', handlePointerMove);
+        document.removeEventListener('pointerup', handlePointerUp);
         activeDragRef.current = null;
       };
+      const handleMouseUp = () => endDrag();
+      const handlePointerUp = () => endDrag();
 
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
-      activeDragRef.current = { cleanup: () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-      }};
+      document.addEventListener('pointermove', handlePointerMove);
+      document.addEventListener('pointerup', handlePointerUp);
+      activeDragRef.current = { cleanup: endDrag };
     },
     [panelWidths, timelineHeight, setPanelWidth, setTimelineHeight],
+  );
+
+  const handleDividerMouseDown = useCallback(
+    (panel: 'assets' | 'properties' | 'timeline', e: React.MouseEvent) => {
+      e.preventDefault();
+      beginDividerDrag(panel, e.clientX, e.clientY);
+    },
+    [beginDividerDrag],
+  );
+
+  // Fallback for touch/pen and pointer-event-only browsers (defect F4).
+  const handleDividerPointerDown = useCallback(
+    (panel: 'assets' | 'properties' | 'timeline', e: React.PointerEvent) => {
+      e.preventDefault();
+      beginDividerDrag(panel, e.clientX, e.clientY);
+    },
+    [beginDividerDrag],
   );
 
   return (
@@ -121,6 +154,7 @@ export function EditorLayout() {
             <div
               className={cn('panel-divider shrink-0', dragging === 'assets' && 'bg-primary')}
               onMouseDown={(e) => handleDividerMouseDown('assets', e)}
+              onPointerDown={(e) => handleDividerPointerDown('assets', e)}
             />
           </>
         )}
@@ -136,6 +170,7 @@ export function EditorLayout() {
           <div
             className={cn('panel-divider-h shrink-0', dragging === 'timeline' && 'bg-primary')}
             onMouseDown={(e) => handleDividerMouseDown('timeline', e)}
+            onPointerDown={(e) => handleDividerPointerDown('timeline', e)}
           />
 
           {/* Timeline */}
@@ -153,6 +188,7 @@ export function EditorLayout() {
             <div
               className={cn('panel-divider shrink-0', dragging === 'properties' && 'bg-primary')}
               onMouseDown={(e) => handleDividerMouseDown('properties', e)}
+              onPointerDown={(e) => handleDividerPointerDown('properties', e)}
             />
             <div
               className="h-full overflow-hidden shrink-0 flex flex-col"

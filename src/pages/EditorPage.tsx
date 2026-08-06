@@ -17,6 +17,7 @@ import { ShortcutCheatSheet } from '@/features/keyboard/ShortcutCheatSheet';
 import { useRequirementsAutoStart } from '@/features/agent/useRequirementsAutoStart';
 import { createEmptyTimeline } from '@/types/timeline';
 import { Loader2 } from 'lucide-react';
+import { decideFlushPayload } from './flushPayload';
 
 /**
  * EditorPage — hosts the 4-panel editor. Loads project from backend by id
@@ -179,12 +180,21 @@ export function EditorPage() {
       const st = useProjectStore.getState();
       if (!st.projectId) return;
       const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
-      const payload = JSON.stringify({
+      // F3 负载大小守卫：>48KB 时退化为紧凑元数据，避免 keepalive 静默丢弃大负载
+      const decision = decideFlushPayload({
+        project_id: st.projectId,
         name: st.projectName,
         timeline: useTimelineStore.getState().timeline,
         persona_id: st.personaId ?? undefined,
         plugin_id: st.pluginId ?? undefined,
       });
+      // 已知历史缺口（F3，记录于 docs/bug-audit.md）：doSave 会随项目保存 agent_state，
+      // 而此处 pagehide 冲刷省略了 agent_state——卸载临界期避免序列化过大的 Agent 状态。
+      // 本次修复不做改动，仅保留注释。
+      if (decision.kind === 'metadata') {
+        toast('项目较大，正在保存元数据，请稍候关闭', 'info');
+      }
+      const payload = JSON.stringify(decision.payload);
       try {
         fetch(`${base}/api/project/${st.projectId}`, {
           method: 'PUT',

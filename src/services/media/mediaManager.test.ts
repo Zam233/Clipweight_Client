@@ -1,7 +1,17 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
 import { mediaManager, resolveMediaUrl } from './mediaManager';
 import type { Timeline, Clip, Track } from '@/types/timeline';
+
+// jsdom doesn't implement object URL helpers — provide minimal stubs for registerFile tests
+beforeAll(() => {
+  if (typeof URL.createObjectURL !== 'function') {
+    (URL as unknown as { createObjectURL: (file: File) => string }).createObjectURL = (file: File) => `blob:mock:${file.name}`;
+  }
+  if (typeof URL.revokeObjectURL !== 'function') {
+    (URL as unknown as { revokeObjectURL: (url: string) => void }).revokeObjectURL = () => {};
+  }
+});
 
 function mkClip(id: string, over: Partial<Clip> = {}): Clip {
   return {
@@ -97,5 +107,57 @@ describe('resolveMediaUrl', () => {
 
   it('returns undefined when nothing resolvable', () => {
     expect(resolveMediaUrl({ asset_id: '', metadata: {} })).toBeUndefined();
+  });
+});
+
+describe('mediaManager error tracking', () => {
+  beforeEach(() => {
+    mediaManager.clear();
+  });
+
+  it('video (registerUrl): marks entry.error and notifies subscribers on error event', () => {
+    const notified: string[] = [];
+    const unsub = mediaManager.onChange((id) => notified.push(id));
+    try {
+      mediaManager.registerUrl('asset_err_video', 'http://cdn.example/404.mp4', 'video');
+      const entry = mediaManager.get('asset_err_video')!;
+      expect(entry).toBeDefined();
+      expect(entry.error).toBeFalsy();
+
+      entry.videoEl!.dispatchEvent(new Event('error'));
+
+      expect(entry.error).toBe(true);
+      expect(notified).toContain('asset_err_video');
+      // URL kept so a retry remains possible
+      expect(mediaManager.get('asset_err_video')!.url).toBe('http://cdn.example/404.mp4');
+    } finally {
+      unsub();
+    }
+  });
+
+  it('audio (registerFile): marks entry.error and notifies subscribers on error event', () => {
+    const notified: string[] = [];
+    const unsub = mediaManager.onChange((id) => notified.push(id));
+    try {
+      mediaManager.registerFile('asset_err_audio', new File(['x'], 'broken.wav', { type: 'audio/wav' }));
+      const entry = mediaManager.get('asset_err_audio')!;
+      expect(entry).toBeDefined();
+      expect(entry.error).toBeFalsy();
+
+      entry.audioEl!.dispatchEvent(new Event('error'));
+
+      expect(entry.error).toBe(true);
+      expect(notified).toContain('asset_err_audio');
+    } finally {
+      unsub();
+    }
+  });
+
+  it('happy path: no error event → entry.error stays falsy', () => {
+    mediaManager.registerUrl('asset_ok_video', 'http://cdn.example/ok.mp4', 'video');
+    mediaManager.registerFile('asset_ok_audio', new File(['x'], 'ok.wav', { type: 'audio/wav' }));
+
+    expect(mediaManager.get('asset_ok_video')!.error).toBeFalsy();
+    expect(mediaManager.get('asset_ok_audio')!.error).toBeFalsy();
   });
 });

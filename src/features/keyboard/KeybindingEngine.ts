@@ -45,6 +45,13 @@ function isTypingTarget(e: KeyboardEvent): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 }
 
+/** Interactive controls (buttons/links) — single-key shortcuts should not fire while focused. */
+function isInteractiveControl(e: KeyboardEvent): boolean {
+  const el = e.target as HTMLElement;
+  const tag = el.tagName;
+  return tag === 'BUTTON' || tag === 'A';
+}
+
 export class KeybindingEngine {
   private bindings: KeyBinding[] = [];
   private attached = false;
@@ -79,6 +86,9 @@ export class KeybindingEngine {
       const rawKey = normalizeKey(e);
       if ((e.ctrlKey || e.metaKey) && ['z', 'c', 'v', 'x', 'a', 's'].includes(rawKey)) return;
     }
+    // Don't fire single-key shortcuts while a button/link is focused (Space would re-click it),
+    // but keep modifier combos (Ctrl/Cmd/Alt) working — e.g. Ctrl+S with a button focused.
+    if (isInteractiveControl(e) && !hasModifier) return;
 
     const binding = this.bindings.find((b) => {
       const m = parseCombo(b.combo);

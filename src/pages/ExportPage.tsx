@@ -36,6 +36,7 @@ interface QueueItem extends RenderProgress {
   presetName: string;
   startedAt: string;
   filename?: string;
+  output_path?: string;
   simulated?: boolean;
 }
 
@@ -176,7 +177,7 @@ export function ExportPage() {
     esRefs.current.set(taskId, es);
     // 后端发送的是未命名 data 消息（{type: progress/completed/failed/timeout}）
     es.onmessage = (e) => {
-      let d: { type?: string; progress?: number; phase?: string; detail?: string };
+      let d: { type?: string; progress?: number; phase?: string; detail?: string; output_path?: string };
       try {
         d = JSON.parse((e as MessageEvent).data);
       } catch {
@@ -185,11 +186,11 @@ export function ExportPage() {
       if (d.type === 'progress') {
         updateQueue(taskId, { progress: d.progress ?? 0, phase: d.phase, detail: d.detail, status: 'rendering' });
       } else if (d.type === 'completed') {
-        updateQueue(taskId, { status: 'completed', progress: 100 });
+        updateQueue(taskId, { status: 'completed', progress: 100, output_path: d.output_path });
         es.close();
         esRefs.current.delete(taskId);
       } else if (d.type === 'failed') {
-        updateQueue(taskId, { status: 'failed' });
+        updateQueue(taskId, { status: 'failed', output_path: d.output_path });
         es.close();
         esRefs.current.delete(taskId);
       } else if (d.type === 'timeout') {
@@ -399,9 +400,9 @@ function QueueCard({ item }: { item: QueueItem }) {
             演示模式
           </span>
         )}
-        {item.status === 'completed' && !item.simulated && item.filename && (
+        {item.status === 'completed' && !item.simulated && (item.filename || item.output_path) && (
           <a
-            href={renderApi.getDownloadUrl(item.filename)}
+            href={renderApi.getDownloadUrl(item.filename ?? '', item.output_path)}
             className="p-2 rounded-cw-sm bg-track-audio/15 text-track-audio hover:bg-track-audio/25 transition-colors"
             title="下载"
           >
