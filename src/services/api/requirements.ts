@@ -17,6 +17,13 @@ export const requirementsApi = {
     return data;
   },
 
+  /** Edit timeline by selected clips + natural-language instruction (C6/C7) */
+  async edit(request: { session_id: string; message: string; timeline: unknown; selected_clip_ids: string[] }) {
+    // 换素材/重做动画/数值调整可能调用 Agent，耗时可长，对齐 chat 的超时
+    const { data } = await getApiClient().post('/api/requirements/edit', request, { timeout: 600_000 });
+    return data;
+  },
+
   /** Get SSE stream URL for chat */
   getChatStreamUrl(sessionId: string): string {
     const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
