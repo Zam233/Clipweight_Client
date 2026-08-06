@@ -89,6 +89,8 @@ export function EditorPage() {
         if (project.persona_id) useProjectStore.getState().setPersonaId(project.persona_id);
         if (project.plugin_id) useProjectStore.getState().setPluginId(project.plugin_id);
         useTimelineStore.getState().setTimeline(project.timeline ?? createEmptyTimeline());
+        // 注册项目时间线中的真实媒体（video/audio/image），供预览真实渲染
+        mediaManager.registerTimeline(project.timeline ?? createEmptyTimeline());
         // Restore requirements data so AgentPanel auto-start can consume it
         if (pendingTopic) {
           const pending = pendingReqRef.current!;

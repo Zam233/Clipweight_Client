@@ -5,6 +5,7 @@ import { useHistoryStore } from '@/stores/historyStore';
 import { TRACK_COLORS } from '@/types/timeline';
 import type { Timeline, ClipKind } from '@/types/timeline';
 import { Button, Badge } from '@/components/ui';
+import { mediaManager } from '@/services/media/mediaManager';
 import { Check, GitCompare, Plus, Minus, Pencil, X, Merge } from 'lucide-react';
 
 /**
@@ -52,6 +53,8 @@ export function TimelineDiffView({
       tracks: structuredClone(agentTimeline.tracks),
       duration_sec: maxEnd,
     });
+    // 注册 Agent 素材为真实媒体，供预览真实渲染（video/audio/image）
+    mediaManager.registerTimeline(agentTimeline);
     onDone();
   };
 
@@ -59,6 +62,7 @@ export function TimelineDiffView({
     const merged = mergeTimeline(currentTimeline, diff, accepted, removals);
     useHistoryStore.getState().pushState(currentTimeline, 'merge-agent');
     setTimeline(merged);
+    mediaManager.registerTimeline(merged);
     onDone();
   };
 

@@ -6,6 +6,20 @@
  * gracefully when no real media is available (demo assets).
  */
 
+import type { Timeline, Clip } from '@/types/timeline';
+
+/** Resolve a clip's real-media URL for preview playback. */
+export function resolveMediaUrl(clip: Pick<Clip, 'metadata' | 'asset_id'>): string | undefined {
+  const meta = clip.metadata ?? {};
+  const rawUrl = typeof meta.url === 'string' ? meta.url : '';
+  // 优先使用 HTTP URL（Agent 时间线可直接预览）；否则把本地路径/asset_id 包装成 by-path 代理
+  if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
+  const localPath = typeof meta.local_path === 'string' ? meta.local_path : '';
+  const path = localPath || clip.asset_id;
+  if (!path) return undefined;
+  return `/api/asset/by-path?path=${encodeURIComponent(path)}`;
+}
+
 interface MediaEntry {
   url: string;
   kind: 'video' | 'audio' | 'image';
@@ -85,6 +99,23 @@ class MediaManager {
       entry.audioEl = a;
     }
     this.entries.set(assetId, entry);
+  }
+
+  /**
+   * registerTimeline — 把时间线上所有媒体片段（video/audio/image）注册为真实媒体。
+   *
+   * 幂等：已注册的 asset_id 跳过；无法解析 URL 的片段静默跳过（预览回退占位块）。
+   */
+  registerTimeline(timeline: Timeline): void {
+    for (const track of timeline.tracks) {
+      for (const clip of track.clips) {
+        if (clip.kind !== 'video' && clip.kind !== 'audio' && clip.kind !== 'image') continue;
+        if (this.entries.has(clip.asset_id)) continue;
+        const url = resolveMediaUrl(clip);
+        if (!url) continue;
+        this.registerUrl(clip.asset_id, url, clip.kind);
+      }
+    }
   }
 
   get(assetId: string): MediaEntry | undefined {
