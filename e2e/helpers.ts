@@ -54,6 +54,94 @@ const demoTimeline = {
       muted: false,
       clips: [],
     },
+    {
+      id: 'track-c1',
+      name: 'CAPTION 1',
+      kind: 'caption',
+      index: 2,
+      locked: false,
+      muted: false,
+      clips: [
+        {
+          id: 'clip-c1',
+          kind: 'caption',
+          asset_id: 'caption-c1',
+          track_id: 'track-c1',
+          start_sec: 0,
+          duration_sec: 2,
+          source_offset_sec: 0,
+          speed: 1,
+          volume: 1,
+          opacity: 1,
+          image_fit: null,
+          image_rect: null,
+          text: '第一句字幕',
+          font: 'Inter',
+          font_size: 48,
+          font_color: '#FFFFFF',
+          text_align: 'center',
+          font_weight: 'normal',
+          font_italic: false,
+          letter_spacing: 0,
+          stroke_width: 0,
+          stroke_color: '#000000',
+          shadow_x: 0,
+          shadow_y: 0,
+          shadow_blur: 0,
+          shadow_color: '#000000',
+          glow_width: 4,
+          glow_color: '#FFFFFF',
+          transition_in: null,
+          transition_out: null,
+          transition_duration_sec: null,
+          shape: null,
+          fill: null,
+          bar_count: null,
+          bar_width: null,
+          keyframes: [],
+          metadata: {},
+        },
+        {
+          id: 'clip-c2',
+          kind: 'caption',
+          asset_id: 'caption-c2',
+          track_id: 'track-c1',
+          start_sec: 3,
+          duration_sec: 2,
+          source_offset_sec: 0,
+          speed: 1,
+          volume: 1,
+          opacity: 1,
+          image_fit: null,
+          image_rect: null,
+          text: '第二句字幕',
+          font: 'Inter',
+          font_size: 48,
+          font_color: '#FFFFFF',
+          text_align: 'center',
+          font_weight: 'normal',
+          font_italic: false,
+          letter_spacing: 0,
+          stroke_width: 0,
+          stroke_color: '#000000',
+          shadow_x: 0,
+          shadow_y: 0,
+          shadow_blur: 0,
+          shadow_color: '#000000',
+          glow_width: 0,
+          glow_color: '#000000',
+          transition_in: null,
+          transition_out: null,
+          transition_duration_sec: null,
+          shape: null,
+          fill: null,
+          bar_count: null,
+          bar_width: null,
+          keyframes: [],
+          metadata: {},
+        },
+      ],
+    },
   ],
 };
 
@@ -78,7 +166,7 @@ const demoSummary = {
   plugin_id: 'knowledge_longform',
   folder: '',
   tags: [],
-  track_count: 2,
+  track_count: 3,
   duration_sec: 8,
   has_thumbnail: false,
 };
@@ -107,6 +195,33 @@ export async function mockBackendApi(page: Page): Promise<void> {
     }
     if (url.includes('/api/persona')) {
       return route.fulfill({ json: [] });
+    }
+    if (route.request().method() === 'POST' && /\/api\/requirements\/edit(\?|$)/.test(url)) {
+      // C6 时间线编辑：返回假 proposed_timeline，触发 TimelineDiffView 审阅
+      return route.fulfill({
+        json: {
+          reply: '已根据指令调整时间线（E2E mock）。',
+          action: 'adjust',
+          proposed_timeline: {
+            ...demoTimeline,
+            duration_sec: 9,
+            tracks: demoTimeline.tracks.map((t) => (t.id === 'track-v1'
+              ? { ...t, clips: [{ ...t.clips[0], duration_sec: 6, metadata: { ...t.clips[0].metadata, url: 'http://mock/v.mp4' } }] }
+              : t)),
+          },
+        },
+      });
+    }
+    if (route.request().method() === 'GET' && url.includes('/api/asset/by-path')) {
+      // by-path 媒体代理：返回 1x1 PNG 占位
+      return route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+          'base64',
+        ),
+      });
     }
     return route.fulfill({ json: {} });
   });
