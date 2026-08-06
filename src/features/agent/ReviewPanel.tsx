@@ -4,6 +4,7 @@ import { requirementsApi, pipelineApi } from '@/services/api';
 import { useProjectStore } from '@/stores/projectStore';
 import { Button } from '@/components/ui';
 import { Markdown } from '@/components/shared/Markdown';
+import { resolveMessageAttachments } from './requirementsAttachments';
 import { uid } from '@/lib/utils';
 import { MessageSquare, ThumbsDown, ThumbsUp, X, Send, Check, Loader2, ChevronLeft } from 'lucide-react';
 
@@ -98,13 +99,19 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
   };
 
   const confirm = async () => {
+    // 防双击并发：同一时刻只允许一次确认，避免产生两条回复/两次管线启动
+    if (confirming) return;
     setConfirming(true);
+    useAgentStore.getState().setRequirementsBusy(true);
+    // 立即关闭审阅界面并清理标注——LLM 生成转入后台执行，UI 不被阻塞
+    onBack();
+    useAgentStore.getState().clearAnnotations();
     const st = useProjectStore.getState();
-    if (planMarkdown) {
-      setStatus('pipeline_running');
-      addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-        content: '已确认规划书，启动管线中…请切换到「执行日志」标签查看进度。' });
-      try {
+    try {
+      if (planMarkdown) {
+        setStatus('pipeline_running');
+        addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: '已确认规划书，启动管线中…请切换到「执行日志」标签查看进度。' });
         const audioDur = st.audioDurationSec || 0;
         const plan = useAgentStore.getState().productionPlan;
         const sceneCount = plan?.scenes?.length ?? 0;
@@ -130,30 +137,33 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
         });
         useAgentStore.getState().setPipelineId(res.pipeline_id);
         useAgentStore.getState().updatePhase('structure', 5);
-        useAgentStore.getState().clearAnnotations();
-        onBack();
-      } catch {
-        // 启动失败：回滚状态并提示，避免卡在 pipeline_running 无法重试
-        setStatus('plan_ready');
-        addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-          content: '管线启动失败，请稍后重试。' });
-      }
-    } else {
-      setStatus('brief_confirmed');
-      addMessage({ id: uid('m'), role: 'user', content: '确认，请生成完整的制作规划书。', timestamp: new Date().toISOString() });
-      try {
+      } else {
+        setStatus('brief_confirmed');
+        addMessage({ id: uid('m'), role: 'user', content: '确认，请生成完整的制作规划书。', timestamp: new Date().toISOString() });
         if (sessionId) {
-          const res = await requirementsApi.chat({ session_id: sessionId, message: '确认，请生成完整的制作规划书。' });
-          const plan = res.production_plan ?? null;
-          if (plan) { setPlan(plan); setStatus('plan_ready'); }
-          addMessage({ id: uid('m'), role: 'assistant', content: res.reply ?? '制作规划书已生成。',
-            timestamp: new Date().toISOString(), production_plan: plan });
+          try {
+            const res = await requirementsApi.chat({ session_id: sessionId, message: '确认，请生成完整的制作规划书。' });
+            const plan = res.production_plan ?? null;
+            if (plan) { setPlan(plan); setStatus('plan_ready'); }
+            // assistant 回复按统一附件规则挂载（规划书消息不再挂旧的创意简报，避免消息内容错配）
+            const att = resolveMessageAttachments(res.status, null, plan);
+            addMessage({ id: uid('m'), role: 'assistant', content: res.reply ?? '制作规划书已生成。',
+              timestamp: new Date().toISOString(), creative_brief: att.creative_brief, production_plan: att.production_plan });
+          } catch {
+            addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+              content: '（离线模式）已记录确认。连接后端后可重新生成制作规划书。' });
+          }
         }
-      } catch { /* offline */ }
-      useAgentStore.getState().clearAnnotations();
-      onBack();
+      }
+    } catch {
+      // 启动失败：回滚状态并提示，避免卡在 pipeline_running 无法重试（仅 plan 分支走此路径）
+      setStatus('plan_ready');
+      addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+        content: '管线启动失败，请稍后重试。' });
+    } finally {
+      useAgentStore.getState().setRequirementsBusy(false);
+      setConfirming(false);
     }
-    setConfirming(false);
   };
 
   return (

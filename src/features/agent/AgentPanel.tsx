@@ -3,6 +3,7 @@ import { useAgentStore, loadRequirementsDraft, clearRequirementsDraft } from '@/
 import { useProjectStore } from '@/stores/projectStore';
 import { Markdown } from '@/components/shared/Markdown';
 import { TimelineDiffView } from './TimelineDiffView';
+import { resolveMessageAttachments } from './requirementsAttachments';
 import { pipelineApi, requirementsApi } from '@/services/api';
 import { Button } from '@/components/ui';
 import { uid } from '@/lib/utils';
@@ -164,10 +165,11 @@ function RequirementsView() {
       if (st && VALID.includes(st)) setStatus(st as RequirementsStatus);
       else if (plan) setStatus('plan_ready');
       else if (brief) setStatus('brief_ready');
+      const att = resolveMessageAttachments(st, brief, plan);
       addMessage({ id: uid('m'), role: 'assistant', content: res.reply ?? res.message ?? '已收到。',
         timestamp: new Date().toISOString(),
-        creative_brief: brief,
-        production_plan: plan });
+        creative_brief: att.creative_brief,
+        production_plan: att.production_plan });
     } catch {
       addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
         content: '（离线演示）已记录你的需求。' });
@@ -175,38 +177,50 @@ function RequirementsView() {
   };
 
   const confirmBrief = async () => {
+    // 防双击并发：store busy 同步置位，二次进入直接返回，杜绝双消息
+    const ag = useAgentStore.getState();
+    if (ag.requirementsBusy) return;
+    ag.setRequirementsBusy(true);
     setStatus('planning');
-    const sid = useAgentStore.getState().requirementsSessionId;
-    if (sid) {
-      // Online: sendChat adds exactly ONE user bubble + reads reply/plan from backend
-      await sendChat(sid, '确认，请生成完整的制作规划书。');
-      return;
+    try {
+      const sid = ag.requirementsSessionId;
+      if (sid) {
+        // Online: sendChat adds exactly ONE user bubble + reads reply/plan from backend.
+        // sendChat 只管理组件内 manualBusy；store busy 必须由本函数在 finally 清理，否则按钮永久禁用
+        await sendChat(sid, '确认，请生成完整的制作规划书。');
+        return;
+      }
+      // Offline demo path: exactly ONE user + ONE assistant
+      setBusy(true);
+      addMessage({ id: uid('m'), role: 'user', content: '确认，请生成制作规划书。', timestamp: new Date().toISOString() });
+      await new Promise((r) => setTimeout(r, 600));
+      const plan = { markdown: demoPlanMarkdown(topic) };
+      setPlan(plan);
+      setStatus('plan_ready');
+      addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+        content: '制作规划书已生成，请审阅。', production_plan: plan });
+      setBusy(false);
+    } finally {
+      useAgentStore.getState().setRequirementsBusy(false);
     }
-    // Offline demo path: exactly ONE user + ONE assistant
-    setBusy(true);
-    addMessage({ id: uid('m'), role: 'user', content: '确认，请生成制作规划书。', timestamp: new Date().toISOString() });
-    await new Promise((r) => setTimeout(r, 600));
-    const plan = { markdown: demoPlanMarkdown(topic) };
-    setPlan(plan);
-    setStatus('plan_ready');
-    addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-      content: '制作规划书已生成，请审阅。', production_plan: plan });
-    setBusy(false);
   };
 
   const confirmPlan = async () => {
-    const sid = useAgentStore.getState().requirementsSessionId;
-    if (!sid) {
-      // 离线演示：无会话，仅提示
+    // 防双击并发：store busy 同步置位
+    const ag = useAgentStore.getState();
+    if (ag.requirementsBusy) return;
+    ag.setRequirementsBusy(true);
+    const sid = ag.requirementsSessionId;
+    try {
+      if (!sid) {
+        // 离线演示：无会话，无法启动管线（底部启动 UI 已移除）
+        addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: '离线模式无法启动管线，请连接后端后重试。' });
+        return;
+      }
       setStatus('pipeline_running');
       addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-        content: '已确认规划书。请在底部启动管线，切换到「执行日志」标签查看实时进度。' });
-      return;
-    }
-    setStatus('pipeline_running');
-    addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-      content: '已确认规划书，正在启动制作管线…' });
-    try {
+        content: '已确认规划书，正在启动制作管线…' });
       const st = useProjectStore.getState();
       const res = await requirementsApi.proceed(
         sid,
@@ -222,6 +236,8 @@ function RequirementsView() {
       setStatus('plan_ready');
       addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
         content: '管线启动失败，请稍后重试。' });
+    } finally {
+      useAgentStore.getState().setRequirementsBusy(false);
     }
   };
 

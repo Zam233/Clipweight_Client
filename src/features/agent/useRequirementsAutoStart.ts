@@ -4,6 +4,7 @@ import { useAgentStore } from '@/stores/agentStore';
 import { requirementsApi } from '@/services/api';
 import { uid } from '@/lib/utils';
 import { demoBrief } from './AgentPanel';
+import { resolveMessageAttachments } from './requirementsAttachments';
 
 /**
  * useRequirementsAutoStart — 从 HomePage「开始创作」进入编辑器后自动启动需求 Agent。
@@ -63,9 +64,10 @@ export function useRequirementsAutoStart(ready: boolean) {
           const ag2 = useAgentStore.getState();
           if (brief) { ag2.setCreativeBrief(brief); ag2.setRequirementsStatus('brief_ready'); }
           if (plan) { ag2.setProductionPlan(plan); ag2.setRequirementsStatus('plan_ready'); }
+          const att = resolveMessageAttachments(chatRes.status, brief, plan);
           ag2.addRequirementsMessage({
             id: uid('m'), role: 'assistant', content: chatRes.reply ?? chatRes.message ?? '已收到。',
-            timestamp: new Date().toISOString(), creative_brief: brief, production_plan: plan,
+            timestamp: new Date().toISOString(), creative_brief: att.creative_brief, production_plan: att.production_plan,
           });
         } catch {
           const brief = demoBrief(t);
