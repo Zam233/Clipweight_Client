@@ -188,6 +188,61 @@ describe('TimelineEngine clampScroll', () => {
   });
 });
 
+describe('scrub autoscroll', () => {
+  let engine: TimelineEngine;
+  let canvas: HTMLCanvasElement;
+  const CSS_W = 1000;
+  const CSS_H = 400;
+
+  beforeEach(() => {
+    canvas = createCanvas(CSS_W, CSS_H);
+    engine = new TimelineEngine(canvas);
+    engine.zoom = 200; // zoom in so content overflows the viewport
+    engine.scrollX = 0;
+    engine.scrollY = 0;
+    (canvas as any).setPointerCapture = vi.fn();
+  });
+
+  afterEach(() => { engine.dispose(); canvas.remove(); });
+
+  it('scrub: dragging playhead past the right edge autoscrolls the timeline', () => {
+    (engine as any).onPointerDown(new PointerEvent('pointerdown', { clientX: 500, clientY: 10, bubbles: true }));
+    expect((engine as any).drag.mode).toBe('scrub');
+
+    const maxX = Math.max(0, 10 * 200 - (CSS_W - HEADER_W));
+    expect(maxX).toBeGreaterThan(0);
+    (engine as any).onPointerMove(new PointerEvent('pointermove', { clientX: 1000, clientY: 10, bubbles: true }));
+    expect(engine.scrollX).toBeGreaterThan(0);
+    expect(engine.scrollX).toBeLessThanOrEqual(maxX);
+  });
+
+  it('scrub: moving back into the viewport stops scrolling', () => {
+    (engine as any).onPointerDown(new PointerEvent('pointerdown', { clientX: 500, clientY: 10, bubbles: true }));
+    (engine as any).onPointerMove(new PointerEvent('pointermove', { clientX: 1000, clientY: 10, bubbles: true }));
+    const s1 = engine.scrollX;
+    expect(s1).toBeGreaterThan(0);
+    (engine as any).onPointerMove(new PointerEvent('pointermove', { clientX: 500, clientY: 10, bubbles: true }));
+    expect(engine.scrollX).toBe(s1);
+  });
+
+  it('scrub: dragging past the left edge scrolls back toward 0', () => {
+    engine.scrollX = 200;
+    (engine as any).onPointerDown(new PointerEvent('pointerdown', { clientX: 500, clientY: 10, bubbles: true }));
+    (engine as any).onPointerMove(new PointerEvent('pointermove', { clientX: 100, clientY: 10, bubbles: true }));
+    expect(engine.scrollX).toBeLessThan(200);
+    expect(engine.scrollX).toBeGreaterThanOrEqual(0);
+  });
+
+  it('scrub: no autoscroll when content fits viewport (maxX=0), no NaN', () => {
+    engine.zoom = DEFAULT_ZOOM; // 10 * 60 = 600 < viewport width → maxX = 0
+    engine.scrollX = 0;
+    (engine as any).onPointerDown(new PointerEvent('pointerdown', { clientX: 500, clientY: 10, bubbles: true }));
+    (engine as any).onPointerMove(new PointerEvent('pointermove', { clientX: 1000, clientY: 10, bubbles: true }));
+    expect(engine.scrollX).toBe(0);
+    expect(Number.isNaN(engine.scrollX)).toBe(false);
+  });
+});
+
 describe('scrollbarGeom', () => {
   it('thumb starts at trackX when scrollX=0 and reaches the right edge at scrollX=maxX', () => {
     const contentW = 2000; // wider than the 1000px viewport

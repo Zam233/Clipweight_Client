@@ -406,6 +406,18 @@ export class TimelineEngine {
     switch (this.drag.mode) {
       case 'scrub': {
         usePreviewStore.getState().setCurrentTime(Math.max(0, xToTime(x, L)));
+        // 拖动播放头越过画布左右边缘时联动水平滚动（指针已 capture，越界事件仍可达）。
+        // 行为边界：滚动仅在 pointermove 事件驱动（指针停在边缘外不动则不继续滚动）。
+        const EDGE = 24;
+        if (x > L.width - EDGE) {
+          this.scrollX += (x - (L.width - EDGE)) * 1.2;
+          this.clampScroll();
+          this.requestRender();
+        } else if (x < L.headerW + EDGE) {
+          this.scrollX -= ((L.headerW + EDGE) - x) * 1.2;
+          this.clampScroll();
+          this.requestRender();
+        }
         break;
       }
       case 'pan': {
