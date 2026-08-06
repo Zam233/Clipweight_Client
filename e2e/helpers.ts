@@ -196,10 +196,18 @@ export async function mockBackendApi(page: Page): Promise<void> {
     if (url.includes('/api/persona')) {
       return route.fulfill({ json: [] });
     }
+    if (route.request().method() === 'POST' && /\/api\/requirements\/init(\?|$)/.test(url)) {
+      // 需求会话初始化：返回固定 session_id，供后续 chat/edit 使用
+      return route.fulfill({ json: { session_id: 'sess-e2e', status: 'gathering' } });
+    }
+    if (route.request().method() === 'POST' && /\/api\/requirements\/chat(\?|$)/.test(url)) {
+      return route.fulfill({ json: { reply: '（E2E mock）已收到你的需求。', status: 'gathering' } });
+    }
     if (route.request().method() === 'POST' && /\/api\/requirements\/edit(\?|$)/.test(url)) {
       // C6 时间线编辑：返回假 proposed_timeline，触发 TimelineDiffView 审阅
       return route.fulfill({
         json: {
+          status: 'gathering',
           reply: '已根据指令调整时间线（E2E mock）。',
           action: 'adjust',
           proposed_timeline: {

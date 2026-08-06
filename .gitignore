@@ -61,6 +61,7 @@ timeline-after-drop.png
 
 # E2E manual test artifacts
 e2e-shots/
+e2e/artifacts/
 vite-out.log
 vite-err.log
 
