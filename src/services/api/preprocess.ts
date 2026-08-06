@@ -1,46 +1,69 @@
 import { getApiClient } from './client';
 
-export interface PreprocessOp {
-  id: string;
-  name: string;
-  description: string;
-}
-
 export interface PreprocessTask {
-  id: string;
-  op_id: string;
+  task_id: string;
+  file_path: string;
+  file_name: string;
+  operations: string[];
   status: 'queued' | 'running' | 'completed' | 'failed';
   progress: number;
-  result?: Record<string, unknown>;
+  results: Record<string, unknown>;
+  error: string;
+}
+
+export interface PreprocessSubmitRequest {
+  file_path: string;
+  operations: string[];
+}
+
+export interface PreprocessBatchSubmitRequest {
+  file_paths: string[];
+  operations: string[];
+}
+
+export interface PreprocessTaskResults {
+  task_id: string;
+  status: PreprocessTask['status'];
+  results?: Record<string, unknown>;
+  message?: string;
 }
 
 export const preprocessApi = {
-  async listOperations(): Promise<PreprocessOp[]> {
+  async listOperations(): Promise<{ operations: string[]; descriptions: Record<string, string> }> {
     const { data } = await getApiClient().get('/api/preprocess/operations');
     return data;
   },
 
-  async submit(opId: string, assetPath: string, params?: Record<string, unknown>): Promise<PreprocessTask> {
-    const { data } = await getApiClient().post('/api/preprocess/submit', {
-      op_id: opId,
-      asset_path: assetPath,
-      params: params ?? {},
+  async listQueue(status?: PreprocessTask['status'] | ''): Promise<PreprocessTask[]> {
+    const { data } = await getApiClient().get<PreprocessTask[]>('/api/preprocess/queue', {
+      params: status ? { status } : undefined,
     });
     return data;
   },
 
-  async batchSubmit(ops: Array<{ op_id: string; asset_path: string; params?: Record<string, unknown> }>): Promise<PreprocessTask[]> {
-    const { data } = await getApiClient().post('/api/preprocess/batch-submit', { ops });
+  async submit(filePath: string, operations: string[]): Promise<PreprocessTask> {
+    const { data } = await getApiClient().post<PreprocessTask>('/api/preprocess/submit', {
+      file_path: filePath,
+      operations,
+    } satisfies PreprocessSubmitRequest);
+    return data;
+  },
+
+  async batchSubmit(filePaths: string[], operations: string[]): Promise<PreprocessTask[]> {
+    const { data } = await getApiClient().post<PreprocessTask[]>('/api/preprocess/batch-submit', {
+      file_paths: filePaths,
+      operations,
+    } satisfies PreprocessBatchSubmitRequest);
     return data;
   },
 
   async getTask(taskId: string): Promise<PreprocessTask> {
-    const { data } = await getApiClient().get(`/api/preprocess/task/${taskId}`);
+    const { data } = await getApiClient().get<PreprocessTask>(`/api/preprocess/task/${taskId}`);
     return data;
   },
 
-  async listResults(): Promise<PreprocessTask[]> {
-    const { data } = await getApiClient().get('/api/preprocess/results');
+  async listResults(taskId: string): Promise<PreprocessTaskResults> {
+    const { data } = await getApiClient().get<PreprocessTaskResults>(`/api/preprocess/task/${taskId}/results`);
     return data;
   },
 

@@ -4,7 +4,7 @@ import { healthApi } from '@/services/api';
 import { cn } from '@/lib/utils';
 import {
   ArrowLeft, Cpu, Wrench, Puzzle, Shapes, LayoutTemplate, Webhook,
-  Type, Activity, Terminal,
+  Type, Activity, Terminal, GraduationCap, Clapperboard, Captions, Film,
 } from 'lucide-react';
 
 /**
@@ -29,6 +29,10 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
     { to: '/settings/plugins', label: '插件管理', icon: Puzzle, code: 'PLUG' },
     { to: '/settings/type-maker', label: '类型制作器', icon: Shapes, code: 'TYPE' },
     { to: '/settings/templates', label: '模板管理', icon: LayoutTemplate, code: 'TMPL' },
+    { to: '/settings/learning', label: '学习训练', icon: GraduationCap, code: 'LRN' },
+    { to: '/settings/video-editor', label: '视频编辑器', icon: Film, code: 'VEDT' },
+    { to: '/settings/preprocess', label: '素材预处理', icon: Clapperboard, code: 'PREP' },
+    { to: '/settings/subtitle-tools', label: '字幕与转写', icon: Captions, code: 'SUB' },
     { to: '/settings/webhooks', label: 'Webhook', icon: Webhook, code: 'HOOK' },
     { to: '/settings/fonts', label: '字体配置', icon: Type, code: 'FONT' },
     { to: '/pipeline-admin', label: '管线监控', icon: Activity, code: 'PIPE' },

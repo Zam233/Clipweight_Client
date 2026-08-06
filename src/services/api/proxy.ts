@@ -1,26 +1,32 @@
 import { getApiClient } from './client';
 
 export const proxyApi = {
-  async generate(assetPath: string, resolution?: string): Promise<{ proxy_path: string; status: string }> {
+  /** Generate a low-res proxy file for a high-res source. */
+  async generate(inputPath: string, proxyHeight = 720): Promise<Record<string, unknown>> {
     const { data } = await getApiClient().post('/api/proxy/generate', {
-      asset_path: assetPath,
-      resolution: resolution ?? '720p',
+      input_path: inputPath,
+      proxy_height: proxyHeight,
     });
     return data;
   },
 
-  async switchToFull(assetPath: string): Promise<{ status: string }> {
+  /** Rewrite the timeline so asset paths point back to full-res originals. */
+  async switchToFull(timeline: Record<string, unknown>): Promise<Record<string, unknown>> {
     const { data } = await getApiClient().post('/api/proxy/switch', {
-      asset_path: assetPath,
-      use_proxy: false,
+      timeline,
+      proxy_suffix: '',
     });
     return data;
   },
 
-  async switchToProxy(assetPath: string): Promise<{ status: string }> {
+  /** Rewrite the timeline so asset paths point to low-res proxy files. */
+  async switchToProxy(
+    timeline: Record<string, unknown>,
+    proxySuffix = '_proxy_720p',
+  ): Promise<Record<string, unknown>> {
     const { data } = await getApiClient().post('/api/proxy/switch', {
-      asset_path: assetPath,
-      use_proxy: true,
+      timeline,
+      proxy_suffix: proxySuffix,
     });
     return data;
   },

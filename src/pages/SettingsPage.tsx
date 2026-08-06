@@ -4,7 +4,7 @@ import { StandardLayout } from '@/layouts/StandardLayout';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { healthApi, assetApi, resetApiClient } from '@/services/api';
 import { Button, Badge, Slider } from '@/components/ui';
-import { Server, Palette, Ruler, Save, RefreshCw, Terminal, ChevronRight, FolderOpen } from 'lucide-react';
+import { Server, Palette, Ruler, Save, RefreshCw, Terminal, ChevronRight, FolderOpen, Clapperboard, Film, Captions, GraduationCap } from 'lucide-react';
 
 /**
  * SettingsPage — global configuration (API, theme, timeline defaults).
@@ -178,7 +178,71 @@ export function SettingsPage() {
           </span>
           <div className="flex-1 min-w-0">
             <p className="text-body-sm font-semibold text-on-surface group-hover:text-primary transition-colors">系统控制台</p>
-            <p className="text-caption text-on-surface-variant">模型测试 · 工具技能 · 插件 · 类型 · 模板 · Webhook · 字体 · 管线监控</p>
+            <p className="text-caption text-on-surface-variant">模型测试 · 工具技能 · 插件 · 类型 · 模板 · 学习训练 · Webhook · 字体 · 管线监控</p>
+          </div>
+          <ChevronRight className="w-4.5 h-4.5 text-on-surface-variant group-hover:text-primary group-hover:translate-x-1 transition-all shrink-0" />
+        </button>
+
+        {/* learning entry */}
+        <button
+          onClick={() => navigate({ to: '/settings/learning' })}
+          className="w-full flex items-center gap-4 bg-surface-container border border-outline-variant/30 rounded-cw-md px-5 py-4
+            hover:border-primary/50 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/10 transition-all duration-short3 cursor-pointer group text-left"
+        >
+          <span className="w-10 h-10 rounded-cw-sm bg-primary-container flex items-center justify-center shrink-0">
+            <GraduationCap className="w-5 h-5 text-on-primary-container" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-body-sm font-semibold text-on-surface group-hover:text-primary transition-colors">学习训练</p>
+            <p className="text-caption text-on-surface-variant">数据集 · 任务 · 模型 · 后端状态</p>
+          </div>
+          <ChevronRight className="w-4.5 h-4.5 text-on-surface-variant group-hover:text-primary group-hover:translate-x-1 transition-all shrink-0" />
+        </button>
+
+        {/* preprocess entry */}
+        <button
+          onClick={() => navigate({ to: '/settings/preprocess' })}
+          className="w-full flex items-center gap-4 bg-surface-container border border-outline-variant/30 rounded-cw-md px-5 py-4
+            hover:border-primary/50 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/10 transition-all duration-short3 cursor-pointer group text-left"
+        >
+          <span className="w-10 h-10 rounded-cw-sm bg-primary-container flex items-center justify-center shrink-0">
+            <Clapperboard className="w-5 h-5 text-on-primary-container" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-body-sm font-semibold text-on-surface group-hover:text-primary transition-colors">素材预处理</p>
+            <p className="text-caption text-on-surface-variant">元数据提取 · 场景检测 · 缩略图 · 音频/BPM · 转写</p>
+          </div>
+          <ChevronRight className="w-4.5 h-4.5 text-on-surface-variant group-hover:text-primary group-hover:translate-x-1 transition-all shrink-0" />
+        </button>
+
+        {/* video editor entry */}
+        <button
+          onClick={() => navigate({ to: '/settings/video-editor' })}
+          className="w-full flex items-center gap-4 bg-surface-container border border-outline-variant/30 rounded-cw-md px-5 py-4
+            hover:border-primary/50 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/10 transition-all duration-short3 cursor-pointer group text-left"
+        >
+          <span className="w-10 h-10 rounded-cw-sm bg-primary-container flex items-center justify-center shrink-0">
+            <Film className="w-5 h-5 text-on-primary-container" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-body-sm font-semibold text-on-surface group-hover:text-primary transition-colors">视频编辑器控制台</p>
+            <p className="text-caption text-on-surface-variant">项目/会话 · undo/redo · clips 增删移分 · 导出 · proxy · 波形</p>
+          </div>
+          <ChevronRight className="w-4.5 h-4.5 text-on-surface-variant group-hover:text-primary group-hover:translate-x-1 transition-all shrink-0" />
+        </button>
+
+        {/* subtitle tools entry */}
+        <button
+          onClick={() => navigate({ to: '/settings/subtitle-tools' })}
+          className="w-full flex items-center gap-4 bg-surface-container border border-outline-variant/30 rounded-cw-md px-5 py-4
+            hover:border-primary/50 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/10 transition-all duration-short3 cursor-pointer group text-left"
+        >
+          <span className="w-10 h-10 rounded-cw-sm bg-primary-container flex items-center justify-center shrink-0">
+            <Captions className="w-5 h-5 text-on-primary-container" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-body-sm font-semibold text-on-surface group-hover:text-primary transition-colors">字幕与转写</p>
+            <p className="text-caption text-on-surface-variant">音频转写 · 文案对齐 · SRT 导入导出 · STT 端点</p>
           </div>
           <ChevronRight className="w-4.5 h-4.5 text-on-surface-variant group-hover:text-primary group-hover:translate-x-1 transition-all shrink-0" />
         </button>

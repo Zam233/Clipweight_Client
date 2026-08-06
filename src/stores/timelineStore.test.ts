@@ -195,3 +195,65 @@ describe('timelineStore × selectionStore 联动', () => {
     expect(useSelectionStore.getState().selectedClipIds).toHaveLength(0);
   });
 });
+
+describe('updateTrackClips (字幕样式整层级联)', () => {
+  // 状态隔离：每个用例从干净的初始状态开始，防止 store 状态泄漏
+  beforeEach(() => {
+    useTimelineStore.setState({ timeline: createEmptyTimeline(), isDirty: false });
+  });
+
+  it('级联：updates 应用到轨道上的全部 clip', () => {
+    const tid = useTimelineStore.getState().addTrack('caption');
+    useTimelineStore.getState().addClip(tid, { kind: 'caption', start_sec: 0, duration_sec: 2 });
+    useTimelineStore.getState().addClip(tid, { kind: 'caption', start_sec: 2, duration_sec: 3 });
+
+    useTimelineStore.getState().updateTrackClips(tid, { stroke_width: 4, font_weight: 'bold' });
+
+    const clips = useTimelineStore.getState().timeline.tracks[0].clips;
+    expect(clips).toHaveLength(2);
+    for (const c of clips) {
+      expect(c.stroke_width).toBe(4);
+      expect(c.font_weight).toBe('bold');
+    }
+  });
+
+  it('无该轨道：幂等且不抛错，其他轨道不受影响', () => {
+    const tid = useTimelineStore.getState().addTrack('caption');
+    useTimelineStore.getState().addClip(tid, { kind: 'caption', start_sec: 0, duration_sec: 5 });
+
+    expect(() => {
+      useTimelineStore.getState().updateTrackClips('no_such_track', { stroke_width: 4 });
+    }).not.toThrow();
+
+    const track = useTimelineStore.getState().timeline.tracks[0];
+    expect(track.clips[0].stroke_width).toBeNull();
+    expect(useTimelineStore.getState().timeline.duration_sec).toBeCloseTo(5, 5);
+  });
+
+  it('仅更新目标轨道，不影响其他轨道 clip', () => {
+    const captionTid = useTimelineStore.getState().addTrack('caption');
+    const textTid = useTimelineStore.getState().addTrack('text');
+    useTimelineStore.getState().addClip(captionTid, { kind: 'caption', start_sec: 0, duration_sec: 2 });
+    useTimelineStore.getState().addClip(textTid, { kind: 'text', start_sec: 0, duration_sec: 2 });
+
+    useTimelineStore.getState().updateTrackClips(captionTid, { stroke_width: 4 });
+
+    const captionClip = useTimelineStore.getState().timeline.tracks.find((t) => t.id === captionTid)!.clips[0];
+    const textClip = useTimelineStore.getState().timeline.tracks.find((t) => t.id === textTid)!.clips[0];
+    expect(captionClip.stroke_width).toBe(4);
+    expect(textClip.stroke_width).toBeNull();
+  });
+
+  it('时长重算：更新 duration_sec 后 timeline.duration_sec 随之更新，且置 isDirty', () => {
+    const tid = useTimelineStore.getState().addTrack('caption');
+    useTimelineStore.getState().addClip(tid, { kind: 'caption', start_sec: 0, duration_sec: 2 });
+    useTimelineStore.getState().addClip(tid, { kind: 'caption', start_sec: 2, duration_sec: 3 });
+    expect(useTimelineStore.getState().timeline.duration_sec).toBeCloseTo(5, 5);
+
+    useTimelineStore.getState().updateTrackClips(tid, { duration_sec: 8 });
+
+    // max(0+8, 2+8) = 10
+    expect(useTimelineStore.getState().timeline.duration_sec).toBeCloseTo(10, 5);
+    expect(useTimelineStore.getState().isDirty).toBe(true);
+  });
+});

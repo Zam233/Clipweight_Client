@@ -5,6 +5,7 @@ import { templateApi, projectApi } from '@/services/api';
 import { Button, Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { LayoutTemplate, Plus, Play, Trash2, Clock, Layers } from 'lucide-react';
+import type { Timeline } from '@/types/timeline';
 
 interface Template {
   id: string;
@@ -73,10 +74,10 @@ export function TemplatesPage() {
     setApplyingId(t.id);
     setNotice('');
     try {
-      await templateApi.apply(t.id);
+      const result = await templateApi.apply(t.id);
       const project = await projectApi.create({
         name: `${t.name} · 副本`,
-        timeline: null,
+        timeline: result.timeline as unknown as Timeline,
       });
       navigate({ to: '/editor/$projectId', params: { projectId: project.id } });
     } catch {

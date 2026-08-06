@@ -3,7 +3,7 @@ import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
 import { toolApi, skillApi } from '@/services/api';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import { Wrench, Sparkles, Terminal, Loader2, ChevronRight } from 'lucide-react';
+import { Wrench, Sparkles, Terminal, Loader2, ChevronRight, ListOrdered } from 'lucide-react';
 
 interface ToolItem { name: string; description?: string; }
 
@@ -19,6 +19,8 @@ export function ToolsPage() {
   const [params, setParams] = useState('{}');
   const [running, setRunning] = useState(false);
   const [output, setOutput] = useState<string | null>(null);
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchCalls, setBatchCalls] = useState('[{"name":"video_trim","params":{}}]');
 
   useEffect(() => {
     let alive = true;
@@ -42,6 +44,28 @@ export function ToolsPage() {
   const list = tab === 'tool' ? tools : skills;
 
   const execute = async () => {
+    if (batchMode) {
+      // 批量模式：JSON 数组 [ {name, params} ] → toolApi.batch（顺序执行，互不影响）
+      setRunning(true);
+      setOutput(null);
+      try {
+        const parsed = JSON.parse(batchCalls || '[]');
+        if (!Array.isArray(parsed)) throw new Error('批处理必须是 JSON 数组');
+        const calls = parsed.map((c, i) => {
+          const name = typeof c === 'string' ? c : String((c as Record<string, unknown> | null)?.name ?? '');
+          if (!name) throw new Error(`第 ${i + 1} 项缺少 "name"`);
+          const params = (c as Record<string, unknown> | null)?.params;
+          return { name, params: (params && typeof params === 'object' ? params as Record<string, unknown> : {}) };
+        });
+        const res = await toolApi.batch(calls);
+        setOutput(JSON.stringify(res, null, 2));
+      } catch (e: unknown) {
+        setOutput(`// 批处理失败（后端可能离线）\n${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setRunning(false);
+      }
+      return;
+    }
     if (!selected) return;
     setRunning(true);
     setOutput(null);
@@ -112,15 +136,40 @@ export function ToolsPage() {
               <span className="font-mono text-label-sm text-on-surface">{selected ? `${tab}.execute("${selected}")` : '执行器'}</span>
             </div>
             <div className="p-4 space-y-3">
-              <div>
-                <label className="block text-label text-on-surface-variant mb-1.5">参数 (JSON)</label>
-                <textarea value={params} onChange={(e) => setParams(e.target.value)} rows={4}
-                  className="w-full bg-surface rounded-cw-sm px-3 py-2 font-mono text-body-sm text-on-surface
-                    outline-none border border-outline-variant/30 focus:border-primary resize-y" />
+              {/* mode toggle: single vs batch */}
+              <div className="flex gap-1 w-fit bg-surface rounded-cw-sm p-0.5 border border-outline-variant/30">
+                <button onClick={() => setBatchMode(false)}
+                  className={cn('flex items-center gap-1 px-3 py-1 rounded-cw-xs text-label-sm font-medium transition-colors cursor-pointer',
+                    !batchMode ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:text-on-surface')}>
+                  <Terminal className="w-3 h-3" />单个
+                </button>
+                <button onClick={() => setBatchMode(true)}
+                  className={cn('flex items-center gap-1 px-3 py-1 rounded-cw-xs text-label-sm font-medium transition-colors cursor-pointer',
+                    batchMode ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:text-on-surface')}>
+                  <ListOrdered className="w-3 h-3" />批量
+                </button>
               </div>
-              <Button onClick={execute} disabled={!selected || running} className="w-full">
-                {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Terminal className="w-4 h-4" />}
-                {running ? '执行中…' : '执行'}
+
+              {batchMode ? (
+                <div>
+                  <label className="block text-label text-on-surface-variant mb-1.5">批量调用 (JSON 数组)</label>
+                  <textarea value={batchCalls} onChange={(e) => setBatchCalls(e.target.value)} rows={5}
+                    className="w-full bg-surface rounded-cw-sm px-3 py-2 font-mono text-body-sm text-on-surface
+                      outline-none border border-outline-variant/30 focus:border-primary resize-y"
+                    placeholder='[{"name":"video_trim","params":{}},{"name":"scene_detect","params":{}}]' />
+                  <p className="text-caption text-on-surface-variant/60 mt-1">顺序批量执行、互不影响。每项需含 "name"，"params" 可选。</p>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-label text-on-surface-variant mb-1.5">参数 (JSON)</label>
+                  <textarea value={params} onChange={(e) => setParams(e.target.value)} rows={4}
+                    className="w-full bg-surface rounded-cw-sm px-3 py-2 font-mono text-body-sm text-on-surface
+                      outline-none border border-outline-variant/30 focus:border-primary resize-y" />
+                </div>
+              )}
+              <Button onClick={execute} disabled={(batchMode ? false : !selected) || running} className="w-full">
+                {running ? <Loader2 className="w-4 h-4 animate-spin" /> : batchMode ? <ListOrdered className="w-4 h-4" /> : <Terminal className="w-4 h-4" />}
+                {running ? '执行中…' : batchMode ? '批量执行' : '执行'}
               </Button>
               {output && (
                 <pre className="bg-surface rounded-cw-sm border border-outline-variant/30 px-3 py-2.5 font-mono text-caption

@@ -6,6 +6,23 @@ import type {
   MaterialSearchResult,
 } from '@/types/api';
 
+/** Material asset shape returned by GET /api/material/asset/{source_id}/{asset_id} */
+export interface MaterialAsset {
+  id: string;
+  title: string;
+  type: 'video' | 'audio' | 'image' | 'text';
+  url?: string;
+  local_path?: string;
+  thumbnail_url?: string;
+  tags: string[];
+  duration_sec?: number;
+  file_size_bytes?: number;
+  resolution?: string;
+  source: string;
+  metadata: Record<string, unknown>;
+  created_at?: string;
+}
+
 /** Transform backend asset shape (asset_id/media_type/file_path) to frontend Asset type */
 function mapAsset(raw: Record<string, unknown>): Asset {
   const assetId = (raw.asset_id as string) || (raw.id as string) || '';
@@ -106,5 +123,11 @@ export const assetApi = {
   async listSources() {
     const { data } = await getApiClient().get('/api/material/sources');
     return data as { id: string; name: string }[];
+  },
+
+  /** Get a single material asset detail by source + asset id */
+  async getMaterialAsset(sourceId: string, assetId: string): Promise<MaterialAsset> {
+    const { data } = await getApiClient().get(`/api/material/asset/${sourceId}/${assetId}`);
+    return data;
   },
 };

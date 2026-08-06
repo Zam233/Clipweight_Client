@@ -1,7 +1,7 @@
 ---
 description: Strong coding and reasoning Wingman for autopilot delegated work
 mode: all
-model: chutes/moonshotai/Kimi-K2.5-TEE
+model: deepseek/deepseek-v4-flash
 tools:
   bash: true
   read: true

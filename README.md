@@ -2,7 +2,7 @@
 
 > **Phase 5** · 全功能时间轴编辑器 · React 19 + TypeScript + Canvas 2D
 >
-> 这是 [帧艺 ClipWright](../Clipweight) AI 辅助视频创作系统的**前端子系统**。后端编排引擎位于 `D:\Clipweight`。
+> 这是 [帧艺 ClipWright](../Clipweight) AI 辅助视频创作系统的**前端子系统**。后端编排引擎位于 `J:\Clipwright`。
 
 ---
 
@@ -28,7 +28,7 @@ ClipWright 前端是一个**独立完整的 Web 视频编辑器**，基础能力
 | UI | Radix UI + 自建 shadcn 风格组件 + Tailwind CSS 4 |
 | 时间轴 | **自研 Canvas 2D 引擎**（帧级精度） |
 | 预览 | Canvas 合成 + 关键帧插值 |
-| 实时 | SSE（管线追踪 / 渲染进度）+ WebSocket |
+| 实时 | SSE（管线追踪 / 渲染进度） |
 
 ---
 
@@ -92,7 +92,11 @@ src/
 | `/settings/type-maker` | TypeMakerPage | ✓ |
 | `/settings/templates` | TemplatesPage | ✓ |
 | `/settings/webhooks` | WebhooksPage | ✓ |
+| `/settings/learning` | LearningPage | ✓ |
+| `/settings/video-editor` | VideoEditorPage | ✓ |
 | `/settings/fonts` | FontsPage | ✓ |
+| `/settings/subtitle-tools` | SubtitleToolsPage | ✓ |
+| `/settings/preprocess` | PreprocessPage | ✓ |
 | `/pipeline-admin` | PipelineAdminPage | ✓ |
 | `/help` | HelpPage | ✓ |
 
@@ -109,6 +113,7 @@ src/
 - **吸附系统**：片段边缘 / 播放头 / 标记点 / 零点对齐，青色辅助线反馈
 - `Ctrl+滚轮` 以光标为中心缩放、中键平移、Shift+滚轮横向滚动
 - 视频胶片孔 / 音频波形 / 文字占位 / 关键帧菱形点可视化
+- **字幕样式**：字幕 clip 的文字颜色 / 发光（宽度+颜色）/ 阴影在属性面板编辑，级联同步同轨其他字幕 clip
 
 ### 实时预览
 - Canvas 按播放头实时合成可见片段，关键帧插值（透明度/缩放）
@@ -140,7 +145,7 @@ npx tsc --noEmit
 npm run build
 ```
 
-> 后端引擎（`D:\Clipweight`）启动于 `http://localhost:8000` 时，前端会自动连接并启用完整 Agent / 素材 / 渲染能力；未连接时以**演示模式**运行。
+> 后端引擎（`J:\Clipwright`）启动于 `http://localhost:8000` 时，前端会自动连接并启用完整 Agent / 素材 / 渲染能力；未连接时以**演示模式**运行。
 
 ### 环境变量
 复制 `.env.example` 为 `.env`：
@@ -181,5 +186,6 @@ VITE_WS_URL=ws://localhost:8000/ws
 
 - `ClipWright-Design-Specification.md` — 前端设计规范（色彩/字体/间距/动效/组件）
 - `ClipWright-Frontend-Design-Plan.md` — 前端架构与分阶段实施计划
-- `D:\Clipweight\docs\api_reference.md` — 后端 API 参考
-- `D:\Clipweight\design.md` — 系统总体设计
+- `J:\Clipwright\docs\api_reference.md` — 后端 API 参考
+- `J:\Clipwright\design.md` — 系统总体设计
+- `docs/frontend-backend-parity.md` — 前后端对账报告（路由/客户端/差距清单）

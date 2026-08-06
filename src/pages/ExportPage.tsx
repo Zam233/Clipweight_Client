@@ -457,7 +457,7 @@ function NumField({ label, value, onChange, min, max, step }: {
 }
 
 function phaseLabel(p: string): string {
-  const map: Record<string, string> = { trim: '裁剪', concat: '拼接', text: '文字', audio: '音频', done: '完成' };
+  const map: Record<string, string> = { prepare: '准备', trim: '裁剪', concat: '拼接', text: '文字', mg: '动画', overlay: '叠加', audio: '音频', done: '完成' };
   return map[p] ?? p;
 }
 

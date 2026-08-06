@@ -1,7 +1,7 @@
 ---
 description: Deep reasoning Wingman for architecture, planning, and complex delegated work
 mode: all
-model: github-copilot/gpt-5.4
+model: deepseek/deepseek-v4-flash
 tools:
   bash: true
   read: true

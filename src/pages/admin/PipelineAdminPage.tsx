@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ConsoleShell, ConsoleHeading, StatusPill } from './ConsoleShell';
-import { getApiClient } from '@/services/api';
+import { pipelineApi } from '@/services/api';
 import { cn } from '@/lib/utils';
-import { Activity, Gauge, Coins, Timer, ChevronDown, ChevronRight } from 'lucide-react';
+import {
+  Activity, Gauge, Coins, Timer, ChevronDown, ChevronRight,
+  RefreshCw, FileJson, Loader2,
+} from 'lucide-react';
 
 interface Span { agent: string; start: number; dur: number; status: 'ok' | 'fail' | 'retry'; }
 interface PipelineRun {
@@ -13,6 +16,7 @@ interface PipelineRun {
   agents: Span[];
   startedAt: string;
 }
+interface TraceView { loading: boolean; events: unknown[] | null; error?: string; }
 
 const AGENT_COLORS: Record<string, string> = {
   structure: '#4F8CFF', material: '#A855F7', edit: '#FBBF24',
@@ -22,26 +26,52 @@ const AGENT_COLORS: Record<string, string> = {
 /**
  * PipelineAdminPage — observability console: aggregate stats, run queue, and
  * a Gantt-style span trace per run showing each Agent's wall time.
+ *
+ * Data comes from the real backend (GET /api/pipeline/runs + /api/pipeline/trace/{id}).
+ * When the backend is offline we surface an error banner — never fake data.
  */
 export function PipelineAdminPage() {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [trace, setTrace] = useState<TraceView | null>(null);
+  // Guard against stale in-flight trace responses when the user collapses/re-expands.
+  const expandedRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
+  const loadRuns = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const records = await pipelineApi.getRunRecords();
+      setRuns(normalize(records));
+    } catch {
+      setRuns([]);
+      setError('后端离线：无法获取实时运行记录。启动后端后点击「刷新」重试。');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadRuns(); }, []);
+
+  const toggleExpand = async (id: string) => {
+    const next = expanded === id ? null : id;
+    expandedRef.current = next;
+    setExpanded(next);
+    setTrace(null);
+    if (next) {
+      setTrace({ loading: true, events: null });
       try {
-        const { data } = await getApiClient().get('/api/pipeline/runs');
-        if (alive) setRuns(normalize(data));
+        const events = await pipelineApi.getTraceJson(next);
+        if (expandedRef.current !== next) return; // 展开状态已变化，丢弃过期响应
+        setTrace({ loading: false, events: Array.isArray(events) ? events : [] });
       } catch {
-        if (alive) setRuns(DEMO_RUNS);
-      } finally {
-        if (alive) setLoading(false);
+        if (expandedRef.current !== next) return;
+        setTrace({ loading: false, events: null, error: '追踪不可用（后端离线或该记录的 trace 已清除）。' });
       }
-    })();
-    return () => { alive = false; };
-  }, []);
+    }
+  };
 
   const completed = runs.filter((r) => r.status === 'completed');
   const stats = {
@@ -53,8 +83,25 @@ export function PipelineAdminPage() {
 
   return (
     <ConsoleShell>
-      <ConsoleHeading kicker="Observability / Pipeline" title="管线监控"
-        desc="追踪每次管线执行的 Agent 耗时分布、成功率与 LLM 成本，定位慢节点与失败重试。" />
+      <div className="flex items-start justify-between gap-4">
+        <ConsoleHeading kicker="Observability / Pipeline" title="管线监控"
+          desc="追踪每次管线执行的 Agent 耗时分布、成功率与 LLM 成本，定位慢节点与失败重试。" />
+        <button onClick={loadRuns} disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-cw-sm border border-outline-variant/30 bg-surface-container
+            text-label-sm text-on-surface-variant hover:text-on-surface hover:border-outline/60 transition-colors disabled:opacity-50 cursor-pointer shrink-0">
+          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+          刷新
+        </button>
+      </div>
+
+      {error && (
+        <div className="flex items-center justify-between mb-5 max-w-[900px] bg-error/10 border border-error/30 rounded-cw-md px-4 py-2.5">
+          <span className="text-label-sm text-error flex items-center gap-2">
+            <Activity className="w-3.5 h-3.5" />{error}
+          </span>
+          <button onClick={loadRuns} className="text-label-sm text-error hover:text-error/80 cursor-pointer">重试</button>
+        </div>
+      )}
 
       {/* stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mb-7 max-w-[900px]">
@@ -68,6 +115,11 @@ export function PipelineAdminPage() {
       <div className="space-y-3 max-w-[900px]">
         {loading ? (
           Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-20 bg-surface-container rounded-cw-md animate-pulse" />)
+        ) : runs.length === 0 ? (
+          <div className="bg-surface-container border border-dashed border-outline-variant/40 rounded-cw-md px-5 py-10 text-center">
+            <p className="text-body-sm text-on-surface-variant">暂无运行记录</p>
+            <p className="text-caption text-on-surface-variant/60 mt-1 font-mono">GET /api/pipeline/runs 返回空列表 — 运行一次管线后此处会显示真实记录。</p>
+          </div>
         ) : (
           runs.map((run) => {
             const isOpen = expanded === run.id;
@@ -77,7 +129,7 @@ export function PipelineAdminPage() {
                 className={cn('bg-surface-container border rounded-cw-md overflow-hidden transition-all duration-short3',
                   isOpen ? 'border-primary/40 shadow-lg shadow-primary/5' : 'border-outline-variant/30 hover:border-outline/60')}>
                 {/* run header row */}
-                <button onClick={() => setExpanded(isOpen ? null : run.id)}
+                <button onClick={() => toggleExpand(run.id)}
                   className="w-full flex items-center gap-3.5 px-5 py-3.5 text-left cursor-pointer">
                   {isOpen ? <ChevronDown className="w-4 h-4 text-primary shrink-0" /> : <ChevronRight className="w-4 h-4 text-on-surface-variant shrink-0" />}
                   <div className="flex-1 min-w-0">
@@ -126,6 +178,27 @@ export function PipelineAdminPage() {
                         </span>
                       ))}
                     </div>
+
+                    {/* trace JSON viewer */}
+                    <div className="mt-3 pt-2.5 border-t border-outline-variant/15">
+                      <div className="flex items-center gap-2 mb-2">
+                        <FileJson className="w-3.5 h-3.5 text-primary" />
+                        <span className="text-label text-on-surface-variant">事件追踪 (JSON)</span>
+                        {trace?.loading && <Loader2 className="w-3 h-3 animate-spin text-on-surface-variant" />}
+                      </div>
+                      {trace?.loading ? (
+                        <div className="flex items-center gap-2 text-caption text-on-surface-variant py-3 font-mono">
+                          <Loader2 className="w-3 h-3 animate-spin" /> 读取 trace…
+                        </div>
+                      ) : trace?.error ? (
+                        <p className="text-caption text-warning font-mono">{trace.error}</p>
+                      ) : (
+                        <pre className="bg-surface rounded-cw-sm border border-outline-variant/30 px-3 py-2.5 font-mono text-caption
+                          text-track-audio leading-relaxed max-h-72 overflow-auto whitespace-pre-wrap">
+                          {JSON.stringify(trace?.events ?? [], null, 2)}
+                        </pre>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -172,39 +245,3 @@ function normalize(data: unknown): PipelineRun[] {
   }
   return [];
 }
-
-const DEMO_RUNS: PipelineRun[] = [
-  {
-    id: 'pl_v2_9f3a1c', topic: '深度解析某品牌新手机的散热设计', status: 'completed',
-    durationMs: 187000, startedAt: '14:32:08',
-    agents: [
-      { agent: 'structure', start: 0, dur: 21000, status: 'ok' },
-      { agent: 'material', start: 21000, dur: 48000, status: 'ok' },
-      { agent: 'edit', start: 69000, dur: 62000, status: 'ok' },
-      { agent: 'animation', start: 131000, dur: 31000, status: 'ok' },
-      { agent: 'audio', start: 162000, dur: 16000, status: 'ok' },
-      { agent: 'quality', start: 178000, dur: 9000, status: 'ok' },
-    ],
-  },
-  {
-    id: 'pl_v2_7b22e0', topic: '量子计算到底是什么', status: 'completed',
-    durationMs: 243000, startedAt: '13:58:41',
-    agents: [
-      { agent: 'structure', start: 0, dur: 25000, status: 'ok' },
-      { agent: 'material', start: 25000, dur: 70000, status: 'ok' },
-      { agent: 'edit', start: 95000, dur: 55000, status: 'retry' },
-      { agent: 'animation', start: 150000, dur: 52000, status: 'ok' },
-      { agent: 'audio', start: 202000, dur: 28000, status: 'ok' },
-      { agent: 'quality', start: 230000, dur: 13000, status: 'ok' },
-    ],
-  },
-  {
-    id: 'pl_v2_c4d918', topic: '【鬼畜】老板语录 remix', status: 'failed',
-    durationMs: 96000, startedAt: '13:12:19',
-    agents: [
-      { agent: 'structure', start: 0, dur: 18000, status: 'ok' },
-      { agent: 'material', start: 18000, dur: 42000, status: 'ok' },
-      { agent: 'edit', start: 60000, dur: 36000, status: 'fail' },
-    ],
-  },
-];

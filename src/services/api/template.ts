@@ -11,6 +11,12 @@ export interface Template {
   updated_at?: string;
 }
 
+export interface ApplyTemplateResult {
+  status: string;
+  template_id: string;
+  timeline: Record<string, unknown>;
+}
+
 export const templateApi = {
   async list(): Promise<Template[]> {
     const { data } = await getApiClient().get('/api/template/list');
@@ -36,8 +42,8 @@ export const templateApi = {
     await getApiClient().delete(`/api/template/${id}`);
   },
 
-  async apply(id: string): Promise<{ project_id: string }> {
-    const { data } = await getApiClient().post(`/api/template/${id}/apply`);
+  async apply(id: string): Promise<ApplyTemplateResult> {
+    const { data } = await getApiClient().post<ApplyTemplateResult>(`/api/template/${id}/apply`);
     return data;
   },
 };

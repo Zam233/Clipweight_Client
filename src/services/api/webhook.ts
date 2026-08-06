@@ -1,5 +1,26 @@
 import { getApiClient } from './client';
 
+/** Normalized result of a webhook test call. */
+export interface WebhookTestResult {
+  success: boolean;
+  status_code?: number;
+  body?: string;
+}
+
+/**
+ * Normalize the backend /api/webhook/{id}/test response
+ * `{status: 'sent'|'failed', response_code?, error?}` into the frontend shape
+ * `{success, status_code, body}`.
+ */
+export function normalizeWebhookTest(raw: unknown): WebhookTestResult {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const success = o.status === 'sent';
+  const result: WebhookTestResult = { success };
+  if (typeof o.response_code === 'number') result.status_code = o.response_code;
+  if (!success && typeof o.error === 'string') result.body = o.error;
+  return result;
+}
+
 export interface WebhookSubscription {
   id: string;
   url: string;
@@ -34,9 +55,9 @@ export const webhookApi = {
     return data;
   },
 
-  async test(id: string): Promise<{ success: boolean; status_code?: number; body?: string }> {
+  async test(id: string): Promise<WebhookTestResult> {
     const { data } = await getApiClient().post(`/api/webhook/${id}/test`);
-    return data;
+    return normalizeWebhookTest(data);
   },
 
   async notify(event: string, payload?: Record<string, unknown>): Promise<{ delivered: number; failed: number }> {

@@ -1,7 +1,7 @@
 ---
 description: Large-context Wingman for documentation, synthesis, and broad delegated work
 mode: all
-model: github-copilot/gemini-3.1-pro-preview
+model: deepseek/deepseek-v4-flash
 tools:
   bash: true
   read: true

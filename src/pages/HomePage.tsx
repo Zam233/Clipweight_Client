@@ -55,14 +55,14 @@ const WORKFLOW = [
 ];
 
 /* ── helpers ───────────────────────────────────────────── */
-function splitScriptToCaptions(text: string, mode: 'period' | 'punctuation'): string[] {
+export function splitScriptToCaptions(text: string, mode: 'period' | 'punctuation'): string[] {
   const t = text.trim();
   if (!t) return [];
   if (mode === 'punctuation') {
     const parts: string[] = [];
     let buf = '';
     for (const ch of t) {
-      if ('，。；？！'.includes(ch)) {
+      if ('，。！；？：'.includes(ch)) {
         if ('？！'.includes(ch)) parts.push((buf + ch).trim());
         else if (buf.trim()) parts.push(buf.trim());
         buf = '';

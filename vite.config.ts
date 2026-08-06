@@ -14,12 +14,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        // 后端实际端口：J:\Clipwright\.env 中 CLIPWRIGHT_PORT=8080
+        target: 'http://localhost:8080',
         changeOrigin: true,
-      },
-      '/ws': {
-        target: 'ws://localhost:8000',
-        ws: true,
       },
     },
   },

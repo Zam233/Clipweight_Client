@@ -154,23 +154,27 @@ export const pluginApi = {
 };
 
 export const animationApi = {
+  /** 列出所有（或指定类型的）动画定义 */
   async list() {
     const { data } = await getApiClient().get<AnimationDef[]>('/api/animation/list');
     return data;
   },
-};
 
-export const toolApi = {
-  async list() {
-    const { data } = await getApiClient().get('/api/tool/list');
+  /** 列出所有屏幕动画 */
+  async onscreen() {
+    const { data } = await getApiClient().get<AnimationDef[]>('/api/animation/onscreen');
     return data;
   },
 
-  async execute(toolName: string, params: Record<string, unknown>) {
-    const { data } = await getApiClient().post('/api/tool/execute', {
-      name: toolName,
-      params,
-    });
+  /** 列出所有转场动画 */
+  async transitions() {
+    const { data } = await getApiClient().get<AnimationDef[]>('/api/animation/transitions');
+    return data;
+  },
+
+  /** 获取单个动画定义的详细信息 */
+  async get(animationId: string) {
+    const { data } = await getApiClient().get<AnimationDef>(`/api/animation/get/${animationId}`);
     return data;
   },
 };

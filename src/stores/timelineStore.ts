@@ -26,6 +26,8 @@ interface TimelineState {
   addClip: (trackId: string, clip: Partial<Clip> & { kind: ClipKind }) => string;
   removeClip: (clipId: string) => void;
   updateClip: (clipId: string, updates: Partial<Clip>) => void;
+  /** Apply updates to every clip on a track (caption style cascade). */
+  updateTrackClips: (trackId: string, updates: Partial<Clip>) => void;
   moveClip: (clipId: string, targetTrackId: string, newStartSec: number) => void;
   splitClip: (clipId: string, splitTimeSec: number) => void;
   trimClipStart: (clipId: string, newStartSec: number) => void;
@@ -223,6 +225,24 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         clips: t.clips.map((c) =>
           c.id === clipId ? { ...c, ...updates } : c,
         ),
+      }));
+      return {
+        timeline: {
+          ...state.timeline,
+          tracks,
+          duration_sec: computeTotalDuration(tracks),
+        },
+        isDirty: true,
+      };
+    }),
+
+  updateTrackClips: (trackId, updates) =>
+    set((state) => {
+      const tracks = state.timeline.tracks.map((t) => ({
+        ...t,
+        clips: t.id === trackId
+          ? t.clips.map((c) => ({ ...c, ...updates }))
+          : t.clips,
       }));
       return {
         timeline: {

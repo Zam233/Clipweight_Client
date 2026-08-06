@@ -1,7 +1,7 @@
 ---
 description: Fast general-purpose Wingman for autopilot delegated work
 mode: all
-model: chutes/zai-org/GLM-5.1-TEE
+model: deepseek/deepseek-v4-flash
 tools:
   bash: true
   read: true

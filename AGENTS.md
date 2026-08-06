@@ -4,7 +4,7 @@
 
 **ClipWright (帧艺)** is an AI-assisted video creation web editor frontend. React 19 + TypeScript 5.5 + Canvas 2D. Currently at Phase 5.
 
-**Backend**: `D:\Clipweight` — Content Video Orchestration Engine v0.1.0 (Python, FastAPI, SSE pipeline orchestration).
+**Backend**: `J:\Clipwright` — Content Video Orchestration Engine v0.1.0 (Python, FastAPI, SSE pipeline orchestration).
 
 Core product logic: Agent generates a rough-cut timeline → human reviews on the timeline → local dissatisfaction triggers Agent rework → final export. Human-in-the-loop iterative creation.
 
@@ -22,7 +22,7 @@ npm run format         # Prettier
 npm run preview        # preview production build
 ```
 
-**Proxy** (vite.config.ts): `/api` → `http://localhost:8000`, `/ws` → `ws://localhost:8000`.
+**Proxy** (vite.config.ts): `/api` → `http://localhost:8000`.
 
 **Env vars**: `VITE_API_BASE_URL` (default `http://localhost:8000`), `VITE_WS_URL` (default `ws://localhost:8000/ws`).
 
@@ -101,7 +101,11 @@ src/
 | `/settings/type-maker` | TypeMakerPage | ✓ |
 | `/settings/templates` | TemplatesPage | ✓ |
 | `/settings/webhooks` | WebhooksPage | ✓ |
+| `/settings/learning` | LearningPage | ✓ |
+| `/settings/video-editor` | VideoEditorPage | ✓ |
 | `/settings/fonts` | FontsPage | ✓ |
+| `/settings/subtitle-tools` | SubtitleToolsPage | ✓ |
+| `/settings/preprocess` | PreprocessPage | ✓ |
 | `/pipeline-admin` | PipelineAdminPage | ✓ |
 | `/help` | HelpPage | ✓ |
 
@@ -142,7 +146,7 @@ skillApi                             # Skill management
 voiceApi                             # Voice cloning + records
 ```
 
-**WebSocket**: `WsClient.ts` in `services/ws/` — singleton reconnecting WebSocket for real-time events.
+**WebSocket**: Removed — `WsClient.ts` deleted (no `/ws` endpoint). Real-time is **SSE-only** (pipeline trace / requirements chat / render queue streams).
 
 **SSE**: Used for Agent pipeline tracking (event stream from `/api/pipeline/{id}/events`).
 
@@ -155,6 +159,7 @@ voiceApi                             # Voice cloning + records
 - **Undo/Redo**: `historyStore` deep-clones the full timeline on each mutation, supports undo/redo with named snapshots.
 - **Layout Persistence**: Panel widths are persisted to `localStorage` via `workspaceStore`.
 - **Offline Demo Mode**: When backend is unavailable, Agent pipeline runs with simulated data for development/demo.
+- **Frontend–Backend Parity**: Full route/client/gap audit in `docs/frontend-backend-parity.md` (mirror in `J:\Clipwright\docs\`). Backend is the single source of truth for route shapes.
 
 ## Design System
 

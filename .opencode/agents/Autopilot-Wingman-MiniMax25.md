@@ -1,7 +1,7 @@
 ---
 description: Balanced Wingman for testing, documentation, and general delegated work
 mode: all
-model: chutes/MiniMaxAI/MiniMax-M2.5-TEE
+model: deepseek/deepseek-v4-flash
 tools:
   bash: true
   read: true

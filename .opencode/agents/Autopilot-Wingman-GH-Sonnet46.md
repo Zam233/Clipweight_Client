@@ -1,7 +1,7 @@
 ---
 description: Careful review and validation Wingman for autopilot delegated work
 mode: all
-model: github-copilot/claude-sonnet-4.6
+model: deepseek/deepseek-v4-flash
 tools:
   bash: true
   read: true

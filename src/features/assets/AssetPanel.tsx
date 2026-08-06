@@ -4,15 +4,16 @@ import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { usePreviewStore } from '@/stores/previewStore';
-import { assetApi, getApiClient } from '@/services/api';
+import { assetApi, visionApi } from '@/services/api';
 import { mediaManager } from '@/services/media/mediaManager';
 import { Button } from '@/components/ui';
 import { uid, normalizeClipKind } from '@/lib/utils';
 import { DubView } from './DubView';
 import { PluginPanel } from './PluginPanel';
 import type { Asset, MaterialSearchResult } from '@/types/api';
+import type { MaterialAsset } from '@/services/api/asset';
 import type { ClipKind } from '@/types/timeline';
-import { Sparkles, FolderOpen, History, Upload, Search, Plus, Mic, Puzzle, X, Heart, Check } from 'lucide-react';
+import { Sparkles, FolderOpen, History, Upload, Search, Plus, Mic, Puzzle, X, Heart, Check, Info } from 'lucide-react';
 
 type Tab = 'ai' | 'library' | 'history' | 'dub' | 'plugins';
 
@@ -322,6 +323,26 @@ function AIMatchView() {
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [faving, setFaving] = useState<Set<string>>(new Set());
   const projectId = useProjectStore((s) => s.projectId);
+  // Material detail popup (GET /api/material/asset/{source}/{id})
+  const [detail, setDetail] = useState<{ source: string; id: string; title: string } | null>(null);
+  const [detailData, setDetailData] = useState<MaterialAsset | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  const loadDetail = async (source: string, id: string, title: string) => {
+    setDetail({ source, id, title });
+    setDetailLoading(true);
+    setDetailData(null);
+    setDetailError(null);
+    try {
+      const d = await assetApi.getMaterialAsset(source, id);
+      setDetailData(d);
+    } catch (err: unknown) {
+      setDetailError(err instanceof Error ? err.message : '素材详情不可用');
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
   const toggleFavorite = async (r: MaterialSearchResult, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -368,11 +389,10 @@ function AIMatchView() {
     setVisionLoading(true);
     setVisionResult(null);
     try {
-      const analyzeRes = await getApiClient().post('/api/vision/analyze', { image_path: visionPath.trim() });
-      const ad = analyzeRes.data;
+      const ad = await visionApi.analyze(visionPath.trim());
       const labels = ad.tags?.join(', ') || ad.description || JSON.stringify(ad).slice(0, 200);
       setVisionResult(`分析结果: ${labels}`);
-      await getApiClient().post('/api/vision/import', { image_path: visionPath.trim() });
+      await visionApi.importImage(visionPath.trim());
       setVisionResult((prev) => `${prev} — 已导入素材库`);
       assetApi.listSources().then(setSources).catch(() => {});
     } catch (e: unknown) {
@@ -485,6 +505,13 @@ function AIMatchView() {
             </span>
             <Plus className="w-3.5 h-3.5 text-on-surface-variant group-hover:text-primary shrink-0" />
             <button
+              onClick={(e) => { e.stopPropagation(); loadDetail(r.source, r.id, r.title); }}
+              title="查看素材详情"
+              className="p-1 rounded-cw-full transition-colors cursor-pointer shrink-0 text-on-surface-variant/30 hover:text-primary"
+            >
+              <Info className="w-3.5 h-3.5" />
+            </button>
+            <button
               onClick={(e) => toggleFavorite(r, e)}
               title={favorites.has(r.id) ? '已收藏' : '收藏到素材库'}
               className={`p-1 rounded-cw-full transition-colors cursor-pointer shrink-0 ${
@@ -509,6 +536,90 @@ function AIMatchView() {
           </div>
         )}
       </div>
+
+      {/* Material detail popup */}
+      {detail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setDetail(null)}>
+          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-surface-container border border-outline-variant/40 rounded-cw-lg p-5 space-y-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-title-sm font-semibold text-on-surface truncate">{detailData?.title || detail.title}</h3>
+              <button onClick={() => setDetail(null)} className="p-1 rounded-cw-xs text-on-surface-variant hover:text-on-surface cursor-pointer shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {detailLoading ? (
+              <div className="flex items-center justify-center gap-2 text-label-sm text-on-surface-variant py-8">
+                <span className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" /> 加载素材详情…
+              </div>
+            ) : detailError ? (
+              <div className="flex items-center justify-between bg-error/10 border border-error/30 rounded-cw-xs px-3 py-2.5">
+                <span className="text-label-sm text-error">{detailError}</span>
+                <button
+                  onClick={() => detail && loadDetail(detail.source, detail.id, detail.title)}
+                  className="text-label-sm text-error hover:text-error/80 cursor-pointer">
+                  重试
+                </button>
+              </div>
+            ) : detailData ? (
+              <MaterialDetail data={detailData} />
+            ) : null}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MaterialDetail({ data }: { data: MaterialAsset }) {
+  const thumb = data.thumbnail_url || data.url;
+  const size = data.file_size_bytes != null
+    ? data.file_size_bytes >= 1024 * 1024
+      ? `${(data.file_size_bytes / 1024 / 1024).toFixed(1)} MB`
+      : `${Math.max(1, Math.round(data.file_size_bytes / 1024))} KB`
+    : null;
+  const rows: { label: string; value: string }[] = [
+    { label: '类型', value: data.type },
+    { label: '来源', value: data.source },
+    ...(data.duration_sec != null ? [{ label: '时长', value: `${data.duration_sec.toFixed(1)}s` }] : []),
+    ...(data.resolution ? [{ label: '分辨率', value: data.resolution }] : []),
+    ...(size ? [{ label: '文件大小', value: size }] : []),
+    ...(data.local_path ? [{ label: '本地路径', value: data.local_path }] : []),
+    ...(data.url ? [{ label: 'URL', value: data.url }] : []),
+    ...(data.created_at ? [{ label: '创建时间', value: data.created_at }] : []),
+  ];
+  return (
+    <div className="space-y-4">
+      {thumb && (
+        <div className="rounded-cw-sm overflow-hidden bg-surface">
+          <img src={thumb} alt={data.title} className="w-full max-h-56 object-contain" />
+        </div>
+      )}
+      <div className="space-y-1.5">
+        {rows.map((r) => (
+          <div key={r.label} className="flex gap-3 text-label-sm">
+            <span className="text-on-surface-variant w-20 shrink-0">{r.label}</span>
+            <span className="text-on-surface font-mono break-all">{r.value}</span>
+          </div>
+        ))}
+      </div>
+      {data.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {data.tags.map((t) => (
+            <span key={t} className="px-2 py-0.5 rounded-cw-full text-caption bg-primary-container/60 text-on-primary-container">{t}</span>
+          ))}
+        </div>
+      )}
+      {Object.keys(data.metadata).length > 0 && (
+        <div>
+          <p className="text-label text-on-surface-variant mb-1.5">元数据</p>
+          <pre className="bg-surface rounded-cw-sm border border-outline-variant/30 px-3 py-2 font-mono text-caption
+            text-track-audio leading-relaxed max-h-40 overflow-auto whitespace-pre-wrap">
+            {JSON.stringify(data.metadata, null, 2)}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }

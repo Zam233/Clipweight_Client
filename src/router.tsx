@@ -27,8 +27,12 @@ const ToolsPage = lazyPage(() => import('./pages/admin/ToolsPage'), 'ToolsPage')
 const PluginsPage = lazyPage(() => import('./pages/admin/PluginsPage'), 'PluginsPage');
 const TypeMakerPage = lazyPage(() => import('./pages/admin/TypeMakerPage'), 'TypeMakerPage');
 const TemplatesPage = lazyPage(() => import('./pages/admin/TemplatesPage'), 'TemplatesPage');
+const LearningPage = lazyPage(() => import('./pages/admin/LearningPage'), 'LearningPage');
+const VideoEditorPage = lazyPage(() => import('./pages/admin/VideoEditorPage'), 'VideoEditorPage');
 const WebhooksPage = lazyPage(() => import('./pages/admin/WebhooksPage'), 'WebhooksPage');
 const FontsPage = lazyPage(() => import('./pages/admin/FontsPage'), 'FontsPage');
+const SubtitleToolsPage = lazyPage(() => import('./pages/admin/SubtitleToolsPage'), 'SubtitleToolsPage');
+const PreprocessPage = lazyPage(() => import('./pages/admin/PreprocessPage'), 'PreprocessPage');
 const PipelineAdminPage = lazyPage(() => import('./pages/admin/PipelineAdminPage'), 'PipelineAdminPage');
 const VoicePage = lazyPage(() => import('./pages/VoicePage'), 'VoicePage');
 const ProjectsPage = lazyPage(() => import('./pages/ProjectsPage'), 'ProjectsPage');
@@ -145,10 +149,34 @@ const webhooksRoute = createRoute({
   component: WebhooksPage,
 });
 
+const learningRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/learning',
+  component: LearningPage,
+});
+
+const videoEditorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/video-editor',
+  component: VideoEditorPage,
+});
+
 const fontsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/fonts',
   component: FontsPage,
+});
+
+const subtitleToolsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/subtitle-tools',
+  component: SubtitleToolsPage,
+});
+
+const preprocessRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/preprocess',
+  component: PreprocessPage,
 });
 
 const pipelineAdminRoute = createRoute({
@@ -184,7 +212,11 @@ const routeTree = rootRoute.addChildren([
   typeMakerRoute,
   templatesRoute,
   webhooksRoute,
+  learningRoute,
+  videoEditorRoute,
   fontsRoute,
+  subtitleToolsRoute,
+  preprocessRoute,
   pipelineAdminRoute,
   voiceRoute,
   projectsRoute,
