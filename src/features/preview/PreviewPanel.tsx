@@ -520,15 +520,34 @@ function drawClipToPreview(
       break;
     }
     case 'animation': {
-      // Animated shape placeholder
-      const cx = fx + fw / 2;
-      const cy = fy + fh / 2;
-      const r = (fh * 0.15) * tf.scale * (0.8 + 0.2 * Math.sin(localT * Math.PI * 2));
-      ctx.fillStyle = color;
+      // 关键帧插值已在 switch 之前统一执行（opacity/tf 已含插值结果），此处不重复调用
+      // interpolateProperties，只把 translate/rotate/opacity 应用到形状渲染上。
+      // 无关键帧时保留正弦缩放作为退化行为。
+      const cx = fx + fw / 2 + tf.x * fw;
+      const cy = fy + fh / 2 + tf.y * fh;
+      const pulse = clip.keyframes.length > 0 ? 1 : 0.8 + 0.2 * Math.sin(localT * Math.PI * 2);
+      const size = (fh * 0.15) * tf.scale * pulse;
+      const shape = (typeof clip.metadata?.shape === 'string' && clip.metadata.shape) || clip.shape || 'rect';
+      ctx.save();
       ctx.globalAlpha = clamp(opacity, 0, 1) * 0.85;
+      ctx.translate(cx, cy);
+      if (tf.rotation !== 0) ctx.rotate((tf.rotation * Math.PI) / 180);
+      ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      if (shape === 'ellipse' || shape === 'circle') {
+        ctx.arc(0, 0, size, 0, Math.PI * 2);
+      } else {
+        // 默认圆角矩形
+        const rr = Math.min(size, fw * 0.05);
+        ctx.moveTo(-size + rr, -size);
+        ctx.arcTo(size, -size, size, size, rr);
+        ctx.arcTo(size, size, -size, size, rr);
+        ctx.arcTo(-size, size, -size, -size, rr);
+        ctx.arcTo(-size, -size, size, -size, rr);
+        ctx.closePath();
+      }
       ctx.fill();
+      ctx.restore();
       break;
     }
     case 'shape': {
