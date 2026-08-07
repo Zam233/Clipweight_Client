@@ -4,6 +4,7 @@ import { usePreviewStore } from '@/stores/previewStore';
 import { TRACK_COLORS } from '@/types/timeline';
 import type { Clip, Track } from '@/types/timeline';
 import { captionBaselineY, captionFontSize } from './captionLayout';
+import { orderTracksForComposite } from './compositeOrder';
 import { formatTimecode, clamp } from '@/lib/utils';
 import { mediaManager } from '@/services/media/mediaManager';
 import { interpolateProperties } from '@/features/timeline/engine/easing';
@@ -193,9 +194,9 @@ export function PreviewPanel() {
       ctx.fillStyle = '#0E101A';
       ctx.fillRect(fx, fy, fw, fh);
 
-      // Composite visible clips (bottom track first = higher index drawn first? )
-      // Render order: draw tracks from last (bottom) to first (top) so top tracks overlay.
-      const sorted = [...tl.tracks].sort((a, b) => b.index - a.index);
+      // Composite order: lowest track index drawn first (bottom layer), highest index last (top layer) — matches backend render.py is_overlay = track.index > 0.
+      // 合成顺序：轨道 index 升序，低 index 先画（底层），高 index 最后（顶层）。
+      const sorted = orderTracksForComposite(tl.tracks);
       for (const track of sorted) {
         if (track.muted && (track.kind === 'audio' || track.kind === 'waveform')) continue;
         for (const clip of track.clips) {
