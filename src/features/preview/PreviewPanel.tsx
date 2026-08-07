@@ -355,9 +355,9 @@ export function PreviewPanel() {
         <button
           onClick={togglePlay}
           aria-label={isPlaying ? '暂停' : '播放'}
-          className={`absolute inset-0 m-auto w-14 h-14 rounded-cw-full flex items-center justify-center
+          className={`absolute inset-0 m-auto w-12 h-12 rounded-cw-full flex items-center justify-center
             bg-black/50 text-white backdrop-blur-sm transition-opacity duration-short3 cursor-pointer
-            ${isPlaying ? 'opacity-0 group-hover/preview:opacity-100' : 'opacity-90 hover:opacity-100'}`}
+            ${isPlaying ? 'opacity-0 group-hover/preview:opacity-100' : 'opacity-35 hover:opacity-100'}`}
         >
           {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
         </button>
