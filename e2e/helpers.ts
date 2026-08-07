@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 
-const demoTimeline = {
+export const demoTimeline = {
   id: 'tl-e2e',
   width: 1920,
   height: 1080,
@@ -145,7 +145,67 @@ const demoTimeline = {
   ],
 };
 
-const demoProject = {
+export const demoImageTimeline = {
+  id: 'tl-img-demo',
+  width: 1920,
+  height: 1080,
+  fps: 30,
+  duration_sec: 5,
+  tracks: [
+    {
+      id: 'track-img1',
+      name: 'IMAGE 1',
+      kind: 'image',
+      index: 0,
+      locked: false,
+      muted: false,
+      clips: [
+        {
+          id: 'clip-img1',
+          kind: 'image',
+          asset_id: 'asset-img',
+          track_id: 'track-img1',
+          start_sec: 0,
+          duration_sec: 5,
+          source_offset_sec: 0,
+          speed: 1,
+          volume: 1,
+          opacity: 1,
+          image_fit: null,
+          image_rect: null,
+          text: null,
+          font: null,
+          font_size: null,
+          font_color: null,
+          text_align: null,
+          transition_in: null,
+          transition_out: null,
+          transition_duration_sec: null,
+          shape: null,
+          fill: null,
+          bar_count: null,
+          bar_width: null,
+          keyframes: [],
+          metadata: { title: '红色测试图', url: 'http://mock.local/red.png' },
+        },
+      ],
+    },
+  ],
+};
+
+export const demoImageProject = {
+  id: 'proj_img_demo',
+  name: 'E2E 图片项目',
+  timeline: demoImageTimeline,
+  created_at: '2026-07-29T00:00:00Z',
+  updated_at: '2026-07-29T00:00:00Z',
+  persona_id: 'default',
+  plugin_id: 'knowledge_longform',
+  folder: '',
+  tags: [],
+};
+
+export const demoProject = {
   id: 'proj_e2e_demo',
   name: 'E2E 演示项目',
   timeline: demoTimeline,
@@ -157,7 +217,7 @@ const demoProject = {
   tags: [],
 };
 
-const demoSummary = {
+export const demoSummary = {
   id: 'proj_e2e_demo',
   name: 'E2E 演示项目',
   created_at: '2026-07-29T00:00:00Z',
@@ -184,6 +244,9 @@ export async function mockBackendApi(page: Page): Promise<void> {
   await page.route(/https?:\/\/[^/]+\/api\//, (route) => {
     const url = route.request().url();
 
+    if (/\/api\/project\/proj_img_demo(\/|$|\?)/.test(url)) {
+      return route.fulfill({ json: demoImageProject });
+    }
     if (/\/api\/project\/proj_e2e_demo(\/|$|\?)/.test(url)) {
       return route.fulfill({ json: demoProject });
     }
