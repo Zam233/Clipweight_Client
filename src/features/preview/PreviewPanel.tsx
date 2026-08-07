@@ -9,7 +9,8 @@ import { formatTimecode, clamp } from '@/lib/utils';
 import { mediaManager } from '@/services/media/mediaManager';
 import { interpolateProperties } from '@/features/timeline/engine/easing';
 import { Maximize, Shield, Volume2, VolumeX, ZoomIn, ZoomOut, Camera, Repeat, Play, Pause } from 'lucide-react';
-import { Tooltip } from '@/components/ui';
+import { Tooltip, Slider } from '@/components/ui';
+import { applyMasterVolume } from './volume';
 
 /**
  * PreviewPanel — Canvas compositor that renders the timeline at the playhead.
@@ -34,6 +35,8 @@ export function PreviewPanel() {
   const setPlaybackSpeed = usePreviewStore((s) => s.setPlaybackSpeed);
   const isLooping = usePreviewStore((s) => s.isLooping);
   const toggleLoop = usePreviewStore((s) => s.toggleLoop);
+  const volume = usePreviewStore((s) => s.volume);
+  const setVolume = usePreviewStore((s) => s.setVolume);
 
   // Sync duration from timeline
   useEffect(() => {
@@ -66,7 +69,7 @@ export function PreviewPanel() {
         const inClip = t >= clip.start_sec && t < clip.start_sec + clip.duration_sec;
         // Account for clip speed so audio stays in sync with sped-up/slowed video
         const localT = (t - clip.start_sec) * clip.speed + clip.source_offset_sec;
-        el.volume = clamp(clip.volume, 0, 1);
+        el.volume = applyMasterVolume(clip.volume, volume);
         el.muted = muted || track.muted;
         if (Math.abs(el.playbackRate - clip.speed) > 0.01) {
           try { el.playbackRate = clip.speed; } catch { /* not supported */ }
@@ -82,7 +85,7 @@ export function PreviewPanel() {
         }
       }
     }
-  }, [currentTimeSec, isPlaying, isMuted, timeline]);
+  }, [currentTimeSec, isPlaying, isMuted, timeline, volume]);
 
   // Playback loop
   useEffect(() => {
@@ -305,6 +308,7 @@ export function PreviewPanel() {
             </button>
           </Tooltip>
           <div className="w-px h-4 bg-outline-variant/40 mx-0.5" />
+          <Slider label="音量" min={0} max={1} step={0.05} value={volume} onChange={setVolume} className="min-w-[80px] shrink-0" />
           <Tooltip content={isMuted ? '取消静音' : '静音'}>
             <button onClick={toggleMute}
               className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
