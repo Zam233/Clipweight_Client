@@ -420,10 +420,10 @@ function drawClipToPreview(
 
       let drewReal = false;
 
-      if (track.kind === 'image' && entry?.url) {
-        // Real image: draw via cached Image
-        const img = getImageCached(entry.url);
-        if (img && img.complete && img.naturalWidth > 0) {
+      if (track.kind === 'image' && entry?.img) {
+        // Real image: draw via the registered image (mediaManager caches + notifies on load)
+        const img = entry.img;
+        if (img.complete && img.naturalWidth > 0) {
           drawCover(ctx, img, fx, fy, fw, fh, tf);
           drewReal = true;
         }
@@ -668,27 +668,6 @@ function drawCover(
     ctx.drawImage(src, cx, cy, cw, ch, -dw / 2, -dh / 2, dw, dh);
   } catch { /* frame not ready */ }
   ctx.restore();
-}
-
-/** Image cache with LRU eviction (prevents unbounded memory growth). */
-const IMAGE_CACHE_MAX = 64;
-const imageCache = new Map<string, HTMLImageElement>();
-function getImageCached(url: string): HTMLImageElement | undefined {
-  let img = imageCache.get(url);
-  if (img) {
-    // refresh LRU order
-    imageCache.delete(url);
-    imageCache.set(url, img);
-    return img;
-  }
-  img = new Image();
-  img.src = url;
-  imageCache.set(url, img);
-  if (imageCache.size > IMAGE_CACHE_MAX) {
-    const oldest = imageCache.keys().next().value;
-    if (oldest !== undefined) imageCache.delete(oldest);
-  }
-  return img;
 }
 
 function buildFilter(clip: Clip): string {
