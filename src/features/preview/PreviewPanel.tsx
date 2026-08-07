@@ -1,10 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { TRACK_COLORS } from '@/types/timeline';
 import type { Clip, Track } from '@/types/timeline';
 import { captionBaselineY, captionFontSize } from './captionLayout';
 import { orderTracksForComposite } from './compositeOrder';
+import { computePreviewFrameRect, xToScrubTime } from './frameGeometry';
 import { formatTimecode, clamp } from '@/lib/utils';
 import { mediaManager } from '@/services/media/mediaManager';
 import { interpolateProperties } from '@/features/timeline/engine/easing';
@@ -19,11 +20,13 @@ import { applyMasterVolume } from './volume';
 export function PreviewPanel() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  // Drag-scrub state: start coords + dragging flag + rAF-merged target time.
+  // 拖拽刷洗状态：起点坐标 + 拖拽标志 + rAF 合并的目标时间。
+  const scrubRef = useRef({ startX: 0, startY: 0, dragging: false, raf: 0, targetTime: -1 });
 
   const timeline = useTimelineStore((s) => s.timeline);
   const currentTimeSec = usePreviewStore((s) => s.currentTimeSec);
   const isPlaying = usePreviewStore((s) => s.isPlaying);
-  const togglePlay = usePreviewStore((s) => s.togglePlay);
   const showSafeArea = usePreviewStore((s) => s.showSafeArea);
   const isMuted = usePreviewStore((s) => s.isMuted);
   const toggleMute = usePreviewStore((s) => s.toggleMute);
@@ -129,7 +132,72 @@ export function PreviewPanel() {
   }, [isPlaying]);
 
   // Pause all media when the preview unmounts (avoid audio playing after leaving the editor)
-  useEffect(() => () => { mediaManager.pauseAll(); }, []);
+  useEffect(() => () => {
+    cancelAnimationFrame(scrubRef.current.raf);
+    mediaManager.pauseAll();
+  }, []);
+
+  // Canvas pointer scrub: drag horizontally to seek the playhead, click to toggle play.
+  // 画布指针刷洗：水平拖拽移动播放头，单击切换播放/暂停。
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0) return;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture unavailable */ }
+    const s = scrubRef.current;
+    s.startX = e.clientX;
+    s.startY = e.clientY;
+    s.dragging = false;
+  }, []);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const s = scrubRef.current;
+    const d = Math.abs(e.clientX - s.startX) + Math.abs(e.clientY - s.startY);
+    if (d > 5) {
+      s.dragging = true;
+      if (usePreviewStore.getState().isPlaying) usePreviewStore.getState().setPlaying(false);
+    }
+    if (!s.dragging) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const tl = useTimelineStore.getState().timeline;
+    const zoom = usePreviewStore.getState().zoomLevel;
+    const frame = computePreviewFrameRect(rect.width, rect.height, tl.width, tl.height, zoom);
+    s.targetTime = xToScrubTime(e.clientX - rect.left, frame, tl.duration_sec);
+    if (s.raf === 0) {
+      s.raf = requestAnimationFrame(() => {
+        scrubRef.current.raf = 0;
+        usePreviewStore.getState().setCurrentTime(scrubRef.current.targetTime);
+      });
+    }
+  }, []);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const s = scrubRef.current;
+    if (s.raf !== 0) {
+      cancelAnimationFrame(s.raf);
+      s.raf = 0;
+      usePreviewStore.getState().setCurrentTime(s.targetTime);
+    }
+    if (!s.dragging) {
+      usePreviewStore.getState().togglePlay();
+    }
+    if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    }
+    s.dragging = false;
+  }, []);
+
+  const handlePointerCancel = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    const s = scrubRef.current;
+    if (s.raf !== 0) {
+      cancelAnimationFrame(s.raf);
+      s.raf = 0;
+    }
+    s.dragging = false;
+    if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    }
+  }, []);
 
   // Keep fullscreen state in sync with the browser (e.g. user exits via Escape)
   useEffect(() => {
@@ -350,14 +418,20 @@ export function PreviewPanel() {
 
       {/* Canvas viewport */}
       <div ref={wrapRef} className="flex-1 relative overflow-hidden min-h-0 group/preview">
-        <canvas ref={canvasRef} className="absolute inset-0 block" onClick={togglePlay} />
+        <canvas
+          ref={canvasRef}
+          className="absolute inset-0 block"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
+        />
         {/* Centered play/pause overlay — visible when paused or on hover */}
         <button
-          onClick={togglePlay}
           aria-label={isPlaying ? '暂停' : '播放'}
           className={`absolute inset-0 m-auto w-12 h-12 rounded-cw-full flex items-center justify-center
-            bg-black/50 text-white backdrop-blur-sm transition-opacity duration-short3 cursor-pointer
-            ${isPlaying ? 'opacity-0 group-hover/preview:opacity-100' : 'opacity-35 hover:opacity-100'}`}
+            bg-black/50 text-white backdrop-blur-sm transition-opacity duration-short3 pointer-events-none
+            ${isPlaying ? 'opacity-0 group-hover/preview:opacity-100' : 'opacity-35 group-hover/preview:opacity-100'}`}
         >
           {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
         </button>
