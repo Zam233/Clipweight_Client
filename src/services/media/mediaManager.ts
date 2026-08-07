@@ -25,6 +25,7 @@ interface MediaEntry {
   kind: 'video' | 'audio' | 'image';
   videoEl?: HTMLVideoElement;
   audioEl?: HTMLAudioElement;
+  img?: HTMLImageElement;
   durationSec: number;
   waveform?: number[];
   thumbnails: Map<number, string>;
@@ -82,11 +83,14 @@ class MediaManager {
     } else {
       // image: probe dimensions via an Image
       const img = new Image();
+      img.crossOrigin = 'anonymous'; // no-op for same-origin blob URLs, but required for canvas reads later
       img.src = url;
+      img.onload = () => this.notify(assetId);
       img.onerror = () => {
         entry.error = true;
         this.notify(assetId);
       };
+      entry.img = img;
     }
 
     this.entries.set(assetId, entry);
@@ -119,6 +123,16 @@ class MediaManager {
         this.notify(assetId);
       });
       entry.audioEl = a;
+    } else if (kind === 'image') {
+      const img = new Image();
+      img.crossOrigin = 'anonymous'; // must precede src assignment so the fetch uses CORS mode
+      img.src = url;
+      img.onload = () => this.notify(assetId);
+      img.onerror = () => {
+        entry.error = true;
+        this.notify(assetId);
+      };
+      entry.img = img;
     }
     this.entries.set(assetId, entry);
   }

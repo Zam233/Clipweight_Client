@@ -161,3 +161,68 @@ describe('mediaManager error tracking', () => {
     expect(mediaManager.get('asset_ok_audio')!.error).toBeFalsy();
   });
 });
+
+describe('mediaManager image registration', () => {
+  beforeEach(() => {
+    mediaManager.clear();
+  });
+
+  it('registerUrl (image): caches img and notifies subscribers on load event', () => {
+    const notified: string[] = [];
+    const unsub = mediaManager.onChange((id) => notified.push(id));
+    try {
+      mediaManager.registerUrl('a', 'http://mock.local/red.png', 'image');
+      const entry = mediaManager.get('a')!;
+      expect(entry.img).toBeDefined();
+
+      entry.img!.dispatchEvent(new Event('load'));
+
+      expect(notified).toContain('a');
+      expect(entry.error).toBeFalsy();
+    } finally {
+      unsub();
+    }
+  });
+
+  it('registerUrl (image): marks entry.error and notifies subscribers on error event', () => {
+    const notified: string[] = [];
+    const unsub = mediaManager.onChange((id) => notified.push(id));
+    try {
+      mediaManager.registerUrl('b', 'http://bad.invalid/x.png', 'image');
+      const entry = mediaManager.get('b')!;
+      expect(entry.img).toBeDefined();
+
+      entry.img!.dispatchEvent(new Event('error'));
+
+      expect(entry.error).toBe(true);
+      expect(notified).toContain('b');
+    } finally {
+      unsub();
+    }
+  });
+
+  it('registerFile (image): caches img and notifies subscribers on load event', () => {
+    const notified: string[] = [];
+    const unsub = mediaManager.onChange((id) => notified.push(id));
+    try {
+      mediaManager.registerFile('f', new File(['x'], 'img.png', { type: 'image/png' }));
+      const entry = mediaManager.get('f')!;
+      expect(entry.img).toBeDefined();
+      expect(entry.error).toBeFalsy();
+
+      entry.img!.dispatchEvent(new Event('load'));
+
+      expect(notified).toContain('f');
+    } finally {
+      unsub();
+    }
+  });
+
+  it('sets crossOrigin to anonymous on the registered image', () => {
+    mediaManager.registerUrl('c', 'http://mock.local/blue.png', 'image');
+    expect(mediaManager.get('c')!.img!.crossOrigin).toBe('anonymous');
+
+    mediaManager.registerFile('g', new File(['x'], 'green.png', { type: 'image/png' }));
+    expect(mediaManager.get('g')!.img!.crossOrigin).toBe('anonymous');
+  });
+});
