@@ -35,7 +35,7 @@
 | `/api/test` | model_test.py | 4 | POST `/llm` · POST `/embed` · POST `/rerank` · GET `/config` |
 | `/api/persona` | persona.py | 9 | GET `/list` · GET `/{persona_id}` · POST `/create` · PUT `/{persona_id}` · DELETE `/{persona_id}` · GET `/{persona_id}/prompt` · PUT `/{persona_id}/prompt` · GET `/{persona_id}/knowledge` · POST `/{persona_id}/knowledge` |
 | `/api/persona/forge` | persona_forge.py | 5 | POST `/from-prompt` · POST `/from-script` · POST `/refine` · POST `/dialogue/generate-questions` · POST `/dialogue/build` |
-| `/api/pipeline` | pipeline.py | 13 | GET `/runs` · POST `/run-v2` · POST `/run` · POST `/run-async` · GET `/trace/{pipeline_id}` · GET `/trace/stream/{pipeline_id}` · GET `/result/{pipeline_id}` · GET `/status/{pipeline_id}` · POST `/retry/{pipeline_id}/{agent_name}` · POST `/regenerate-scene/{pipeline_id}/{scene_index}` · POST `/predict-script` · POST `/predict-material` · POST `/step/{agent_name}` |
+| `/api/pipeline` | pipeline.py | 13 | GET `/runs` · POST `/run-v2` · POST `/run` · POST `/run-async` · GET `/trace/{pipeline_id}` · GET `/trace/stream/{pipeline_id}` · GET `/result/{pipeline_id}` · GET `/status/{pipeline_id}` · POST `/retry/{pipeline_id}/{agent_name}` · POST `/cancel/{pipeline_id}` · POST `/predict-script` · POST `/predict-material` · POST `/step/{agent_name}` |
 | `/api/plugin` | plugin.py | 10 | GET `/list` · GET `/discover` · POST `/load/{plugin_id}` · POST `/unload/{plugin_id}` · GET `/{plugin_id}/config` · PUT `/{plugin_id}/config` · DELETE `/{plugin_id}/config` · POST `/load-all` · GET `/capabilities` · GET `/{plugin_id}/ui` |
 | `/api/preprocess` | preprocess.py | 7 | GET `/operations` · GET `/queue` · POST `/submit` · POST `/batch-submit` · GET `/task/{task_id}` · DELETE `/task/{task_id}` · GET `/task/{task_id}/results` |
 | `/api/project` | project.py | 13 | POST `/`（create） · GET `/`（list） · POST `/folders/rename` · POST `/folders/delete` · GET `/{project_id}` · PUT `/{project_id}` · DELETE `/{project_id}` · POST `/{project_id}/duplicate` · PATCH `/{project_id}/rename` · PATCH `/{project_id}/folder` · POST `/{project_id}/tags` · DELETE `/{project_id}/tags/{tag}` · GET `/{project_id}/thumbnail` |
@@ -55,6 +55,8 @@
 | `/api/waveform` | waveform.py | 1 | POST `/generate` |
 | `/api/webhook` | webhook.py | 8 | GET `/events` · GET `/list` · POST `/register` · DELETE `/{webhook_id}` · PUT `/{webhook_id}/toggle` · POST `/{webhook_id}/test` · POST `/notify` · GET `/deliveries` |
 | **合计** | **29 个 router** | **176** | |
+
+> 变更注记（G2 协同取消）：`/api/pipeline` 行的 `POST /cancel/{pipeline_id}` 为 G2 协同取消新增端点（协作取消/停止正在运行的管线）；`POST /regenerate-scene/{pipeline_id}/{scene_index}` 已按 B4 移除——该端点在后端 `clipwright/api/pipeline.py` 中已不存在。端点计数保持 13 不变。
 
 ---
 
