@@ -6,6 +6,26 @@ beforeEach(() => {
   useAgentStore.setState({ logEntries: [] });
 });
 
+describe('G2: cancelling state', () => {
+  it('cancelling 默认值为 false', () => {
+    expect(useAgentStore.getState().cancelling).toBe(false);
+  });
+
+  it('setCancelling(true) 置为 true，setCancelling(false) 置回 false', () => {
+    useAgentStore.getState().setCancelling(true);
+    expect(useAgentStore.getState().cancelling).toBe(true);
+    useAgentStore.getState().setCancelling(false);
+    expect(useAgentStore.getState().cancelling).toBe(false);
+  });
+
+  it('先置 true 后 resetPipeline() 会重置为 false', () => {
+    useAgentStore.getState().setCancelling(true);
+    expect(useAgentStore.getState().cancelling).toBe(true);
+    useAgentStore.getState().resetPipeline();
+    expect(useAgentStore.getState().cancelling).toBe(false);
+  });
+});
+
 describe('E7: log entry cap', () => {
   it('601 条 addLogEntry 后仅保留最近 500 条', () => {
     const s = useAgentStore.getState();

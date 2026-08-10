@@ -50,6 +50,7 @@ interface AgentState {
   chatMessages: AgentChatMessage[];
   error: string | null;
   isStreaming: boolean;
+  cancelling: boolean;
 
   // Log entries
   logEntries: LogEntry[];
@@ -83,6 +84,7 @@ interface AgentState {
   addChatMessage: (message: AgentChatMessage) => void;
   setError: (error: string | null) => void;
   setStreaming: (streaming: boolean) => void;
+  setCancelling: (busy: boolean) => void;
   resetPipeline: () => void;
 
   // Log actions
@@ -131,6 +133,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   chatMessages: [],
   error: null,
   isStreaming: false,
+  cancelling: false,
 
   logEntries: [],
   agentStats: [],
@@ -175,6 +178,8 @@ export const useAgentStore = create<AgentState>((set) => ({
 
   setStreaming: (streaming) => set({ isStreaming: streaming }),
 
+  setCancelling: (busy) => set({ cancelling: busy }),
+
   resetPipeline: () =>
     set({
       pipelineId: null,
@@ -184,6 +189,7 @@ export const useAgentStore = create<AgentState>((set) => ({
       suggestions: [],
       error: null,
       isStreaming: false,
+      cancelling: false,
       logEntries: [],
       agentStats: [],
       pipelineSummary: null,
