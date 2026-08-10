@@ -7,6 +7,7 @@ import { Markdown } from '@/components/shared/Markdown';
 import { TimelineDiffView } from './TimelineDiffView';
 import { resolveMessageAttachments } from './requirementsAttachments';
 import { pipelineApi, requirementsApi } from '@/services/api';
+import { useBackendHealth } from '@/pages/useBackendHealth';
 import { Button } from '@/components/ui';
 import { uid } from '@/lib/utils';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
@@ -14,7 +15,7 @@ import type { Timeline, Clip, ClipKind } from '@/types/timeline';
 import type { RequirementsStatus } from '@/types/persona';
 import {
   Bot, Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
-  MessageSquareText, ChevronDown, ChevronRight, X,
+  MessageSquareText, ChevronDown, ChevronRight, X, Paperclip,
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<PipelinePhase, string> = {
@@ -45,9 +46,16 @@ export function AgentPanel() {
   const [tab, setTab] = useState<'requirements' | 'logs'>('requirements');
   const agentTimeline = useAgentStore((s) => s.agentTimeline);
   const setAgentTimeline = useAgentStore((s) => s.setAgentTimeline);
+  // G5: 后端心跳——离线时显示横幅，区分"未连接"与"请求失败"
+  const backend = useBackendHealth();
 
   return (
     <div className="flex flex-col h-full bg-surface-container-low">
+      {backend === 'offline' && (
+        <div className="px-3 py-1 text-caption font-medium text-warning bg-warning/10 border-b border-warning/30 shrink-0">
+          后端离线 — 当前为离线演示模式
+        </div>
+      )}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-outline-variant/30 shrink-0">
         <div className="w-6 h-6 rounded-cw-full bg-primary-container flex items-center justify-center">
           <Bot className="w-3.5 h-3.5 text-on-primary-container" />
@@ -108,6 +116,27 @@ function RequirementsView() {
   const busy = manualBusy || autoBusy;
   const [draftLoaded, setDraftLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  // G7: 参考文件上传——无会话时提示先开始会话
+  const handleUploadFile = async (file: File) => {
+    const sid = useAgentStore.getState().requirementsSessionId;
+    if (!sid) {
+      addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+        content: '请先开始需求会话，再上传参考文件。' });
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await requirementsApi.upload(sid, file);
+      addMessage({ id: uid('m'), role: 'system', timestamp: new Date().toISOString(),
+        content: `已上传 ${res?.file_name ?? file.name}` });
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        ?? (e instanceof Error ? e.message : '上传失败');
+      addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+        content: `上传失败：${detail}` });
+    } finally { setBusy(false); }
+  };
 
   // 选中素材标签（C6）：订阅时间轴选中片段与当前时间线
   const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
@@ -349,7 +378,8 @@ function RequirementsView() {
         )}
       </div>
 
-      {messages.length > 0 && status !== 'pipeline_running' && (
+      {/* B17: 管线运行/规划生成期间隐藏输入；完成/失败后恢复 */}
+      {messages.length > 0 && !['pipeline_running', 'planning'].includes(status) && (
         <div className="p-3 border-t border-outline-variant/20 shrink-0">
           {selectedClips.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 mb-2">
@@ -372,6 +402,22 @@ function RequirementsView() {
             </div>
           )}
           <div className="flex gap-2">
+            {/* G7: 参考文件上传 */}
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept=".txt,.md,.pdf,.docx"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void handleUploadFile(f);
+                e.target.value = '';
+              }}
+            />
+            <Button size="icon" variant="outline" disabled={busy}
+              onClick={() => uploadInputRef.current?.click()} title="上传参考文件">
+              <Paperclip className="w-3.5 h-3.5" />
+            </Button>
             <input value={input} onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter') return;
@@ -436,7 +482,8 @@ function LogPanel() {
           <div className="text-center py-8 text-on-surface-variant/40 text-label-sm">等待操作…</div>
         )}
         {grouped && groups
-          ? groups.map((g, gi) => <AgentGroup key={gi} group={g} onToggle={toggleExpand} />)
+          ? groups.map((g, gi) => <AgentGroup key={gi} group={g} onToggle={toggleExpand}
+              defaultOpen={gi === groups.length - 1} />)
           : logEntries.map((e) => <LogLine key={e.id} entry={e} onToggle={toggleExpand} />)
         }
       </div>
@@ -444,12 +491,14 @@ function LogPanel() {
   );
 }
 
-function AgentGroup({ group, onToggle }: {
+function AgentGroup({ group, onToggle, defaultOpen = false }: {
   group: { agent: string; entries: LogEntry[] };
   onToggle: (id: string) => void;
+  defaultOpen?: boolean;
 }) {
   const { agent, entries } = group;
-  const [folded, setFolded] = useState(agent !== 'system');
+  // E7: 默认折叠（已有）；最后一组默认展开，便于查看最近活动
+  const [folded, setFolded] = useState(agent !== 'system' && !defaultOpen);
   const types = entries.reduce((acc, e) => { acc[e.type] = (acc[e.type] || 0) + 1; return acc; }, {} as Record<string, number>);
   const typeSummary = Object.entries(types).slice(0, 4).map(([t, n]) => `${n}x ${t}`).join(' ');
 
@@ -501,6 +550,7 @@ function BottomBar() {
   const pipelineSummary = useAgentStore((s) => s.pipelineSummary);
   const mgTotal = useAgentStore((s) => s.mgTotal);
   const mgDone = useAgentStore((s) => s.mgDone);
+  const logEntries = useAgentStore((s) => s.logEntries);
   const addLogEntry = useAgentStore((s) => s.addLogEntry);
   const updatePhase = useAgentStore((s) => s.updatePhase);
 
@@ -530,6 +580,8 @@ function BottomBar() {
       finished = true;
       if (ok) {
         updatePhase('completed', 100);
+        // B17: 管线完成 → 复位需求状态，输入框恢复可继续对话
+        useAgentStore.getState().setRequirementsStatus('pipeline_done');
         // 优先用 SSE 快照；否则从 result 接口取最终时间线
         let tl = lastTimelineRef.current;
         if (!tl) {
@@ -541,6 +593,7 @@ function BottomBar() {
         if (tl) useAgentStore.getState().setAgentTimeline(tl);
       } else {
         updatePhase('failed');
+        useAgentStore.getState().setRequirementsStatus('error');
         useAgentStore.getState().setError(errMsg || '管线执行失败');
         addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'error', summary: errMsg || '管线执行失败' });
       }
@@ -645,27 +698,27 @@ function BottomBar() {
     };
 
     es.onerror = () => {
-      // 管线可能长达 30-60 分钟：后端流 600s 硬上限/网络抖动都会触发 onerror。
-      // 不能永久关闭——否则最终 done/timeline_snapshot 事件永远收不到、审阅视图缺失。
-      // 方案：释放引用并定时重连（后端会重放全部事件，finish 有幂等守卫）。
-      // 但重连必须有上限：连续失败 5 次后判定为断线，停止重连并提示用户手动刷新。
-      if (!finished) {
-        esRef.current = null;
-        retryCountRef.current += 1;
-        if (retryCountRef.current >= 5) {
-          setSseDisconnected(true);
-          addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'error',
-            summary: 'SSE 连接已断开（多次重连失败），请手动刷新恢复追踪' });
-          return;
-        }
-        if (!retryTimerRef.current) {
-          retryTimerRef.current = setTimeout(() => {
-            retryTimerRef.current = null;
-            if (!finished && !esRef.current) openSSE(pid);
-          }, 3000);
-        }
-        addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'warning', summary: 'SSE 连接中断，3s 后重连…' });
+      // 管线可能长达 30-60 分钟：后端流硬上限/网络抖动都会触发 onerror。
+      // B2: 不能依赖 EventSource 原生自动重连（行为不可控、双连接风险）——
+      // 先显式 close 释放连接，再走单一手动定时器重连；连续失败 5 次后
+      // 判定断线并停止调度（实例已关闭，不再创建新实例）。
+      if (finished) return;
+      es.close();
+      esRef.current = null;
+      retryCountRef.current += 1;
+      if (retryCountRef.current >= 5) {
+        setSseDisconnected(true);
+        addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'error',
+          summary: 'SSE 连接已断开（多次重连失败），请手动刷新恢复追踪' });
+        return; // 已 close + 不调度 → 无后台重连
       }
+      if (!retryTimerRef.current) {
+        retryTimerRef.current = setTimeout(() => {
+          retryTimerRef.current = null;
+          if (!finished && !esRef.current) openSSE(pid);
+        }, 3000);
+      }
+      addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'warning', summary: 'SSE 连接中断，3s 后重连…' });
     };
   }, [addLogEntry, updatePhase]);
 
@@ -728,6 +781,14 @@ function BottomBar() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* G4: 当前 Agent 活动（取日志尾部非 system 条目；无则回退相位名） */}
+      {running && (
+        <div className="px-3 pt-1 text-caption text-on-surface-variant">
+          <span className="text-on-surface-variant/60">当前：</span>
+          <span className="text-primary font-medium">{currentActivity(logEntries) ?? PHASE_LABELS[phase as keyof typeof PHASE_LABELS] ?? phase}</span>
         </div>
       )}
 
@@ -870,8 +931,17 @@ function PlanCard({ markdown, onConfirm, busy, onReview }: { markdown?: string; 
   );
 }
 
-function buildGroups(entries: ReturnType<typeof useAgentStore.getState>['logEntries']) {
-  const groups: { agent: string; entries: typeof entries }[] = [];
+/** G4: 当前 Agent 活动文本——取日志尾部非 system 条目的 "agent · summary"。 */
+function currentActivity(entries: ReturnType<typeof useAgentStore.getState>['logEntries']): string | null {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e.agent === 'system') continue;
+    return `${e.agent} · ${e.summary}`;
+  }
+  return null;
+}
+
+function buildGroups(entries: ReturnType<typeof useAgentStore.getState>['logEntries']) {  const groups: { agent: string; entries: typeof entries }[] = [];
   for (const e of entries) {
     const last = groups[groups.length - 1];
     if (last && last.agent === e.agent) {

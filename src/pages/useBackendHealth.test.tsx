@@ -61,3 +61,40 @@ describe('useBackendHealth', () => {
     expect(mocks.check).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('G5: 30s 心跳轮询', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.check.mockResolvedValue({ status: 'ok' });
+  });
+
+  it('每 30s 轮询一次 healthApi.check', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useBackendHealth());
+      expect(mocks.check).toHaveBeenCalledTimes(1);
+      await act(async () => { await Promise.resolve(); });
+      expect(result.current).toBe('online');
+
+      act(() => { vi.advanceTimersByTime(30000); });
+      expect(mocks.check).toHaveBeenCalledTimes(2);
+      act(() => { vi.advanceTimersByTime(30000); });
+      expect(mocks.check).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('卸载后停止轮询', async () => {
+    vi.useFakeTimers();
+    try {
+      const { unmount } = renderHook(() => useBackendHealth());
+      expect(mocks.check).toHaveBeenCalledTimes(1);
+      unmount();
+      act(() => { vi.advanceTimersByTime(90000); });
+      expect(mocks.check).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
