@@ -69,7 +69,8 @@ export type PipelineSSEEventType =
   | 'warning'
   | 'done'
   | 'self_heal'
-  | 'pipeline_complete';
+  | 'pipeline_complete'
+  | 'cancelled';
 
 export interface AgentSuggestion {
   id: string;

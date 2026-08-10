@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { AgentPanel } from './AgentPanel';
 import { useAgentStore } from '@/stores/agentStore';
+import { pipelineApi } from '@/services/api';
 import type { CreativeBrief } from '@/types/persona';
 
 vi.mock('@/pages/useBackendHealth', () => ({
@@ -14,6 +15,7 @@ vi.mock('@/services/api', () => ({
   pipelineApi: {
     getTraceStreamUrl: (pid: string) => `http://localhost:8000/api/pipeline/${pid}/events`,
     getResult: vi.fn().mockRejectedValue(new Error('not found')),
+    cancel: vi.fn().mockResolvedValue({}),
   },
   requirementsApi: {
     init: vi.fn(),
@@ -64,6 +66,7 @@ beforeEach(() => {
     phase: 'idle',
     progress: 0,
     error: null,
+    cancelling: false,
     logEntries: [],
     pipelineSummary: null,
     mgTotal: 0,
@@ -348,5 +351,66 @@ describe('U13: brief/plan card dedupe', () => {
 
     render(<AgentPanel />);
     expect(screen.getByText(/这是普通回复内容ABC/)).toBeTruthy();
+  });
+});
+
+describe('G2: pipeline cancel', () => {
+  it('renders stop button when running, disabled while cancelling', () => {
+    useAgentStore.setState({ pipelineId: 'p1', phase: 'structure', cancelling: false });
+    render(<AgentPanel />);
+
+    expect(screen.getByText('停止')).toBeTruthy();
+
+    // cancelling: true → 按钮禁用且文案切换
+    act(() => {
+      useAgentStore.setState({ cancelling: true });
+    });
+    const btn = screen.getByText('取消中…') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+  });
+
+  it('clicking stop calls pipelineApi.cancel with the pipelineId', async () => {
+    useAgentStore.setState({ pipelineId: 'p1', phase: 'structure', cancelling: false });
+    const cancel = vi.mocked(pipelineApi.cancel).mockResolvedValue({});
+    render(<AgentPanel />);
+
+    fireEvent.click(screen.getByText('停止'));
+
+    expect(cancel).toHaveBeenCalledWith('p1');
+  });
+
+  it('cancel failure logs error and keeps SSE open', async () => {
+    useAgentStore.setState({ pipelineId: 'p1', phase: 'structure', cancelling: false });
+    vi.mocked(pipelineApi.cancel).mockRejectedValue(new Error('boom'));
+    render(<AgentPanel />);
+    expect(MockEventSource.instances.length).toBe(1);
+
+    fireEvent.click(screen.getByText('停止'));
+    await act(async () => { await Promise.resolve(); });
+
+    const logs = useAgentStore.getState().logEntries;
+    expect(logs.some((e) => e.type === 'error' && e.summary.includes('取消失败'))).toBe(true);
+    // 取消请求失败 → 不关闭 SSE，继续追踪管线
+    expect(MockEventSource.instances[0].closed).toBe(false);
+  });
+
+  it('SSE cancelled event → phase failed, requirements error, SSE closed, sessionStorage cleared', async () => {
+    useAgentStore.setState({ pipelineId: 'p1', phase: 'structure', cancelling: false });
+    sessionStorage.setItem('cw_pipeline_id', 'p1');
+    render(<AgentPanel />);
+    expect(MockEventSource.instances.length).toBe(1);
+
+    const es = MockEventSource.instances[0];
+    act(() => {
+      es.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'cancelled', summary: '管线已取消' }) }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(useAgentStore.getState().phase).toBe('failed');
+    expect(useAgentStore.getState().requirementsStatus).toBe('error');
+    expect(es.closed).toBe(true);
+    expect(sessionStorage.getItem('cw_pipeline_id')).toBeNull();
+    const logs = useAgentStore.getState().logEntries;
+    expect(logs.some((e) => e.type === 'error' && e.summary === '管线已取消')).toBe(true);
   });
 });

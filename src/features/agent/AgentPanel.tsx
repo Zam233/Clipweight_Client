@@ -553,6 +553,8 @@ function BottomBar() {
   const logEntries = useAgentStore((s) => s.logEntries);
   const addLogEntry = useAgentStore((s) => s.addLogEntry);
   const updatePhase = useAgentStore((s) => s.updatePhase);
+  const cancelling = useAgentStore((s) => s.cancelling);
+  const setCancelling = useAgentStore((s) => s.setCancelling);
 
   const esRef = useRef<EventSource | null>(null);
   const lastTimelineRef = useRef<Timeline | null>(null);
@@ -563,6 +565,20 @@ function BottomBar() {
   const [sseDisconnected, setSseDisconnected] = useState(false);
 
   const running = pipelineId !== null && phase !== 'completed' && phase !== 'failed' && phase !== 'idle';
+
+  // G2: 停止管线 —— 发送取消请求；SSE 端收到 cancelled 事件后走 finish(false) 收尾
+  const handleStop = useCallback(async () => {
+    if (!pipelineId) return;
+    setCancelling(true);
+    try {
+      await pipelineApi.cancel(pipelineId);
+      addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'info', summary: '已发送取消请求…' });
+    } catch (e) {
+      addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'error', summary: `取消失败: ${(e as Error)?.message || '未知错误'}` });
+    } finally {
+      setCancelling(false);
+    }
+  }, [pipelineId, addLogEntry, setCancelling]);
 
   const openSSE = useCallback((pid: string) => {
     esRef.current?.close();
@@ -682,7 +698,7 @@ function BottomBar() {
             detail: (d.detail as Record<string, unknown>) || null,
           });
           break;
-        case 'mg_end':
+          case 'mg_end':
           useAgentStore.getState().mgFinished();
           addLogEntry({
             timestamp: Date.now(),
@@ -691,6 +707,11 @@ function BottomBar() {
             summary: (d.summary || d.message || 'MG 生成完成') as string,
             detail: (d.detail as Record<string, unknown>) || null,
           });
+          break;
+        case 'cancelled':
+          // G2: 管线已取消 → 复用 failed 相位收尾（类型不扩散）
+          addLogEntry({ timestamp: Date.now(), agent: name, type: 'error', summary: (d.summary || '管线已取消') as string });
+          void finish(false, '管线已取消');
           break;
         default:
           break;
@@ -756,6 +777,18 @@ function BottomBar() {
       )}
       {running && (
         <div className="px-3 pt-2 space-y-0.5">
+          <div className="flex items-center justify-end pt-1">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={cancelling}
+              onClick={handleStop}
+              className="text-error hover:bg-error/10 border-error/40"
+            >
+              <X className="w-3.5 h-3.5 mr-1" />
+              {cancelling ? '取消中…' : '停止'}
+            </Button>
+          </div>
           {PHASE_ORDER.map((p) => {
             const idx = PHASE_ORDER.indexOf(p);
             const curIdx = PHASE_ORDER.indexOf(phase as never);
