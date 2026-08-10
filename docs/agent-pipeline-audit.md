@@ -12,57 +12,57 @@
 
 | # | 浣嶇疆 | 闂 | 璇佹嵁 | 淇鐘舵€?| 娴嬭瘯 | 鎻愪氦鍝堝笇 |
 |---|------|------|------|:--------:|------|:--------:|
-| B1 | `services/pipeline_v2.py` | Quality Agent 姣忕绾块噸澶嶆墽琛岋紙DAG 缁?+ 鑷剤寰幆寮€澶达級鈫?娴垂涓€娆″畬鏁磋川妫€ | `_run_inner` 鑷剤 while 寰幆寮€澶存棤鏉′欢 `_run_agent("quality", 鈥?`锛岃€?DAG 鎵ц缁勫凡鍚?quality | 馃攧 淇涓?| `test_pipeline_v2_quality_once.py` | _ |
-| B2 | `src/features/agent/AgentPanel.tsx` | SSE 鏂嚎閲嶈繛缂洪櫡锛氫笉 close銆佸弻杩炴帴椋庨櫓銆?5 娆″仠姝?瀹堝崼澶辨晥 | BottomBar `es.onerror` L647-669 | 馃攧 淇涓?| `AgentPanel.test.tsx` (U5 鏇存柊) | _ |
-| B3 | `api/pipeline.py` `retry_agent` | retry 鍏ㄩ噺閲嶈窇锛堝０绉颁粠澶辫触 agent 鎭㈠锛屽疄涓?V1 鍏ㄩ噺锛夛紱鍓嶇闆惰皟鐢?| L213-244 `_orchestrator.run` 鍏ㄩ噺 | 馃攧 淇涓?| `test_pipeline_v2_retry_from_agent.py` | _ |
-| B4 | `api/pipeline.py` `regenerate_scene` | 鍦烘櫙閲嶇敓鎴愭寜绱㈠紩浣嶇疆鏇挎崲锛岀粨鏋勪笉涓€鑷村嵆閿欎綅锛涗笉娉ㄥ叆瑙勫垝涔︼紱鍓嶇闆惰皟鐢?| L247-292 | 馃攧 淇涓?| 鏇挎崲/绉婚櫎娴嬭瘯 | _ |
-| B5 | `api/pipeline.py` `run_single_agent` | `/step/{agent}` 鍋囧崟姝ワ紙璺戝叏绠＄嚎鍐嶆娊缁撴灉锛夛紱鍓嶇闆惰皟鐢?| L320-336 | 馃攧 淇涓?| deprecated 鏂█ | _ |
-| B6 | `services/requirements_service.py` chat | 瑙勫垝涔﹀弽棣堥棴鐜柇瑁傦細鍙嶉 鈫?鍥?gathering 鈫?鍙噸鐢熸垚绠€鎶?| plan_ready 鍒嗘敮闈炵‘璁よ矾寰?| 馃攧 淇涓?| `test_requirements_plan_feedback.py` | _ |
-| B7 | `ReviewPanel.tsx` vs `api/requirements.py` | 瓒呮椂鍏紡鍓嶅悗绔笉涓€鑷达紱SSE max_wall=7200s < 鍚庣瓒呮椂 | ReviewPanel L119 vs proceed L229 | 馃攧 淇涓?| ReviewPanel 鍗曟祴 | _ |
-| B8 | `pipeline_v2._persist_state` | 鎴柇鎶?dict/list 瀛樻垚瀛楃涓?鈫?Mongo 褰㈢姸婕傜Щ | L908-910 | 馃攧 淇涓?| `test_pipeline_v2_persist_shape.py` | _ |
-| B9 | `pipeline_v2._run_registry` | 杩愯娉ㄥ唽琛ㄦ棤鐣屽闀?| L50-52 | 馃攧 淇涓?| `test_pipeline_v2_registry_bound.py` | _ |
-| B10 | `src/services/api/*.ts` | 鍓嶇姝讳唬鐮?鏈帴绾匡細retry/regenerateScene/step/runV2/predictScript/predictMaterial 闆惰皟鐢?| 鍏ㄤ粨 grep | 馃攧 淇涓?| tsc 0 errors | _ |
-| B11 | `useRequirementsAutoStart.ts` | topic 娑堣垂杩囨棭锛歩nit 鍓嶆竻绌猴紝闈炵绾块敊璇涪澶遍€夐 | L31 | 馃攧 淇涓紙骞跺叆 B15锛?| 鈥?| _ |
-| B12 | `pipeline_v2._build_input("audio")` | V2 蹇界暐鍓嶇 voice_id/auto_dub锛堢‖缂栫爜 auto_dub=True銆乿oice_id 浠呭彇 persona锛?| L683-692 | 馃攧 淇涓?| `test_pipeline_v2_audio_config.py` | _ |
-| B13 | `api/pipeline.py` | V1 鍚屾绔偣 `/run`銆乣/run-v2` 鍓嶇闆朵娇鐢?| 鍓嶇 grep | 馃攧 淇涓?| deprecated 鏂█ | _ |
-| B14 | `ReviewPanel.tsx` sendFeedback catch | 璇锋眰澶辫触涓€寰嬭皫绉?锛堢绾挎ā寮忥級宸茶褰曞弽棣? | L94-98 | 馃攧 淇涓?| `ReviewPanel.test.tsx` | _ |
-| B15 | `useRequirementsAutoStart.ts` | 鍙?user 娑堟伅鍐椾綑 | L36銆丩59 | 馃攧 淇涓?| `useRequirementsAutoStart.test.tsx` | _ |
-| B16 | `EditorPage.tsx` + `HomePage.launch` | 銆愰噸澶с€憀aunch 鍙傛暟琚?resetProject() 娓呯┖涓旀湭鎭㈠ | EditorPage L46-68 | 馃攧 淇涓?| `EditorPage.test.tsx` | _ |
-| B17 | `AgentPanel.tsx`/`ReviewPanel.tsx` | 銆愰噸澶с€戠绾垮畬鎴愬悗闇€姹傚璇濊緭鍏ユ姘镐箙闅愯棌锛坰tatus 鍗?pipeline_running锛屾棤澶嶄綅锛?| AgentPanel L352 | 馃攧 淇涓?| `AgentPanel.test.tsx` | _ |
-| B18 | `EditorLayout.tsx` | Agent 闈㈡澘瀹藉害涓嶅彲璋冿細panels.agent 鐨?divider 鏃?onMouseDown/onPointerDown | L204 | 馃攧 淇涓?| `panel-divider.spec.ts` 鎴?vitest | _ |
-| B19 | `useBackendHealth.ts` | 鍚庣鍋ュ悍妫€鏌ヤ竴娆℃€э紙鏃犺疆璇?蹇冭烦锛?| 鍏ㄦ枃浠?| 馃攧 淇涓?| `useBackendHealth.test.tsx` | _ |
-| B20 | `api/project.py` `create_project` | ProjectCreateRequest.agent_state 琚拷鐣?| L78-89 | 馃攧 淇涓?| `test_project_agent_state.py` | _ |
-| B21 | `DubView.tsx` + `useRequirementsAutoStart.ts` + `projectStore` | 銆愰噸瑕併€戦厤闊虫鏂摼锛欴ubView 鏈湴 state锛宻etDubSegments 闆惰皟鐢紱autoStart extra 涓嶄紶 dub_segments | DubView L24锛沘utoStart L46-53 | 馃攧 淇涓?| `DubView.test.tsx` | _ |
+| B1 | `services/pipeline_v2.py` | Quality Agent 姣忕绾块噸澶嶆墽琛岋紙DAG 缁?+ 鑷剤寰幆寮€澶达級鈫?娴垂涓€娆″畬鏁磋川妫€ | `_run_inner` 鑷剤 while 寰幆寮€澶存棤鏉′欢 `_run_agent("quality", 鈥?`锛岃€?DAG 鎵ц缁勫凡鍚?quality | 馃攧 淇涓?| `test_pipeline_v2_quality_once.py` | b0b42a0 |
+| B2 | `src/features/agent/AgentPanel.tsx` | SSE 鏂嚎閲嶈繛缂洪櫡锛氫笉 close銆佸弻杩炴帴椋庨櫓銆?5 娆″仠姝?瀹堝崼澶辨晥 | BottomBar `es.onerror` L647-669 | 馃攧 淇涓?| `AgentPanel.test.tsx` (U5 鏇存柊) | 7bf9412 |
+| B3 | `api/pipeline.py` `retry_agent` | retry 鍏ㄩ噺閲嶈窇锛堝０绉颁粠澶辫触 agent 鎭㈠锛屽疄涓?V1 鍏ㄩ噺锛夛紱鍓嶇闆惰皟鐢?| L213-244 `_orchestrator.run` 鍏ㄩ噺 | 馃攧 淇涓?| `test_pipeline_v2_retry_from_agent.py` | 8dbe203 |
+| B4 | `api/pipeline.py` `regenerate_scene` | 鍦烘櫙閲嶇敓鎴愭寜绱㈠紩浣嶇疆鏇挎崲锛岀粨鏋勪笉涓€鑷村嵆閿欎綅锛涗笉娉ㄥ叆瑙勫垝涔︼紱鍓嶇闆惰皟鐢?| L247-292 | 馃攧 淇涓?| 鏇挎崲/绉婚櫎娴嬭瘯 | 8dbe203 |
+| B5 | `api/pipeline.py` `run_single_agent` | `/step/{agent}` 鍋囧崟姝ワ紙璺戝叏绠＄嚎鍐嶆娊缁撴灉锛夛紱鍓嶇闆惰皟鐢?| L320-336 | 馃攧 淇涓?| deprecated 鏂█ | 8dbe203 |
+| B6 | `services/requirements_service.py` chat | 瑙勫垝涔﹀弽棣堥棴鐜柇瑁傦細鍙嶉 鈫?鍥?gathering 鈫?鍙噸鐢熸垚绠€鎶?| plan_ready 鍒嗘敮闈炵‘璁よ矾寰?| 馃攧 淇涓?| `test_requirements_plan_feedback.py` | 8f9b087 |
+| B7 | `ReviewPanel.tsx` vs `api/requirements.py` | 瓒呮椂鍏紡鍓嶅悗绔笉涓€鑷达紱SSE max_wall=7200s < 鍚庣瓒呮椂 | ReviewPanel L119 vs proceed L229 | 馃攧 淇涓?| ReviewPanel 鍗曟祴 | 2af9957 |
+| B8 | `pipeline_v2._persist_state` | 鎴柇鎶?dict/list 瀛樻垚瀛楃涓?鈫?Mongo 褰㈢姸婕傜Щ | L908-910 | 馃攧 淇涓?| `test_pipeline_v2_persist_shape.py` | b0b42a0 |
+| B9 | `pipeline_v2._run_registry` | 杩愯娉ㄥ唽琛ㄦ棤鐣屽闀?| L50-52 | 馃攧 淇涓?| `test_pipeline_v2_registry_bound.py` | b0b42a0 |
+| B10 | `src/services/api/*.ts` | 鍓嶇姝讳唬鐮?鏈帴绾匡細retry/regenerateScene/step/runV2/predictScript/predictMaterial 闆惰皟鐢?| 鍏ㄤ粨 grep | 馃攧 淇涓?| tsc 0 errors | 543907c |
+| B11 | `useRequirementsAutoStart.ts` | topic 娑堣垂杩囨棭锛歩nit 鍓嶆竻绌猴紝闈炵绾块敊璇涪澶遍€夐 | L31 | 馃攧 淇涓紙骞跺叆 B15锛?| 鈥?| fd67f55 |
+| B12 | `pipeline_v2._build_input("audio")` | V2 蹇界暐鍓嶇 voice_id/auto_dub锛堢‖缂栫爜 auto_dub=True銆乿oice_id 浠呭彇 persona锛?| L683-692 | 馃攧 淇涓?| `test_pipeline_v2_audio_config.py` | b0b42a0 |
+| B13 | `api/pipeline.py` | V1 鍚屾绔偣 `/run`銆乣/run-v2` 鍓嶇闆朵娇鐢?| 鍓嶇 grep | 馃攧 淇涓?| deprecated 鏂█ | 8dbe203 |
+| B14 | `ReviewPanel.tsx` sendFeedback catch | 璇锋眰澶辫触涓€寰嬭皫绉?锛堢绾挎ā寮忥級宸茶褰曞弽棣? | L94-98 | 馃攧 淇涓?| `ReviewPanel.test.tsx` | fd67f55 |
+| B15 | `useRequirementsAutoStart.ts` | 鍙?user 娑堟伅鍐椾綑 | L36銆丩59 | 馃攧 淇涓?| `useRequirementsAutoStart.test.tsx` | fd67f55 |
+| B16 | `EditorPage.tsx` + `HomePage.launch` | 銆愰噸澶с€憀aunch 鍙傛暟琚?resetProject() 娓呯┖涓旀湭鎭㈠ | EditorPage L46-68 | 馃攧 淇涓?| `EditorPage.test.tsx` | d54d591 |
+| B17 | `AgentPanel.tsx`/`ReviewPanel.tsx` | 銆愰噸澶с€戠绾垮畬鎴愬悗闇€姹傚璇濊緭鍏ユ姘镐箙闅愯棌锛坰tatus 鍗?pipeline_running锛屾棤澶嶄綅锛?| AgentPanel L352 | 馃攧 淇涓?| `AgentPanel.test.tsx` | 7bf9412 |
+| B18 | `EditorLayout.tsx` | Agent 闈㈡澘瀹藉害涓嶅彲璋冿細panels.agent 鐨?divider 鏃?onMouseDown/onPointerDown | L204 | 馃攧 淇涓?| `panel-divider.spec.ts` 鎴?vitest | c099281 |
+| B19 | `useBackendHealth.ts` | 鍚庣鍋ュ悍妫€鏌ヤ竴娆℃€э紙鏃犺疆璇?蹇冭烦锛?| 鍏ㄦ枃浠?| 馃攧 淇涓?| `useBackendHealth.test.tsx` | 7bf9412 |
+| B20 | `api/project.py` `create_project` | ProjectCreateRequest.agent_state 琚拷鐣?| L78-89 | 馃攧 淇涓?| `test_project_agent_state.py` | 66a5202 |
+| B21 | `DubView.tsx` + `useRequirementsAutoStart.ts` + `projectStore` | 銆愰噸瑕併€戦厤闊虫鏂摼锛欴ubView 鏈湴 state锛宻etDubSegments 闆惰皟鐢紱autoStart extra 涓嶄紶 dub_segments | DubView L24锛沘utoStart L46-53 | 馃攧 淇涓?| `DubView.test.tsx` | fd67f55 |
 
 ## 鏁堢巼闂娓呭崟 (E1-E10)
 
 | # | 浣嶇疆 | 闂 | 淇鐘舵€?| 娴嬭瘯 | 鎻愪氦鍝堝笇 |
 |---|------|------|:--------:|------|:--------:|
-| E1 | `pipeline_v2.py`锛?B1锛?| quality 鍙岃窇锛?1 娆″畬鏁磋川妫€/绠＄嚎 | 馃攧 淇涓?| `test_pipeline_v2_quality_once.py` | _ |
-| E2 | `requirements_service._generate_plan` | 鍚屼竴绠€鎶ラ噸澶嶇‘璁ら噸澶嶈窇 StructureAgent锛屾湭澶嶇敤 raw_scenes | 馃攧 淇涓?| `test_requirements_plan_feedback.py` | _ |
-| E3 | `services/llm.py` | 绠＄嚎 Agent LLM 璋冪敤鏃犻噸璇曪紱transient 澶辫触 鈫?鑷剤鍏ㄩ摼璺噸鍋?| 馃攧 淇涓?| `test_llm_retry.py` | _ |
+| E1 | `pipeline_v2.py`锛?B1锛?| quality 鍙岃窇锛?1 娆″畬鏁磋川妫€/绠＄嚎 | 馃攧 淇涓?| `test_pipeline_v2_quality_once.py` | b0b42a0 |
+| E2 | `requirements_service._generate_plan` | 鍚屼竴绠€鎶ラ噸澶嶇‘璁ら噸澶嶈窇 StructureAgent锛屾湭澶嶇敤 raw_scenes | 馃攧 淇涓?| `test_requirements_plan_feedback.py` | 8f9b087 |
+| E3 | `services/llm.py` | 绠＄嚎 Agent LLM 璋冪敤鏃犻噸璇曪紱transient 澶辫触 鈫?鑷剤鍏ㄩ摼璺噸鍋?| 馃攧 淇涓?| `test_llm_retry.py` | 0f1d620 |
 | E4 | SSE stream | 鏂嚎閲嶈繛鍏ㄩ噺閲嶆斁锛?000 鏉?鈮?MB锛?| 锛堟帴鍙楃幇鐘讹紝闈炴湰鏈燂級 | 鈥?| 鈥?|
-| E5 | `_handle_gathering`/`_generate_plan` | 姣忔潯 chat 娑堟伅 RAG 妫€绱?+ Persona 涓婁笅鏂囧簭鍒楀寲锛岀粨鏋滄瘡娑堟伅涓㈠純 | 馃攧 淇涓?| `test_requirements_session_cache.py` | _ |
-| E6 | `services/trace.py` | 姣忔 get_events 鍏ㄩ噺杩囨护 + trim 澶嶅埗 | 馃攧 淇涓?| `test_trace_since.py` | _ |
-| E7 | `agentStore.addLogEntry` + `LogPanel` | 鏃ュ織姣忔杩藉姞 O(n) 澶嶅埗 + 鏃犱笂闄?DOM 娓叉煋 | 馃攧 淇涓?| `agentStore.test.ts` | _ |
-| E8 | `animation_agent._build_image_semantic_index` | 姣忓浘 1 娆¤瑙?LLM銆佹棤缂撳瓨 | 馃攧 淇涓?| `test_vision_cache.py` | _ |
-| E9 | `services/vision.py` | 瑙嗚璇嗗埆鏃犵粨鏋滅紦瀛?| 馃攧 淇涓?| `test_vision_cache.py` | _ |
-| E10 | `material_agent._validate_via_vision_llm` | 瑙嗚鏍￠獙姣忓€欓€?1 娆″妯℃€佽皟鐢紝鏃?URL鈫抯core 缂撳瓨 | 馃攧 淇涓?| `test_material_vision_cache.py` | _ |
+| E5 | `_handle_gathering`/`_generate_plan` | 姣忔潯 chat 娑堟伅 RAG 妫€绱?+ Persona 涓婁笅鏂囧簭鍒楀寲锛岀粨鏋滄瘡娑堟伅涓㈠純 | 馃攧 淇涓?| `test_requirements_session_cache.py` | 8f9b087 |
+| E6 | `services/trace.py` | 姣忔 get_events 鍏ㄩ噺杩囨护 + trim 澶嶅埗 | 馃攧 淇涓?| `test_trace_since.py` | 0f1d620 |
+| E7 | `agentStore.addLogEntry` + `LogPanel` | 鏃ュ織姣忔杩藉姞 O(n) 澶嶅埗 + 鏃犱笂闄?DOM 娓叉煋 | 馃攧 淇涓?| `agentStore.test.ts` | c099281 |
+| E8 | `animation_agent._build_image_semantic_index` | 姣忓浘 1 娆¤瑙?LLM銆佹棤缂撳瓨 | 馃攧 淇涓?| `test_vision_cache.py` | 0f1d620 |
+| E9 | `services/vision.py` | 瑙嗚璇嗗埆鏃犵粨鏋滅紦瀛?| 馃攧 淇涓?| `test_vision_cache.py` | 0f1d620 |
+| E10 | `material_agent._validate_via_vision_llm` | 瑙嗚鏍￠獙姣忓€欓€?1 娆″妯℃€佽皟鐢紝鏃?URL鈫抯core 缂撳瓨 | 馃攧 淇涓?| `test_material_vision_cache.py` | 0f1d620 |
 
 ## 鐏垫椿鎬?瀹炵敤鎬х己鍙ｆ竻鍗?(G1-G12)
 
 | # | 缂哄彛 | 鏈湡澶勭疆 | 淇鐘舵€?| 娴嬭瘯 | 鎻愪氦鍝堝笇 |
 |---|------|---------|:--------:|------|:--------:|
-| G1 | 灞€閮ㄩ噸鍋氬悕涓嶅壇瀹?| 涓夌鐐瑰缃?+ 鍙嶉闂幆锛圔6锛? 瀹￠槄閲嶅仛鍏ュ彛锛圙10锛?| 馃攧 淇涓?| 鈥?| _ |
-| G2 | 鏃犲彇娑?鏆傚仠绠＄嚎 | **瀹炵幇**锛歝ancel 绔偣锛堝崗浣滃紡锛? 鍓嶇鍙栨秷鎸夐挳 | 馃攧 淇涓?| `test_pipeline_cancel.py` | _ |
+| G1 | 灞€閮ㄩ噸鍋氬悕涓嶅壇瀹?| 涓夌鐐瑰缃?+ 鍙嶉闂幆锛圔6锛? 瀹￠槄閲嶅仛鍏ュ彛锛圙10锛?| 馃攧 淇涓?| 鈥?| 8f9b087 |
+| G2 | 鏃犲彇娑?鏆傚仠绠＄嚎 | **瀹炵幇**锛歝ancel 绔偣锛堝崗浣滃紡锛? 鍓嶇鍙栨秷鎸夐挳 | 馃攧 淇涓?| `test_pipeline_cancel.py` | 2af9957 |
 | G3 | 闈炵湡娴佸紡 | **Out锛坆acklog锛?*锛歭lm.py `stream` 淇濇寔 False锛沗stream_chat` known-limitation 娉ㄩ噴涓嶅姩 | 鈥?| 鈥?| 鈥?|
-| G4 | 杩涘害鏉￠潪鐪熷疄杩涘害 | 閮ㄥ垎锛欱ottomBar 鏄剧ず褰撳墠 Agent 娲诲姩锛堜笉鍋氱櫨鍒嗘瘮閲嶆瀯锛?| 馃攧 淇涓?| `AgentPanel.test.tsx` | _ |
-| G5 | 绂荤嚎/鍦ㄧ嚎娣锋穯 | 绂荤嚎妯箙 + 鍛ㄦ湡鎬у仴搴锋鏌?+ 鍖哄垎鏈繛鎺?鎵ц澶辫触 | 馃攧 淇涓?| `useBackendHealth.test.tsx` | _ |
-| G6 | HomePage 鏃犳櫤鑳介鍒?| 鎺ョ嚎 predict-script | 馃攧 淇涓?| `HomePage.test.tsx` | _ |
-| G7 | 闇€姹傚璇濇棤鍙傝€冩枃浠朵笂浼?| 鎺ョ嚎 upload | 馃攧 淇涓?| `AgentPanel.test.tsx` | _ |
-| G8 | 浼氳瘽鎭㈠浠呴潬 localStorage | 鎺ョ嚎 getSession | 馃攧 淇涓?| `EditorPage.test.tsx` | _ |
-| G9 | PipelineAdminPage 鍋囨垚鏈?+ 鍙 | 鐪熷疄鎴愭湰 + 閲嶈瘯鎸夐挳 | 馃攧 淇涓?| `PipelineAdminPage.test.tsx` | _ |
-| G10 | 瀹￠槄瑙嗗浘鏃?涓嶆弧鎰忊啋閲嶅仛"鍏ュ彛 | **瀹炵幇** | 馃攧 淇涓?| `TimelineDiffView.test.tsx` | _ |
+| G4 | 杩涘害鏉￠潪鐪熷疄杩涘害 | 閮ㄥ垎锛欱ottomBar 鏄剧ず褰撳墠 Agent 娲诲姩锛堜笉鍋氱櫨鍒嗘瘮閲嶆瀯锛?| 馃攧 淇涓?| `AgentPanel.test.tsx` | 7bf9412 |
+| G5 | 绂荤嚎/鍦ㄧ嚎娣锋穯 | 绂荤嚎妯箙 + 鍛ㄦ湡鎬у仴搴锋鏌?+ 鍖哄垎鏈繛鎺?鎵ц澶辫触 | 馃攧 淇涓?| `useBackendHealth.test.tsx` | 7bf9412 |
+| G6 | HomePage 鏃犳櫤鑳介鍒?| 鎺ョ嚎 predict-script | 馃攧 淇涓?| `HomePage.test.tsx` | 543907c |
+| G7 | 闇€姹傚璇濇棤鍙傝€冩枃浠朵笂浼?| 鎺ョ嚎 upload | 馃攧 淇涓?| `AgentPanel.test.tsx` | fd67f55 |
+| G8 | 浼氳瘽鎭㈠浠呴潬 localStorage | 鎺ョ嚎 getSession | 馃攧 淇涓?| `EditorPage.test.tsx` | d54d591 |
+| G9 | PipelineAdminPage 鍋囨垚鏈?+ 鍙 | 鐪熷疄鎴愭湰 + 閲嶈瘯鎸夐挳 | 馃攧 淇涓?| `PipelineAdminPage.test.tsx` | 543907c |
+| G10 | 瀹￠槄瑙嗗浘鏃?涓嶆弧鎰忊啋閲嶅仛"鍏ュ彛 | **瀹炵幇** | 馃攧 淇涓?| `TimelineDiffView.test.tsx` | 543907c |
 | G11 | BGM 浠呭缓璁棤鐪熷疄閰嶄箰 | **Out锛坆acklog锛?*锛欰udioAgent 浠?metadata 寤鸿淇濇寔 | 鈥?| 鈥?| 鈥?|
 | G12 | 鏈湴绱犳潗棰勮 403 闄嶇骇 | 鏂囨。鍖栭檺鍒讹紝璁板綍涓嶆敼 | 璁板綍 | 鈥?| 鈥?|
 
