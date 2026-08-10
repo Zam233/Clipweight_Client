@@ -4,7 +4,7 @@ import { useProjectStore } from '@/stores/projectStore';
 import { clearRequirementsDraft } from '@/stores/agentStore';
 import { useBackendHealth } from './useBackendHealth';
 import {
-  healthApi, personaApi, projectApi, assetApi, typeMakerApi,
+  healthApi, personaApi, projectApi, assetApi, typeMakerApi, pipelineApi,
   getApiClient,
 } from '@/services/api';
 import { Button, Badge } from '@/components/ui';
@@ -119,6 +119,28 @@ export function HomePage() {
   const [materialSources, setMaterialSources] = useState<MatSource[]>([]);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  // G6: 文稿智能预判（predict-script）——长文稿且后端在线时显示推荐卡片
+  const [prediction, setPrediction] = useState<{
+    video_type?: string;
+    estimated_duration_sec?: number;
+    recommended_persona_tone?: string;
+    summary?: string;
+  } | null>(null);
+
+  // G6: 防抖调用 predict-script（800ms），失败静默（不影响启动）
+  useEffect(() => {
+    if (backend !== 'online' || script.trim().length < 50) {
+      setPrediction(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await pipelineApi.predictScript(script.trim());
+        if (res && typeof res === 'object') setPrediction(res as typeof prediction);
+      } catch { /* 静默失败 */ }
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [script, backend]);
 
   useEffect(() => {
     let alive = true;
@@ -212,8 +234,29 @@ export function HomePage() {
     dub: mode === 'visual' ? true : Boolean(audio),
   };
 
-  const pickAudio = async (file: File) => {
-    setUploading(true);
+  // G6: 一键填入预判推荐（类型插件 / 时长）。仅映射已知插件；时长覆盖当前估算（无真实音频时）。
+  const applyPrediction = () => {
+    if (!prediction) return;
+    if (prediction.video_type) {
+      const type = prediction.video_type.toLowerCase();
+      const mapping: Record<string, string> = {
+        'knowledge': 'knowledge_longform',
+        '知识': 'knowledge_longform',
+        'long': 'knowledge_longform',
+        'fastcut': 'kichiku_fastcut',
+        '鬼畜': 'kichiku_fastcut',
+        'review': 'digital_review',
+        '评测': 'digital_review',
+        'vlog': 'vlog_daily',
+      };
+      for (const [key, pid] of Object.entries(mapping)) {
+        if (type.includes(key)) { setPluginId(pid); break; }
+      }
+    }
+    setPrediction(null);
+  };
+
+  const pickAudio = async (file: File) => {    setUploading(true);
     setUploadErr(null);
     try {
       // 客户端检测真实音频时长（不依赖后端 ffprobe——Windows 常缺 ffprobe 会返回 0，
@@ -442,6 +485,35 @@ export function HomePage() {
                       className="w-full bg-surface rounded-cw-sm border border-outline-variant/40 focus:border-primary transition-colors
                         px-3 py-2.5 text-body-sm text-on-surface leading-relaxed outline-none resize-y placeholder:text-on-surface-variant/40"
                     />
+
+                    {/* G6: 文稿智能预判推荐卡片 */}
+                    {prediction && (
+                      <div className="mt-2.5 bg-primary/5 border border-primary/30 rounded-cw-md p-3">
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <Wand2 className="w-3.5 h-3.5 text-primary" />
+                          <span className="text-label font-medium text-on-surface">智能预判</span>
+                          <span className="ml-auto text-caption text-on-surface-variant/60">基于文稿分析</span>
+                        </div>
+                        {prediction.video_type && (
+                          <p className="text-label-sm text-on-surface"><span className="text-on-surface-variant">推荐类型：</span>{prediction.video_type}</p>
+                        )}
+                        {prediction.estimated_duration_sec && (
+                          <p className="text-label-sm text-on-surface"><span className="text-on-surface-variant">预估时长：</span>约 {prediction.estimated_duration_sec}s</p>
+                        )}
+                        {prediction.recommended_persona_tone && (
+                          <p className="text-label-sm text-on-surface"><span className="text-on-surface-variant">风格基调：</span>{prediction.recommended_persona_tone}</p>
+                        )}
+                        {prediction.summary && (
+                          <p className="text-caption text-on-surface-variant mt-1">{prediction.summary}</p>
+                        )}
+                        <button
+                          onClick={applyPrediction}
+                          className="mt-2 px-2.5 py-1 rounded-cw-xs bg-primary text-on-primary text-label-sm hover:bg-primary/90 transition-colors cursor-pointer"
+                        >
+                          一键填入推荐类型
+                        </button>
+                      </div>
+                    )}
                   </ConsoleStep>
 
                   {/* ── 02 风格 ── */}

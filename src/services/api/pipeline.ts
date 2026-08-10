@@ -1,6 +1,6 @@
 import { getApiClient } from './client';
 import { useSettingsStore } from '@/stores/settingsStore';
-import type { PipelineRequest, PipelineState } from '@/types/pipeline';
+import type { PipelineRequest } from '@/types/pipeline';
 
 /** Single Agent span inside a pipeline run record (aligned with backend pipeline_v2.get_run_records). */
 export interface PipelineSpan {
@@ -21,18 +21,6 @@ export interface PipelineRunRecord {
 }
 
 export const pipelineApi = {
-  /** Run pipeline v2 (dynamic routing + self-heal) */
-  async runV2(request: PipelineRequest) {
-    const { data } = await getApiClient().post('/api/pipeline/run-v2', request);
-    return data as { pipeline_id: string; status: string; steps: unknown[]; error?: string };
-  },
-
-  /** Run pipeline (fixed sequence) */
-  async run(request: PipelineRequest) {
-    const { data } = await getApiClient().post<PipelineState>('/api/pipeline/run', request);
-    return data;
-  },
-
   /** Run pipeline async, returns pipeline_id immediately */
   async runAsync(request: PipelineRequest) {
     const { data } = await getApiClient().post('/api/pipeline/run-async', request);
@@ -65,20 +53,6 @@ export const pipelineApi = {
     const { data } = await getApiClient().post(
       `/api/pipeline/retry/${pipelineId}/${agentName}`,
     );
-    return data;
-  },
-
-  /** Regenerate a specific scene */
-  async regenerateScene(pipelineId: string, sceneIndex: number) {
-    const { data } = await getApiClient().post(
-      `/api/pipeline/regenerate-scene/${pipelineId}/${sceneIndex}`,
-    );
-    return data;
-  },
-
-  /** Run single agent step */
-  async step(agentName: string, request: Record<string, unknown>) {
-    const { data } = await getApiClient().post(`/api/pipeline/step/${agentName}`, request);
     return data;
   },
 

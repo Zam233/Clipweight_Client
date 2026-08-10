@@ -15,6 +15,7 @@ interface PipelineRun {
   durationMs: number;
   agents: Span[];
   startedAt: string;
+  llmCost?: number;
 }
 interface TraceView { loading: boolean; events: unknown[] | null; error?: string; }
 
@@ -74,11 +75,32 @@ export function PipelineAdminPage() {
   };
 
   const completed = runs.filter((r) => r.status === 'completed');
+  const runsWithCost = runs.filter((r) => r.llmCost !== undefined);
+  const totalCost = runsWithCost.reduce((s, r) => s + (r.llmCost ?? 0), 0);
   const stats = {
     total: runs.length,
     successRate: runs.length ? Math.round((completed.length / runs.length) * 100) : 0,
     avgSec: completed.length ? (completed.reduce((s, r) => s + r.durationMs, 0) / completed.length / 1000).toFixed(1) : '0',
-    llmCost: (runs.length * 0.42).toFixed(2),
+    // G9: 真实成本（后端记录 llm_cost）；不可得时显示 "—"，不造假值
+    llmCost: runsWithCost.length > 0 ? totalCost.toFixed(2) : null,
+  };
+  // G9: 重试状态
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [retryErr, setRetryErr] = useState<string | null>(null);
+
+  const retryRun = async (run: PipelineRun) => {
+    const failedAgent = run.agents.find((s) => s.status === 'fail')?.agent ?? 'edit';
+    setRetryingId(run.id);
+    setRetryErr(null);
+    try {
+      await pipelineApi.retry(run.id, failedAgent);
+      // 3s 后轮询刷新状态（B3 retry 为异步）
+      setTimeout(() => { void loadRuns(); }, 3000);
+    } catch (e) {
+      setRetryErr(`重试失败：${(e as { message?: string })?.message ?? '未知错误'}`);
+    } finally {
+      setRetryingId(null);
+    }
   };
 
   return (
@@ -103,12 +125,21 @@ export function PipelineAdminPage() {
         </div>
       )}
 
+      {retryErr && (
+        <div className="flex items-center justify-between mb-5 max-w-[900px] bg-error/10 border border-error/30 rounded-cw-md px-4 py-2.5">
+          <span className="text-label-sm text-error flex items-center gap-2">
+            <Activity className="w-3.5 h-3.5" />{retryErr}
+          </span>
+          <button onClick={() => setRetryErr(null)} className="text-label-sm text-error hover:text-error/80 cursor-pointer">关闭</button>
+        </div>
+      )}
+
       {/* stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mb-7 max-w-[900px]">
         <StatCard icon={Activity} label="总执行" value={String(stats.total)} sub="runs" color="#4F8CFF" />
         <StatCard icon={Gauge} label="成功率" value={`${stats.successRate}%`} sub="pass rate" color="#34D399" />
         <StatCard icon={Timer} label="平均耗时" value={stats.avgSec} sub="seconds" color="#FBBF24" />
-        <StatCard icon={Coins} label="LLM 成本" value={`¥${stats.llmCost}`} sub="estimated" color="#A855F7" />
+        <StatCard icon={Coins} label="LLM 成本" value={stats.llmCost ? `¥${stats.llmCost}` : '—'} sub="actual" color="#A855F7" />
       </div>
 
       {/* run queue with gantt traces */}
@@ -139,6 +170,17 @@ export function PipelineAdminPage() {
                   <span className="font-mono text-caption text-on-surface-variant shrink-0">{(run.durationMs / 1000).toFixed(1)}s</span>
                   <StatusPill ok={run.status === 'completed'}
                     label={run.status === 'completed' ? 'DONE' : run.status === 'running' ? 'RUN' : 'FAIL'} />
+                  {run.status === 'failed' && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); void retryRun(run); }}
+                      disabled={retryingId === run.id}
+                      className="ml-1 shrink-0 px-2.5 py-1 rounded-cw-xs bg-primary/15 text-primary text-label-sm
+                        hover:bg-primary/25 transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                    >
+                      {retryingId === run.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                      重试
+                    </button>
+                  )}
                 </button>
 
                 {/* gantt trace */}
@@ -233,6 +275,9 @@ function normalize(data: unknown): PipelineRun[] {
   if (Array.isArray(data)) {
     return data.map((d, i) => {
       const o = d as Record<string, unknown>;
+      const costRaw = (o as { llm_cost?: number | string }).llm_cost;
+      const llmCost = typeof costRaw === 'number' ? costRaw
+        : typeof costRaw === 'string' && costRaw !== '' ? Number(costRaw) : undefined;
       return {
         id: String(o.id ?? `pl_${i}`),
         topic: String(o.topic ?? '未命名'),
@@ -240,6 +285,7 @@ function normalize(data: unknown): PipelineRun[] {
         durationMs: Number(o.duration_ms ?? 0),
         startedAt: String(o.started_at ?? ''),
         agents: Array.isArray(o.agents) ? (o.agents as Span[]) : [],
+        llmCost: Number.isFinite(llmCost) ? llmCost : undefined,
       };
     });
   }

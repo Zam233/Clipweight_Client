@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { HomePage } from './HomePage';
@@ -13,6 +13,8 @@ const { mocks } = vi.hoisted(() => ({
     typeMakerList: vi.fn(),
     listSources: vi.fn(),
     healthCheck: vi.fn(),
+    predictScript: vi.fn(),
+    healthStatus: vi.fn(),
     toast: vi.fn(),
   },
 }));
@@ -29,11 +31,12 @@ vi.mock('@/services/api', () => ({
   },
   assetApi: { listSources: mocks.listSources },
   typeMakerApi: { list: mocks.typeMakerList },
+  pipelineApi: { predictScript: mocks.predictScript },
   getApiClient: vi.fn(),
 }));
 
 vi.mock('./useBackendHealth', () => ({
-  useBackendHealth: () => 'offline',
+  useBackendHealth: () => mocks.healthStatus(),
 }));
 
 vi.mock('@/stores/toastStore', () => ({ toast: mocks.toast }));
@@ -55,6 +58,8 @@ beforeEach(() => {
   mocks.getThumbnailUrl.mockReturnValue('http://localhost:8000/api/project/proj_a/thumbnail');
   mocks.typeMakerList.mockResolvedValue([]);
   mocks.listSources.mockResolvedValue([]);
+  mocks.healthStatus.mockReturnValue('offline');
+  mocks.predictScript.mockResolvedValue({});
 });
 
 afterEach(() => cleanup());
@@ -128,5 +133,36 @@ describe('HomePage empty-state copy (U12)', () => {
     render(<HomePage />);
     expect(await screen.findByText('\u8fd8\u6ca1\u6709\u9879\u76ee')).toBeTruthy();
     expect(screen.queryByText('\u6f14\u793a\u6570\u636e \u00b7 \u6682\u65e0\u540e\u7aef\u9879\u76ee')).toBeNull();
+  });
+});
+describe('G6: script intelligence prediction', () => {
+  it('长文稿 + 后端在线 → 渲染推荐卡片', async () => {
+    mocks.healthStatus.mockReturnValue('online');
+    mocks.predictScript.mockResolvedValue({
+      video_type: 'knowledge_longform',
+      estimated_duration_sec: 180,
+      recommended_persona_tone: '专业',
+      summary: '适合做知识区长片',
+    });
+    render(<HomePage />);
+
+    const textarea = screen.getByPlaceholderText(/粘贴口播文案/);
+    fireEvent.change(textarea, { target: { value: 'x'.repeat(60) } });
+    await waitFor(() => expect(mocks.predictScript).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText('智能预判')).toBeTruthy());
+    expect(screen.getByText(/适合做知识区长片/)).toBeTruthy();
+  });
+
+  it('离线/失败 → 无推荐卡片且不影响启动', async () => {
+    mocks.healthStatus.mockReturnValue('offline');
+    mocks.predictScript.mockRejectedValue(new Error('offline'));
+    render(<HomePage />);
+
+    const textarea = screen.getByPlaceholderText(/粘贴口播文案/);
+    fireEvent.change(textarea, { target: { value: 'y'.repeat(60) } });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText('智能预判')).toBeNull();
+    // 启动按钮仍在
+    expect(screen.getByText(/开始创作/)).toBeTruthy();
   });
 });

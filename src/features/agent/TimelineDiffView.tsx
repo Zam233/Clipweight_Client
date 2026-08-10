@@ -2,11 +2,13 @@ import { useMemo, useState } from 'react';
 import { computeTimelineDiff, mergeTimeline } from './timelineDiff';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useHistoryStore } from '@/stores/historyStore';
+import { useAgentStore } from '@/stores/agentStore';
+import { requirementsApi } from '@/services/api';
 import { TRACK_COLORS } from '@/types/timeline';
-import type { Timeline, ClipKind } from '@/types/timeline';
+import type { Timeline, Clip, ClipKind } from '@/types/timeline';
 import { Button, Badge } from '@/components/ui';
 import { mediaManager } from '@/services/media/mediaManager';
-import { Check, GitCompare, Plus, Minus, Pencil, X, Merge } from 'lucide-react';
+import { Check, GitCompare, Plus, Minus, Pencil, X, Merge, Wrench, Loader2 } from 'lucide-react';
 
 /**
  * TimelineDiffView — reviews an Agent-proposed timeline against the current
@@ -31,6 +33,58 @@ export function TimelineDiffView({
   const [mergeMode, setMergeMode] = useState(false);
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [removals, setRemovals] = useState<Set<string>>(new Set());
+  // G10: 审阅重做入口——选 proposed 片段 + 文本反馈 → /edit 触发新一轮审阅
+  const [reworkOpen, setReworkOpen] = useState(false);
+  const [reworkSelected, setReworkSelected] = useState<Set<string>>(new Set());
+  const [reworkText, setReworkText] = useState('');
+  const [reworkBusy, setReworkBusy] = useState(false);
+  const [reworkMsg, setReworkMsg] = useState<string | null>(null);
+
+  // G10: 可在 diff 中重做的 proposed 片段（新增 + 修改）
+  const reworkCandidates = useMemo(() => {
+    const out: Clip[] = [];
+    for (const c of diff.addedClips) out.push(c);
+    for (const m of diff.modifiedClips) out.push(m.proposed);
+    return out;
+  }, [diff]);
+
+  const toggleRework = (id: string) => {
+    const next = new Set(reworkSelected);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setReworkSelected(next);
+  };
+
+  const submitRework = async () => {
+    const sid = useAgentStore.getState().requirementsSessionId;
+    if (!sid) {
+      setReworkMsg('需要需求会话才能重做');
+      return;
+    }
+    if (!reworkText.trim() && reworkSelected.size === 0) {
+      setReworkMsg('请选择片段或输入反馈');
+      return;
+    }
+    setReworkBusy(true);
+    setReworkMsg(null);
+    try {
+      const res = await requirementsApi.edit({
+        session_id: sid,
+        message: reworkText.trim() || '请根据审阅意见重做选中片段',
+        timeline: agentTimeline,
+        selected_clip_ids: [...reworkSelected],
+      });
+      if (res?.proposed_timeline) {
+        useAgentStore.getState().setAgentTimeline(res.proposed_timeline);
+      }
+      setReworkOpen(false);
+      setReworkSelected(new Set());
+      setReworkText('');
+    } catch (e) {
+      setReworkMsg(`重做请求失败：${(e as { message?: string })?.message ?? '未知错误'}`);
+    } finally {
+      setReworkBusy(false);
+    }
+  };
 
   const toggle = (set: Set<string>, id: string, fn: (s: Set<string>) => void) => {
     const next = new Set(set);
@@ -88,6 +142,9 @@ export function TimelineDiffView({
           {diff.summary.added > 0 && <Badge variant="success">+{diff.summary.added}</Badge>}
           {diff.summary.modified > 0 && <Badge variant="info">~{diff.summary.modified}</Badge>}
           {diff.summary.removed > 0 && <Badge variant="error">-{diff.summary.removed}</Badge>}
+          <Button size="sm" variant="outline" onClick={() => { setReworkOpen(!reworkOpen); setReworkMsg(null); }}>
+            <Wrench className="w-3.5 h-3.5" /> 不满意，让 Agent 重做
+          </Button>
         </div>
       </div>
 
@@ -139,6 +196,43 @@ export function TimelineDiffView({
           </div>
         )}
       </div>
+
+      {/* G10: 重做反馈面板 */}
+      {reworkOpen && (
+        <div className="px-3 pb-3 border-t border-outline-variant/20 pt-3 space-y-2.5">
+          <p className="text-label-sm font-medium text-on-surface">选择不满意的片段并提出修改意见</p>
+          {reworkCandidates.length === 0 ? (
+            <p className="text-caption text-on-surface-variant/60">当前 diff 无可重做的新增/修改片段，可直接输入整体反馈。</p>
+          ) : (
+            <div className="max-h-32 overflow-y-auto space-y-1">
+              {reworkCandidates.map((c) => (
+                <label key={c.id} className="flex items-center gap-2 px-2 py-1.5 rounded-cw-xs bg-surface cursor-pointer">
+                  <input type="checkbox" checked={reworkSelected.has(c.id)}
+                    onChange={() => toggleRework(c.id)}
+                    className="accent-primary" />
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: TRACK_COLORS[c.kind] ?? '#4F8CFF' }} />
+                  <span className="text-label-sm text-on-surface truncate flex-1">{clipName(c)}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <textarea
+            value={reworkText}
+            onChange={(e) => setReworkText(e.target.value)}
+            rows={3}
+            placeholder="例如：把这段的节奏放慢，换成更有冲击力的画面…"
+            className="w-full bg-surface rounded-cw-xs border border-outline-variant/30 p-2 text-label-sm text-on-surface outline-none resize-none focus:border-primary"
+          />
+          {reworkMsg && <p className="text-caption text-error">{reworkMsg}</p>}
+          <div className="flex gap-2">
+            <Button size="sm" className="flex-1" onClick={submitRework} disabled={reworkBusy}>
+              {reworkBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wrench className="w-3.5 h-3.5" />}
+              提交重做
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setReworkOpen(false)}>取消</Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
