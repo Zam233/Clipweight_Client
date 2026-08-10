@@ -10,11 +10,12 @@ import { usePreviewStore } from '@/stores/previewStore';
 import { useAssetStore } from '@/stores/assetStore';
 import { useVoiceStore } from '@/stores/voiceStore';
 import { toast } from '@/stores/toastStore';
-import { projectApi, getApiClient } from '@/services/api';
+import { projectApi, requirementsApi, getApiClient } from '@/services/api';
 import { mediaManager } from '@/services/media/mediaManager';
 import { useGlobalKeybindings } from '@/features/keyboard/useGlobalKeybindings';
 import { ShortcutCheatSheet } from '@/features/keyboard/ShortcutCheatSheet';
 import { useRequirementsAutoStart } from '@/features/agent/useRequirementsAutoStart';
+import { uid } from '@/lib/utils';
 import { createEmptyTimeline } from '@/types/timeline';
 import { Loader2 } from 'lucide-react';
 import { decideFlushPayload } from './flushPayload';
@@ -31,7 +32,22 @@ export function EditorPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   // HomePage.launch() 写入的需求数据快照。用 ref 保存以跨 StrictMode 双重挂载持久化——
   // 否则首次挂载的 resetProject 会清空 store，第二次挂载快照到的是已清空的值，导致恢复失败。
-  const pendingReqRef = useRef<{ topic: string; script: string; audioDur: number; materialSourceIds: string[] } | null>(null);
+  // B16: 捕获全部字段（含文稿/音色/配音/模式），resetProject 后再恢复。
+  const pendingReqRef = useRef<{
+    topic: string;
+    script: string;
+    audioDur: number;
+    materialSourceIds: string[];
+    scriptText: string;
+    videoMode: string;
+    splitMode: string;
+    audioPath: string;
+    audioDurationSec: number;
+    voiceId: string | null;
+    autoDub: boolean;
+    personaId: string | null;
+    pluginId: string | null;
+  } | null>(null);
 
   // Auto-start the requirements Agent when launched from HomePage (panel-independent).
   // Gated on !loading so it runs only after the project (and requirements data) is restored.
@@ -50,6 +66,15 @@ export function EditorPage() {
             script: preResetProject.requirementsScript,
             audioDur: preResetProject.requirementsAudioDuration,
             materialSourceIds: preResetProject.materialSourceIds,
+            scriptText: preResetProject.scriptText,
+            videoMode: preResetProject.videoMode,
+            splitMode: preResetProject.splitMode,
+            audioPath: preResetProject.audioPath,
+            audioDurationSec: preResetProject.audioDurationSec,
+            voiceId: preResetProject.voiceId,
+            autoDub: preResetProject.autoDub,
+            personaId: preResetProject.personaId,
+            pluginId: preResetProject.pluginId,
           };
         }
         const pendingTopic = pendingReqRef.current.topic;
@@ -99,9 +124,50 @@ export function EditorPage() {
           useProjectStore.getState().setRequirementsScript(pending.script);
           useProjectStore.getState().setRequirementsAudioDuration(pending.audioDur);
           useProjectStore.getState().setMaterialSourceIds(pending.materialSourceIds);
+          // B16: 恢复全部启动参数（resetProject 清空后重写），保证管线收到文稿/音色/配音/模式
+          useProjectStore.getState().setScriptText(pending.scriptText);
+          useProjectStore.getState().setVideoMode(pending.videoMode);
+          useProjectStore.getState().setSplitMode(pending.splitMode);
+          useProjectStore.getState().setAudioPath(pending.audioPath);
+          useProjectStore.getState().setAudioDurationSec(pending.audioDurationSec);
+          useProjectStore.getState().setVoiceId(pending.voiceId);
+          useProjectStore.getState().setAutoDub(pending.autoDub);
+          useProjectStore.getState().setPersonaId(pending.personaId);
+          useProjectStore.getState().setPluginId(pending.pluginId);
         } else if (project.agent_state) {
           // 非首页新启动 → 恢复项目保存的 Agent 状态（需求对话/简报/规划书/执行日志）
           useAgentStore.getState().restoreAgentState(project.agent_state);
+          // G8: 存在需求会话时从后端同步权威状态（消息/简报/规划书/status），
+          // 失败静默保留本地恢复值（离线兜底）。
+          const sid = useAgentStore.getState().requirementsSessionId;
+          if (sid) {
+            try {
+              const remote = await requirementsApi.getSession(sid) as {
+                status?: string;
+                messages?: Array<{ role: string; content: string; timestamp: string }>;
+                creative_brief?: unknown;
+                production_plan?: unknown;
+              };
+              const ag = useAgentStore.getState();
+              if (Array.isArray(remote?.messages) && remote.messages.length > 0) {
+                ag.setRequirementsStatus((remote.status as never) ?? ag.requirementsStatus);
+                ag.addRequirementsMessage({
+                  id: uid('m'), role: 'assistant', content: '已从后端同步会话',
+                  timestamp: new Date().toISOString(),
+                });
+                // 用后端消息覆盖本地草稿（保留现有 store action 语义）
+                useAgentStore.setState({
+                  requirementsMessages: remote.messages.map((m) => ({
+                    id: uid('m'), role: m.role as never, content: m.content, timestamp: m.timestamp,
+                  })),
+                });
+              }
+              if (remote?.creative_brief) useAgentStore.getState().setCreativeBrief(remote.creative_brief as never);
+              if (remote?.production_plan) useAgentStore.getState().setProductionPlan(remote.production_plan as never);
+            } catch {
+              // 离线：保留本地草稿
+            }
+          }
         }
         if (alive) setLoading(false);
       } catch (err) {
