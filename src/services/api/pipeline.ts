@@ -56,6 +56,14 @@ export const pipelineApi = {
     return data;
   },
 
+  /** Cancel a running pipeline (cooperative cancel, backend marks step CANCELLED) */
+  async cancel(pipelineId: string) {
+    const { data } = await getApiClient().post(
+      `/api/pipeline/cancel/${pipelineId}`,
+    );
+    return data;
+  },
+
   /** Predict script configuration */
   async predictScript(scriptText: string) {
     const { data } = await getApiClient().post(
