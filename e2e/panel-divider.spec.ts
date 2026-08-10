@@ -119,4 +119,41 @@ test.describe('面板分割条拖拽 (panel divider drag)', () => {
     await expect.poll(() => assetsPanelWidth(page)).toBe(before + DRAG_DX);
     expect(errors).toEqual([]);
   });
+
+  test('B18: Agent 面板分割条可拖拽调整宽度', async ({ page }) => {
+    // Agent panel is the rightmost panel; its divider is the LAST .panel-divider
+    // in DOM order, and the agent panel div is its following sibling.
+    const errors = collectPageErrors(page);
+    const dividers = page.locator('.panel-divider');
+    const divider = dividers.last();
+    await expect(divider).toBeVisible();
+
+    const panel = divider.locator('xpath=following-sibling::div[1]');
+    const readAgentWidth = async (): Promise<number> => {
+      const style = (await panel.getAttribute('style')) ?? '';
+      const m = style.match(/width:\s*([\d.]+)px/);
+      if (!m) throw new Error(`agent panel has no explicit width in style: "${style}"`);
+      return Number(m[1]);
+    };
+
+    const before = await readAgentWidth();
+    const startX = 1400;
+    const startY = 200;
+
+    await divider.dispatchEvent('pointerdown', {
+      pointerId: 1, pointerType: 'mouse', isPrimary: true, buttons: 1,
+      clientX: startX, clientY: startY,
+    });
+    await divider.dispatchEvent('pointermove', {
+      pointerId: 1, pointerType: 'mouse', isPrimary: true, buttons: 1,
+      clientX: startX + DRAG_DX, clientY: startY,
+    });
+    await divider.dispatchEvent('pointerup', {
+      pointerId: 1, pointerType: 'mouse', isPrimary: true, buttons: 0,
+      clientX: startX + DRAG_DX, clientY: startY,
+    });
+
+    await expect.poll(() => readAgentWidth()).toBe(before + DRAG_DX);
+    expect(errors).toEqual([]);
+  });
 });

@@ -17,6 +17,9 @@ import type {
 } from '@/types/persona';
 
 /** 各管线相位对应的进度百分比（未显式给定进度时按此推导）。 */
+// E7: 日志上限——防止长管线日志无界增长导致 DOM 卡顿
+export const MAX_LOG_ENTRIES = 500;
+
 const PHASE_PROGRESS: Record<string, number> = {
   idle: 0,
   structure: 15,
@@ -191,7 +194,7 @@ export const useAgentStore = create<AgentState>((set) => ({
 
   addLogEntry: (entry) =>
     set((state) => ({
-      logEntries: [...state.logEntries, { ...entry, id: uid('log') }],
+      logEntries: [...state.logEntries, { ...entry, id: uid('log') }].slice(-MAX_LOG_ENTRIES),
     })),
 
   addLogEntries: (entries) =>
@@ -199,7 +202,7 @@ export const useAgentStore = create<AgentState>((set) => ({
       logEntries: [
         ...state.logEntries,
         ...entries.map((e) => ({ ...e, id: uid('log') })),
-      ],
+      ].slice(-MAX_LOG_ENTRIES),
     })),
 
   clearLogs: () => set({ logEntries: [], agentStats: [], pipelineSummary: null, mgTotal: 0, mgDone: 0 }),

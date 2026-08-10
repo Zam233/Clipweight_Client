@@ -46,7 +46,7 @@ export function EditorLayout() {
   const productionPlan = useAgentStore((s) => s.productionPlan);
   const handleCloseReview = useCallback(() => setReviewMode(null), [setReviewMode]);
 
-  const [dragging, setDragging] = useState<'assets' | 'properties' | 'timeline' | null>(null);
+  const [dragging, setDragging] = useState<'assets' | 'properties' | 'timeline' | 'agent' | null>(null);
   const dragStartRef = useRef({ x: 0, y: 0, w: 0, h: 0 });
   const activeDragRef = useRef<{
     cleanup: () => void;
@@ -67,7 +67,7 @@ export function EditorLayout() {
   // pointer and compatibility mouse events fire for one gesture, applying the
   // same delta twice yields the same width.
   const beginDividerDrag = useCallback(
-    (panel: 'assets' | 'properties' | 'timeline', clientX: number, clientY: number) => {
+    (panel: 'assets' | 'properties' | 'timeline' | 'agent', clientX: number, clientY: number) => {
       // If a gesture fired both pointerdown and mousedown, drop the previous
       // listeners before re-arming so a single drag never accumulates doubles.
       if (activeDragRef.current) {
@@ -79,7 +79,9 @@ export function EditorLayout() {
       dragStartRef.current = {
         x: clientX,
         y: clientY,
-        w: panel === 'assets' ? panelWidths.assets : panelWidths.properties,
+        w: panel === 'assets' ? panelWidths.assets
+          : panel === 'agent' ? panelWidths.agent
+          : panelWidths.properties,
         h: timelineHeight,
       };
 
@@ -90,6 +92,9 @@ export function EditorLayout() {
           setPanelWidth('assets', dragStartRef.current.w + dx);
         } else if (panel === 'properties') {
           setPanelWidth('properties', dragStartRef.current.w - dx);
+        } else if (panel === 'agent') {
+          // B18: Agent 面板位于最右，宽度随 dx 增长（与 assets 同向）
+          setPanelWidth('agent', dragStartRef.current.w + dx);
         } else if (panel === 'timeline') {
           setTimelineHeight(dragStartRef.current.h - dy);
         }
@@ -119,7 +124,7 @@ export function EditorLayout() {
   );
 
   const handleDividerMouseDown = useCallback(
-    (panel: 'assets' | 'properties' | 'timeline', e: React.MouseEvent) => {
+    (panel: 'assets' | 'properties' | 'timeline' | 'agent', e: React.MouseEvent) => {
       e.preventDefault();
       beginDividerDrag(panel, e.clientX, e.clientY);
     },
@@ -128,7 +133,7 @@ export function EditorLayout() {
 
   // Fallback for touch/pen and pointer-event-only browsers (defect F4).
   const handleDividerPointerDown = useCallback(
-    (panel: 'assets' | 'properties' | 'timeline', e: React.PointerEvent) => {
+    (panel: 'assets' | 'properties' | 'timeline' | 'agent', e: React.PointerEvent) => {
       e.preventDefault();
       beginDividerDrag(panel, e.clientX, e.clientY);
     },
@@ -201,7 +206,11 @@ export function EditorLayout() {
 
         {panels.agent && (
           <>
-            <div className="panel-divider shrink-0" />
+            <div
+              className={cn('panel-divider shrink-0', dragging === 'agent' && 'bg-primary')}
+              onMouseDown={(e) => handleDividerMouseDown('agent', e)}
+              onPointerDown={(e) => handleDividerPointerDown('agent', e)}
+            />
             <div
               className="h-full overflow-hidden shrink-0"
               style={{ width: panelWidths.agent }}
