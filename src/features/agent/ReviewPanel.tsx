@@ -91,10 +91,19 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
         production_plan: newPlan });
       useAgentStore.getState().clearAnnotations();
       onBack();
-    } catch {
-      addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-        content: '（离线模式）已记录反馈。' });
-      onBack();
+    } catch (e) {
+      // B14: 区分离线（网络层失败 → 演示文案）与真实请求失败（4xx/5xx → 提示重试）
+      const code = (e as { code?: string })?.code;
+      const hasResponse = Boolean((e as { response?: unknown })?.response);
+      const isNetwork = code === 'ERR_NETWORK' || code === 'ECONNABORTED' || (!hasResponse && code !== undefined);
+      if (isNetwork) {
+        addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: '（离线模式）已记录反馈。' });
+        onBack();
+      } else {
+        addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: '反馈发送失败，请稍后重试。' });
+      }
     } finally { setSubmitting(false); }
   };
 
@@ -130,6 +139,7 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
             audio_path: st.audioPath || undefined,
             auto_dub: st.autoDub,
             voice_id: st.voiceId || undefined,
+            dub_segments: st.dubSegments ?? undefined,
             creative_brief: useAgentStore.getState().creativeBrief ?? undefined,
             production_plan: useAgentStore.getState().productionPlan ?? undefined,
             pipeline_timeout_sec: pipelineTimeoutSec,

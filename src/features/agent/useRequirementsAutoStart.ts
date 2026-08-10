@@ -33,7 +33,11 @@ export function useRequirementsAutoStart(ready: boolean) {
     const ag = useAgentStore.getState();
     ag.setRequirementsBusy(true);
     ag.setRequirementsStatus('gathering');
-    ag.addRequirementsMessage({ id: uid('m'), role: 'user', content: `选题：${t}`, timestamp: new Date().toISOString() });
+    // B15: 仅保留一条 user 消息（合并选题/文稿/时长），避免双气泡冗余
+    let firstMsg = `我的选题是：${t}。`;
+    if (st.requirementsScript) firstMsg += `文稿：${st.requirementsScript}。`;
+    firstMsg += `预估时长：${st.requirementsAudioDuration}秒。请帮我生成创意简报。`;
+    ag.addRequirementsMessage({ id: uid('m'), role: 'user', content: firstMsg, timestamp: new Date().toISOString() });
 
     (async () => {
       try {
@@ -50,13 +54,11 @@ export function useRequirementsAutoStart(ready: boolean) {
             split_mode: st.splitMode || undefined,
             auto_dub: st.autoDub,
             voice_id: st.voiceId || undefined,
+            // B21: 配音段传入需求会话，StructureAgent 场景时间与之对齐
+            dub_segments: st.dubSegments ?? undefined,
           },
         });
         useAgentStore.getState().setRequirementsSession(res.session_id);
-        let firstMsg = `我的选题是：${t}。`;
-        if (st.requirementsScript) firstMsg += `文稿：${st.requirementsScript}。`;
-        firstMsg += `预估时长：${st.requirementsAudioDuration}秒。请帮我生成创意简报。`;
-        useAgentStore.getState().addRequirementsMessage({ id: uid('m'), role: 'user', content: firstMsg, timestamp: new Date().toISOString() });
         try {
           const chatRes = await requirementsApi.chat({ session_id: res.session_id, message: firstMsg });
           const brief = chatRes.creative_brief ?? null;

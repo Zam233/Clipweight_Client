@@ -44,6 +44,16 @@ export function DubView() {
       const first = res.segments.find((s) => s.audio_url);
       if (first?.audio_url) setDubAudioUrl(voiceApi.getAudioUrl(first.audio_url));
       else setDubError('配音未返回音频');
+      // B21: 配音段写入 projectStore（供需求/管线 dub_segments 对齐场景时间）。
+      // 后端返回的段无 start/end，按累计时长计算时间轴区间。
+      let cursor = 0;
+      const mapped = res.segments.map((s) => {
+        const dur = s.duration_sec && s.duration_sec > 0 ? s.duration_sec : 3;
+        const seg = { start: cursor, end: cursor + dur, text: s.text };
+        cursor += dur;
+        return seg;
+      });
+      useProjectStore.getState().setDubSegments(mapped);
     } catch (e: unknown) {
       const detail =
         (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
