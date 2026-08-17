@@ -5,18 +5,28 @@ import { clearRequirementsDraft } from '@/stores/agentStore';
 import { useBackendHealth } from './useBackendHealth';
 import {
   healthApi, personaApi, projectApi, assetApi, typeMakerApi, pipelineApi,
+  pluginApi,
   getApiClient,
 } from '@/services/api';
+import { accountApi } from '@/services/api/account';
+import { useAuthStore } from '@/stores/authStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { Button, Badge } from '@/components/ui';
 import {
   Film, Settings, ArrowRight, Plus, Bot, ListChecks,
   PenLine, PackageCheck, Clock, Layers, Wand2, Mic, Image as ImageIcon,
   Upload, X, Check, Loader2, AudioLines,
-  Scissors, FileText, FolderOpen, Clapperboard,
+  Scissors, FileText, FolderOpen, Clapperboard, Store, LayoutTemplate,
+  Home, Shapes, User, Puzzle, Sparkles, Coins, Zap, LogOut, LogIn,
+  Palette, Ruler, Server, ChevronRight, Gauge,
 } from 'lucide-react';
 import { ProjectCard, type ProjectCardData } from '@/components/shared/ProjectCard';
+import { TemplateGallery } from '@/components/shared/TemplateGallery';
 import { fmtDur, relTime, uid } from '@/lib/utils';
 import { toast } from '@/stores/toastStore';
+
+/* ── 图一：左侧导航 tab ── */
+type HomeTab = 'home' | 'types' | 'personas' | 'plugins' | 'create' | 'settings';
 
 /* ── types ─────────────────────────────────────────────── */
 interface PersonaOpt { id: string; name: string; tone: string }
@@ -98,11 +108,31 @@ function detectAudioDuration(file: File): Promise<number> {
 export function HomePage() {
   const navigate = useNavigate();
 
+  // 图一：左侧导航 tab
+  const [activeTab, setActiveTab] = useState<HomeTab>('home');
+  // CREADIT：用户余额 + 本次创作预估
+  const authUser = useAuthStore((s) => s.user);
+  const accessToken = useAuthStore((s) => s.accessToken);
+  const [credit, setCredit] = useState<number | null>(null);
+  const [creditEstimate, setCreditEstimate] = useState<number | null>(null);
+
+  // 加载 CREADIT 余额（登录态）
+  useEffect(() => {
+    if (!accessToken) return;
+    let alive = true;
+    accountApi.creditBalance(accessToken)
+      .then((r) => { if (alive) setCredit(r.credit); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [accessToken]);
+
   const [guardNotice, setGuardNotice] = useState<string | null>(null);
   const backend = useBackendHealth();
   const [dataMode, setDataMode] = useState<'live' | 'demo'>('demo');
   const [personas, setPersonas] = useState<PersonaOpt[]>(DEMO_PERSONAS);
   const [plugins, setPlugins] = useState<PluginOpt[]>(DEMO_PLUGINS);
+  // BUG3: 真实第三方插件（/api/plugin/list，区别于类型插件 typeMakerApi）
+  const [extPlugins, setExtPlugins] = useState<PluginOpt[]>([]);
   const [projects, setProjects] = useState<ProjectOpt[]>([]);
 
   const [topic, setTopic] = useState('');
@@ -116,6 +146,10 @@ export function HomePage() {
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
   const [launchErr, setLaunchErr] = useState<string | null>(null);
+  // A3: 模板画廊弹层
+  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
+  // P8: dry-run 预览模式（只生成粗剪时间线）
+  const [dryRun, setDryRun] = useState(false);
   const [materialSources, setMaterialSources] = useState<MatSource[]>([]);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -167,8 +201,10 @@ export function HomePage() {
           })));
         }
         if (Array.isArray(projs)) {
-          setProjects(projs.length > 0
-              ? projs.map((pr, i) => ({
+          // 过滤无 id 的脏记录（历史遗留），避免 React duplicate-key 警告
+          const valid = projs.filter((pr) => pr && pr.id);
+          setProjects(valid.length > 0
+              ? valid.map((pr, i) => ({
                 id: pr.id,
                 name: pr.name,
                 type: pr.plugin_id ?? '—',
@@ -210,6 +246,28 @@ export function HomePage() {
       if (alive && result) setPlugins(result);
     })();
 
+    // BUG3: 真实第三方插件（/api/plugin/list → manifest 列表）
+    (async () => {
+      try {
+        const data = await pluginApi.list();
+        if (!alive || !Array.isArray(data)) return;
+        const items = data
+          .map((p: Record<string, unknown>, i: number) => {
+            const m = (p.manifest ?? p) as Record<string, unknown>;
+            return {
+              id: String(m.id ?? p.id ?? ''),
+              name: String(m.name ?? p.id ?? ''),
+              desc: String(m.description ?? m.kind ?? 'capability'),
+              color: PLUGIN_PALETTE[i % PLUGIN_PALETTE.length],
+            };
+          })
+          .filter((x) => x.id);
+        if (items.length > 0) setExtPlugins(items);
+      } catch {
+        /* 后端离线：保持空列表 */
+      }
+    })();
+
     assetApi.listSources()
       .then((srcs) => { if (alive && Array.isArray(srcs)) setMaterialSources(srcs); })
       .catch(() => {});
@@ -233,6 +291,23 @@ export function HomePage() {
     style: Boolean(personaId || pluginId),
     dub: mode === 'visual' ? true : Boolean(audio),
   };
+
+  // 图一：每次表单变化时重新预估 CREADIT 消耗（登录态）
+  useEffect(() => {
+    if (!accessToken) return;
+    let alive = true;
+    const timer = setTimeout(() => {
+      accountApi.creditEstimate({
+        pipeline: true,
+        dry_run: dryRun,
+        voice: mode === 'voiceover' && !!audio,
+        asset_count: selectedSources.length > 0 ? 1 : 0,
+      }, accessToken)
+        .then((r) => { if (alive) setCreditEstimate(r.total); })
+        .catch(() => {});
+    }, 500);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [accessToken, dryRun, mode, audio, selectedSources]);
 
   // G6: 一键填入预判推荐（类型插件 / 时长）。仅映射已知插件；时长覆盖当前估算（无真实音频时）。
   const applyPrediction = () => {
@@ -295,6 +370,7 @@ export function HomePage() {
     st.setAudioPath(audio?.path || '');
     st.setAudioDurationSec(audio?.duration || 0);
     st.setMaterialSourceIds(selectedSources);
+    st.setDryRun(dryRun); // P8: 传递 dry-run 预览模式
     try {
       const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
       if (prefs.voiceId) st.setVoiceId(prefs.voiceId);
@@ -375,7 +451,8 @@ export function HomePage() {
     try {
       const projs = await projectApi.list();
       if (Array.isArray(projs)) {
-        setProjects(projs.map((pr, i) => ({
+        const valid = projs.filter((pr) => pr && pr.id);
+        setProjects(valid.map((pr, i) => ({
           id: pr.id,
           name: pr.name,
           type: pr.plugin_id ?? '—',
@@ -403,11 +480,26 @@ export function HomePage() {
     <div className="relative min-h-full h-full overflow-y-auto bg-surface text-on-surface">
       <Backdrop />
 
-      <div className="relative z-10 flex flex-col min-h-full">
-        <TopBar />
-        <RulerStrip />
+      <div className="relative z-10 flex min-h-full">
+        {/* ── 图一：左侧栏（用户卡片 + 导航） ── */}
+        <HomeSidebar
+          activeTab={activeTab}
+          onTab={setActiveTab}
+          credit={credit}
+          user={authUser}
+          onTopup={async () => {
+            try {
+              const r = await accountApi.creditTopup(100, accessToken ?? undefined);
+              setCredit(r.credit);
+              toast('CREADIT +100（测试充值）');
+            } catch {
+              toast('充值失败：Server 不可达', 'error');
+            }
+          }}
+          estimate={creditEstimate}
+        />
 
-        <main className="flex-1 w-full max-w-[1200px] mx-auto px-8 pb-10">
+        <main className="flex-1 min-w-0 w-full px-8 pb-10">
           {guardNotice && (
             <div className="mb-4 flex items-center gap-3 rounded-cw-md bg-amber-500/10 border border-amber-500/30 px-4 py-3 text-amber-200 text-body-sm">
               <span className="flex-1">{guardNotice}</span>
@@ -420,6 +512,198 @@ export function HomePage() {
               </button>
             </div>
           )}
+
+          {/* ── 首页 tab：开始创作 + 空项目 + 最近项目（图一） ── */}
+          {activeTab === 'home' && (
+            <section className="pt-8 max-w-[1080px]">
+              <div className="flex items-end justify-between gap-4 mb-8">
+                <div>
+                  <p className="font-mono text-label-sm tracking-[0.3em] text-primary uppercase mb-2">
+                    ClipWright · AI 辅助视频创作
+                  </p>
+                  <h1 className="font-display text-[40px] leading-[1.15] font-bold text-on-surface mb-1">
+                    把你的选题，
+                    <span className="text-primary">剪</span>成一支视频。
+                  </h1>
+                  <p className="text-body text-on-surface-variant mt-1 max-w-[520px]">
+                    稿件 → 风格 → 配音 → 启动。Agent 负责结构化与体力活，你负责审美与微调。
+                  </p>
+                </div>
+                <Badge variant={dataMode === 'live' ? 'success' : 'default'}>
+                  {dataMode === 'live' ? '实时数据' : '演示数据'}
+                </Badge>
+              </div>
+
+              {/* 顶部操作入口：开始创作 / 空项目 */}
+              <div className="flex flex-wrap items-center gap-3 mb-10">
+                <Button size="lg" onClick={() => { setActiveTab('create'); window.scrollTo({ top: 0 }); }} className="min-w-[220px] group">
+                  <Sparkles className="w-4.5 h-4.5" /> 开始创作
+                  <ArrowRight className="w-4 h-4 transition-transform duration-short3 group-hover:translate-x-1" />
+                </Button>
+                <Button size="lg" variant="outline" onClick={openBlank} className="min-w-[160px]">
+                  <Scissors className="w-4 h-4" /> 空项目
+                </Button>
+                <Button size="lg" variant="ghost" onClick={() => setTemplateGalleryOpen(true)}
+                  className="text-on-surface-variant hover:text-primary">
+                  <LayoutTemplate className="w-4 h-4" /> 从模板开始
+                </Button>
+                {credit !== null && (
+                  <span className="ml-auto flex items-center gap-1.5 font-mono text-caption text-on-surface-variant bg-surface-container border border-outline-variant/30 rounded-cw-full px-3 py-1.5">
+                    <Coins className="w-3.5 h-3.5 text-track-text" />
+                    本次预估消耗 {creditEstimate ?? '—'} CREADIT
+                  </span>
+                )}
+              </div>
+
+              {/* 最近项目（图一：缩略卡片横向） */}
+              <div className="flex items-end justify-between mb-4">
+                <div>
+                  <p className="font-mono text-label-sm tracking-[0.25em] text-on-surface-variant uppercase">Recent</p>
+                  <h2 className="text-title font-semibold text-on-surface mt-0.5">最近项目</h2>
+                </div>
+                <button
+                  onClick={() => navigate({ to: '/projects' })}
+                  className="flex items-center gap-1.5 text-label-sm text-primary hover:text-primary/80 transition-colors cursor-pointer"
+                >
+                  全部项目 <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-12 gap-4">
+                {projects.map((proj) => (
+                  <ProjectCard
+                    key={proj.id}
+                    proj={proj}
+                    mode="simple"
+                    onOpen={() => openProject(proj)}
+                    onDelete={() => handleDeleteProject(proj.id)}
+                    onDuplicate={() => handleDuplicateProject(proj)}
+                  />
+                ))}
+                {projects.length === 0 && (
+                  <div className="col-span-12 flex flex-col items-center justify-center py-12 text-center gap-2
+                    border border-dashed border-outline-variant/30 rounded-cw-md">
+                    <FolderOpen className="w-8 h-8 text-on-surface-variant/40" />
+                    <p className="text-body-sm text-on-surface-variant">
+                      {dataMode === 'demo' ? '演示数据 · 暂无后端项目' : '还没有项目'}
+                    </p>
+                    <p className="text-caption text-on-surface-variant/60">
+                      {dataMode === 'demo'
+                        ? '后端未连接，当前展示的是演示数据；连接后端后这里会显示你的真实项目'
+                        : '点击「开始创作」创建你的第一个视频'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* ── 类型 tab ── */}
+          {activeTab === 'types' && (
+            <section className="pt-8 max-w-[1080px]">
+              <p className="font-mono text-label-sm tracking-[0.3em] text-primary uppercase mb-2">Video Types</p>
+              <h1 className="font-display text-[32px] font-bold text-on-surface mb-6">视频类型</h1>
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                {plugins.map((pl) => (
+                  <button key={pl.id}
+                    onClick={() => { setPluginId(pl.id); setActiveTab('create'); }}
+                    className="text-left bg-surface-container border border-outline-variant/30 rounded-cw-md p-4
+                      hover:border-primary/50 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/10
+                      transition-all duration-short3 cursor-pointer group">
+                    <span className="flex items-center gap-2.5 mb-2">
+                      <i className="w-3 h-3 rounded-full shrink-0" style={{ background: pl.color }} />
+                      <span className="text-body-sm font-semibold text-on-surface group-hover:text-primary transition-colors">{pl.name}</span>
+                    </span>
+                    {pl.desc && <span className="block text-caption text-on-surface-variant/70 font-mono">{pl.desc}</span>}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* ── 人格 tab ── */}
+          {activeTab === 'personas' && (
+            <section className="pt-8 max-w-[1080px]">
+              <p className="font-mono text-label-sm tracking-[0.3em] text-primary uppercase mb-2">Persona</p>
+              <h1 className="font-display text-[32px] font-bold text-on-surface mb-6">创作人格</h1>
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                {personas.map((p) => (
+                  <button key={p.id}
+                    onClick={() => { setPersonaId(p.id); setActiveTab('create'); }}
+                    className={`text-left bg-surface-container border rounded-cw-md p-4 transition-all duration-short3 cursor-pointer group ${
+                      personaId === p.id
+                        ? 'border-primary bg-primary/5 shadow-lg shadow-primary/10'
+                        : 'border-outline-variant/30 hover:border-primary/50 hover:-translate-y-0.5'
+                    }`}>
+                    <span className="w-9 h-9 rounded-cw-sm bg-primary-container flex items-center justify-center mb-2.5">
+                      <User className="w-4.5 h-4.5 text-on-primary-container" />
+                    </span>
+                    <p className="text-body-sm font-semibold text-on-surface group-hover:text-primary transition-colors">{p.name}</p>
+                    <p className="text-caption text-on-surface-variant mt-0.5">{p.tone}</p>
+                  </button>
+                ))}
+                <button
+                  onClick={() => navigate({ to: '/persona/forge' })}
+                  className="min-h-[120px] rounded-cw-md border-2 border-dashed border-outline-variant/40 hover:border-primary/60
+                    flex flex-col items-center justify-center gap-2 text-on-surface-variant hover:text-primary
+                    transition-all duration-short3 cursor-pointer">
+                  <Plus className="w-5 h-5" /> 新建人格
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* ── 插件 tab ── */}
+          {activeTab === 'plugins' && (
+            <section className="pt-8 max-w-[1080px]">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <p className="font-mono text-label-sm tracking-[0.3em] text-primary uppercase mb-2">Extensions</p>
+                  <h1 className="font-display text-[32px] font-bold text-on-surface">插件</h1>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => navigate({ to: '/market' })}>
+                  <Store className="w-3.5 h-3.5" /> 插件市场
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                {extPlugins.length === 0 ? (
+                  <div className="col-span-full flex flex-col items-center justify-center py-12 text-center gap-2
+                    border border-dashed border-outline-variant/30 rounded-cw-md">
+                    <Puzzle className="w-8 h-8 text-on-surface-variant/40" />
+                    <p className="text-body-sm text-on-surface-variant">暂无已加载插件</p>
+                    <p className="text-caption text-on-surface-variant/60">
+                      后端未连接或插件目录为空；可在「插件市场」浏览并安装。
+                    </p>
+                  </div>
+                ) : (
+                  extPlugins.map((pl) => (
+                    <div key={pl.id} className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-4
+                      hover:border-primary/50 transition-all duration-short3">
+                      <span className="flex items-center gap-2.5 mb-2">
+                        <span className="w-8 h-8 rounded-cw-sm flex items-center justify-center" style={{ background: `${pl.color}1A`, color: pl.color }}>
+                          <Puzzle className="w-4 h-4" />
+                        </span>
+                        <span className="text-body-sm font-semibold text-on-surface">{pl.name}</span>
+                      </span>
+                      {pl.desc && <span className="block text-caption text-on-surface-variant/70 font-mono">{pl.desc}</span>}
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* ── 设置 tab：系统设置（主题/语言/API/时间轴默认） ── */}
+          {activeTab === 'settings' && (
+            <section className="pt-8 max-w-[1080px]">
+              <p className="font-mono text-label-sm tracking-[0.3em] text-primary uppercase mb-2">Preferences</p>
+              <h1 className="font-display text-[32px] font-bold text-on-surface mb-6">设置</h1>
+              <HomeSettings onAdvanced={() => navigate({ to: '/settings' })} />
+            </section>
+          )}
+
+          {/* ── 创作 tab：图二创作控制台（由「开始创作」进入） ── */}
+          {activeTab === 'create' && (
           <section className="grid grid-cols-12 gap-6 pt-8">
             {/* ── production console ── */}
             <div className="col-span-12 lg:col-span-7">
@@ -738,7 +1022,22 @@ export function HomePage() {
                         <Plus className="w-4 h-4" />
                         空白编辑器
                       </Button>
+                      <Button size="lg" variant="ghost" onClick={() => setTemplateGalleryOpen(true)}
+                        className="text-on-surface-variant hover:text-primary">
+                        <LayoutTemplate className="w-4 h-4" />
+                        从模板开始
+                      </Button>
                     </div>
+                    {/* P8: dry-run 预览模式开关 */}
+                    <label className="mt-3 flex items-center gap-2 text-label-sm text-on-surface-variant cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={dryRun}
+                        onChange={(e) => setDryRun(e.target.checked)}
+                        className="accent-primary w-3.5 h-3.5"
+                      />
+                      仅预览（dry-run）— 只生成粗剪时间线，跳过动画/音频/质检，快速出规划
+                    </label>
                   </div>
                 </div>
               </div>
@@ -799,58 +1098,20 @@ export function HomePage() {
               </div>
             </div>
           </section>
+          )}
 
-          {/* ── recent projects ── */}
-          <section className="mt-12">
-            <div className="flex items-end justify-between mb-4">
-              <div>
-                <p className="font-mono text-label-sm tracking-[0.25em] text-on-surface-variant uppercase">Recent</p>
-                <h2 className="text-title font-semibold text-on-surface mt-0.5">最近项目</h2>
-              </div>
-              <Badge variant={dataMode === 'live' ? 'success' : 'default'}>
-                {dataMode === 'live' ? `${projects.length} 个 · 来自后端` : '演示数据'}
-              </Badge>
+          {/* 底部快捷键提示 */}
+          <footer className="border-t border-outline-variant/20 py-3 mt-10">
+            <div className="flex items-center gap-6 text-caption text-on-surface-variant/60 font-mono">
+              <span>空格 = 播放/暂停</span>
+              <span>S = 分割</span>
+              <span>Del = 删除</span>
+              <span>Ctrl+滚轮 = 缩放</span>
+              <span>M = 标记</span>
+              <span className="ml-auto">ClipWright v0.1.0 · Phase 5</span>
             </div>
-
-            <div className="grid grid-cols-12 gap-4">
-              {projects.map((proj) => (
-                <ProjectCard
-                  key={proj.id}
-                  proj={proj}
-                  mode="simple"
-                  onOpen={() => openProject(proj)}
-                  onDelete={() => handleDeleteProject(proj.id)}
-                  onDuplicate={() => handleDuplicateProject(proj)}
-                />
-              ))}
-              {projects.length === 0 && (
-                <div className="col-span-12 flex flex-col items-center justify-center py-12 text-center gap-2
-                  border border-dashed border-outline-variant/30 rounded-cw-md">
-                  <FolderOpen className="w-8 h-8 text-on-surface-variant/40" />
-                  <p className="text-body-sm text-on-surface-variant">
-                    {dataMode === 'demo' ? '演示数据 · 暂无后端项目' : '还没有项目'}
-                  </p>
-                  <p className="text-caption text-on-surface-variant/60">
-                    {dataMode === 'demo'
-                      ? '后端未连接，当前展示的是演示数据；连接后端后这里会显示你的真实项目'
-                      : '在上方填写选题并点击「开始创作」创建你的第一个视频'}
-                  </p>
-                </div>
-              )}
-            </div>
-          </section>
+          </footer>
         </main>
-
-        <footer className="border-t border-outline-variant/20 py-3">
-          <div className="max-w-[1200px] mx-auto px-8 flex items-center gap-6 text-caption text-on-surface-variant/60 font-mono">
-            <span>空格 = 播放/暂停</span>
-            <span>S = 分割</span>
-            <span>Del = 删除</span>
-            <span>Ctrl+滚轮 = 缩放</span>
-            <span>M = 标记</span>
-            <span className="ml-auto">ClipWright v0.1.0 · Phase 5</span>
-          </div>
-        </footer>
       </div>
 
       <style>{`
@@ -860,7 +1121,248 @@ export function HomePage() {
         }
         .caption-chip { animation: captionChipIn 0.25s var(--ease-emphasized-decelerate) both; }
       `}</style>
+
+      {/* A3: 模板画廊 */}
+      <TemplateGallery
+        open={templateGalleryOpen}
+        onClose={() => setTemplateGalleryOpen(false)}
+        onApplyProject={(projectId) => navigate({ to: '/editor/$projectId', params: { projectId } })}
+      />
     </div>
+  );
+}
+
+/* ── 设置 tab：轻量系统设置（复用 settingsStore）──────────────── */
+function HomeSettings({ onAdvanced }: { onAdvanced: () => void }) {
+  const s = useSettingsStore();
+  const navigate = useNavigate();
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      {/* 外观 */}
+      <div className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-5 space-y-4">
+        <h3 className="flex items-center gap-2 text-title-sm font-medium text-on-surface">
+          <Palette className="w-4 h-4 text-primary" /> 外观
+        </h3>
+        <div className="flex items-center justify-between">
+          <span className="text-label-sm text-on-surface-variant">主题</span>
+          <div className="flex bg-surface rounded-cw-sm border border-outline-variant/40 p-0.5">
+            {(['dark', 'light'] as const).map((t) => (
+              <button key={t}
+                onClick={() => s.setTheme(t)}
+                className={`px-3 py-1 rounded-cw-xs text-label-sm transition-colors cursor-pointer ${
+                  s.theme === t ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:text-on-surface'
+                }`}>
+                {t === 'dark' ? '深色' : '浅色'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-label-sm text-on-surface-variant">语言</span>
+          <div className="flex bg-surface rounded-cw-sm border border-outline-variant/40 p-0.5">
+            {(['zh', 'en'] as const).map((l) => (
+              <button key={l}
+                onClick={() => s.setLanguage(l)}
+                className={`px-3 py-1 rounded-cw-xs text-label-sm transition-colors cursor-pointer ${
+                  s.language === l ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:text-on-surface'
+                }`}>
+                {l === 'zh' ? '中文' : 'English'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-label-sm text-on-surface-variant">自动保存</span>
+          <input type="checkbox" checked={s.autoSave} onChange={(e) => s.setAutoSave(e.target.checked)}
+            className="accent-primary w-4 h-4 cursor-pointer" />
+        </div>
+      </div>
+
+      {/* 时间轴默认 */}
+      <div className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-5 space-y-4">
+        <h3 className="flex items-center gap-2 text-title-sm font-medium text-on-surface">
+          <Ruler className="w-4 h-4 text-primary" /> 时间轴默认
+        </h3>
+        <div className="flex items-center justify-between">
+          <span className="text-label-sm text-on-surface-variant">帧率 FPS</span>
+          <input type="number" value={s.defaultFps} min={1} max={120}
+            onChange={(e) => s.setDefaultFps(Number(e.target.value) || 30)}
+            className="w-20 bg-surface rounded-cw-xs px-2 py-1 text-label-sm font-mono text-on-surface outline-none border border-outline-variant/30 focus:border-primary" />
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-label-sm text-on-surface-variant">默认分辨率</span>
+          <div className="flex items-center gap-1.5">
+            <input type="number" value={s.defaultResolution.width}
+              onChange={(e) => s.setDefaultResolution({ ...s.defaultResolution, width: Number(e.target.value) || 1920 })}
+              className="w-20 bg-surface rounded-cw-xs px-2 py-1 text-label-sm font-mono text-on-surface outline-none border border-outline-variant/30 focus:border-primary" />
+            <span className="text-on-surface-variant">×</span>
+            <input type="number" value={s.defaultResolution.height}
+              onChange={(e) => s.setDefaultResolution({ ...s.defaultResolution, height: Number(e.target.value) || 1080 })}
+              className="w-20 bg-surface rounded-cw-xs px-2 py-1 text-label-sm font-mono text-on-surface outline-none border border-outline-variant/30 focus:border-primary" />
+          </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-label-sm text-on-surface-variant">吸附（对齐）</span>
+          <input type="checkbox" checked={s.snapEnabled} onChange={(e) => s.setSnapEnabled(e.target.checked)}
+            className="accent-primary w-4 h-4 cursor-pointer" />
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-label-sm text-on-surface-variant">时间轴标尺显示帧标记</span>
+          <input type="checkbox" checked={s.showFramesInRuler} onChange={(e) => s.setShowFramesInRuler(e.target.checked)}
+            className="accent-primary w-4 h-4 cursor-pointer" />
+        </div>
+      </div>
+
+      {/* 高级设置入口 */}
+      <div className="lg:col-span-2 bg-surface-container border border-outline-variant/30 rounded-cw-md p-5">
+        <h3 className="flex items-center gap-2 text-title-sm font-medium text-on-surface mb-3">
+          <Server className="w-4 h-4 text-primary" /> 高级
+        </h3>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button size="sm" variant="outline" onClick={onAdvanced}>
+            <ChevronRight className="w-3.5 h-3.5" /> 完整设置页（API / 快捷键 / 模型 / 工具…）
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => navigate({ to: '/pipeline-admin' })}>
+            <Gauge className="w-3.5 h-3.5" /> 管线监控
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── 图一：左侧栏（用户卡片 + 导航）───────────────────── */
+function HomeSidebar({ activeTab, onTab, credit, user, onTopup, estimate }: {
+  activeTab: HomeTab;
+  onTab: (t: HomeTab) => void;
+  credit: number | null;
+  user: { display_name?: string; user_id?: string; email?: string } | null;
+  onTopup: () => void;
+  estimate: number | null;
+}) {
+  const navigate = useNavigate();
+  // 拆分成 primitive selector，避免返回新对象引用导致无限重渲染
+  const authUser = useAuthStore((s) => s.user);
+  const authToken = useAuthStore((s) => s.accessToken);
+  const authLogout = useAuthStore((s) => s.logout);
+
+  const NAV: { id: HomeTab; label: string; icon: typeof Home }[] = [
+    { id: 'home', label: '首页', icon: Home },
+    { id: 'types', label: '类型', icon: Shapes },
+    { id: 'personas', label: '人格', icon: User },
+    { id: 'plugins', label: '插件', icon: Puzzle },
+    { id: 'settings', label: '设置', icon: Settings },
+  ];
+
+  return (
+    <aside className="w-[236px] shrink-0 border-r border-outline-variant/25 bg-surface-container-low/60 flex flex-col sticky top-0 h-screen">
+      {/* brand */}
+      <div className="flex items-center gap-2.5 px-5 pt-5 pb-4">
+        <div className="w-9 h-9 rounded-cw-sm bg-primary-container flex items-center justify-center shadow-lg shadow-primary/20">
+          <Film className="w-5 h-5 text-on-primary-container" />
+        </div>
+        <div className="leading-tight">
+          <p className="text-title-sm font-bold text-on-surface tracking-wide">帧艺</p>
+          <p className="font-mono text-caption text-on-surface-variant tracking-[0.2em]">CLIPWRIGHT</p>
+        </div>
+      </div>
+
+      {/* 用户信息卡片（图一：昵称 / ID / CREADIT） */}
+      <div className="mx-4 mb-5 bg-surface-container border border-outline-variant/30 rounded-cw-md p-3.5">
+        <div className="flex items-center gap-2.5">
+          <span className="w-10 h-10 rounded-cw-full bg-primary-container flex items-center justify-center shrink-0 ring-1 ring-on-primary-container/20">
+            <User className="w-5 h-5 text-on-primary-container" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-body-sm font-semibold text-on-surface truncate">
+              {authUser?.display_name || user?.display_name || '未登录'}
+            </p>
+            <p className="font-mono text-caption text-on-surface-variant/70 truncate">
+              {authUser?.user_id ? `ID ${authUser.user_id.slice(0, 8)}` : 'ID ———'}
+            </p>
+          </div>
+        </div>
+        <div className="mt-2.5 pt-2.5 border-t border-outline-variant/20 flex items-center justify-between">
+          <span className="flex items-center gap-1.5 text-label-sm text-on-surface-variant">
+            <Coins className="w-3.5 h-3.5 text-track-text" />
+            CREADIT
+          </span>
+          <span className="font-mono text-body-sm font-bold text-track-text">
+            {credit ?? '—'}
+          </span>
+        </div>
+        {authToken && (
+          <button
+            onClick={onTopup}
+            className="mt-2 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-cw-xs
+              bg-track-text/10 border border-track-text/30 text-track-text text-label-sm
+              hover:bg-track-text/20 transition-colors cursor-pointer"
+            title="测试充值 +100"
+          >
+            <Zap className="w-3 h-3" /> 充值 +100（测试）
+          </button>
+        )}
+        {estimate !== null && credit !== null && (
+          <p className="mt-2 text-caption font-mono text-on-surface-variant/70">
+            本次预估 <b className="text-on-surface">{estimate}</b> CREADIT
+          </p>
+        )}
+      </div>
+
+      {/* 导航（图一：首页/类型/人格/插件/设置）——点击直接切换右侧内容区 */}
+      <nav className="flex-1 px-3 space-y-1">
+        {NAV.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => onTab(id)}
+            className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-cw-sm text-label-sm font-medium transition-all duration-short3 cursor-pointer ${
+              activeTab === id
+                ? 'bg-primary-container text-on-primary-container shadow-md shadow-primary/20'
+                : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
+            }`}
+          >
+            <Icon className="w-4 h-4" />
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {/* 底部：账号操作 + 其他入口 */}
+      <div className="px-3 pb-5 pt-3 space-y-1 border-t border-outline-variant/20">
+        {authToken ? (
+          <button
+            onClick={async () => { await authLogout(); navigate({ to: '/' }); }}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2 rounded-cw-sm text-label-sm text-on-surface-variant
+              hover:text-error hover:bg-error/5 transition-colors cursor-pointer"
+          >
+            <LogOut className="w-4 h-4" /> 退出登录
+          </button>
+        ) : (
+          <button
+            onClick={() => navigate({ to: '/login' })}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2 rounded-cw-sm text-label-sm text-on-surface-variant
+              hover:text-primary hover:bg-primary/5 transition-colors cursor-pointer"
+          >
+            <LogIn className="w-4 h-4" /> 登录 / 注册
+          </button>
+        )}
+        <button
+          onClick={() => navigate({ to: '/projects' })}
+          className="w-full flex items-center gap-2.5 px-3.5 py-2 rounded-cw-sm text-label-sm text-on-surface-variant
+            hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+        >
+          <FolderOpen className="w-4 h-4" /> 我的项目
+        </button>
+        <button
+          onClick={() => navigate({ to: '/voice' })}
+          className="w-full flex items-center gap-2.5 px-3.5 py-2 rounded-cw-sm text-label-sm text-on-surface-variant
+            hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+        >
+          <Mic className="w-4 h-4" /> 音色库
+        </button>
+      </div>
+    </aside>
   );
 }
 
@@ -938,49 +1440,6 @@ function RulerStrip() {
   );
 }
 
-function TopBar() {
-  const navigate = useNavigate();
-  return (
-    <header className="flex items-center gap-3 px-8 py-4 max-w-[1200px] w-full mx-auto">
-      <div className="w-9 h-9 rounded-cw-sm bg-primary-container flex items-center justify-center shadow-lg shadow-primary/20">
-        <Film className="w-5 h-5 text-on-primary-container" />
-      </div>
-      <div className="leading-tight">
-        <p className="text-title-sm font-bold text-on-surface tracking-wide">帧艺</p>
-        <p className="font-mono text-caption text-on-surface-variant tracking-[0.2em]">CLIPWRIGHT</p>
-      </div>
-      <Badge variant="default" className="ml-2">v0.1.0</Badge>
+// RulerStrip 与旧 TopBar 已由图一左侧栏（HomeSidebar）替代，不再使用。
 
-      <div className="ml-auto flex items-center gap-3">
-        <span className="hidden md:flex items-center gap-1.5 text-label-sm text-on-surface-variant">
-          <Layers className="w-3.5 h-3.5" />
-          多轨时间轴 · 六 Agent 管线
-        </span>
-        <button
-          onClick={() => navigate({ to: '/projects' })}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-cw-sm text-label-sm text-on-surface-variant
-            hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
-          title="我的项目"
-        >
-          <FolderOpen className="w-3.5 h-3.5" /> 我的项目
-        </button>
-        <button
-          onClick={() => navigate({ to: '/voice' })}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-cw-sm text-label-sm text-on-surface-variant
-            hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
-          title="音色库"
-        >
-          <Mic className="w-3.5 h-3.5" /> 音色库
-        </button>
-        <button
-          onClick={() => navigate({ to: '/settings' })}
-          className="p-2 rounded-cw-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
-          title="设置"
-        >
-          <Settings className="w-4.5 h-4.5" />
-        </button>
-      </div>
-    </header>
-  );
-}
 

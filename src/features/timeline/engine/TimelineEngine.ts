@@ -44,6 +44,12 @@ export class TimelineEngine {
   private lastClickTime = 0;
   private lastClickX = 0;
   markers: Marker[] = [];
+  /** M14: 范围工具点击回调（面板接线：两击设置 In/Out 区间） */
+  onRangePoint: ((t: number) => void) | null = null;
+  /** M8: 标记变更回调（增/删/改名后触发；面板接线写回 timelineStore 持久化） */
+  onMarkersChange: ((markers: Marker[]) => void) | null = null;
+  /** M8: 双击已有标记触发重命名（面板接线弹出命名输入框） */
+  onMarkerRename: ((time: number) => void) | null = null;
   /** Drop feedback animation: green=placed before/after, red=reject (middle) */
   dropFeedback: { type: 'before' | 'after' | 'reject'; clipId: string; trackId: string; time: number } | null = null;
   private feedbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -53,6 +59,10 @@ export class TimelineEngine {
   private disposed = false;
   private unsubscribers: (() => void)[] = [];
   private resizeObserver: ResizeObserver | null = null;
+  /** C2: Alt 键当前是否按住（用于悬停光标切换） */
+  private altKeyHeld = false;
+  private _keyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private _keyUnsubs: (() => void)[] | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -174,6 +184,7 @@ export class TimelineEngine {
     } else {
       const isMoving = this.drag.mode === 'move-clip';
       for (let i = 0; i < tracks.length; i++) {
+        if (tracks[i].hidden) continue; // M7: 隐藏轨道不渲染
         for (const clip of tracks[i].clips) {
           const isDragged = isMoving && this.drag.origClips.has(clip.id);
           if (isDragged) continue; // draw ghosts after, on top
@@ -279,14 +290,21 @@ export class TimelineEngine {
       return;
     }
 
-    // Ruler → scrub or double-click to add marker
+    // Ruler → scrub or double-click to add marker (M8: dblclick on existing marker → rename)
     if (y < L.rulerH) {
       const now = performance.now();
       const clickTime = xToTime(x, L);
       if (now - this.lastClickTime < 400 && Math.abs(x - this.lastClickX) < 10) {
-        this.markers.push({ time: Math.max(0, clickTime) });
-        this.markers.sort((a, b) => a.time - b.time);
-        this.requestRender();
+        // 命中已有标记（6px 内）→ 触发重命名；否则新增
+        const near = this.markers.find((m) => Math.abs(timeToX(m.time, L) - x) < 6);
+        if (near) {
+          this.onMarkerRename?.(near.time);
+        } else {
+          this.markers.push({ time: Math.max(0, clickTime) });
+          this.markers.sort((a, b) => a.time - b.time);
+          this.requestRender();
+          this.onMarkersChange?.(this.markers);
+        }
         this.drag.mode = 'none';
         return;
       }
@@ -335,8 +353,29 @@ export class TimelineEngine {
       return;
     }
 
+    // M14: 范围工具 → 两击设置区间（回调由面板接线，设置 In/Out loopRegion）
+    if (selection.toolMode === 'range') {
+      this.onRangePoint?.(xToTime(x, L));
+      return;
+    }
+
     if (hit) {
       const { clip, track } = hit;
+      // C2: Alt+拖拽音频/波形片段 → 调整增益（音量）
+      if (e.altKey && (track.kind === 'audio' || track.kind === 'waveform')) {
+        this.altKeyHeld = true;
+        this.drag.mode = 'gain';
+        this.drag.gainClipId = clip.id;
+        this.drag.gainStartVolume = clip.volume;
+        if (!this.drag.historyPushed) {
+          useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'gain');
+          this.drag.historyPushed = true;
+        }
+        selection.selectClip(clip.id, e.shiftKey || e.ctrlKey || e.metaKey);
+        selection.selectTrack(track.id);
+        this.requestRender();
+        return;
+      }
       // Select (Shift=additive, Ctrl/Meta=toggle)
       if (!selection.selectedClipIds.includes(clip.id)) {
         selection.selectClip(clip.id, e.shiftKey || e.ctrlKey || e.metaKey);
@@ -367,10 +406,16 @@ export class TimelineEngine {
         useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'trim');
         this.drag.historyPushed = true;
       } else {
-        // Begin move for all selected clips
+        // Begin move for all selected clips (M2: 展开同组片段一起移动)
         this.drag.mode = 'move-clip';
         const tl = useTimelineStore.getState().timeline;
-        for (const id of useSelectionStore.getState().selectedClipIds) {
+        const store = useTimelineStore.getState();
+        const moveIds = new Set(useSelectionStore.getState().selectedClipIds);
+        // 组扩散：任一选中片段属于某组 → 整组加入移动集
+        for (const id of [...moveIds]) {
+          for (const gid of store.getGroupClipIds(id)) moveIds.add(gid);
+        }
+        for (const id of moveIds) {
           for (const tr of tl.tracks) {
             const c = tr.clips.find((cc) => cc.id === id);
             if (c) this.drag.origClips.set(id, c);
@@ -480,6 +525,17 @@ export class TimelineEngine {
         this.requestRender();
         break;
       }
+      case 'gain': {
+        // C2: 垂直拖拽 = 增益变化；向上放大，向下衰减。灵敏度 ~1/120 音量/px。
+        const id = this.drag.gainClipId;
+        if (id) {
+          const dy = this.drag.startMouse.y - y;
+          const vol = clamp(this.drag.gainStartVolume + dy / 120, 0, 2);
+          useTimelineStore.getState().updateClip(id, { volume: Math.round(vol * 100) / 100 });
+        }
+        this.requestRender();
+        break;
+      }
     }
   };
 
@@ -559,18 +615,28 @@ export class TimelineEngine {
       case 'trim-start': {
         const ghost = this.computeTrimGhost();
         if (ghost && this.drag.trimOrig) {
-          store.updateClip(this.drag.trimOrig.id, {
-            start_sec: ghost.start_sec,
-            duration_sec: ghost.duration_sec,
-            source_offset_sec: ghost.source_offset_sec,
-          });
+          // M1: Alt+trim-start → rolling 编辑（边界共享，此消彼长）
+          if (this.altKeyHeld) {
+            store.rollingTrim(this.drag.trimOrig.id, ghost.start_sec - this.drag.trimOrig.start_sec, 'start');
+          } else {
+            store.updateClip(this.drag.trimOrig.id, {
+              start_sec: ghost.start_sec,
+              duration_sec: ghost.duration_sec,
+              source_offset_sec: ghost.source_offset_sec,
+            });
+          }
         }
         break;
       }
       case 'trim-end': {
         const ghost = this.computeTrimGhost();
         if (ghost && this.drag.trimOrig) {
-          store.updateClip(this.drag.trimOrig.id, { duration_sec: ghost.duration_sec });
+          // M1: Alt+trim-end → rolling 编辑
+          if (this.altKeyHeld) {
+            store.rollingTrim(this.drag.trimOrig.id, ghost.duration_sec - this.drag.trimOrig.duration_sec, 'end');
+          } else {
+            store.updateClip(this.drag.trimOrig.id, { duration_sec: ghost.duration_sec });
+          }
         }
         break;
       }
@@ -695,6 +761,11 @@ export class TimelineEngine {
       this.canvas.style.cursor = 'default';
       return;
     }
+    // C2: Alt 悬停音频/波形片段 → 增益拖拽光标
+    if (this.altKeyHeld && (hit.track.kind === 'audio' || hit.track.kind === 'waveform')) {
+      this.canvas.style.cursor = 'ns-resize';
+      return;
+    }
     const clipX = timeToX(hit.clip.start_sec, L);
     const clipW = hit.clip.duration_sec * L.zoom;
     if (x - clipX < TRIM_HANDLE_PX || clipX + clipW - x < TRIM_HANDLE_PX) {
@@ -790,7 +861,26 @@ export class TimelineEngine {
       this.markers.push({ time: t });
       this.markers.sort((a, b) => a.time - b.time);
       this.requestRender();
+      this.onMarkersChange?.(this.markers);
     }
+  }
+
+  /** M8: 从外部（store/项目加载）整体设置标记列表。 */
+  setMarkers(markers: Marker[]) {
+    this.markers = (markers ?? [])
+      .map((m) => ({ time: Math.max(0, m.time), name: m.name ?? '' }))
+      .sort((a, b) => a.time - b.time);
+    this.requestRender();
+  }
+
+  /** M8: 重命名标记（按 time 定位，不改变时间点）。 */
+  renameMarker(time: number, name: string) {
+    const m = this.markers.find((x) => Math.abs(x.time - time) < 0.01);
+    if (!m) return false;
+    m.name = name ?? '';
+    this.requestRender();
+    this.onMarkersChange?.(this.markers);
+    return true;
   }
 
   /** Remove the marker nearest to the playhead (within 0.5s). */
@@ -805,12 +895,14 @@ export class TimelineEngine {
     if (bestIdx >= 0) {
       this.markers.splice(bestIdx, 1);
       this.requestRender();
+      this.onMarkersChange?.(this.markers);
     }
   }
 
   clearMarkers() {
     this.markers = [];
     this.requestRender();
+    this.onMarkersChange?.(this.markers);
   }
 
   /** Jump to the next marker after the playhead. */
@@ -966,12 +1058,27 @@ export class TimelineEngine {
     this.canvas.addEventListener('pointermove', this.onPointerMove);
     this.canvas.addEventListener('pointerup', this.onPointerUp);
     this.canvas.addEventListener('pointercancel', this.onPointerCancel);
+    // C2: 跟踪 Alt 键（悬停音频片段时切换增益光标）
+    this._keyHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Alt') {
+        this.altKeyHeld = e.type === 'keydown';
+        this.requestRender();
+      }
+    };
+    window.addEventListener('keydown', this._keyHandler);
+    window.addEventListener('keyup', this._keyHandler);
+    this._keyUnsubs = [
+      () => window.removeEventListener('keydown', this._keyHandler!),
+      () => window.removeEventListener('keyup', this._keyHandler!),
+    ];
   }
   private removePointerEvents() {
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
     this.canvas.removeEventListener('pointermove', this.onPointerMove);
     this.canvas.removeEventListener('pointerup', this.onPointerUp);
     this.canvas.removeEventListener('pointercancel', this.onPointerCancel);
+    this._keyUnsubs?.forEach((u) => u());
+    this._keyUnsubs = null;
   }
   private bindWheelEvent() {
     this.canvas.addEventListener('wheel', this.onWheel, { passive: false });

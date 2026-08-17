@@ -1,4 +1,5 @@
 import { getApiClient } from './client';
+import { apiBase } from './sse';
 import type {
   Asset,
   AssetUploadResponse,
@@ -94,6 +95,33 @@ export const assetApi = {
       project_id: projectId || '',
     });
     return data;
+  },
+
+  /** M9: 从素材库移除（仅移除条目与软链接，保留原始文件） */
+  async remove(assetId: string, projectId?: string) {
+    const { data } = await getApiClient().delete(`/api/asset/${assetId}`, {
+      params: { project_id: projectId || '' },
+    });
+    return data;
+  },
+
+  /** W14: 获取单个素材详情 */
+  async get(assetId: string, projectId?: string): Promise<Asset> {
+    const params: Record<string, string> = {};
+    if (projectId) params.project_id = projectId;
+    const { data } = await getApiClient().get(`/api/asset/${assetId}`, { params });
+    return mapAsset(data as Record<string, unknown>);
+  },
+
+  /** W14: 素材文件 URL（列表/预览用；thumbnail 同理走 /{id}/thumbnail） */
+  fileUrl(assetId: string, projectId?: string): string {
+    const q = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+    return `${apiBase()}/api/asset/${assetId}/file${q}`;
+  },
+
+  /** W14: by-path 白名单媒体代理 URL（resolveMediaUrl 内部已使用，客户端补全封装） */
+  byPathUrl(path: string): string {
+    return `${apiBase()}/api/asset/by-path?path=${encodeURIComponent(path)}`;
   },
 
   /** Search materials (semantic) */

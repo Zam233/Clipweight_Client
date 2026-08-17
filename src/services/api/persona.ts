@@ -1,5 +1,5 @@
 import { getApiClient } from './client';
-import type { Persona } from '@/types/persona';
+import { personaFromBackend, type Persona } from '@/types/persona';
 
 export const personaApi = {
   /** List all persona IDs */
@@ -18,10 +18,10 @@ export const personaApi = {
       .map((r) => r.value);
   },
 
-  /** Get a single persona */
+  /** Get a single persona（P0-5: 后端规范字段 → 前端 UI 模型映射） */
   async get(personaId: string) {
     const { data } = await getApiClient().get(`/api/persona/${personaId}`);
-    return data as Persona;
+    return personaFromBackend(data as Record<string, unknown>);
   },
 
   /** Create a new persona */
@@ -42,6 +42,41 @@ export const personaApi = {
     return data;
   },
 
+  // ── P10: 复制 / 派生 / 导出 / 导入 ──
+
+  /** Duplicate a persona (new id, inherits all params/prompt/knowledge) */
+  async duplicate(personaId: string) {
+    const { data } = await getApiClient().post(`/api/persona/${personaId}/duplicate`);
+    return personaFromBackend(data as Record<string, unknown>);
+  },
+
+  /** Derive a persona from base + adjustments */
+  async derive(basePersonaId: string, adjustments: string, newPersonaId?: string, newPersonaName?: string) {
+    const { data } = await getApiClient().post('/api/persona/derive', {
+      base_persona_id: basePersonaId,
+      new_persona_id: newPersonaId,
+      new_persona_name: newPersonaName,
+      adjustments,
+    });
+    return personaFromBackend(data as Record<string, unknown>);
+  },
+
+  /** Export a persona as JSON */
+  async export(personaId: string) {
+    const { data } = await getApiClient().get(`/api/persona/${personaId}/export`);
+    return data as { persona: Record<string, unknown>; version: string };
+  },
+
+  /** Import a persona from exported JSON */
+  async importPersona(persona: Record<string, unknown>, newPersonaId?: string, newPersonaName?: string) {
+    const { data } = await getApiClient().post('/api/persona/import', {
+      persona,
+      new_persona_id: newPersonaId,
+      new_persona_name: newPersonaName,
+    });
+    return personaFromBackend(data as Record<string, unknown>);
+  },
+
   // ── Knowledge / RAG ──
 
   /** Upload knowledge document for a persona (auto-indexed by backend) */
@@ -57,6 +92,33 @@ export const personaApi = {
   async getKnowledge(personaId: string) {
     const { data } = await getApiClient().get(`/api/persona/${personaId}/knowledge`);
     return data as Array<{ id: string; title?: string; content: string; source?: string; created_at?: string }>;
+  },
+
+  /** Rename/replace a knowledge document */
+  async updateKnowledgeDoc(personaId: string, docId: string, doc: { title?: string; content?: string }) {
+    const { data } = await getApiClient().put(
+      `/api/persona/${personaId}/knowledge/${docId}`,
+      { id: docId, title: doc.title ?? '', content: doc.content ?? '' },
+    );
+    return data as { status: string; doc_id: string };
+  },
+
+  /** Delete a knowledge document */
+  async deleteKnowledgeDoc(personaId: string, docId: string) {
+    const { data } = await getApiClient().delete(`/api/persona/${personaId}/knowledge/${docId}`);
+    return data as { status: string; doc_id: string };
+  },
+
+  /** B16: 上报一次编辑事件（PersonaLearner 学习偏好） */
+  async learn(personaId: string, action: string, params: Record<string, unknown>) {
+    const { data } = await getApiClient().post(`/api/persona/${personaId}/learn`, { action, params });
+    return data as { status: string; persona_id: string; edit_count: number };
+  },
+
+  /** B16: 读取学习器偏好统计 */
+  async learnStats(personaId: string) {
+    const { data } = await getApiClient().get(`/api/persona/${personaId}/learn/stats`);
+    return data as { persona_id: string; edit_count: number; preferences: Record<string, unknown> };
   },
 
   /** Run RAG query against a persona's knowledge base */

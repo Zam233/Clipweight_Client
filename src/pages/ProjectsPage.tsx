@@ -5,7 +5,7 @@ import { ProjectCard, type ProjectCardData } from '@/components/shared/ProjectCa
 import { Badge } from '@/components/ui';
 import {
   Film, ArrowLeft, Search, FolderOpen, Folder, X, Plus,
-  Loader2, PackageOpen, Tag,
+  Loader2, PackageOpen, Tag, Trash2, RotateCcw, ChevronLeft,
 } from 'lucide-react';
 import { fmtDur, relTime } from '@/lib/utils';
 import { toast } from '@/stores/toastStore';
@@ -25,9 +25,13 @@ export function ProjectsPage() {
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null); // null=全部, ''=未分组, else name
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState<'updated' | 'name'>('updated'); // A1
 
   const [newFolderPrompt, setNewFolderPrompt] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  // A2: 回收站视图
+  const [showTrash, setShowTrash] = useState(false);
+  const [trashProjects, setTrashProjects] = useState<ProjectCardData[]>([]);
 
   /* ── load projects (reusable) ─────────────────────── */
   const loadProjects = async () => {
@@ -50,6 +54,30 @@ export function ProjectsPage() {
       );
     } catch {
       setError('后端未连接，无法加载项目');
+    }
+  };
+
+  /* A2: 加载回收站项目 */
+  const loadTrash = async () => {
+    try {
+      const data = await projectApi.list(undefined, undefined, true);
+      setTrashProjects(
+        data.map((pr, i) => ({
+          id: pr.id,
+          name: pr.name,
+          type: pr.plugin_id ?? '—',
+          duration: fmtDur(pr.duration_sec ?? 0),
+          tracks: pr.track_count ?? 0,
+          edited: relTime(pr.updated_at),
+          grad: GRADIENTS[i % GRADIENTS.length],
+          featured: i === 0,
+          folder: pr.folder,
+          tags: pr.tags,
+          thumbnail: pr.has_thumbnail ? projectApi.getThumbnailUrl(pr.id, pr.updated_at) : undefined,
+        })),
+      );
+    } catch {
+      setError('后端未连接，无法加载回收站');
     }
   };
 
@@ -86,22 +114,63 @@ export function ProjectsPage() {
       const q = search.trim().toLowerCase();
       list = list.filter((p) => p.name.toLowerCase().includes(q) || p.type.toLowerCase().includes(q));
     }
-    return list;
-  }, [projects, selectedFolder, selectedTag, search]);
+    // A1: 排序（最近编辑默认 / 名称）
+    const arr = [...list];
+    if (sortBy === 'name') {
+      arr.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+    } else {
+      arr.sort((a, b) => String(b.edited ?? '').localeCompare(String(a.edited ?? '')));
+    }
+    return arr;
+  }, [projects, selectedFolder, selectedTag, search, sortBy]);
 
   /* ── actions ───────────────────────────────────────── */
   const handleOpen = (proj: ProjectCardData) => {
     navigate({ to: '/editor/$projectId', params: { projectId: proj.id } });
   };
 
+  // A2: 删除 = 移入回收站（软删除，可恢复）
   const handleDelete = async (proj: ProjectCardData) => {
     try {
-      await projectApi.remove(proj.id);
+      await projectApi.trashProject(proj.id);
       setProjects((prev) => prev.filter((p) => p.id !== proj.id));
+      toast(`「${proj.name}」已移入回收站`, 'success');
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       toast(`删除失败：${reason}，项目已保留`, 'error');
     }
+  };
+
+  const handleRestore = async (proj: ProjectCardData) => {
+    try {
+      await projectApi.restoreProject(proj.id);
+      setTrashProjects((prev) => prev.filter((p) => p.id !== proj.id));
+      toast(`「${proj.name}」已恢复`, 'success');
+      await loadProjects();
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      toast(`恢复失败：${reason}`, 'error');
+    }
+  };
+
+  const handlePurge = async (proj: ProjectCardData) => {
+    if (!window.confirm(`永久删除「${proj.name}」？此操作不可恢复。`)) return;
+    try {
+      await projectApi.purgeProject(proj.id);
+      setTrashProjects((prev) => prev.filter((p) => p.id !== proj.id));
+      toast(`「${proj.name}」已永久删除`, 'success');
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      toast(`永久删除失败：${reason}`, 'error');
+    }
+  };
+
+  const handleToggleTrash = () => {
+    setShowTrash((prev) => {
+      const next = !prev;
+      if (next) loadTrash();
+      return next;
+    });
   };
 
   const handleRename = async (proj: ProjectCardData, name: string) => {
@@ -137,6 +206,16 @@ export function ProjectsPage() {
       await projectApi.duplicate(proj.id);
       await loadProjects();
     } catch { toast('复制项目失败', 'error'); }
+  };
+
+  // P8: 导出项目归档 zip
+  const handleArchive = async (proj: ProjectCardData) => {
+    try {
+      await projectApi.archive(proj.id, proj.name);
+      toast(`已导出归档「${proj.name}」`, 'success');
+    } catch {
+      toast('导出归档失败（后端离线）', 'error');
+    }
   };
 
   const handleRefreshThumbnail = (proj: ProjectCardData) => {
@@ -191,6 +270,16 @@ export function ProjectsPage() {
           <p className="font-mono text-caption text-on-surface-variant tracking-[0.2em]">MY PROJECTS</p>
         </div>
         <Badge variant="default" className="ml-2">{filtered.length} 个项目</Badge>
+        {/* A2: 回收站切换 */}
+        <button onClick={handleToggleTrash}
+          className={`ml-3 flex items-center gap-1.5 px-3 py-1.5 rounded-cw-sm text-label-sm transition-colors cursor-pointer ${
+            showTrash
+              ? 'bg-primary/10 text-primary'
+              : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
+          }`}>
+          {showTrash ? <ChevronLeft className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
+          {showTrash ? '返回项目' : '回收站'}
+        </button>
         <button onClick={() => navigate({ to: '/' })}
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-cw-sm text-label-sm text-on-surface-variant
             hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer">
@@ -261,10 +350,59 @@ export function ProjectsPage() {
                 </button>
               )}
             </div>
+            {/* A1: 排序 */}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as 'updated' | 'name')}
+              className="bg-surface-container border border-outline-variant/30 rounded-cw-sm px-2 py-1.5 text-caption text-on-surface outline-none cursor-pointer"
+              aria-label="排序方式"
+            >
+              <option value="updated">最近编辑</option>
+              <option value="name">名称</option>
+            </select>
           </div>
 
           {/* project grid */}
-          {loading ? (
+          {showTrash ? (
+            <div>
+              <div className="flex items-center gap-2 mb-4">
+                <Trash2 className="w-4 h-4 text-on-surface-variant" />
+                <p className="text-body-sm text-on-surface-variant">回收站 — 删除的项目可在此恢复或永久清除</p>
+              </div>
+              {trashProjects.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                  <Trash2 className="w-12 h-12 text-on-surface-variant/40" />
+                  <p className="text-body-sm text-on-surface-variant">回收站为空</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-12 gap-4">
+                  {trashProjects.map((proj) => (
+                    <div key={proj.id}
+                      className="col-span-12 sm:col-span-6 lg:col-span-4 flex items-center gap-3
+                        bg-surface-container border border-outline-variant/30 rounded-cw-md p-3
+                        hover:border-outline-variant/60 transition-colors">
+                      <div className="w-14 h-9 rounded-cw-sm shrink-0 overflow-hidden"
+                        style={{ background: `linear-gradient(120deg, ${proj.grad[0]}55, ${proj.grad[1]}44)` }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-body-sm font-medium text-on-surface truncate">{proj.name}</p>
+                        <p className="text-caption text-on-surface-variant font-mono">{proj.edited} · {proj.tracks} 轨</p>
+                      </div>
+                      <button onClick={() => handleRestore(proj)} title="恢复"
+                        className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
+                        aria-label={`恢复 ${proj.name}`}>
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => handlePurge(proj)} title="永久删除"
+                        className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-error transition-colors cursor-pointer"
+                        aria-label={`永久删除 ${proj.name}`}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : loading ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3">
               <Loader2 className="w-6 h-6 text-primary animate-spin" />
               <span className="text-caption text-on-surface-variant">加载中…</span>
@@ -301,6 +439,7 @@ export function ProjectsPage() {
                   onRemoveTag={(tag) => handleRemoveTag(proj, tag)}
                   onDuplicate={() => handleDuplicate(proj)}
                   onRefreshThumbnail={() => handleRefreshThumbnail(proj)}
+                  onArchive={() => handleArchive(proj)}
                 />
               ))}
             </div>

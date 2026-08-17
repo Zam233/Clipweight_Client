@@ -56,6 +56,10 @@ export interface Clip {
   blend_mode?: string | null;
   enabled?: boolean;
   eq_preset?: string | null;
+  /** M6: 音频淡入时长（秒），仅 audio/waveform 使用 */
+  audio_fade_in_sec?: number | null;
+  /** M6: 音频淡出时长（秒），仅 audio/waveform 使用 */
+  audio_fade_out_sec?: number | null;
   label_color?: string | null;
   notes?: string | null;
 
@@ -69,6 +73,14 @@ export interface Clip {
   // Layout (video / image only)
   image_fit?: ImageFit | null;
   image_rect?: { x: number; y: number; w: number; h: number } | null;
+
+  // M4: 蒙版（video / image only，预览裁剪到形状内）
+  mask_type?: 'none' | 'rect' | 'ellipse' | null;
+  /** 归一化蒙版矩形 {x, y, w, h}，各值 0-1 */
+  mask_rect?: { x: number; y: number; w: number; h: number } | null;
+
+  /** C3: 嵌套序列 — 片段内嵌子时间线，预览递归合成 */
+  nested_timeline?: Timeline | null;
 
   // Text content (text / caption only)
   text?: string | null;
@@ -108,6 +120,9 @@ export interface Clip {
 
   // Extension metadata
   metadata: Record<string, unknown>;
+
+  /** M2: 编组 ID — 同组片段一起移动/删除 */
+  group_id?: string | null;
 }
 
 /** A timeline track */
@@ -119,6 +134,8 @@ export interface Track {
   clips: Clip[];
   locked: boolean;
   muted: boolean;
+  /** M7: 隐藏轨道（时间轴与预览均跳过渲染） */
+  hidden?: boolean;
 }
 
 /** Complete timeline — unified format for Agent output and editor */
@@ -129,6 +146,14 @@ export interface Timeline {
   fps: number;
   duration_sec: number;
   tracks: Track[];
+  /** M8: 时间轴标记（持久化 + 命名） */
+  markers?: TimelineMarker[];
+}
+
+/** M8: 时间轴标记 */
+export interface TimelineMarker {
+  time: number;
+  name?: string;
 }
 
 /** Create an empty timeline with defaults */
@@ -140,6 +165,7 @@ export function createEmptyTimeline(id = ''): Timeline {
     fps: 30,
     duration_sec: 0,
     tracks: [],
+    markers: [],
   };
 }
 
@@ -160,6 +186,8 @@ export function createDefaultClip(
     label_color: null,
     notes: null,
     eq_preset: null,
+    audio_fade_in_sec: null,
+    audio_fade_out_sec: null,
     fx_brightness: null,
     fx_contrast: null,
     fx_saturation: null,
@@ -167,6 +195,9 @@ export function createDefaultClip(
     fx_hue: null,
     image_fit: null,
     image_rect: null,
+    mask_type: null,
+    mask_rect: null,
+    nested_timeline: null,
     text: null,
     font: null,
     font_size: null,
@@ -192,6 +223,7 @@ export function createDefaultClip(
     bar_width: null,
     keyframes: [],
     metadata: {},
+    group_id: null,
     ...overrides,
   };
 }

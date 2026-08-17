@@ -11,13 +11,20 @@ import {
   ANIMATION_PRESETS, presetKeyframes, backendPresetsToPresets,
   type AnimationPreset, type BackendAnimationDef,
 } from './animationPresets';
-import { animationApi } from '@/services/api';
+import { animationApi, personaApi } from '@/services/api';
 import { shouldPush } from './historyCoalesce';
 import { sectionsForKind } from './sectionsForKind';
+import { useProjectStore } from '@/stores/projectStore';
+import {
+  extractCopyableAttributes, filterFieldsForKind,
+  useClipAttributeClipboard,
+} from './clipAttributeClipboard';
+import { toast } from '@/stores/toastStore';
 import type { Clip, ClipKind } from '@/types/timeline';
 import {
   SlidersHorizontal, Type, Diamond, Plus, Trash2, ChevronLeft, ChevronRight,
   Move, RotateCcw, Wand2, Eye, EyeOff, Shapes, BarChart3, Image as ImageIcon,
+  Copy, ClipboardPaste, Gauge, X, Layers2, UnfoldVertical,
 } from 'lucide-react';
 
 // Coalesce rapid history pushes (slider drag / number input / typing) into a single
@@ -76,6 +83,13 @@ export function PropertiesPanel() {
     }
   };
 
+  // B16: 编辑事件上报 — 有活跃 Persona 时向 PersonaLearner 学习偏好（fire-and-forget）
+  const personaId = useProjectStore((s) => s.personaId);
+  const reportLearn = (action: string, params: Record<string, unknown>) => {
+    if (!personaId) return;
+    personaApi.learn(personaId, action, params).catch(() => {});
+  };
+
   // Style edits cascade to every clip on the same caption layer (ONE history point);
   // text clips keep per-clip updateClip.
   const applyStyle = (updates: Partial<Clip>) => {
@@ -87,7 +101,52 @@ export function PropertiesPanel() {
     }
   };
 
+  // M3: 跨项目复制/粘贴属性
+  const { set: setClipboard, fields: clipboardFields, sourceKind } = useClipAttributeClipboard();
+  const hasClipboardAttrs = clipboardFields !== null && Object.keys(clipboardFields).length > 0;
+  const handleCopyAttributes = () => {
+    if (!clip) return;
+    setClipboard(extractCopyableAttributes(clip), trackKind as ClipKind);
+    toast('属性已复制', 'success');
+  };
+
+  const handlePasteAttributes = () => {
+    if (!clip || !clipboardFields) return;
+    const fields = filterFieldsForKind(clipboardFields, trackKind as ClipKind);
+    const entries = Object.entries(fields);
+    if (entries.length === 0) {
+      toast('没有可粘贴的兼容属性（类型不匹配）', 'info');
+      return;
+    }
+    // 全量 set：单片段用 updateClip，多选批量更新（沿用既有 set 语义）
+    set(Object.fromEntries(entries) as Partial<Clip>);
+    toast(`已粘贴 ${entries.length} 项属性`, 'success');
+  };
+
+  // C3: 嵌套序列 — 多选时折叠为嵌套片段；单选嵌套片段时可展开
+  const handleCreateNested = () => {
+    if (selectedClipIds.length < 2) return;
+    pushHistory();
+    const created = useTimelineStore.getState().createNestedSequence(selectedClipIds);
+    if (created) {
+      useSelectionStore.setState({ selectedClipIds: [created] });
+      toast('已创建嵌套序列', 'success');
+    } else {
+      toast('创建嵌套序列失败（需要 ≥2 个片段）', 'error');
+    }
+  };
+
+  const handleExpandNested = () => {
+    if (!clip?.nested_timeline) return;
+    pushHistory();
+    useTimelineStore.getState().expandNestedSequence(clip.id);
+    toast('已展开嵌套序列', 'success');
+  };
+
   const color = TRACK_COLORS[trackKind as keyof typeof TRACK_COLORS] ?? '#4F8CFF';
+
+  // M6: 音频类轨道（audio/waveform）显示增益与淡入淡出
+  const isAudioLike = trackKind === 'audio' || trackKind === 'waveform';
 
   // 按素材类型决定渲染哪些分区（sectionsForKind 为单一事实来源）
   const sections = clip ? sectionsForKind(trackKind as ClipKind) : [];
@@ -103,6 +162,44 @@ export function PropertiesPanel() {
           <span className="text-caption text-on-surface-variant/60 ml-auto truncate">
             {trackName}
           </span>
+        )}
+        {/* M3: 跨项目复制/粘贴属性 */}
+        {clip && (
+          <div className="flex items-center gap-0.5 ml-1 shrink-0">
+            <Tooltip content="复制属性 (Ctrl+Shift+C)">
+              <button onClick={handleCopyAttributes}
+                className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
+                aria-label="复制属性">
+                <Copy className="w-3.5 h-3.5" />
+              </button>
+            </Tooltip>
+            <Tooltip content={hasClipboardAttrs ? '粘贴属性 (Ctrl+Shift+V)' : '无复制的属性'}>
+              <button onClick={handlePasteAttributes} disabled={!hasClipboardAttrs}
+                className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-primary disabled:opacity-30 disabled:cursor-default transition-colors cursor-pointer"
+                aria-label="粘贴属性">
+                <ClipboardPaste className="w-3.5 h-3.5" />
+              </button>
+            </Tooltip>
+            {/* C3: 嵌套序列 — 多选折叠 / 单选嵌套片段展开 */}
+            {selectedClipIds.length > 1 && (
+              <Tooltip content={`折叠 ${selectedClipIds.length} 个片段为嵌套序列`}>
+                <button onClick={handleCreateNested}
+                  className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-tertiary transition-colors cursor-pointer"
+                  aria-label="创建嵌套序列">
+                  <Layers2 className="w-3.5 h-3.5" />
+                </button>
+              </Tooltip>
+            )}
+            {clip?.nested_timeline && selectedClipIds.length === 1 && (
+              <Tooltip content="展开嵌套序列">
+                <button onClick={handleExpandNested}
+                  className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-tertiary transition-colors cursor-pointer"
+                  aria-label="展开嵌套序列">
+                  <UnfoldVertical className="w-3.5 h-3.5" />
+                </button>
+              </Tooltip>
+            )}
+          </div>
         )}
       </div>
 
@@ -176,9 +273,22 @@ export function PropertiesPanel() {
             {/* Playback */}
             <Section title="播放">
               <Slider label="速度" min={0.25} max={4} step={0.25} value={clip.speed}
-                onChange={(v) => { pushHistory(); set({ speed: v }); }} />
-              <Slider label="音量" min={0} max={1} step={0.05} value={round2(clip.volume)}
+                onChange={(v) => { pushHistory(); reportLearn('change_video_speed', { speed: v }); set({ speed: v }); }} />
+              {/* M6: 音频增益 — 音量 0-200%（增益可 >100%） */}
+              <Slider label={isAudioLike ? `增益 ${Math.round(clip.volume * 100)}%` : '音量'}
+                min={0} max={isAudioLike ? 2 : 1} step={0.05} value={round2(clip.volume)}
                 onChange={(v) => { pushHistory(); set({ volume: v }); }} />
+              {/* M6: 音频淡入淡出 */}
+              {isAudioLike && (
+                <>
+                  <Slider label="淡入 (s)" min={0} max={fadeMaxSec(clip.duration_sec)} step={0.1}
+                    value={round2(clip.audio_fade_in_sec ?? 0)}
+                    onChange={(v) => { pushHistory(); set({ audio_fade_in_sec: v > 0 ? v : null }); }} />
+                  <Slider label="淡出 (s)" min={0} max={fadeMaxSec(clip.duration_sec)} step={0.1}
+                    value={round2(clip.audio_fade_out_sec ?? 0)}
+                    onChange={(v) => { pushHistory(); set({ audio_fade_out_sec: v > 0 ? v : null }); }} />
+                </>
+              )}
               {trackKind === 'audio' && (
                 <Row label="预设">
                   <select
@@ -368,10 +478,10 @@ export function PropertiesPanel() {
             {/* Transitions */}
             <Section title="转场">
               <Row label="入场">
-                <TransitionSelect value={clip.transition_in ?? ''} onChange={(v) => { pushHistory(); set({ transition_in: v || null }); }} />
+                <TransitionSelect value={clip.transition_in ?? ''} onChange={(v) => { pushHistory(); reportLearn('apply_transition', { transition_type: v || 'hard_cut' }); set({ transition_in: v || null }); }} />
               </Row>
               <Row label="出场">
-                <TransitionSelect value={clip.transition_out ?? ''} onChange={(v) => { pushHistory(); set({ transition_out: v || null }); }} />
+                <TransitionSelect value={clip.transition_out ?? ''} onChange={(v) => { pushHistory(); reportLearn('apply_transition', { transition_type: v || 'hard_cut' }); set({ transition_out: v || null }); }} />
               </Row>
               {clip.transition_in && (
                 <Slider label="转场时长" min={0.1} max={2} step={0.1} value={round2(clip.transition_duration_sec ?? 0.5)}
@@ -679,7 +789,52 @@ function ImageSection({ clip, pushHistory, set }: {
       >
         <RotateCcw className="w-3 h-3" /> 重置裁切区域
       </button>
+
+      {/* M4: 蒙版 */}
+      <div className="pt-2 border-t border-outline-variant/20">
+        <p className="text-label font-medium text-on-surface-variant mb-2">蒙版</p>
+        <Row label="类型">
+          <select
+            value={clip.mask_type ?? 'none'}
+            onChange={(e) => { pushHistory(); set({ mask_type: (e.target.value || 'none') as Clip['mask_type'] }); }}
+            className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
+              outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+          >
+            <option value="none">无</option>
+            <option value="rect">矩形</option>
+            <option value="ellipse">椭圆</option>
+          </select>
+        </Row>
+        {clip.mask_type && clip.mask_type !== 'none' && (
+          <MaskRectEditor clip={clip} pushHistory={pushHistory} set={set} />
+        )}
+      </div>
     </Section>
+  );
+}
+
+/** M4: 蒙版矩形编辑（归一化 x/y/w/h，四个滑杆）。 */
+function MaskRectEditor({ clip, pushHistory, set }: {
+  clip: Clip;
+  pushHistory: () => void;
+  set: (u: Partial<Clip>) => void;
+}) {
+  const r = clip.mask_rect ?? { x: 0, y: 0, w: 1, h: 1 };
+  const patch = (p: Partial<{ x: number; y: number; w: number; h: number }>) => {
+    pushHistory();
+    set({ mask_rect: { ...r, ...p } });
+  };
+  return (
+    <div className="space-y-2 pt-1">
+      <Slider label="X" min={0} max={1} step={0.01} value={round2(r.x)}
+        onChange={(v) => patch({ x: Math.min(v, 1 - r.w) })} />
+      <Slider label="Y" min={0} max={1} step={0.01} value={round2(r.y)}
+        onChange={(v) => patch({ y: Math.min(v, 1 - r.h) })} />
+      <Slider label="宽" min={0.05} max={1} step={0.01} value={round2(r.w)}
+        onChange={(v) => patch({ w: Math.min(v, 1 - r.x) })} />
+      <Slider label="高" min={0.05} max={1} step={0.01} value={round2(r.h)}
+        onChange={(v) => patch({ h: Math.min(v, 1 - r.y) })} />
+    </div>
   );
 }
 
@@ -690,6 +845,7 @@ function ImageSection({ clip, pushHistory, set }: {
 function KeyframeEditor({ clip }: { clip: Clip }) {
   const addKeyframe = useTimelineStore((s) => s.addKeyframe);
   const removeKeyframe = useTimelineStore((s) => s.removeKeyframe);
+  const updateKeyframe = useTimelineStore((s) => s.updateKeyframe);
   const updateClip = useTimelineStore((s) => s.updateClip);
   const currentTimeSec = usePreviewStore((s) => s.currentTimeSec);
   const setCurrentTime = usePreviewStore((s) => s.setCurrentTime);
@@ -714,6 +870,28 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
     addKeyframe(clip.id, Math.round(localT * 1000) / 1000, snapshotProps);
   };
 
+  // M5: 时间重映射 — 添加「速度」关键帧（预览层变速；无已有速度关键帧时以当前 clip.speed 为基准）
+  const addSpeedAtPlayhead = () => {
+    if (!inClip) return;
+    pushHistory();
+    const cur = interpolateProperties(clip.keyframes, localT);
+    const speedVal = cur.speed ?? clip.speed;
+    addKeyframe(clip.id, Math.round(localT * 1000) / 1000, { speed: speedVal });
+  };
+
+  // M5: 移除指定时间的 speed 属性（回退为静态 clip.speed）
+  const removeSpeedAt = (time: number) => {
+    pushHistory();
+    const kfs = clip.keyframes.map((k) => {
+      if (Math.abs(k.time - time) < 0.001) {
+        const { speed: _s, ...rest } = k.properties;
+        return { ...k, properties: rest };
+      }
+      return k;
+    });
+    updateClip(clip.id, { keyframes: kfs });
+  };
+
   const removeAt = (time: number) => {
     pushHistory();
     removeKeyframe(clip.id, time);
@@ -723,6 +901,12 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
     pushHistory();
     const kfs = clip.keyframes.map((k) => (Math.abs(k.time - time) < 0.001 ? { ...k, easing } : k));
     updateClip(clip.id, { keyframes: kfs });
+  };
+
+  // W4: 关键帧属性值编辑（合并更新单个属性）
+  const setProperty = (time: number, prop: string, value: number) => {
+    pushHistory();
+    updateKeyframe(clip.id, time, { [prop]: value });
   };
 
   const jumpTo = (dir: 1 | -1) => {
@@ -762,6 +946,19 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
         </button>
       </div>
 
+      {/* M5: 时间重映射 — 速度关键帧 */}
+      <button
+        onClick={addSpeedAtPlayhead}
+        disabled={!inClip}
+        className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-cw-xs
+          bg-surface-container text-on-surface-variant text-label-sm font-medium border border-outline-variant/30
+          hover:text-primary hover:border-primary/40 disabled:opacity-30 transition-colors cursor-pointer"
+        title="在播放头添加速度关键帧（预览层时间重映射）"
+      >
+        <Gauge className="w-3.5 h-3.5" />
+        {inClip ? '添加速度关键帧 (变速)' : '播放头不在片段内'}
+      </button>
+
       {clip.keyframes.length === 0 ? (
         <p className="text-label-sm text-on-surface-variant leading-relaxed">
           无关键帧。将播放头移到片段内，点击「添加」记录当前属性值，即可创建动画。
@@ -787,6 +984,41 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
               >
                 {EASING_NAMES.map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
+              {/* W4: 属性值编辑（opacity/speed/scale/position 等数值直接改） */}
+              {Object.entries(kf.properties).length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap shrink-0 max-w-[140px]">
+                  {Object.entries(kf.properties).map(([prop, val]) => (
+                    <label key={prop} className="flex items-center gap-0.5 text-caption font-mono text-on-surface-variant"
+                      title={`${prop} = ${val}`}>
+                      <span className="text-[10px] uppercase">{shortPropLabel(prop)}</span>
+                      <input
+                        type="number"
+                        step="0.05"
+                        value={Math.round(val * 100) / 100}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          if (Number.isFinite(n)) setProperty(kf.time, prop, n);
+                        }}
+                        className="w-12 bg-surface rounded-cw-xs px-1 py-0.5 text-caption font-mono text-on-surface
+                          outline-none border border-outline-variant/30 focus:border-primary"
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+              {/* M5: 显示速度属性，可单独删除 */}
+              {kf.properties.speed !== undefined && (
+                <span className="shrink-0 flex items-center gap-1 text-caption font-mono text-track-video"
+                  title="速度关键帧（时间重映射）">
+                  <Gauge className="w-3 h-3" />
+                  {round2(kf.properties.speed)}×
+                  <button onClick={() => removeSpeedAt(kf.time)}
+                    className="p-0.5 rounded text-on-surface-variant/50 hover:text-error transition-colors cursor-pointer"
+                    title="移除速度关键帧">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
               <button
                 onClick={() => removeAt(kf.time)}
                 className="p-1 rounded-cw-xs text-on-surface-variant hover:text-error opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
@@ -936,4 +1168,18 @@ function clipLabel(clip: Clip, kind: string): string {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** W4: 关键帧属性名缩写（position_x → x 等）。 */
+function shortPropLabel(prop: string): string {
+  const map: Record<string, string> = {
+    opacity: 'op', speed: 'sp', scale: 'sc', rotation: 'rot',
+    position_x: 'x', position_y: 'y', fx_brightness: 'br', fx_contrast: 'ct',
+  };
+  return map[prop] ?? prop.replace('position_', '').slice(0, 4);
+}
+
+/** M6: 淡入/淡出滑块上限 = 片段时长（至少 0.1s），避免越过片段边界。 */
+function fadeMaxSec(durationSec: number): number {
+  return Math.max(0.1, Math.round(durationSec * 100) / 100);
 }

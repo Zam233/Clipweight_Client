@@ -1,4 +1,5 @@
 import { getApiClient } from './client';
+import { apiBase } from './sse';
 import type { Project, ProjectSummary, ProjectSaveRequest, HealthResponse, AnimationDef } from '@/types/api';
 
 export const projectApi = {
@@ -21,12 +22,46 @@ export const projectApi = {
   },
 
   /** List all projects (returns summaries, not full timeline) */
-  async list(folder?: string, tag?: string) {
+  async list(folder?: string, tag?: string, trash = false) {
     const params: Record<string, string> = {};
     if (folder) params.folder = folder;
     if (tag) params.tag = tag;
+    if (trash) params.trash = '1'; // A2: 回收站视图
     const { data } = await getApiClient().get<ProjectSummary[]>('/api/project', { params });
     return data;
+  },
+
+  /** A2: 移入回收站（软删除，可恢复） */
+  async trashProject(projectId: string) {
+    const { data } = await getApiClient().post(`/api/project/${projectId}/trash`);
+    return data;
+  },
+
+  /** A2: 从回收站恢复 */
+  async restoreProject(projectId: string) {
+    const { data } = await getApiClient().post(`/api/project/${projectId}/restore`);
+    return data;
+  },
+
+  /** A2: 从回收站永久删除 */
+  async purgeProject(projectId: string) {
+    const { data } = await getApiClient().delete(`/api/project/${projectId}/trash`);
+    return data;
+  },
+
+  /** P8: 项目归档 zip 下载（project.json + 时间线引用的本地媒体） */
+  async archive(projectId: string, projectName = 'project') {
+    const resp = await getApiClient().get(`/api/project/${projectId}/archive`, {
+      responseType: 'blob',
+    });
+    const url = URL.createObjectURL(resp.data as Blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${projectName || projectId}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   },
 
   /** Delete a project */
@@ -61,15 +96,13 @@ export const projectApi = {
 
   /** Get thumbnail URL for a project */
   getThumbnailUrl(projectId: string, version?: string): string {
-    const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
     const v = encodeURIComponent(version || String(Date.now()));
-    return `${base}/api/project/${projectId}/thumbnail?v=${v}`;
+    return `${apiBase()}/api/project/${projectId}/thumbnail?v=${v}`;
   },
 
   /** Refresh (force-regenerate) thumbnail */
   refreshThumbnailUrl(projectId: string): string {
-    const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
-    return `${base}/api/project/${projectId}/thumbnail?force=1&v=${Date.now()}`;
+    return `${apiBase()}/api/project/${projectId}/thumbnail?force=1&v=${Date.now()}`;
   },
 
   /** Duplicate a project */
@@ -87,6 +120,43 @@ export const projectApi = {
   /** Delete a folder (unfile all its projects) */
   async deleteFolder(name: string) {
     const { data } = await getApiClient().post<{ updated: number }>('/api/project/folders/delete', { name });
+    return data;
+  },
+};
+
+/** G1: 项目时间线版本管理（版本历史 UI 接线后端 VersionManager API）。 */
+export interface TimelineVersionEntry {
+  version_id: string;
+  time: string;
+  label: string;
+  position: number;
+  is_current: boolean;
+}
+
+export const versionApi = {
+  /** 列出项目全部版本快照 */
+  async list(projectId: string) {
+    const { data } = await getApiClient().get<TimelineVersionEntry[]>(`/api/project/${projectId}/versions`);
+    return data;
+  },
+
+  /** 把当前时间线存为版本快照 */
+  async snapshot(projectId: string, label = '') {
+    const { data } = await getApiClient().post<{ version_id: string; count: number }>(
+      `/api/project/${projectId}/versions`, { label });
+    return data;
+  },
+
+  /** 恢复指定版本（写回项目 timeline） */
+  async restore(projectId: string, position: number) {
+    const { data } = await getApiClient().post<{ version_id: string; timeline: import('@/types/timeline').Timeline }>(
+      `/api/project/${projectId}/versions/${position}/restore`);
+    return data;
+  },
+
+  /** 清空全部版本快照 */
+  async clear(projectId: string) {
+    const { data } = await getApiClient().delete<{ deleted: boolean }>(`/api/project/${projectId}/versions`);
     return data;
   },
 };
@@ -122,6 +192,35 @@ export const pluginApi = {
   async unload(pluginId: string) {
     const { data } = await getApiClient().post(`/api/plugin/unload/${pluginId}`);
     return data;
+  },
+
+  /** M8: 启用插件（持久化 + 加载） */
+  async enable(pluginId: string) {
+    const { data } = await getApiClient().post(`/api/plugin/${pluginId}/enable`);
+    return data;
+  },
+
+  /** M8: 禁用插件（持久化 + 卸载） */
+  async disable(pluginId: string) {
+    const { data } = await getApiClient().post(`/api/plugin/${pluginId}/disable`);
+    return data;
+  },
+
+  /** M1: 已知权限白名单 */
+  async permissions() {
+    const { data } = await getApiClient().get('/api/plugin/permissions');
+    return data as { allowed: string[] };
+  },
+
+  /** M7: 插件错误通道 */
+  async errors(limit = 50) {
+    const { data } = await getApiClient().get(`/api/plugin/errors?limit=${limit}`);
+    return data as Array<{ plugin_id: string; phase: string; message: string; details: string; ts: number }>;
+  },
+
+  async clearErrors(pluginId?: string) {
+    const { data } = await getApiClient().delete(`/api/plugin/errors${pluginId ? `?plugin_id=${pluginId}` : ''}`);
+    return data as { status: string; removed: number };
   },
 
   async capabilities() {

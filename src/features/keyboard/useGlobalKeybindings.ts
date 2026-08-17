@@ -8,6 +8,12 @@ import { useProjectStore } from '@/stores/projectStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { uid } from '@/lib/utils';
 import { clipClipboard } from '@/features/timeline/components/EditorToolbar';
+import {
+  extractCopyableAttributes, filterFieldsForKind,
+  useClipAttributeClipboard,
+} from '@/features/properties/clipAttributeClipboard';
+import { toast } from '@/stores/toastStore';
+import type { Clip } from '@/types/timeline';
 
 export function useGlobalKeybindings() {
 
@@ -119,10 +125,45 @@ export function useGlobalKeybindings() {
       }
     };
 
-    const cutClips = () => {
+    // M3: 复制/粘贴属性（跨项目）
+    const copyAttributes = () => {
+      const store = useTimelineStore.getState();
+      const firstId = useSelectionStore.getState().selectedClipIds[0];
+      if (!firstId) return;
+      for (const tr of store.timeline.tracks) {
+        const c = tr.clips.find((cc) => cc.id === firstId);
+        if (c) {
+          useClipAttributeClipboard.getState().set(extractCopyableAttributes(c), c.kind as Clip['kind']);
+          toast('属性已复制', 'success');
+          return;
+        }
+      }
+    };
+
+    const pasteAttributes = () => {
+      const fields = useClipAttributeClipboard.getState().fields;
+      if (!fields) return;
+      const store = useTimelineStore.getState();
       const sel = useSelectionStore.getState().selectedClipIds;
       if (sel.length === 0) return;
-      const store = useTimelineStore.getState();
+      useHistoryStore.getState().pushState(store.timeline, 'paste-attrs');
+      for (const tr of store.timeline.tracks) {
+        for (const c of tr.clips) {
+          if (sel.includes(c.id)) {
+            const filtered = filterFieldsForKind(fields, c.kind as Clip['kind']);
+            const entries = Object.entries(filtered);
+            if (entries.length > 0) {
+              store.updateClip(c.id, Object.fromEntries(entries) as Partial<Clip>);
+            }
+          }
+        }
+      }
+      toast('属性已粘贴', 'success');
+    };
+
+    const cutClips = () => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      if (sel.length === 0) return;      const store = useTimelineStore.getState();
       const found: typeof clipClipboard.clips = [];
       for (const tr of store.timeline.tracks) {
         for (const c of tr.clips) {
@@ -244,6 +285,46 @@ export function useGlobalKeybindings() {
           store.trimClipEnd(cid, newEnd);
         }
       }
+    };
+
+    // M1: slip（Alt+←/→ 平移素材窗口）/ slide（Shift+Alt+←/→ 移动片段并补位）
+    const slipBy = (dir: 1 | -1) => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      const first = sel[0];
+      if (!first) return;
+      const store = useTimelineStore.getState();
+      const fps = store.timeline.fps || 30;
+      const frame = 1 / fps;
+      useHistoryStore.getState().pushState(store.timeline, 'slip');
+      sel.forEach((cid) => store.slipClip(cid, dir * frame));
+    };
+    const slideBy = (dir: 1 | -1) => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      const first = sel[0];
+      if (!first) return;
+      const store = useTimelineStore.getState();
+      const fps = store.timeline.fps || 30;
+      const frame = 1 / fps;
+      useHistoryStore.getState().pushState(store.timeline, 'slide');
+      sel.forEach((cid) => store.slideClip(cid, dir * frame));
+    };
+
+    // M2: 编组 / 解组
+    const groupSelected = () => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      if (sel.length < 2) return;
+      const store = useTimelineStore.getState();
+      useHistoryStore.getState().pushState(store.timeline, 'group');
+      store.groupClips(sel);
+      toast('已编组', 'success');
+    };
+    const ungroupSelected = () => {
+      const sel = useSelectionStore.getState().selectedClipIds;
+      if (sel.length === 0) return;
+      const store = useTimelineStore.getState();
+      useHistoryStore.getState().pushState(store.timeline, 'ungroup');
+      store.ungroupClips(sel);
+      toast('已解组', 'success');
     };
 
     const moveClipUp = () => {
@@ -369,6 +450,13 @@ export function useGlobalKeybindings() {
       { id: 'cut', combo: 'ctrl+x', label: '剪切片段', category: '编辑',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: cutClips },
+      // M3: 复制/粘贴属性（跨项目，localStorage 持久化）
+      { id: 'copy-attrs', combo: 'ctrl+shift+c', label: '复制属性', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: copyAttributes },
+      { id: 'paste-attrs', combo: 'ctrl+shift+v', label: '粘贴属性', category: '编辑',
+        when: () => useClipAttributeClipboard.getState().fields !== null,
+        handler: pasteAttributes },
       { id: 'duplicate', combo: 'ctrl+d', label: '复制片段到后方', category: '编辑',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: duplicateClips },
@@ -382,6 +470,13 @@ export function useGlobalKeybindings() {
         handler: toolRazor },
       { id: 'tool-range', combo: 'r', label: '范围选择 (R)', category: '工具',
         handler: toolRange },
+      // M10: 吸附切换快捷键（Alt+S，与 Ctrl+S 保存不冲突）
+      { id: 'toggle-snap', combo: 'alt+s', label: '切换吸附 (Alt+S)', category: '时间轴',
+        handler: () => {
+          const s = useSettingsStore.getState();
+          s.setSnapEnabled(!s.snapEnabled);
+        },
+      },
       { id: 'zoom-fit', combo: 'f', label: '跳至选中片段', category: '时间轴',
         handler: () => {
           const sel = useSelectionStore.getState().selectedClipIds;
@@ -410,6 +505,26 @@ export function useGlobalKeybindings() {
       { id: 'trim-end', combo: ']', label: '修剪出点 (右剪一帧)', category: '编辑',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: trimEndOut },
+      // M1: slip / slide（避免与默认浏览器 Alt+←→ 前进后退冲突，用 Shift 组合区分）
+      { id: 'slip-left', combo: 'shift+alt+arrowleft', label: 'Slip 左移一帧', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: () => slipBy(-1) },
+      { id: 'slip-right', combo: 'shift+alt+arrowright', label: 'Slip 右移一帧', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: () => slipBy(1) },
+      { id: 'slide-left', combo: 'ctrl+alt+arrowleft', label: 'Slide 左移一帧', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: () => slideBy(-1) },
+      { id: 'slide-right', combo: 'ctrl+alt+arrowright', label: 'Slide 右移一帧', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: () => slideBy(1) },
+      // M2: 编组 / 解组
+      { id: 'group-clips', combo: 'ctrl+g', label: '编组 (Ctrl+G)', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length >= 2,
+        handler: groupSelected },
+      { id: 'ungroup-clips', combo: 'ctrl+shift+g', label: '解组 (Ctrl+Shift+G)', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
+        handler: ungroupSelected },
       { id: 'move-clip-up', combo: 'ctrl+arrowup', label: '上移轨道', category: '编辑',
         when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: moveClipUp },

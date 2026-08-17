@@ -67,3 +67,23 @@ vite-err.log
 
 # è¿è¡Œæ—¶å­—ä½“ç¼“å­˜ï¼ˆå‹¿æäº¤ï¼‰
 _fonts/
+
+# Runtime dirs (monorepo)
+frames/
+projects/
+renders/
+personas/
+PluginData/
+.pytest_cache/
+.ruff_cache/
+
+
+# µ÷ÊÔ/±¾µØ²ĞÁô
+verify-*.cjs
+debug-*.cjs
+.dsh-vision-toolkit/
+frames/
+ux-*.png
+web_search_tool.py
+stage.md
+.opencode/

@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { usePreviewStore } from '@/stores/previewStore';
+import { useHistoryStore } from '@/stores/historyStore';
 import { TRACK_COLORS } from '@/types/timeline';
 import type { Clip, Track } from '@/types/timeline';
 import { captionBaselineY, captionFontSize } from './captionLayout';
 import { orderTracksForComposite } from './compositeOrder';
 import { computePreviewFrameRect, xToScrubTime } from './frameGeometry';
+import type { FrameRect } from './frameGeometry';
 import { formatTimecode, clamp } from '@/lib/utils';
 import { mediaManager } from '@/services/media/mediaManager';
 import { interpolateProperties } from '@/features/timeline/engine/easing';
@@ -40,6 +42,45 @@ export function PreviewPanel() {
   const toggleLoop = usePreviewStore((s) => s.toggleLoop);
   const volume = usePreviewStore((s) => s.volume);
   const setVolume = usePreviewStore((s) => s.setVolume);
+
+  // C1: 画布双击编辑文字 — 命中 text/caption 片段时打开内联编辑
+  const [editingText, setEditingText] = useState<{ clipId: string; text: string; x: number; y: number } | null>(null);
+  const editTextRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    const wrap = wrapRef.current;
+    if (!canvas || !wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    const pst = usePreviewStore.getState();
+    const tl = useTimelineStore.getState().timeline;
+    const t = pst.currentTimeSec;
+    const fr = computePreviewFrameRect(rect.width, rect.height, tl.width, tl.height, pst.zoomLevel);
+    // 点击必须在帧内
+    if (px < fr.fx || px > fr.fx + fr.fw || py < fr.fy || py > fr.fy + fr.fh) return;
+    const hit = hitTestTextClipForEdit(px, py, fr, tl.tracks, t);
+    if (hit) setEditingText({ clipId: hit.clip.id, text: hit.clip.text ?? '', x: hit.x, y: hit.y });
+  }, []);
+
+  const commitTextEdit = useCallback(() => {
+    setEditingText((cur) => {
+      if (cur) {
+        useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'edit-text');
+        useTimelineStore.getState().updateClip(cur.clipId, { text: cur.text });
+      }
+      return null;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (editingText) {
+      // 聚焦并选中全部文本，方便直接覆盖
+      const el = editTextRef.current;
+      if (el) { el.focus(); el.select(); }
+    }
+  }, [editingText]);
 
   // Sync duration from timeline
   useEffect(() => {
@@ -269,10 +310,16 @@ export function PreviewPanel() {
       // 合成顺序：轨道 index 升序，低 index 先画（底层），高 index 最后（顶层）。
       const sorted = orderTracksForComposite(tl.tracks);
       for (const track of sorted) {
+        if (track.hidden) continue; // M7: 隐藏轨道不参与预览合成
         if (track.muted && (track.kind === 'audio' || track.kind === 'waveform')) continue;
         for (const clip of track.clips) {
           if (t < clip.start_sec || t >= clip.start_sec + clip.duration_sec) continue;
           if (clip.enabled === false) continue;
+          // C3: 嵌套序列 — 递归合成子时间线（深度上限 4，防循环）
+          if (clip.nested_timeline) {
+            drawNestedTimeline(ctx, clip, track, fx, fy, fw, fh, t, 0);
+            continue;
+          }
           drawClipToPreview(ctx, clip, track, fx, fy, fw, fh, t);
         }
       }
@@ -425,7 +472,27 @@ export function PreviewPanel() {
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerCancel}
+          onDoubleClick={handleDoubleClick}
         />
+        {/* C1: 画布内联文字编辑 */}
+        {editingText && (
+          <div className="absolute z-20" style={{ left: editingText.x, top: editingText.y, transform: 'translate(-50%, -50%)' }}>
+            <textarea
+              ref={editTextRef}
+              value={editingText.text}
+              onChange={(e) => setEditingText({ ...editingText, text: e.target.value })}
+              onBlur={commitTextEdit}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitTextEdit(); }
+                if (e.key === 'Escape') setEditingText(null);
+              }}
+              rows={2}
+              className="w-64 max-w-[80vw] bg-black/85 text-white text-center rounded-cw-xs
+                px-3 py-2 text-body outline-none border-2 border-primary/70 resize-none shadow-2xl"
+              aria-label="编辑文字"
+            />
+          </div>
+        )}
         {/* Centered play/pause overlay — visible when paused or on hover */}
         <button
           aria-label={isPlaying ? '暂停' : '播放'}
@@ -450,6 +517,88 @@ export function PreviewPanel() {
 }
 
 /** Draw a single clip into the preview frame (placeholder compositing). */
+/**
+ * M11: 转场可见性 — 在进/出转场窗口内调制透明度，让淡入淡出/溶解类转场在预览中可见。
+ * - transition_in：片段开头 dur 秒内透明度 0→1（前一片段叠化进来）
+ * - transition_out：片段结尾 dur 秒内透明度 1→0（叠化到下一片段）
+ * - hard_cut / 无转场：不调制。
+ */
+export function applyTransitionAlpha(opacity: number, clip: Clip, localT: number): number {
+  const dur = Math.max(0.05, clip.transition_duration_sec ?? 0.5);
+  const fadeKinds = new Set(['fade', 'dissolve', 'pixel_dissolve', 'slide', 'wipe', 'glitch']);
+  if (clip.transition_in && clip.transition_in !== 'hard_cut' && fadeKinds.has(clip.transition_in)) {
+    const windowFrac = clamp(localT / (dur / clip.duration_sec), 0, 1);
+    opacity *= windowFrac; // 0→1 淡入
+  }
+  if (clip.transition_out && clip.transition_out !== 'hard_cut' && fadeKinds.has(clip.transition_out)) {
+    const windowFrac = clamp((1 - localT) / (dur / clip.duration_sec), 0, 1);
+    opacity *= windowFrac; // 1→0 淡出
+  }
+  return clamp(opacity, 0, 1);
+}
+
+/**
+ * M4: 蒙版裁剪 — 把当前画布裁剪路径限定到蒙版形状内（矩形或椭圆，基于归一化 rect）。
+ * 必须在 clip 绘制前调用（ctx.save 之后），restore 由调用方统一处理。
+ */
+export function applyMaskClip(
+  ctx: CanvasRenderingContext2D,
+  clip: Clip,
+  fx: number, fy: number, fw: number, fh: number,
+) {
+  if (!clip.mask_type || clip.mask_type === 'none') return;
+  const r = clip.mask_rect ?? { x: 0, y: 0, w: 1, h: 1 };
+  const x = clamp(r.x, 0, 1);
+  const y = clamp(r.y, 0, 1);
+  // 宽高钳制到剩余画面，避免蒙版越界
+  const w = clamp(r.w, 0.01, 1 - x);
+  const h = clamp(r.h, 0.01, 1 - y);
+  const mx = fx + x * fw;
+  const my = fy + y * fh;
+  const mw = w * fw;
+  const mh = h * fh;
+  ctx.beginPath();
+  if (clip.mask_type === 'ellipse') {
+    ctx.ellipse(mx + mw / 2, my + mh / 2, mw / 2, mh / 2, 0, 0, Math.PI * 2);
+  } else {
+    ctx.rect(mx, my, mw, mh);
+  }
+  ctx.clip();
+}
+
+/**
+ * C3: 嵌套序列合成 — 把子时间线的片段按父片段的时间窗口递归渲染。
+ * 父片段占 [start_sec, start_sec+duration)；嵌套时间线内的时刻 = t - start_sec。
+ * 深度上限 4 防止循环嵌套导致栈溢出。
+ */
+function drawNestedTimeline(
+  ctx: CanvasRenderingContext2D,
+  parent: Clip,
+  parentTrack: Track,
+  fx: number, fy: number, fw: number, fh: number,
+  t: number,
+  depth: number,
+) {
+  if (depth >= 4 || !parent.nested_timeline) return;
+  const nestedT = t - parent.start_sec;
+  const nt = parent.nested_timeline;
+  const sorted = orderTracksForComposite(nt.tracks);
+  for (const track of sorted) {
+    if (track.hidden) continue;
+    if (track.muted && (track.kind === 'audio' || track.kind === 'waveform')) continue;
+    for (const clip of track.clips) {
+      if (nestedT < clip.start_sec || nestedT >= clip.start_sec + clip.duration_sec) continue;
+      if (clip.enabled === false) continue;
+      if (clip.nested_timeline) {
+        // 深度优先：用 clip 自己的时间窗继续下钻
+        drawNestedTimeline(ctx, clip, track, fx, fy, fw, fh, clip.start_sec + nestedT, depth + 1);
+        continue;
+      }
+      drawClipToPreview(ctx, clip, track, fx, fy, fw, fh, nestedT);
+    }
+  }
+}
+
 function drawClipToPreview(
   ctx: CanvasRenderingContext2D,
   clip: Clip,
@@ -463,6 +612,7 @@ function drawClipToPreview(
   // Apply keyframe interpolation for opacity/transform if present
   let opacity = clip.opacity;
   const tf: Transform2D = { ...getClipTransform(clip) };
+  let speed = clip.speed;
   if (clip.keyframes.length > 0) {
     const props = interpolateProperties(clip.keyframes, localT);
     opacity = props.opacity ?? opacity;
@@ -470,13 +620,21 @@ function drawClipToPreview(
     tf.x = props.position_x ?? tf.x;
     tf.y = props.position_y ?? tf.y;
     tf.rotation = props.rotation ?? tf.rotation;
+    // M5: 时间重映射 — 关键帧驱动的变速（预览层）
+    if (props.speed !== undefined) speed = props.speed;
   }
+
+  // M11: 转场可见性 — 在进/出转场窗口内对透明度做渐变（淡入淡出/溶解类预览）
+  opacity = applyTransitionAlpha(opacity, clip, localT);
 
   ctx.save();
   ctx.globalAlpha = clamp(opacity, 0, 1);
   if (clip.blend_mode && clip.blend_mode !== 'normal') {
     (ctx as CanvasRenderingContext2D).globalCompositeOperation = clip.blend_mode as GlobalCompositeOperation;
   }
+
+  // M4: 蒙版 — 裁剪到矩形/椭圆内
+  applyMaskClip(ctx, clip, fx, fy, fw, fh);
 
   const fxStr = buildFilter(clip);
   if (fxStr) {
@@ -507,7 +665,7 @@ function drawClipToPreview(
         }
       } else if (videoEl && videoEl.readyState >= 2) {
         // Real video frame: seek to clip-local time and draw
-        const sourceT = (t - clip.start_sec) * clip.speed + clip.source_offset_sec;
+        const sourceT = (t - clip.start_sec) * speed + clip.source_offset_sec;
         mediaManager.seekVideo(clip.asset_id, sourceT);
         drawCover(ctx, videoEl, fx, fy, fw, fh, tf);
         drewReal = true;
@@ -663,6 +821,34 @@ export interface Transform2D {
 }
 
 export const IDENTITY_TRANSFORM: Transform2D = { x: 0, y: 0, scale: 1, rotation: 0 };
+
+/**
+ * C1: 画布双击命中测试 — 返回 playhead 处、命中框内最顶层的 text/caption 片段。
+ * 命中框以文本锚点为中心：左右 fw*0.45、上下 fh*0.3。
+ */
+export function hitTestTextClipForEdit(
+  px: number, py: number,
+  frame: FrameRect,
+  tracks: Track[],
+  t: number,
+): { clip: Clip; x: number; y: number } | null {
+  const sorted = orderTracksForComposite(tracks).slice().reverse();
+  for (const track of sorted) {
+    if (track.hidden) continue;
+    if (track.kind !== 'text' && track.kind !== 'caption') continue;
+    const clip = track.clips.find((c) => t >= c.start_sec && t < c.start_sec + c.duration_sec && c.enabled !== false);
+    if (!clip) continue;
+    const align = clip.text_align ?? 'center';
+    const baseY = track.kind === 'caption' ? frame.fy + captionBaselineY(frame.fh) : frame.fy + frame.fh / 2;
+    const tf = getClipTransform(clip);
+    const ax = (align === 'left' ? frame.fx + frame.fw * 0.05 : align === 'right' ? frame.fx + frame.fw * 0.95 : frame.fx + frame.fw / 2) + tf.x * frame.fw;
+    const ay = baseY + tf.y * frame.fh;
+    if (Math.abs(px - ax) < frame.fw * 0.45 && Math.abs(py - ay) < frame.fh * 0.3) {
+      return { clip, x: ax, y: ay };
+    }
+  }
+  return null;
+}
 
 /** Read a clip's base transform from metadata (static edit) — keyframes animate on top. */
 export function getClipTransform(clip: Clip): Transform2D {

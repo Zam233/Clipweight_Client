@@ -6,13 +6,14 @@ import { useTimelineStore } from '@/stores/timelineStore';
 import { Markdown } from '@/components/shared/Markdown';
 import { TimelineDiffView } from './TimelineDiffView';
 import { resolveMessageAttachments } from './requirementsAttachments';
-import { pipelineApi, requirementsApi } from '@/services/api';
+import { pipelineApi, requirementsApi, personaApi } from '@/services/api';
+import { fetchSseToken, withSseToken } from '@/services/api/sse';
 import { useBackendHealth } from '@/pages/useBackendHealth';
 import { Button } from '@/components/ui';
 import { uid } from '@/lib/utils';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline, Clip, ClipKind } from '@/types/timeline';
-import type { RequirementsStatus } from '@/types/persona';
+import type { RequirementsStatus, CreativeBrief, ProductionPlan } from '@/types/persona';
 import {
   Bot, Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
   MessageSquareText, ChevronDown, ChevronRight, X, Paperclip,
@@ -29,7 +30,7 @@ const PHASE_ORDER: PipelinePhase[] = ['structure', 'material', 'edit', 'animatio
 const LOG_ICONS: Record<LogEventType, string> = {
   agent_start: '▶', agent_end: '✓', llm: '🤖', tool: '🔧',
   skill: '🧠', plugin: '🔌', info: '○', warning: '⚠',
-  error: '✗', timeline_snapshot: '📊',
+  error: '✗', timeline_snapshot: '📊', progress: '▸',
   mg_start: '🎬', mg_end: '✨',
 };
 
@@ -38,7 +39,7 @@ const LOG_COLORS: Record<LogEventType, string> = {
   llm: 'text-track-caption', tool: 'text-on-surface-variant/70',
   skill: 'text-tertiary', plugin: 'text-track-image',
   info: 'text-on-surface-variant/50', warning: 'text-track-text',
-  error: 'text-error', timeline_snapshot: 'text-track-video',
+  error: 'text-error', timeline_snapshot: 'text-track-video', progress: 'text-snap-guide',
   mg_start: 'text-track-text', mg_end: 'text-track-animation',
 };
 
@@ -197,9 +198,23 @@ function RequirementsView() {
     addMessage({ id: uid('m'), role: 'user', content: message, timestamp: new Date().toISOString() });
     setBusy(true);
     try {
-      const res = await requirementsApi.chat({ session_id: sessionId, message });
-      const brief = res.creative_brief ?? null;
-      const plan = res.production_plan ?? null;
+      // W1: 优先流式消费（实时「思考中」状态 + 无长轮询超时）；失败回退一次性 chat
+      let res: {
+        reply?: unknown; message?: unknown; creative_brief?: unknown;
+        production_plan?: unknown; status?: unknown;
+      } = {};
+      try {
+        res = await requirementsApi.streamChat(sessionId, message, (chunk) => {
+          if (chunk.type === 'status') setStatus('gathering');
+        });
+        if (Object.keys(res).length === 0) {
+          res = await requirementsApi.chat({ session_id: sessionId, message });
+        }
+      } catch {
+        res = await requirementsApi.chat({ session_id: sessionId, message });
+      }
+      const brief = res.creative_brief ? (res.creative_brief as CreativeBrief) : null;
+      const plan = res.production_plan ? (res.production_plan as ProductionPlan) : null;
       const st = res.status as string | undefined;
       // 有简报/规划书就刷新（不再仅限特定状态，避免修订版被丢弃）
       if (brief) setBrief(brief);
@@ -210,7 +225,7 @@ function RequirementsView() {
       else if (plan) setStatus('plan_ready');
       else if (brief) setStatus('brief_ready');
       const att = resolveMessageAttachments(st, brief, plan);
-      addMessage({ id: uid('m'), role: 'assistant', content: res.reply ?? res.message ?? '已收到。',
+      addMessage({ id: uid('m'), role: 'assistant', content: (res.reply ?? res.message ?? '已收到。') as string,
         timestamp: new Date().toISOString(),
         creative_brief: att.creative_brief,
         production_plan: att.production_plan });
@@ -230,11 +245,17 @@ function RequirementsView() {
     addMessage({ id: uid('m'), role: 'user', content, timestamp: new Date().toISOString() });
     setBusy(true);
     try {
+      // W12: 区域级返工 — 附带当前范围选择（M14 range 工具），后端限定编辑窗口
+      const sel = useSelectionStore.getState();
+      const region = (sel.rangeStart != null && sel.rangeEnd != null)
+        ? { region_start_sec: sel.rangeStart, region_end_sec: sel.rangeEnd }
+        : {};
       const res = await requirementsApi.edit({
         session_id: sessionId,
         message,
         timeline: useTimelineStore.getState().timeline,
         selected_clip_ids: selectedClipIds,
+        ...region,
       });
       if (res.proposed_timeline) {
         // 触发既有 TimelineDiffView 审阅覆盖层；接受/合并时 TimelineDiffView 会注册真实媒体
@@ -300,6 +321,8 @@ function RequirementsView() {
         sid,
         st.personaId ?? 'default',
         st.pluginId ?? 'knowledge_longform',
+        // P8: dry-run 预览模式 — 只生成粗剪时间线，跳过动画/音频/质检
+        { dry_run: st.dryRun },
       ) as { pipeline_id?: string };
       if (res.pipeline_id) {
         // 设置 pipelineId + 运行相位，BottomBar 的 effect 会自动挂接 SSE 追踪
@@ -555,6 +578,16 @@ function BottomBar() {
   const updatePhase = useAgentStore((s) => s.updatePhase);
   const cancelling = useAgentStore((s) => s.cancelling);
   const setCancelling = useAgentStore((s) => s.setCancelling);
+  const suggestions = useAgentStore((s) => s.suggestions);
+
+  // M13: 编辑器内 Persona 切换
+  const personaId = useProjectStore((s) => s.personaId);
+  const [personas, setPersonas] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    personaApi.listIds().then((ids) => { if (alive) setPersonas(Array.isArray(ids) ? ids : []); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   const esRef = useRef<EventSource | null>(null);
   const lastTimelineRef = useRef<Timeline | null>(null);
@@ -582,8 +615,11 @@ function BottomBar() {
 
   const openSSE = useCallback((pid: string) => {
     esRef.current?.close();
-    const es = new EventSource(pipelineApi.getTraceStreamUrl(pid));
-    esRef.current = es;
+    esRef.current = null; // P0-9/10: 挂接异步化（先取一次性 token）
+    void fetchSseToken().then((tok) => {
+      if (esRef.current) return; // 已有更新的挂接
+      const es = new EventSource(withSseToken(pipelineApi.getTraceStreamUrl(pid), tok));
+      esRef.current = es;
 
     const startTimes: Record<string, number> = {};
     let finished = false;
@@ -598,6 +634,20 @@ function BottomBar() {
         updatePhase('completed', 100);
         // B17: 管线完成 → 复位需求状态，输入框恢复可继续对话
         useAgentStore.getState().setRequirementsStatus('pipeline_done');
+        // W2: 从 warning 日志生成建议列表（质检/节奏提示等，供用户下一步参考）
+        const warns = useAgentStore.getState().logEntries
+          .filter((l) => l.type === 'warning')
+          .slice(0, 5)
+          .map((l) => ({
+            id: l.id,
+            type: 'pace' as const,
+            message: l.summary,
+            confidence: 0.6,
+          }));
+        if (warns.length > 0) {
+          useAgentStore.getState().clearSuggestions();
+          warns.forEach((w) => useAgentStore.getState().addSuggestion(w));
+        }
         // 优先用 SSE 快照；否则从 result 接口取最终时间线
         let tl = lastTimelineRef.current;
         if (!tl) {
@@ -674,6 +724,19 @@ function BottomBar() {
         case 'pipeline_complete':
           void finish(true);
           break;
+        case 'progress': {
+          // C5: 细粒度进度事件 → 更新 store 进度条
+          const pct = Number((d.detail as { progress?: number } | undefined)?.progress ?? d.progress);
+          if (Number.isFinite(pct) && pct >= 0) {
+            useAgentStore.setState({ progress: Math.min(100, Math.max(0, pct)) });
+          }
+          addLogEntry({
+            timestamp: Date.now(), agent: name, type: 'progress',
+            summary: (d.summary || `${name} 进度更新`) as string,
+            detail: (d.detail as Record<string, unknown>) || null,
+          });
+          break;
+        }
         case 'llm':
         case 'tool':
         case 'skill':
@@ -741,6 +804,7 @@ function BottomBar() {
       }
       addLogEntry({ timestamp: Date.now(), agent: 'system', type: 'warning', summary: 'SSE 连接中断，3s 后重连…' });
     };
+    });
   }, [addLogEntry, updatePhase]);
 
   // 页面刷新后 store 被重置：从 sessionStorage 恢复运行中的 pipelineId 并重新挂接 SSE。
@@ -788,6 +852,25 @@ function BottomBar() {
               <X className="w-3.5 h-3.5 mr-1" />
               {cancelling ? '取消中…' : '停止'}
             </Button>
+          </div>
+          {/* M13: 编辑器内 Persona 切换 */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-caption text-on-surface-variant/60">Persona</span>
+            <select
+              value={personaId ?? 'default'}
+              onChange={(e) => {
+                const v = e.target.value === 'default' ? null : e.target.value;
+                useProjectStore.getState().setPersonaId(v);
+                useProjectStore.getState().requestSave();
+              }}
+              className="bg-surface-container border border-outline-variant/30 rounded-cw-xs px-1.5 py-1 text-caption text-on-surface outline-none cursor-pointer max-w-[160px]"
+              aria-label="选择 Persona"
+            >
+              <option value="default">默认</option>
+              {personas.map((id) => (
+                <option key={id} value={id}>{id}</option>
+              ))}
+            </select>
           </div>
           {PHASE_ORDER.map((p) => {
             const idx = PHASE_ORDER.indexOf(p);
@@ -850,6 +933,19 @@ function BottomBar() {
           {pipelineSummary.timelineStats && (
             <span>{pipelineSummary.timelineStats.tracks}轨 {pipelineSummary.timelineStats.clips}clip {pipelineSummary.timelineStats.durationSec}s</span>
           )}
+        </div>
+      )}
+
+      {/* W2: 建议列表（管线完成后的质检/节奏提示） */}
+      {suggestions.length > 0 && (
+        <div className="px-3 pb-2 space-y-1">
+          <p className="text-caption font-medium text-on-surface-variant">建议</p>
+          {suggestions.map((s, i) => (
+            <div key={s.id ?? i} className="flex items-start gap-1.5 text-caption text-on-surface-variant">
+              <span className="text-primary shrink-0 mt-0.5">▸</span>
+              <span>{s.message}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>

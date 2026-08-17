@@ -9,12 +9,15 @@ import { useSelectionStore } from '@/stores/selectionStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useAssetStore } from '@/stores/assetStore';
 import { useVoiceStore } from '@/stores/voiceStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { toast } from '@/stores/toastStore';
 import { projectApi, requirementsApi, getApiClient } from '@/services/api';
+import { session } from '@/services/api/session';
 import { mediaManager } from '@/services/media/mediaManager';
 import { useGlobalKeybindings } from '@/features/keyboard/useGlobalKeybindings';
 import { ShortcutCheatSheet } from '@/features/keyboard/ShortcutCheatSheet';
 import { useRequirementsAutoStart } from '@/features/agent/useRequirementsAutoStart';
+import { tabSync } from '@/services/tabSync';
 import { uid } from '@/lib/utils';
 import { createEmptyTimeline } from '@/types/timeline';
 import { Loader2 } from 'lucide-react';
@@ -208,6 +211,8 @@ export function EditorPage() {
       st.setSaving(false);
       st.setLastSaved(new Date().toISOString());
       dirtyRef.current = false;
+      // G3: 广播保存事件，通知其他标签页重新拉取
+      tabSync.broadcastSaved(st.projectId);
     } catch {
       st.setSaving(false);
       st.setSaveError(true);
@@ -245,7 +250,8 @@ export function EditorPage() {
       if (!dirtyRef.current) return;
       const st = useProjectStore.getState();
       if (!st.projectId) return;
-      const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
+      const base = getApiClient().defaults.baseURL || '';
+      const token = useSettingsStore.getState().authToken || session.token;
       // F3 负载大小守卫：>48KB 时退化为紧凑元数据，避免 keepalive 静默丢弃大负载
       const decision = decideFlushPayload({
         project_id: st.projectId,
@@ -264,7 +270,11 @@ export function EditorPage() {
       try {
         fetch(`${base}/api/project/${st.projectId}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            // P0-10: pagehide 冲刷走裸 fetch——补 Authorization 头，令牌模式下自动保存不再 401
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
           body: payload,
           keepalive: true,
         }).catch(() => {});
@@ -276,6 +286,28 @@ export function EditorPage() {
       window.removeEventListener('pagehide', flush);
       window.removeEventListener('beforeunload', flush);
     };
+  }, []);
+
+  // G3: 多标签同步 — 其他标签保存后重新拉取本项目权威时间线
+  useEffect(() => {
+    const unsubAttach = tabSync.attach();
+    const unsub = tabSync.subscribe(async (ev) => {
+      const st = useProjectStore.getState();
+      if (ev.type !== 'timeline-saved') return;
+      if (!st.projectId || ev.projectId !== st.projectId) return;
+      // 本地刚保存过（自己广播的）→ 跳过；用时间差粗判（<1s 视为同源回环）
+      if (Date.now() - Date.parse(ev.at) < 1000) return;
+      // 本地有未保存修改时跳过，避免覆盖用户正在进行的编辑
+      if (dirtyRef.current) return;
+      try {
+        const project = await projectApi.load(ev.projectId);
+        if (!project || !project.timeline) return;
+        useTimelineStore.getState().setTimeline(project.timeline as ReturnType<typeof createEmptyTimeline>);
+        mediaManager.registerTimeline(project.timeline as ReturnType<typeof createEmptyTimeline>);
+        toast('其他标签页已更新此项目，已同步时间线', 'info');
+      } catch { /* 拉取失败静默，下次保存再同步 */ }
+    });
+    return () => { unsub(); unsubAttach(); };
   }, []);
 
   if (loading) {

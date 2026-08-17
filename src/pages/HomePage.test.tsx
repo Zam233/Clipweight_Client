@@ -1,7 +1,12 @@
-﻿// @vitest-environment jsdom
+// @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { HomePage } from './HomePage';
+
+// jsdom 未实现 scrollTo
+beforeEach(() => {
+  window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
+});
 
 const { mocks } = vi.hoisted(() => ({
   mocks: {
@@ -16,6 +21,7 @@ const { mocks } = vi.hoisted(() => ({
     predictScript: vi.fn(),
     healthStatus: vi.fn(),
     toast: vi.fn(),
+    pluginList: vi.fn(),
   },
 }));
 
@@ -32,7 +38,22 @@ vi.mock('@/services/api', () => ({
   assetApi: { listSources: mocks.listSources },
   typeMakerApi: { list: mocks.typeMakerList },
   pipelineApi: { predictScript: mocks.predictScript },
+  pluginApi: { list: mocks.pluginList },
   getApiClient: vi.fn(),
+}));
+
+vi.mock('@/services/api/account', () => ({
+  accountApi: {
+    creditBalance: vi.fn(async () => ({ credit: 10, recent: [] })),
+    creditEstimate: vi.fn(async () => ({ total: 15, balance: 10, affordable: false, items: [], rates: {} })),
+    creditTopup: vi.fn(async () => ({ credit: 110, topup: 100 })),
+    creditCharge: vi.fn(async () => ({ credit: 0, charged: 0 })),
+  },
+}));
+
+vi.mock('@/stores/authStore', () => ({
+  useAuthStore: (sel?: (s: unknown) => unknown) =>
+    sel ? sel({ user: null, accessToken: null, logout: vi.fn() }) : { user: null, accessToken: null, logout: vi.fn() },
 }));
 
 vi.mock('./useBackendHealth', () => ({
@@ -60,6 +81,7 @@ beforeEach(() => {
   mocks.listSources.mockResolvedValue([]);
   mocks.healthStatus.mockReturnValue('offline');
   mocks.predictScript.mockResolvedValue({});
+  mocks.pluginList.mockResolvedValue([]);
 });
 
 afterEach(() => cleanup());
@@ -135,6 +157,12 @@ describe('HomePage empty-state copy (U12)', () => {
     expect(screen.queryByText('\u6f14\u793a\u6570\u636e \u00b7 \u6682\u65e0\u540e\u7aef\u9879\u76ee')).toBeNull();
   });
 });
+/** 切换到「创作」tab（创作表单所在；由「开始创作」按钮进入）。 */
+async function gotoCreate() {
+  fireEvent.click(screen.getByRole('button', { name: /^开始创作/ }));
+  await screen.findByPlaceholderText(/粘贴口播文案/);
+}
+
 describe('G6: script intelligence prediction', () => {
   it('长文稿 + 后端在线 → 渲染推荐卡片', async () => {
     mocks.healthStatus.mockReturnValue('online');
@@ -145,6 +173,7 @@ describe('G6: script intelligence prediction', () => {
       summary: '适合做知识区长片',
     });
     render(<HomePage />);
+    await gotoCreate();
 
     const textarea = screen.getByPlaceholderText(/粘贴口播文案/);
     fireEvent.change(textarea, { target: { value: 'x'.repeat(60) } });
@@ -157,6 +186,7 @@ describe('G6: script intelligence prediction', () => {
     mocks.healthStatus.mockReturnValue('offline');
     mocks.predictScript.mockRejectedValue(new Error('offline'));
     render(<HomePage />);
+    await gotoCreate();
 
     const textarea = screen.getByPlaceholderText(/粘贴口播文案/);
     fireEvent.change(textarea, { target: { value: 'y'.repeat(60) } });
@@ -164,5 +194,79 @@ describe('G6: script intelligence prediction', () => {
     expect(screen.queryByText('智能预判')).toBeNull();
     // 启动按钮仍在
     expect(screen.getByText(/开始创作/)).toBeTruthy();
+  });
+});
+
+describe('图一：左侧导航切换右侧内容区', () => {
+  it('默认显示首页（开始创作 + 空项目 + 最近项目）', async () => {
+    render(<HomePage />);
+    expect(await screen.findByText('最近项目')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /开始创作/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /空项目/ })).toBeTruthy();
+    // 五个导航按钮都在
+    for (const label of ['首页', '类型', '人格', '插件', '设置']) {
+      expect(screen.getByRole('button', { name: label })).toBeTruthy();
+    }
+  });
+
+  it('点击「人格」→ 右侧切换到人格列表；点击卡片选中并跳设置', async () => {
+    mocks.personaList.mockResolvedValue([
+      { persona_id: 'p_a', persona_name: '人格A', parameter: { identity: { tone: '批判型' } } },
+    ]);
+    render(<HomePage />);
+    fireEvent.click(screen.getByRole('button', { name: '人格' }));
+    expect(await screen.findByText('创作人格')).toBeTruthy();
+    expect(await screen.findByText('人格A')).toBeTruthy();
+    // 点击人格卡片 → 切到设置 tab（创作表单）
+    fireEvent.click(screen.getByText('人格A'));
+    await screen.findByPlaceholderText(/粘贴口播文案/);
+  });
+
+  it('点击「设置」→ 显示系统设置界面（BUG1 修复：不再跳创作表单）', async () => {
+    render(<HomePage />);
+    fireEvent.click(screen.getByRole('button', { name: '设置' }));
+    expect(await screen.findByText('外观')).toBeTruthy();
+    expect(screen.getByText('主题')).toBeTruthy();
+    expect(screen.getByText('时间轴默认')).toBeTruthy();
+    // 创作表单不应出现
+    expect(screen.queryByPlaceholderText(/粘贴口播文案/)).toBeNull();
+  });
+
+  it('「开始创作」大按钮 → 切入创作 tab（图二表单）', async () => {
+    render(<HomePage />);
+    fireEvent.click(await screen.findByRole('button', { name: /^开始创作/ }));
+    await screen.findByPlaceholderText(/粘贴口播文案/);
+  });
+});
+
+describe('BUG3: 插件 tab 显示真实插件（/api/plugin/list）而非类型插件', () => {
+  it('点击「插件」→ 显示 pluginApi.list 返回的插件', async () => {
+    mocks.pluginList.mockResolvedValue([
+      { manifest: { id: 'whisper_stt', name: 'Whisper 语音转文字', kind: 'capability', description: '本地转写' } },
+      { manifest: { id: 'bgm_library', name: 'BGM 素材库', kind: 'material' } },
+    ]);
+    render(<HomePage />);
+    fireEvent.click(screen.getByRole('button', { name: '插件' }));
+    expect(await screen.findByText('Whisper 语音转文字')).toBeTruthy();
+    expect(screen.getByText('BGM 素材库')).toBeTruthy();
+    expect(mocks.pluginList).toHaveBeenCalled();
+  });
+
+  it('类型 tab 仍显示类型插件（typeMakerApi），互不混淆', async () => {
+    mocks.typeMakerList.mockResolvedValue([
+      { id: 'knowledge_longform', name: '知识区长片', description: '5-15s' },
+    ]);
+    mocks.pluginList.mockResolvedValue([
+      { manifest: { id: 'whisper_stt', name: 'Whisper 语音转文字' } },
+    ]);
+    render(<HomePage />);
+    fireEvent.click(screen.getByRole('button', { name: '类型' }));
+    expect(await screen.findByText('知识区长片')).toBeTruthy();
+    // 类型 tab 不应出现真实插件
+    expect(screen.queryByText('Whisper 语音转文字')).toBeNull();
+    // 切到插件 tab → 显示真实插件
+    fireEvent.click(screen.getByRole('button', { name: '插件' }));
+    expect(await screen.findByText('Whisper 语音转文字')).toBeTruthy();
+    expect(screen.queryByText('知识区长片')).toBeNull();
   });
 });

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
-import { renderApi, projectApi } from '@/services/api';
+import { renderApi, projectApi, assetApi, toolApi } from '@/services/api';
+import { fetchSseToken, withSseToken } from '@/services/api/sse';
 import { toast } from '@/stores/toastStore';
 import { createEmptyTimeline } from '@/types/timeline';
 import { StandardLayout } from '@/layouts/StandardLayout';
@@ -11,7 +12,7 @@ import { uid, formatTimecode } from '@/lib/utils';
 import type { ExportSettings, RenderProgress } from '@/types/api';
 import {
   Download, Clapperboard, Gauge, Cpu, Film, Loader2, CheckCircle2,
-  XCircle, ArrowLeft, HardDrive, Zap, RotateCcw,
+  XCircle, ArrowLeft, HardDrive, Zap, RotateCcw, Wand2,
 } from 'lucide-react';
 
 interface PresetDef {
@@ -78,6 +79,30 @@ export function ExportPage() {
   const [settings, setSettings] = useState<ExportSettings>({
     preset: 'bilibili', width: 1920, height: 1080, fps: 30, bitrate: '6M',
   });
+  // W11: BGM 素材源 — 从素材库选音频作为背景音乐
+  const [bgmPath, setBgmPath] = useState('');
+  const [audioAssets, setAudioAssets] = useState<{ id: string; name: string; path: string }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    assetApi.list(useProjectStore.getState().projectId ?? undefined)
+      .then((list) => {
+        if (!alive) return;
+        const audios = (Array.isArray(list) ? list : [])
+          .filter((a) => a.kind === 'audio')
+          .map((a) => ({ id: a.id, name: a.filename || a.id, path: a.path || a.id }));
+        setAudioAssets(audios);
+      })
+      .catch(() => { /* 离线：无 BGM 可选 */ });
+    return () => { alive = false; };
+  }, []);
+  // C6: 自定义导出预设（localStorage）
+  const [savedPresets, setSavedPresets] = useState<{ name: string; width: number; height: number; fps: number; bitrate: string }[]>(() => {
+    try {
+      const raw = localStorage.getItem('cw_export_presets');
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  });
+  const [presetName, setPresetName] = useState('');
   const [apiPresets, setApiPresets] = useState<Record<string, Partial<PresetDef>> | null>(null);
   const [loadingPresets, setLoadingPresets] = useState(true);
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -176,6 +201,8 @@ export function ExportPage() {
         timeline: useTimelineStore.getState().exportTimeline(),
         output_path: `renders/${filename}`,
         settings,
+        // W11: BGM 素材源（用户从素材库选择；无则后端走无 BGM 路径）
+        ...(bgmPath ? { bgm_file_path: bgmPath } : {}),
       });
       // 后端返回真实 task_id（render_N_ts）；替换本地占位 ID 后再挂接进度流
       const realId = res.task_id ?? taskId;
@@ -212,8 +239,11 @@ export function ExportPage() {
 
   const openSSE = (taskId: string) => {
     if (esRefs.current.has(taskId)) return;
-    const es = new EventSource(renderApi.getQueueStreamUrl(taskId));
-    esRefs.current.set(taskId, es);
+    // P0-9/10: EventSource 无法带请求头 → 先取一次性 token 再挂接
+    void fetchSseToken().then((tok) => {
+      if (esRefs.current.has(taskId)) return;
+      const es = new EventSource(withSseToken(renderApi.getQueueStreamUrl(taskId), tok));
+      esRefs.current.set(taskId, es);
     // 后端发送的是未命名 data 消息（{type: progress/completed/failed/timeout}）
     es.onmessage = (e) => {
       let d: { type?: string; progress?: number; phase?: string; detail?: string; output_path?: string };
@@ -249,6 +279,7 @@ export function ExportPage() {
           : it,
       ));
     };
+    });
   };
 
   const simulateTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
@@ -346,6 +377,47 @@ export function ExportPage() {
             <h3 className="flex items-center gap-2 text-label font-medium text-on-surface-variant uppercase tracking-wide">
               <Gauge className="w-3.5 h-3.5" /> 参数
             </h3>
+            {/* C6: 自定义预设保存/应用 */}
+            <div className="flex items-center gap-2">
+              <input
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                placeholder="预设名称（如 竖屏 4K）"
+                className="flex-1 bg-surface rounded-cw-xs px-2 py-1.5 text-body-sm text-on-surface outline-none border border-outline-variant/30 focus:border-primary"
+              />
+              <button
+                onClick={() => {
+                  const name = presetName.trim();
+                  if (!name) return;
+                  const next = [...savedPresets.filter((p) => p.name !== name), { name, width: settings.width, height: settings.height, fps: settings.fps, bitrate: settings.bitrate }];
+                  setSavedPresets(next);
+                  localStorage.setItem('cw_export_presets', JSON.stringify(next));
+                  setPresetName('');
+                }}
+                className="px-2.5 py-1.5 rounded-cw-xs bg-surface-container-high text-label-sm text-on-surface hover:bg-primary/20 cursor-pointer"
+                title="保存当前参数为自定义预设"
+              >
+                另存为预设
+              </button>
+            </div>
+            {savedPresets.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {savedPresets.map((p) => (
+                  <span key={p.name}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-cw-full bg-surface-container-high border border-outline-variant/30 text-caption cursor-pointer hover:border-primary/60"
+                    title={`${p.width}×${p.height} · ${p.fps}fps · ${p.bitrate}`}
+                  >
+                    <button onClick={() => { setSettings({ ...settings, width: p.width, height: p.height, fps: p.fps, bitrate: p.bitrate }); setPresetId(''); }}
+                      className="hover:text-primary">{p.name}</button>
+                    <button onClick={() => {
+                      const next = savedPresets.filter((x) => x.name !== p.name);
+                      setSavedPresets(next);
+                      localStorage.setItem('cw_export_presets', JSON.stringify(next));
+                    }} className="text-on-surface-variant/50 hover:text-error" aria-label={`删除预设 ${p.name}`}>×</button>
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <NumField label="宽度" value={settings.width} onChange={(v) => setSettings({ ...settings, width: v })} min={320} max={7680} step={2} />
               <NumField label="高度" value={settings.height} onChange={(v) => setSettings({ ...settings, height: v })} min={240} max={4320} step={2} />
@@ -366,6 +438,24 @@ export function ExportPage() {
                 <HardDrive className="w-3.5 h-3.5" /> 预估体积
               </span>
               <span className="font-mono text-body-sm text-primary">{estSize}</span>
+            </div>
+
+            {/* W11: BGM 素材源 */}
+            <div className="pt-2 border-t border-outline-variant/20">
+              <label className="block text-label text-on-surface-variant mb-1">背景音乐 (BGM)</label>
+              <select
+                value={bgmPath}
+                onChange={(e) => setBgmPath(e.target.value)}
+                className="w-full bg-surface rounded-cw-xs px-2 py-1.5 text-body-sm text-on-surface outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+              >
+                <option value="">无（不混入 BGM）</option>
+                {audioAssets.map((a) => (
+                  <option key={a.id} value={a.path}>{a.name}</option>
+                ))}
+              </select>
+              {audioAssets.length === 0 && (
+                <p className="text-caption text-on-surface-variant/60 mt-1">素材库暂无音频（上传音频素材后可选用作 BGM）</p>
+              )}
             </div>
           </div>
 
@@ -441,13 +531,41 @@ function QueueCard({ item, onRetry }: { item: QueueItem; onRetry?: () => void })
           </span>
         )}
         {item.status === 'completed' && !item.simulated && (item.filename || item.output_path) && (
-          <a
-            href={renderApi.getDownloadUrl(item.filename ?? '', item.output_path)}
-            className="p-2 rounded-cw-sm bg-track-audio/15 text-track-audio hover:bg-track-audio/25 transition-colors"
+          <button
+            onClick={() => {
+              renderApi.downloadFile(item.filename ?? '', item.output_path)
+                .catch(() => toast('下载失败 — 请重试', 'error'));
+            }}
+            className="p-2 rounded-cw-sm bg-track-audio/15 text-track-audio hover:bg-track-audio/25 transition-colors cursor-pointer"
             title="下载"
+            aria-label="下载成片"
           >
             <Download className="w-4 h-4" />
-          </a>
+          </button>
+        )}
+        {/* P8: 渲染后添加水印（工具级；调用后端 watermark 工具） */}
+        {item.status === 'completed' && !item.simulated && (item.filename || item.output_path) && (
+          <button
+            onClick={() => {
+              const base = item.output_path || (item.filename ? `renders/${item.filename}` : '');
+              if (!base) { toast('无渲染产物路径', 'error'); return; }
+              toast('正在添加水印…', 'info');
+              toolApi.execute('watermark', { input_path: base, text: 'ClipWright' })
+                .then((res) => {
+                  if (res.status === 'success') {
+                    toast('水印已添加', 'success');
+                  } else {
+                    toast(`水印失败：${res.error ?? '未知错误'}`, 'error');
+                  }
+                })
+                .catch(() => toast('水印失败（后端离线）', 'error'));
+            }}
+            className="p-2 rounded-cw-sm bg-track-text/15 text-track-text hover:bg-track-text/25 transition-colors cursor-pointer"
+            title="添加水印"
+            aria-label="添加水印"
+          >
+            <Wand2 className="w-4 h-4" />
+          </button>
         )}
         {item.status === 'failed' && onRetry && (
           <button

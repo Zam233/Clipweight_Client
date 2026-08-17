@@ -1,5 +1,5 @@
 import { getApiClient } from './client';
-import { useSettingsStore } from '@/stores/settingsStore';
+import { apiBase } from './sse';
 import type { PipelineRequest } from '@/types/pipeline';
 
 /** Single Agent span inside a pipeline run record (aligned with backend pipeline_v2.get_run_records). */
@@ -48,6 +48,29 @@ export const pipelineApi = {
     return data as PipelineRunRecord[];
   },
 
+  /** A10: 队列任务概览（含重启恢复项 recovered/interrupted） */
+  async getTasks(limit = 50) {
+    const { data } = await getApiClient().get('/api/pipeline/tasks', {
+      params: { limit },
+    });
+    return data as {
+      tasks: Array<{
+        task_id: string;
+        task_type: string;
+        priority: number;
+        status: string;
+        progress: number;
+        progress_text: string;
+        error: string;
+        duration_sec: number;
+        created_at: string;
+      }>;
+      recovered: Array<Record<string, unknown> & { task_id: string; recovered: boolean; status: string }>;
+      running: number;
+      pending: number;
+    };
+  },
+
   /** Retry from failed agent */
   async retry(pipelineId: string, agentName: string) {
     const { data } = await getApiClient().post(
@@ -94,15 +117,8 @@ export const pipelineApi = {
     }>;
   },
 
-  /** Create SSE stream URL for pipeline trace */
+  /** Create SSE stream URL for pipeline trace（token 由调用方用 withSseToken 附加） */
   getTraceStreamUrl(pipelineId: string): string {
-    const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
-    return `${base}/api/pipeline/trace/stream/${pipelineId}${authQuery()}`;
+    return `${apiBase()}/api/pipeline/trace/stream/${pipelineId}`;
   },
 };
-
-/** EventSource 无法设置请求头，鉴权令牌通过 query 参数传递。 */
-function authQuery(): string {
-  const token = useSettingsStore.getState().authToken;
-  return token ? `?token=${encodeURIComponent(token)}` : '';
-}
