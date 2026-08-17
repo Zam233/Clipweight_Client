@@ -209,6 +209,13 @@ describe('图一：左侧导航切换右侧内容区', () => {
     }
   });
 
+  it('链路入口齐全：我的项目 / 市场 / 音色库（对比老首页 TopBar）', async () => {
+    render(<HomePage />);
+    expect(await screen.findByRole('button', { name: /我的项目/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /市场/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /音色库/ })).toBeTruthy();
+  });
+
   it('点击「人格」→ 右侧切换到人格列表；点击卡片选中并跳设置', async () => {
     mocks.personaList.mockResolvedValue([
       { persona_id: 'p_a', persona_name: '人格A', parameter: { identity: { tone: '批判型' } } },

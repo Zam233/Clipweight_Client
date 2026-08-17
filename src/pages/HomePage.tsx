@@ -1355,6 +1355,13 @@ function HomeSidebar({ activeTab, onTab, credit, user, onTopup, estimate }: {
           <FolderOpen className="w-4 h-4" /> 我的项目
         </button>
         <button
+          onClick={() => navigate({ to: '/market' })}
+          className="w-full flex items-center gap-2.5 px-3.5 py-2 rounded-cw-sm text-label-sm text-on-surface-variant
+            hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+        >
+          <Store className="w-4 h-4" /> 市场
+        </button>
+        <button
           onClick={() => navigate({ to: '/voice' })}
           className="w-full flex items-center gap-2.5 px-3.5 py-2 rounded-cw-sm text-label-sm text-on-surface-variant
             hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
