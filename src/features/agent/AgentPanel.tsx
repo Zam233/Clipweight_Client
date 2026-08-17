@@ -182,7 +182,20 @@ function RequirementsView() {
     setStatus('gathering');
     addMessage({ id: uid('m'), role: 'user', content: `选题：${topic}`, timestamp: new Date().toISOString() });
     try {
-      const res = await requirementsApi.init({ topic });
+      // E2E 修复：init 传完整上下文（此前仅 topic，导致脚本/配音/素材源/Persona 丢失）
+      const st = useProjectStore.getState();
+      const res = await requirementsApi.init({
+        topic,
+        persona_id: st.personaId ?? undefined,
+        category_plugin_id: st.pluginId ?? undefined,
+        script_text: st.requirementsScript || st.scriptText || undefined,
+        audio_duration_sec: st.requirementsAudioDuration || st.audioDurationSec || undefined,
+        extra: {
+          audio_path: st.audioPath || undefined,
+          material_sources: st.materialSourceIds.length > 0 ? st.materialSourceIds : undefined,
+          split_mode: st.splitMode || undefined,
+        },
+      });
       setSession(res.session_id);
       await sendChat(res.session_id, `我的选题是：${topic}。请帮我生成创意简报。`);
     } catch {
