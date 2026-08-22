@@ -276,7 +276,37 @@ export const animationApi = {
     const { data } = await getApiClient().get<AnimationDef>(`/api/animation/get/${animationId}`);
     return data;
   },
+
+  /** 列出内置 MG 模板（预览工坊） */
+  async mgList() {
+    const { data } = await getApiClient().get<MgTemplateInfo[]>('/api/animation/mg/list');
+    return data;
+  },
+
+  /** 单镜头 MG 预览（Hyperframes 直出 MP4） */
+  async preview(body: { animation_id?: string; mg_json?: unknown; params?: Record<string, string>; width?: number; height?: number; fps?: number }) {
+    const { data } = await getApiClient().post<MgPreviewResult>('/api/animation/preview', body, { timeout: 180_000 });
+    return data;
+  },
 };
+
+export interface MgTemplateInfo {
+  animation_id: string;
+  name: string;
+  description?: string;
+  duration_sec: number;
+  params?: Record<string, { type?: string; default?: string }>;
+  shot_type?: string;
+}
+
+export interface MgPreviewResult {
+  url: string;
+  path: string;
+  duration_sec: number;
+  width: number;
+  height: number;
+  fps: number;
+}
 
 export const skillApi = {
   async list() {

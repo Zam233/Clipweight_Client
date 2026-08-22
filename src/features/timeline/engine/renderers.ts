@@ -9,6 +9,7 @@ import { timeToX, trackToY, scrollbarGeom } from './types';
 import { mediaManager } from '@/services/media/mediaManager';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { usePreviewStore } from '@/stores/previewStore';
+import { useTimelineStore } from '@/stores/timelineStore';
 
 const MONO = "'JetBrains Mono','SF Mono','Consolas',monospace";
 const SANS = "'Inter','Noto Sans SC',sans-serif";
@@ -191,6 +192,46 @@ export function drawRuler(
     const lx1 = timeToX(pst.loopRegion.end, L);
     ctx.fillStyle = 'rgba(79,139,237,0.08)';
     ctx.fillRect(Math.max(L.headerW, lx0), 0, Math.min(L.width, lx1) - Math.max(L.headerW, lx0), L.rulerH);
+  }
+
+  // Phase 2.3 可视化：NEL 配音事件刻度（读时间轴旁白轨 metadata.nel）
+  try {
+    const _tl = useTimelineStore.getState().timeline;
+    const nel: { t: number; type: string }[] = [];
+    for (const trk of _tl?.tracks ?? []) {
+      const md = (trk as { metadata?: Record<string, unknown> }).metadata;
+      if (md?.nel && Array.isArray(md.nel)) {
+        for (const ev of md.nel as { t?: unknown; type?: unknown }[]) {
+          if (typeof ev?.t === 'number' && typeof ev?.type === 'string') nel.push({ t: ev.t, type: ev.type });
+        }
+      }
+    }
+    if (nel.length > 0) {
+      const NEL_COLORS: Record<string, string> = {
+        number: '#4F6BED', emphasis: '#F5A623', turn: '#8B5CF6',
+        question: '#22C55E', enum: '#94A3B8',
+      };
+      ctx.setLineDash([]);
+      for (const ev of nel) {
+        const x = Math.round(timeToX(ev.t, L)) + 0.5;
+        if (x < L.headerW || x > L.width) continue;
+        const c = NEL_COLORS[ev.type] ?? '#94A3B8';
+        ctx.strokeStyle = c;
+        ctx.fillStyle = c;
+        ctx.lineWidth = 1.5;
+        // 事件刻度线（标尺底部向上伸出 + 底部色块）
+        ctx.beginPath();
+        ctx.moveTo(x, L.rulerH - 18);
+        ctx.lineTo(x, L.rulerH - 9);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, L.rulerH - 6, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.lineWidth = 1;
+    }
+  } catch {
+    /* NEL 绘制失败不影响标尺 */
   }
 }
 

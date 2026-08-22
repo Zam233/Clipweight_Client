@@ -16,7 +16,7 @@ import type { Timeline, Clip, ClipKind } from '@/types/timeline';
 import type { RequirementsStatus, CreativeBrief, ProductionPlan } from '@/types/persona';
 import {
   Bot, Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
-  MessageSquareText, ChevronDown, ChevronRight, X, Paperclip,
+  MessageSquareText, ChevronDown, ChevronRight, X, Paperclip, RefreshCw,
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<PipelinePhase, string> = {
@@ -845,11 +845,25 @@ function BottomBar() {
     if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
   }, []);
 
+  // Phase 4.1: 断连后手动重连（连续失败 5 次后自动重连停止，提供显式入口）
+  const handleManualReconnect = () => {
+    retryCountRef.current = 0;
+    setSseDisconnected(false);
+    if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+    if (pipelineId && !esRef.current) openSSE(pipelineId);
+  };
+
   return (
     <div className="border-t border-outline-variant/20 shrink-0 bg-surface-container-low">
       {sseDisconnected && (
-        <div className="px-3 py-1.5 text-caption font-medium text-error bg-error/10 border-b border-error/30">
-          连接已断开
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-caption font-medium text-error bg-error/10 border-b border-error/30">
+          <span>连接已断开</span>
+          <button
+            onClick={handleManualReconnect}
+            className="flex items-center gap-1 text-label-sm text-error hover:text-on-error hover:bg-error/15 px-2 py-0.5 rounded-cw-xs cursor-pointer border border-error/40"
+          >
+            <RefreshCw className="w-3 h-3" /> 重新连接
+          </button>
         </div>
       )}
       {running && (

@@ -4,7 +4,7 @@ import { healthApi } from '@/services/api';
 import { cn } from '@/lib/utils';
 import {
   ArrowLeft, Cpu, Wrench, Puzzle, Shapes, LayoutTemplate, Webhook,
-  Type, Activity, Terminal, GraduationCap, Clapperboard, Captions, Film,
+  Type, Activity, Terminal, GraduationCap, Clapperboard, Captions, Film, Sparkles,
 } from 'lucide-react';
 
 /**
@@ -35,6 +35,7 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
     { to: '/settings/subtitle-tools', label: '字幕与转写', icon: Captions, code: 'SUB' },
     { to: '/settings/webhooks', label: 'Webhook', icon: Webhook, code: 'HOOK' },
     { to: '/settings/fonts', label: '字体配置', icon: Type, code: 'FONT' },
+    { to: '/settings/mg-preview', label: 'MG 预览', icon: Sparkles, code: 'MG' },
     { to: '/pipeline-admin', label: '管线监控', icon: Activity, code: 'PIPE' },
   ];
 

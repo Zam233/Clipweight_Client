@@ -8,6 +8,7 @@ import {
 import { lazy, Suspense } from 'react';
 import { HomePage } from './pages/HomePage';
 import { RouteErrorFallback } from './components/RouteErrorFallback';
+import { useAuthStore } from '@/stores/authStore';
 
 // Route-level code splitting: every page (except the landing HomePage) is
 // lazy-loaded into its own chunk to keep the initial bundle small.
@@ -32,6 +33,7 @@ const LearningPage = lazyPage(() => import('./pages/admin/LearningPage'), 'Learn
 const VideoEditorPage = lazyPage(() => import('./pages/admin/VideoEditorPage'), 'VideoEditorPage');
 const WebhooksPage = lazyPage(() => import('./pages/admin/WebhooksPage'), 'WebhooksPage');
 const FontsPage = lazyPage(() => import('./pages/admin/FontsPage'), 'FontsPage');
+const MgPreviewPage = lazyPage(() => import('./pages/admin/MgPreviewPage'), 'MgPreviewPage');
 const SubtitleToolsPage = lazyPage(() => import('./pages/admin/SubtitleToolsPage'), 'SubtitleToolsPage');
 const PreprocessPage = lazyPage(() => import('./pages/admin/PreprocessPage'), 'PreprocessPage');
 const PipelineAdminPage = lazyPage(() => import('./pages/admin/PipelineAdminPage'), 'PipelineAdminPage');
@@ -39,6 +41,19 @@ const VoicePage = lazyPage(() => import('./pages/VoicePage'), 'VoicePage');
 const ProjectsPage = lazyPage(() => import('./pages/ProjectsPage'), 'ProjectsPage');
 const LoginPage = lazyPage(() => import('./pages/LoginPage'), 'LoginPage');
 const MarketPage = lazyPage(() => import('./pages/MarketPage'), 'MarketPage');
+
+/** 管理页鉴权守卫（审计 P1 修复）：
+ * - 存在账号会话（restore 成功）时，仅 role === 'admin' 可访问管理页；
+ * - 无会话时为本地/离线单用户模式，保持可用（桌面端部署形态）。 */
+async function requireAdmin() {
+  const auth = useAuthStore.getState();
+  await auth.restore();
+  const user = useAuthStore.getState().user;
+  if (user && user.role !== 'admin') {
+    sessionStorage.setItem('cw_guard_notice', '该页面需要管理员权限');
+    throw redirect({ to: '/' });
+  }
+}
 
 function RouteFallback() {
   return (
@@ -127,6 +142,7 @@ const helpRoute = createRoute({
 const modelsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/models',
+  beforeLoad: requireAdmin,
   component: ModelsPage,
   errorComponent: RouteErrorFallback,
 });
@@ -134,6 +150,7 @@ const modelsRoute = createRoute({
 const toolsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/tools',
+  beforeLoad: requireAdmin,
   component: ToolsPage,
   errorComponent: RouteErrorFallback,
 });
@@ -141,6 +158,7 @@ const toolsRoute = createRoute({
 const pluginsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/plugins',
+  beforeLoad: requireAdmin,
   component: PluginsPage,
   errorComponent: RouteErrorFallback,
 });
@@ -148,6 +166,7 @@ const pluginsRoute = createRoute({
 const typeMakerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/type-maker',
+  beforeLoad: requireAdmin,
   component: TypeMakerPage,
   errorComponent: RouteErrorFallback,
 });
@@ -155,6 +174,7 @@ const typeMakerRoute = createRoute({
 const templatesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/templates',
+  beforeLoad: requireAdmin,
   component: TemplatesPage,
   errorComponent: RouteErrorFallback,
 });
@@ -162,6 +182,7 @@ const templatesRoute = createRoute({
 const webhooksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/webhooks',
+  beforeLoad: requireAdmin,
   component: WebhooksPage,
   errorComponent: RouteErrorFallback,
 });
@@ -169,6 +190,7 @@ const webhooksRoute = createRoute({
 const learningRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/learning',
+  beforeLoad: requireAdmin,
   component: LearningPage,
   errorComponent: RouteErrorFallback,
 });
@@ -176,6 +198,7 @@ const learningRoute = createRoute({
 const videoEditorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/video-editor',
+  beforeLoad: requireAdmin,
   component: VideoEditorPage,
   errorComponent: RouteErrorFallback,
 });
@@ -183,13 +206,23 @@ const videoEditorRoute = createRoute({
 const fontsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/fonts',
+  beforeLoad: requireAdmin,
   component: FontsPage,
+  errorComponent: RouteErrorFallback,
+});
+
+const mgPreviewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/mg-preview',
+  beforeLoad: requireAdmin,
+  component: MgPreviewPage,
   errorComponent: RouteErrorFallback,
 });
 
 const subtitleToolsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/subtitle-tools',
+  beforeLoad: requireAdmin,
   component: SubtitleToolsPage,
   errorComponent: RouteErrorFallback,
 });
@@ -197,6 +230,7 @@ const subtitleToolsRoute = createRoute({
 const preprocessRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/preprocess',
+  beforeLoad: requireAdmin,
   component: PreprocessPage,
   errorComponent: RouteErrorFallback,
 });
@@ -204,6 +238,7 @@ const preprocessRoute = createRoute({
 const pipelineAdminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/pipeline-admin',
+  beforeLoad: requireAdmin,
   component: PipelineAdminPage,
   errorComponent: RouteErrorFallback,
 });
@@ -254,6 +289,7 @@ const routeTree = rootRoute.addChildren([
   learningRoute,
   videoEditorRoute,
   fontsRoute,
+  mgPreviewRoute,
   subtitleToolsRoute,
   preprocessRoute,
   pipelineAdminRoute,

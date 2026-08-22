@@ -26,35 +26,41 @@ describe('settingsStore 连接配置持久化', () => {
     vi.resetModules();
   });
 
-  it('setApiBaseUrl/setAuthToken 后重新加载模块读取到一致值', async () => {
+  it('setApiBaseUrl 持久化、setAuthToken 仅驻留内存（不落 localStorage）', async () => {
     const { useSettingsStore } = await importFreshStore();
     useSettingsStore.getState().setApiBaseUrl('http://192.168.1.10:8000');
     useSettingsStore.getState().setAuthToken('test-token-123');
 
-    // localStorage 中应已写入（W9: 不再包含 wsUrl）
+    // localStorage 中应已写入 apiBaseUrl，但绝不能包含 authToken（审计 P0 安全约束）
     const raw = localStorage.getItem(CONN_KEY);
     expect(raw).not.toBeNull();
     const saved = JSON.parse(raw!) as Record<string, unknown>;
     expect(saved.apiBaseUrl).toBe('http://192.168.1.10:8000');
     expect(saved.wsUrl).toBeUndefined();
-    expect(saved.authToken).toBe('test-token-123');
+    expect(saved.authToken).toBeUndefined();
 
-    // 模拟刷新页面：重置模块缓存后重新加载
+    // 内存中 token 仍可用
+    expect(useSettingsStore.getState().authToken).toBe('test-token-123');
+
+    // 模拟刷新页面：apiBaseUrl 恢复，token 按设计归零（仅内存）
     const fresh = await importFreshStore();
     expect(fresh.useSettingsStore.getState().apiBaseUrl).toBe('http://192.168.1.10:8000');
-    expect(fresh.useSettingsStore.getState().authToken).toBe('test-token-123');
+    expect(fresh.useSettingsStore.getState().authToken).toBeNull();
     // W9: 状态里不再有 wsUrl / setWsUrl
     expect((fresh.useSettingsStore.getState() as unknown as Record<string, unknown>).wsUrl).toBeUndefined();
     expect((fresh.useSettingsStore.getState() as unknown as Record<string, unknown>).setWsUrl).toBeUndefined();
   });
 
-  it('authToken 置空(null)后持久化，重新加载读取为 null', async () => {
+  it('旧版本遗留的 localStorage authToken 会被主动擦除', async () => {
+    localStorage.setItem(
+      CONN_KEY,
+      JSON.stringify({ apiBaseUrl: 'http://legacy:8080', authToken: 'legacy-token' }),
+    );
     const { useSettingsStore } = await importFreshStore();
-    useSettingsStore.getState().setAuthToken('abc');
-    useSettingsStore.getState().setAuthToken(null);
-
-    const fresh = await importFreshStore();
-    expect(fresh.useSettingsStore.getState().authToken).toBeNull();
+    expect(useSettingsStore.getState().authToken).toBeNull();
+    expect(useSettingsStore.getState().apiBaseUrl).toBe('http://legacy:8080');
+    const raw = JSON.parse(localStorage.getItem(CONN_KEY)!) as Record<string, unknown>;
+    expect(raw.authToken).toBeUndefined();
   });
 
   it('localStorage 无持久化数据时回退到环境变量默认值', async () => {

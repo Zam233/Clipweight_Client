@@ -53,7 +53,10 @@ export const voiceApi = {
   getAudioUrl(path: string): string {
     // Absolute URLs (e.g. CDN links) are returned as-is
     if (/^https?:\/\//i.test(path)) return path;
-    const base = getApiClient().defaults.baseURL || 'http://localhost:8000';
-    return `${base}${path}`;
+    // 审计 P1 修复：不再硬编码 localhost:8000（错误端口）。
+    // baseURL 为空时走同源相对路径（生产由反向代理路由 /renders 等静态资源）。
+    const base = getApiClient().defaults.baseURL || '';
+    if (!base) return path.startsWith('/') ? path : `/${path}`;
+    return `${base.replace(/\/$/, '')}${path.startsWith('/') ? path : `/${path}`}`;
   },
 };

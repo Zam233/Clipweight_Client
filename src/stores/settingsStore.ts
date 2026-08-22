@@ -49,12 +49,19 @@ function loadEditorPrefs() {
   };
 }
 
-/** 加载持久化的连接配置（API 地址 / 鉴权 Token）。WS 已移除（W9）。 */
+/** 加载持久化的连接配置（仅 API 地址）。WS 已移除（W9）。
+ * 安全约束：access token 仅存内存，绝不落 localStorage（审计 P0 修复）。
+ * 旧版本曾把 authToken 写入 connectionPrefs，这里读取时主动擦除残留。 */
 function loadConnectionPrefs() {
   const raw = loadPref<Record<string, unknown>>('connectionPrefs', {});
+  if (raw.authToken !== undefined) {
+    // 迁移：清除历史遗留的明文 token
+    savePref('connectionPrefs', {
+      apiBaseUrl: typeof raw.apiBaseUrl === 'string' && raw.apiBaseUrl !== '' ? raw.apiBaseUrl : '',
+    });
+  }
   return {
     apiBaseUrl: typeof raw.apiBaseUrl === 'string' && raw.apiBaseUrl !== '' ? raw.apiBaseUrl : undefined,
-    authToken: typeof raw.authToken === 'string' ? raw.authToken : null,
   };
 }
 
@@ -67,7 +74,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   apiBaseUrl: connPrefs.apiBaseUrl || import.meta.env.VITE_API_BASE_URL || '',
   theme: prefs.theme,
   language: 'zh',
-  authToken: connPrefs.authToken,
+  authToken: null,
   autoSave: true,
   autoSaveIntervalSec: 30,
   maxUndoHistory: 200,
@@ -88,7 +95,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     persistEditorPrefs();
   },
   setLanguage: (lang) => set({ language: lang }),
-  setAuthToken: (token) => { set({ authToken: token }); persistConnectionPrefs(); },
+  // token 仅驻留内存，不持久化（审计 P0 修复）
+  setAuthToken: (token) => { set({ authToken: token }); },
   setAutoSave: (enabled) => set({ autoSave: enabled }),
   setSnapEnabled: (enabled) => { set({ snapEnabled: enabled }); persistEditorPrefs(); },
   setSnapThreshold: (px) => { set({ snapThresholdPx: px }); persistEditorPrefs(); },
@@ -112,12 +120,11 @@ function persistEditorPrefs() {
   });
 }
 
-/** 持久化连接配置到 localStorage（键：clipwright.connectionPrefs）。 */
+/** 持久化连接配置到 localStorage（键：clipwright.connectionPrefs）。仅含 API 地址。 */
 function persistConnectionPrefs() {
   const s = useSettingsStore.getState();
   savePref('connectionPrefs', {
     apiBaseUrl: s.apiBaseUrl,
-    authToken: s.authToken,
   });
 }
 
