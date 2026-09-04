@@ -291,11 +291,14 @@ export function PropertiesPanel() {
               )}
               {trackKind === 'audio' && (
                 <Row label="预设">
+                  {/* E6/D2: 后端混音端无 EQ 滤镜（预留未实现），禁用避免设置无效参数 */}
                   <select
+                    disabled
+                    title="后端混音尚未实现 EQ，此设置暂不生效"
                     value={clip.eq_preset ?? 'none'}
                     onChange={(e) => { pushHistory(); set({ eq_preset: e.target.value || null }); }}
                     className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
-                      outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                      outline-none border border-outline-variant/30 opacity-50 cursor-not-allowed"
                   >
                     {EQ_PRESETS.map((p) => (
                       <option key={p.value} value={p.value}>{p.label}</option>

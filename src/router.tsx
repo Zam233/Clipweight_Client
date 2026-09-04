@@ -2,6 +2,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  Link,
   Outlet,
   redirect,
 } from '@tanstack/react-router';
@@ -55,12 +56,40 @@ async function requireAdmin() {
   }
 }
 
+/** 数据页会话守卫（E2）：
+ * - 曾登录过（cw_had_session 标记）且当前无有效会话 → 跳转登录页；
+ * - 从未登录过视为 off/token 本地模式，照旧放行（不影响桌面部署形态）。 */
+async function requireSession() {
+  const auth = useAuthStore.getState();
+  await auth.restore();
+  const hadSession = localStorage.getItem('cw_had_session') === '1';
+  if (hadSession && !useAuthStore.getState().user) {
+    throw redirect({ to: '/login' });
+  }
+}
+
+/** E1: 404 页——此前未知 URL 显示 TanStack Router 默认英文界面 */
+function NotFoundView() {
+  return (
+    <div className="h-full w-full flex flex-col items-center justify-center gap-4 bg-surface text-on-surface">
+      <span className="font-mono text-6xl font-bold text-on-surface-variant">404</span>
+      <span className="text-body">页面不存在或已被移动</span>
+      <Link
+        to="/"
+        className="px-4 py-2 rounded-lg bg-primary text-on-primary text-body cursor-pointer"
+      >
+        返回首页
+      </Link>
+    </div>
+  );
+}
+
 function RouteFallback() {
   return (
     <div className="h-full w-full flex items-center justify-center bg-surface">
       <div className="flex flex-col items-center gap-3">
         <span className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        <span className="font-mono text-caption text-on-surface-variant tracking-widest">LOADING…</span>
+        <span className="font-mono text-caption text-on-surface-variant tracking-widest">加载中…</span>
       </div>
     </div>
   );
@@ -72,6 +101,8 @@ const rootRoute = createRootRoute({
       <Outlet />
     </Suspense>
   ),
+  // E1: 404 页面（未知 URL 不再显示库默认英文界面）
+  notFoundComponent: NotFoundView,
 });
 
 const indexRoute = createRoute({
@@ -85,6 +116,7 @@ const editorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/editor/$projectId',
   beforeLoad: async ({ params }) => {
+    await requireSession(); // E2
     const { projectId } = params;
     // Validate id format only; EditorPage handles loading + offline fallback
     // (avoids a redundant double-fetch and allows offline/demo editor access)
@@ -107,6 +139,7 @@ const settingsRoute = createRoute({
 const exportRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/export/$projectId',
+  beforeLoad: requireSession,
   component: ExportPage,
   errorComponent: RouteErrorFallback,
 });
@@ -114,6 +147,7 @@ const exportRoute = createRoute({
 const personaRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/persona',
+  beforeLoad: requireSession,
   component: PersonaPage,
   errorComponent: RouteErrorFallback,
 });
@@ -121,6 +155,7 @@ const personaRoute = createRoute({
 const personaDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/persona/$personaId',
+  beforeLoad: requireSession,
   component: PersonaDetailPage,
   errorComponent: RouteErrorFallback,
 });
@@ -253,6 +288,7 @@ const voiceRoute = createRoute({
 const projectsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/projects',
+  beforeLoad: requireSession,
   component: ProjectsPage,
   errorComponent: RouteErrorFallback,
 });

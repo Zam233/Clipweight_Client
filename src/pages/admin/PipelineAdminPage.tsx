@@ -41,6 +41,12 @@ export function PipelineAdminPage() {
   const expandedRef = useRef<string | null>(null);
   // A10: 队列任务概览（running/pending/recovered）
   const [queueInfo, setQueueInfo] = useState<{ running: number; pending: number; recovered: number } | null>(null);
+  // E5: retry 后延迟刷新的定时器托管（原实现裸 setTimeout，卸载后仍 setState）
+  const retryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => () => {
+    retryTimersRef.current.forEach(clearTimeout);
+    retryTimersRef.current = [];
+  }, []);
 
   const loadRuns = async () => {
     setLoading(true);
@@ -101,8 +107,8 @@ export function PipelineAdminPage() {
     setRetryErr(null);
     try {
       await pipelineApi.retry(run.id, failedAgent);
-      // 3s 后轮询刷新状态（B3 retry 为异步）
-      setTimeout(() => { void loadRuns(); }, 3000);
+      // 3s 后轮询刷新状态（B3 retry 为异步）；E5: 定时器托管防卸载后 setState
+      retryTimersRef.current.push(setTimeout(() => { void loadRuns(); }, 3000));
     } catch (e) {
       setRetryErr(`重试失败：${(e as { message?: string })?.message ?? '未知错误'}`);
     } finally {

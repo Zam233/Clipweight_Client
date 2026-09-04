@@ -25,6 +25,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const res = await accountApi.login(email, password);
     const user = await accountApi.me(res.access_token);
     session.setToken(res.access_token);
+    localStorage.setItem('cw_had_session', '1'); // E2: 数据页守卫标记
     set({ accessToken: res.access_token, user });
   },
 
@@ -32,6 +33,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const res = await accountApi.register(email, password, displayName);
     const user = await accountApi.me(res.access_token);
     session.setToken(res.access_token);
+    localStorage.setItem('cw_had_session', '1'); // E2
     set({ accessToken: res.access_token, user });
   },
 
@@ -42,6 +44,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       /* 网络失败也继续清空本地会话 */
     }
     session.setToken(null);
+    localStorage.removeItem('cw_had_session'); // E2
     set({ accessToken: null, user: null });
   },
 

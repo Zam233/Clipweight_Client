@@ -661,6 +661,35 @@ function BottomBar() {
           useAgentStore.getState().clearSuggestions();
           warns.forEach((w) => useAgentStore.getState().addSuggestion(w));
         }
+        // E8/C7: 质检摘要展示——后端 /result 附带 quality_issues，此前前端
+        // 从不渲染，质检发现了什么用户完全看不到
+        void (async () => {
+          try {
+            const res = await pipelineApi.getResult(pid) as {
+              quality_issues?: {
+                error_count?: number;
+                warning_count?: number;
+                issues?: { severity: string; message: string }[];
+              } | null;
+            };
+            const q = res?.quality_issues;
+            if (q && (q.error_count || q.warning_count)) {
+              (q.issues ?? [])
+                .filter((i) => i.severity === 'error' || i.severity === 'warning')
+                .slice(0, 5)
+                .forEach((i) => {
+                  useAgentStore.getState().addSuggestion({
+                    id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                    type: 'pace' as const,
+                    message: `[质检${i.severity === 'error' ? '错误' : '警告'}] ${i.message}`,
+                    confidence: i.severity === 'error' ? 0.9 : 0.7,
+                  });
+                });
+            }
+          } catch {
+            /* 离线/结果已清理时静默——质检展示为增强功能 */
+          }
+        })();
         // 优先用 SSE 快照；否则从 result 接口取最终时间线
         let tl = lastTimelineRef.current;
         if (!tl) {

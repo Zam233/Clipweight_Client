@@ -3,7 +3,7 @@ import { useNavigate, useParams } from '@tanstack/react-router';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { renderApi, projectApi, assetApi, toolApi } from '@/services/api';
-import { fetchSseToken, withSseToken } from '@/services/api/sse';
+import { connectSseStream, type SseStreamHandle } from '@/services/api/sseStream';
 import { toast } from '@/stores/toastStore';
 import { createEmptyTimeline } from '@/types/timeline';
 import { StandardLayout } from '@/layouts/StandardLayout';
@@ -107,7 +107,8 @@ export function ExportPage() {
   const [loadingPresets, setLoadingPresets] = useState(true);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const esRefs = useRef<Map<string, EventSource>>(new Map());
+  // E3: EventSource → 共享 SSE 工具句柄（自动重连 + 手动重连）
+  const esRefs = useRef<Map<string, SseStreamHandle>>(new Map());
 
   useEffect(() => {
     renderApi.getPresets()
@@ -239,47 +240,54 @@ export function ExportPage() {
 
   const openSSE = (taskId: string) => {
     if (esRefs.current.has(taskId)) return;
-    // P0-9/10: EventSource 无法带请求头 → 先取一次性 token 再挂接
-    void fetchSseToken().then((tok) => {
-      if (esRefs.current.has(taskId)) return;
-      const es = new EventSource(withSseToken(renderApi.getQueueStreamUrl(taskId), tok));
-      esRefs.current.set(taskId, es);
-    // 后端发送的是未命名 data 消息（{type: progress/completed/failed/timeout}）
-    es.onmessage = (e) => {
-      let d: { type?: string; progress?: number; phase?: string; detail?: string; output_path?: string };
-      try {
-        d = JSON.parse((e as MessageEvent).data);
-      } catch {
-        return;
-      }
-      if (d.type === 'progress') {
-        updateQueue(taskId, { progress: d.progress ?? 0, phase: d.phase, detail: d.detail, status: 'rendering' });
-      } else if (d.type === 'completed') {
-        updateQueue(taskId, { status: 'completed', progress: 100, output_path: d.output_path });
-        es.close();
+    // E3: 共享 SSE 工具 — 一次性 token + 自动重连（3s 退避、5 次上限），
+    // 网络抖动不再立即判失败；重连期间显示"重连中"，上限后手动重试
+    const handle = connectSseStream({
+      url: renderApi.getQueueStreamUrl(taskId),
+      onMessage: (raw) => {
+        let d: { type?: string; progress?: number; phase?: string; detail?: string; output_path?: string };
+        if (typeof raw === 'string') {
+          try {
+            d = JSON.parse(raw);
+          } catch {
+            return;
+          }
+        } else {
+          d = raw as typeof d;
+        }
+        if (d.type === 'progress') {
+          updateQueue(taskId, { progress: d.progress ?? 0, phase: d.phase, detail: d.detail, status: 'rendering' });
+        } else if (d.type === 'completed') {
+          updateQueue(taskId, { status: 'completed', progress: 100, output_path: d.output_path });
+          esRefs.current.get(taskId)?.close();
+          esRefs.current.delete(taskId);
+        } else if (d.type === 'failed') {
+          updateQueue(taskId, { status: 'failed', detail: d.detail ?? '渲染失败', output_path: d.output_path });
+          esRefs.current.get(taskId)?.close();
+          esRefs.current.delete(taskId);
+        } else if (d.type === 'timeout') {
+          updateQueue(taskId, { status: 'failed', detail: '进度流超时' });
+          esRefs.current.get(taskId)?.close();
+          esRefs.current.delete(taskId);
+        }
+      },
+      onRetry: () => {
+        setQueue((q) => q.map((it) =>
+          it.task_id === taskId && (it.status === 'pending' || it.status === 'rendering')
+            ? { ...it, detail: '连接中断，重连中…' }
+            : it,
+        ));
+      },
+      onGiveUp: () => {
         esRefs.current.delete(taskId);
-      } else if (d.type === 'failed') {
-        updateQueue(taskId, { status: 'failed', detail: d.detail ?? '渲染失败', output_path: d.output_path });
-        es.close();
-        esRefs.current.delete(taskId);
-      } else if (d.type === 'timeout') {
-        updateQueue(taskId, { status: 'failed', detail: '进度流超时' });
-        es.close();
-        esRefs.current.delete(taskId);
-      }
-    };
-    es.onerror = () => {
-      // 连接错误：任务若仍显示进行中，标记为失败（避免永远卡在渲染中）；
-      // 已完成的流（后端主动关闭）不会走到这里
-      es.close();
-      esRefs.current.delete(taskId);
-      setQueue((q) => q.map((it) =>
-        it.task_id === taskId && (it.status === 'pending' || it.status === 'rendering')
-          ? { ...it, status: 'failed', detail: '进度流中断，请重试' }
-          : it,
-      ));
-    };
+        setQueue((q) => q.map((it) =>
+          it.task_id === taskId && (it.status === 'pending' || it.status === 'rendering')
+            ? { ...it, status: 'failed', detail: '进度流多次重连失败，请重试' }
+            : it,
+        ));
+      },
     });
+    esRefs.current.set(taskId, handle);
   };
 
   const simulateTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
