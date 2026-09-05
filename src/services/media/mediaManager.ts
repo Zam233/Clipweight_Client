@@ -402,12 +402,10 @@ class MediaManager {
     if (!src) {
       src = ctx.createMediaElementSource(el);
       this.sourceNodes.set(el, src);
+      // V1 修复: 每个 MediaElementSource 创建后永久连接到 analyser，
+      // 多个 source 可同时输入（BGM+配音同响），不再断开上一个 source。
+      try { src.connect(this.analyser); } catch { /* already connected */ }
     }
-    if (this.analyserSource && this.analyserSource !== src) {
-      try { this.analyserSource.disconnect(); } catch { /* ignore */ }
-    }
-    this.analyserSource = src;
-    src.connect(this.analyser);
     return this.analyser;
   }
 

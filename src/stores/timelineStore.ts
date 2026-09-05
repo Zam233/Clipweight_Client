@@ -779,6 +779,31 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 
   exportTimeline: () => {
     const { timeline } = get();
-    return structuredClone(timeline);
+    const cloned = structuredClone(timeline);
+    // V3: 关键帧契约对齐——前端属性名/归一化时间 → 后端属性名/绝对秒
+    const propMap: Record<string, string> = {
+      position_x: 'translate_x',
+      position_y: 'translate_y',
+      scale: 'scale_x',
+      rotation: 'rotate',
+    };
+    for (const track of cloned.tracks ?? []) {
+      for (const clip of track.clips ?? []) {
+        const kfs = clip.keyframes;
+        if (!Array.isArray(kfs) || kfs.length === 0) continue;
+        const dur = clip.duration_sec || 1;
+        for (const kf of kfs) {
+          // 归一化时间 → 绝对秒
+          if (kf.time <= 1) kf.time = +(kf.time * dur).toFixed(3);
+          // 属性名映射
+          const p = kf.properties as Record<string, unknown> | undefined;
+          if (!p) continue;
+          for (const [fe, be] of Object.entries(propMap)) {
+            if (fe in p) { p[be] = p[fe]; delete p[fe]; }
+          }
+        }
+      }
+    }
+    return cloned;
   },
 }));
