@@ -288,6 +288,18 @@ export const animationApi = {
     const { data } = await getApiClient().post<MgPreviewResult>('/api/animation/preview', body, { timeout: 180_000 });
     return data;
   },
+
+  /** M6: 列出最近 MG 生成记录（generation_id 摘要，新→旧） */
+  async mgGenerations(limit = 24) {
+    const { data } = await getApiClient().get<MgGenerationInfo[]>('/api/animation/mg/generations', { params: { limit } });
+    return data;
+  },
+
+  /** M6: 按 generation_id 取完整生成记录（含 mg_def，可送 preview 回看） */
+  async mgGeneration(generationId: string) {
+    const { data } = await getApiClient().get<MgGenerationRecord>(`/api/animation/mg/generations/${encodeURIComponent(generationId)}`);
+    return data;
+  },
 };
 
 export interface MgTemplateInfo {
@@ -297,6 +309,20 @@ export interface MgTemplateInfo {
   duration_sec: number;
   params?: Record<string, { type?: string; default?: string }>;
   shot_type?: string;
+}
+
+/** M6: MG 生成记录摘要 */
+export interface MgGenerationInfo {
+  generation_id: string;
+  created_at: string;
+  animation_id: string;
+  element_count: number;
+  duration_sec: number;
+}
+
+/** M6: MG 生成记录全文（mg_def 可直接送 /api/animation/preview） */
+export interface MgGenerationRecord extends MgGenerationInfo {
+  mg_def: Record<string, unknown>;
 }
 
 export interface MgPreviewResult {
