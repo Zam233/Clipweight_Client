@@ -797,6 +797,10 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         const kfs = clip.keyframes;
         if (!Array.isArray(kfs) || kfs.length === 0) continue;
         const dur = clip.duration_sec || 1;
+        // V3: 标记关键帧时间基——后端 normalize_keyframe_times 据此做确定性
+        // 归一化（translate 单位 likewise：clip_local = 画幅比例）
+        const meta = { ...(clip.metadata ?? {}), kf_time_base: 'clip_local' };
+        clip.metadata = meta;
         for (const kf of kfs) {
           // 归一化时间 → 绝对秒
           if (kf.time <= 1) kf.time = +(kf.time * dur).toFixed(3);
