@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { hitTestTextClipForEdit, applyTransitionAlpha, applyMaskClip } from './PreviewPanel';
+import { captionFontSize } from './captionLayout';
 import type { Clip, Track } from '@/types/timeline';
 import { createDefaultClip, createEmptyTimeline } from '@/types/timeline';
 
 const FRAME = { fx: 100, fy: 100, fw: 800, fh: 450 };
+// X3: text/caption 在无显式 position 时按轨序回退——track 0/1 → bottom 锚点，
+// 与导出 drawtext y=h-text_h-20（文本框中心再上移半个字高）一致
+const MID = captionFontSize(48, FRAME.fw, FRAME.fh) / 2;
+const BOTTOM_Y = FRAME.fy + FRAME.fh - 20 - MID;
 
 function track(kind: 'text' | 'caption' | 'video', index: number, clip: Clip): Track {
   return { id: `t${index}`, name: kind, kind, index, locked: false, muted: false, clips: [clip] };
@@ -15,12 +20,20 @@ function textClip(overrides: Partial<Clip> = {}): Clip {
 }
 
 describe('hitTestTextClipForEdit (C1 画布双击编辑文字)', () => {
-  it('命中中心对齐文本锚点（帧中心）', () => {
+  it('命中底部锚点文本（track 0 无 position → 导出 bottom 语义）', () => {
     const clip = textClip();
-    const hit = hitTestTextClipForEdit(500, 325, FRAME, [track('text', 0, clip)], 5);
+    const hit = hitTestTextClipForEdit(500, BOTTOM_Y, FRAME, [track('text', 0, clip)], 5);
     expect(hit).not.toBeNull();
     expect(hit!.clip.id).toBe('c1');
     expect(hit!.x).toBeCloseTo(500, 1);
+    expect(hit!.y).toBeCloseTo(BOTTOM_Y, 1);
+  });
+
+  it('显式 metadata.position=center → 锚点帧中心', () => {
+    const clip = textClip({ metadata: { position: 'center' } });
+    const hit = hitTestTextClipForEdit(500, FRAME.fy + FRAME.fh / 2, FRAME, [track('text', 0, clip)], 5);
+    expect(hit).not.toBeNull();
+    expect(hit!.y).toBeCloseTo(FRAME.fy + FRAME.fh / 2, 1);
   });
 
   it('playhead 不在片段范围内 → 未命中', () => {
@@ -36,22 +49,22 @@ describe('hitTestTextClipForEdit (C1 画布双击编辑文字)', () => {
   it('隐藏轨道 / 禁用片段不参与命中', () => {
     const clip = textClip();
     const hidden: Track = { ...track('text', 0, clip), hidden: true };
-    expect(hitTestTextClipForEdit(500, 325, FRAME, [hidden], 5)).toBeNull();
+    expect(hitTestTextClipForEdit(500, BOTTOM_Y, FRAME, [hidden], 5)).toBeNull();
     const disabled = textClip({ enabled: false });
-    expect(hitTestTextClipForEdit(500, 325, FRAME, [track('text', 0, disabled)], 5)).toBeNull();
+    expect(hitTestTextClipForEdit(500, BOTTOM_Y, FRAME, [track('text', 0, disabled)], 5)).toBeNull();
   });
 
   it('顶层 text 优先于下层 text（倒序命中）', () => {
     const low = textClip({ id: 'low', text: '下层' });
     const high = textClip({ id: 'high', text: '上层' });
     const tracks = [track('text', 0, low), track('text', 1, high)];
-    const hit = hitTestTextClipForEdit(500, 325, FRAME, tracks, 5);
+    const hit = hitTestTextClipForEdit(500, BOTTOM_Y, FRAME, tracks, 5);
     expect(hit!.clip.id).toBe('high');
   });
 
   it('左对齐文本锚点偏左（fx + 5% fw + 变换偏移）', () => {
     const clip = textClip({ text_align: 'left', metadata: { transform: { x: 0.1 } } });
-    const hit = hitTestTextClipForEdit(500, 325, FRAME, [track('text', 0, clip)], 5);
+    const hit = hitTestTextClipForEdit(500, BOTTOM_Y, FRAME, [track('text', 0, clip)], 5);
     expect(hit!.x).toBeCloseTo(FRAME.fx + FRAME.fw * 0.05 + 0.1 * FRAME.fw, 1);
   });
 
@@ -60,6 +73,7 @@ describe('hitTestTextClipForEdit (C1 画布双击编辑文字)', () => {
     const hit = hitTestTextClipForEdit(500, FRAME.fy + FRAME.fh * 0.85, FRAME, [track('caption', 0, clip)], 5);
     expect(hit).not.toBeNull();
     expect(hit!.clip.kind).toBe('caption');
+    expect(hit!.y).toBeCloseTo(BOTTOM_Y, 1);
   });
 });
 

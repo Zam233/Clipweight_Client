@@ -26,3 +26,61 @@ export function captionFontSize(
 ): number {
   return fontSize * (Math.min(fw, fh) / 1080) * scale;
 }
+
+/**
+ * X3: preview/export text-anchor parity — mirrors backend render.py
+ * `_extract_text_overlay` + drawtext position maps:
+ * - position: `metadata.position` → `metadata.style.position` → track-index
+ *   fallback {1: bottom, 2: top, 3: center, else bottom}
+ * - offset stacking: non-caption text clips on the same track stack +35px each
+ *   (capped 500); captions stay anchored (export offset_y=0)
+ * - y anchors are text-box centers: drawtext y is the box top (margin=20),
+ *   so preview adds fontSize/2 to land the visual center at the same spot
+ */
+export interface TextLayout {
+  x: number;
+  y: number;
+  align: 'left' | 'center' | 'right';
+}
+
+export function textLayout(
+  opts: {
+    position?: string | null;
+    textAlign?: string | null;
+    isCaption: boolean;
+    stackIndex: number;
+    fontSize: number;
+    fw: number;
+    fh: number;
+    trackIndex: number;
+  },
+): TextLayout {
+  const byTrack: Record<number, string> = { 1: 'bottom', 2: 'top', 3: 'center' };
+  const pos = (opts.position
+    ?? byTrack[opts.trackIndex]
+    ?? 'bottom').toLowerCase();
+  const offsetY = opts.isCaption ? 0 : Math.min(opts.stackIndex * 35, 500);
+  const m = 20;
+  const mid = opts.fontSize / 2;
+  const nine: Record<string, TextLayout> = {
+    center: { x: opts.fw / 2, y: opts.fh / 2, align: 'center' },
+    top: { x: opts.fw / 2, y: m + mid, align: 'center' },
+    bottom: { x: opts.fw / 2, y: opts.fh - m - mid, align: 'center' },
+    left: { x: m + mid, y: opts.fh / 2, align: 'left' },
+    right: { x: opts.fw - m - mid, y: opts.fh / 2, align: 'right' },
+    top_left: { x: m + mid, y: m + mid, align: 'left' },
+    top_right: { x: opts.fw - m - mid, y: m + mid, align: 'right' },
+    bottom_left: { x: m + mid, y: opts.fh - m - mid, align: 'left' },
+    bottom_right: { x: opts.fw - m - mid, y: opts.fh - m - mid, align: 'right' },
+  };
+  const base = nine[pos] ?? nine.bottom;
+  // 未显式指定 position 时，保留 text_align 的左右习惯（居中系锚点才生效）
+  let align = base.align;
+  let x = base.x;
+  if (!opts.position && base.align === 'center') {
+    align = (opts.textAlign as TextLayout['align']) ?? 'center';
+    if (align === 'left') x = opts.fw * 0.05;
+    else if (align === 'right') x = opts.fw * 0.95;
+  }
+  return { x, y: base.y + offsetY, align };
+}

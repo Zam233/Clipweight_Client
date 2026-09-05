@@ -316,9 +316,15 @@ export function PropertiesPanel() {
                     className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
                       outline-none border border-outline-variant/30 focus:border-primary"
                   >
-                    {BLEND_MODES.map((m) => (
-                      <option key={m} value={m}>{BLEND_LABELS[m] ?? m}</option>
-                    ))}
+                    {(() => {
+                      const cur = clip.blend_mode ?? 'normal';
+                      const opts = BLEND_MODES.includes(cur) ? BLEND_MODES : [...BLEND_MODES, cur];
+                      return opts.map((m) => (
+                        <option key={m} value={m}>
+                          {BLEND_LABELS[m] ?? m}{(BLEND_MODES.includes(m) || m === 'normal') ? '' : '（仅预览）'}
+                        </option>
+                      ));
+                    })()}
                   </select>
                 </Row>
               )}
@@ -435,6 +441,7 @@ export function PropertiesPanel() {
                 </Row>
                 <Row label="字距">
                   <NumberInput value={clip.letter_spacing ?? 0} onChange={(v) => applyStyle({ letter_spacing: v })} />
+                  <span className="text-caption text-on-surface-variant" title="drawtext 导出路径不渲染字距，仅 ASS 字幕路径与预览生效">仅预览*</span>
                 </Row>
                 <Row label="描边宽度">
                   <NumberInput value={clip.stroke_width ?? 0} onChange={(v) => applyStyle({ stroke_width: Math.max(0, v) })} />
@@ -455,6 +462,7 @@ export function PropertiesPanel() {
                 </Row>
                 <Row label="阴影模糊">
                   <NumberInput value={clip.shadow_blur ?? 0} onChange={(v) => applyStyle({ shadow_blur: Math.max(0, v) })} />
+                  <span className="text-caption text-on-surface-variant" title="drawtext 导出无阴影模糊（仅偏移+颜色生效），模糊仅预览呈现">仅预览*</span>
                 </Row>
                 <Row label="阴影颜色">
                   <input
@@ -1109,7 +1117,9 @@ const TRANSITION_LABELS: Record<string, string> = {
   pixel_dissolve: '像素溶解', slide: '滑动', wipe: '擦除',
 };
 
-const BLEND_MODES = ['normal', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion'];
+// X2: 后端导出仅支持 normal + screen/multiply/overlay（PiP blend 滤镜），
+// UI 收敛到支持集；已保存的历史不支持的值以「仅预览」标记展示
+const BLEND_MODES = ['normal', 'screen', 'multiply', 'overlay'];
 
 const BLEND_LABELS: Record<string, string> = {
   normal: '正常', multiply: '正片叠底', screen: '滤色', overlay: '叠加', darken: '变暗',

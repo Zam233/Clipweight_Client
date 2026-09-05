@@ -4,7 +4,7 @@ import { usePreviewStore } from '@/stores/previewStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { TRACK_COLORS } from '@/types/timeline';
 import type { Clip, Track } from '@/types/timeline';
-import { captionBaselineY, captionFontSize } from './captionLayout';
+import { captionFontSize, textLayout } from './captionLayout';
 import { orderTracksForComposite } from './compositeOrder';
 import { computePreviewFrameRect, xToScrubTime } from './frameGeometry';
 import type { FrameRect } from './frameGeometry';
@@ -712,13 +712,28 @@ function drawClipToPreview(
       if (hasLetterSpacing && letterSpacingPx !== 0) {
         (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${letterSpacingPx}px`;
       }
-      // Horizontal alignment from clip.text_align
-      const align = clip.text_align ?? 'center';
-      ctx.textAlign = align as CanvasTextAlign;
+      // X3: 锚点与导出对齐——position 元数据 → 轨序回退 {1:bottom,2:top,3:center}；
+      // 同轨非字幕文字按 35px/条堆叠（导出 offset_y 语义）
+      const isCaptionClip = track.kind === 'caption' || clip.kind === 'caption';
+      const stackIndex = track.clips
+        .slice(0, track.clips.indexOf(clip))
+        .filter((c) => (c.kind === 'text' || c.kind === 'caption') && !c.metadata?.position)
+        .length;
+      const layout = textLayout({
+        position: (clip.metadata?.position as string) ?? (clip.metadata?.style as { position?: string } | undefined)?.position ?? null,
+        textAlign: clip.text_align,
+        isCaption: isCaptionClip,
+        stackIndex,
+        fontSize,
+        fw,
+        fh,
+        trackIndex: track.index,
+      });
+      ctx.textAlign = layout.align;
       ctx.textBaseline = 'middle';
       ctx.fillStyle = clip.font_color || '#FFFFFF';
-      const baseY = track.kind === 'caption' ? fy + captionBaselineY(fh) : fy + fh / 2;
-      const baseX = align === 'left' ? fx + fw * 0.05 : align === 'right' ? fx + fw * 0.95 : fx + fw / 2;
+      const baseY = fy + layout.y;
+      const baseX = fx + layout.x;
       const maxWidth = fw * 0.9;
       // Apply position offset + rotation about the text anchor
       ctx.save();
@@ -750,11 +765,13 @@ function drawClipToPreview(
         ctx.restore();
       }
 
-      // Stroke before fill so the fill covers the inner half of the outline
+      // Stroke before fill so the fill covers the inner half of the outline.
+      // X3: 导出 borderw 为纯外侧描边；canvas 居中描边可见宽度=lineWidth/2，
+      // 故预览 lineWidth 取 2×stroke_width 才与导出视觉一致。
       const strokeColor = clip.stroke_color || '#000000';
       const strokeWidth = clip.stroke_width ?? 0;
       if (strokeWidth > 0 && strokeColor) {
-        ctx.lineWidth = strokeWidth;
+        ctx.lineWidth = strokeWidth * 2;
         ctx.lineJoin = 'round';
         ctx.strokeStyle = strokeColor;
         ctx.strokeText(text, 0, 0, maxWidth);
@@ -838,11 +855,24 @@ export function hitTestTextClipForEdit(
     if (track.kind !== 'text' && track.kind !== 'caption') continue;
     const clip = track.clips.find((c) => t >= c.start_sec && t < c.start_sec + c.duration_sec && c.enabled !== false);
     if (!clip) continue;
-    const align = clip.text_align ?? 'center';
-    const baseY = track.kind === 'caption' ? frame.fy + captionBaselineY(frame.fh) : frame.fy + frame.fh / 2;
+    // X3: 命中框锚点与渲染层 textLayout 一致（position/轨序/堆叠语义）
+    const stackIndex = track.clips
+      .slice(0, track.clips.indexOf(clip))
+      .filter((c) => (c.kind === 'text' || c.kind === 'caption') && !c.metadata?.position)
+      .length;
+    const layout = textLayout({
+      position: (clip.metadata?.position as string) ?? (clip.metadata?.style as { position?: string } | undefined)?.position ?? null,
+      textAlign: clip.text_align,
+      isCaption: track.kind === 'caption' || clip.kind === 'caption',
+      stackIndex,
+      fontSize: captionFontSize(clip.font_size ?? 48, frame.fw, frame.fh, 1),
+      fw: frame.fw,
+      fh: frame.fh,
+      trackIndex: track.index,
+    });
     const tf = getClipTransform(clip);
-    const ax = (align === 'left' ? frame.fx + frame.fw * 0.05 : align === 'right' ? frame.fx + frame.fw * 0.95 : frame.fx + frame.fw / 2) + tf.x * frame.fw;
-    const ay = baseY + tf.y * frame.fh;
+    const ax = frame.fx + layout.x + tf.x * frame.fw;
+    const ay = frame.fy + layout.y + tf.y * frame.fh;
     if (Math.abs(px - ax) < frame.fw * 0.45 && Math.abs(py - ay) < frame.fh * 0.3) {
       return { clip, x: ax, y: ay };
     }
