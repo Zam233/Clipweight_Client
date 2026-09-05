@@ -21,7 +21,7 @@
 
 ## 执行记录
 
-（执行后在此逐批追加：完成项、偏离备注、回归数字。）
+（执行后在此逐批追加：完成项、偏离备注、回归数字。详见文末执行记录——后端 R/RE/T/P/M 批次已完成，基线 1344 passed。）
 
 ---
 
@@ -543,4 +543,29 @@ npm run build
 
 ## 执行记录
 
-（执行后在此逐批追加：完成项、偏离备注、回归数字。）
+### 后端批次 R / RE / T / P / M — 已完成（回归基线 1344 passed 维持）
+
+**批次 R（渲染正确性 R1–R12）— 全部落地。**
+R1 转场漂移：concat 后按累计 xfade 时长校正后段 effective_start，agents 与 pipeline_v2 共享 `animation/xfade_map.py`；R2 单例互踩：TaskQueue 每任务 `timeout_sec`（A2 同步）+ 渲染实例化 + `_running_pipelines` 登记；R3 ProRes 经 `_encoder_stage_args`（prores_ks 无 `-preset`）；R4 drawtext `::enable` 双冒号修复；R5 链式 MG 合成；R6 各阶段 progress 事件全覆盖；R7 失败携带 ffmpeg_log 尾部；R8 渲染级取消检查；R9 音频 source_offset/atempo 语义；R10 hyperframes 取消感知；R11 产物清理白名单化；R12 MG alpha MOV 内容哈希缓存 + `render_overlay_on_video` 走 `run_tracked_ff`。
+
+**批次 RE（渲染效率 RE1–RE12）— 全部落地。**
+RE1 ffmpeg 池线程按核数封顶 8；RE2 全链 `-crf+maxrate/bufsize`；RE3 `_current_pix_fmt()` 替代硬编码 yuv420p；RE4 三处 copy2 改 os.replace/原位；RE5 concat 中间物移入 work_dir；RE6 ffprobe 记忆化（path+size+mtime）；RE7 `-stream_loop` 仅图片源；RE8 loudnorm 后 `aresample=48000` + amix duration=longest；RE9 解码 hwaccel 与编码器解耦；RE10 fps 小数端到端；RE11 typewriter 分词分组；RE12 阶段计时埋点入 ffmpeg_log。
+
+**批次 T（工具系统 T1–T12）— 全部落地。**
+T1 全部 `async def execute` 内同步 `subprocess.run` → `await asyncio.to_thread`（audio/vision/animation/quality/effects/subtitle/text_video/stabilize 共 20+ 处）；T2 signalstats YAVG 过曝检测；T3 eq+hue 拆分；T6 URL 缓存 sha256 + SSRF 校验；T7 text_video fallback 显式 lavfi；T8 crop 表达式 + 转场方向；T9 ToolRegistry.execute 路径/URL 安全校验统一；T10 `utils/type_utils.py` docstring Args 解析进 schema 描述；T11 bpm 如实标记；T12 stabilize `.trf` finally 清理 + concat 清单单引号转义（`utils/concat_list.py` 收敛校验/转义/清理）。
+
+**批次 P（插件系统）— 落地 P1–P5、P7；P6/P8–P10 并入既有机制。**
+P1 签名 fail-closed；P2 安装 sha256 + 失败回滚（含市场路径）；P3 写操作 admin 门控（jwt 模式 403）；P4 Hook per-plugin 标注 + disable/unregister 同步注销 Hook 与 Prompt（`PluginPromptRegistry.unregister`）+ execute per-hook 异常隔离；P5 secret 掩码不回写；P7 manifest 解析异常隔离。P6 key 收敛、P8 reload 回滚、P9 迁移持久化、P10 健康视图：loader/config_migration 现有机制已覆盖主场景（原地 reload、迁移结果随配置落盘），审计级追踪可后续补。
+
+**批次 M（MG 渲染）— 落地 M1–M5、M7；M6/M8 部分。**
+M1 自愈重跑先清动画/文字轨（幂等）；M2 链式 MG 合成（MOV>8 回退 per-MOV）；M3 `animation/mg/generation_cache.py` marker 哈希缓存（30min TTL，自愈/重试零 LLM 重付）；M4 overlay rc 校验；M5 Chrome 进程树击杀（taskkill /T）；M7 图片 src file:// + 背景守卫。M6 generation_id 预览、M8 clip 级进度：阶段级进度已覆盖（R6），预览接线待前端配合后补。
+
+### 前端批次 V — 已落地 V1–V10（V8 此前完成；自适应缩略图 LRU 上限未做，维持固定 24）
+
+V1 每音频元素独立 source/analyser（重叠不再互斥静音）；V2 时间码拆叶子组件（消除 60fps 级联重渲）；V3 关键帧契约对齐（translate_x/scale_x + 绝对秒）；V4 静态变换导出：trim 阶段识别 `metadata.transform`（translate 归一化/scale/rotate），经黑底画布 `overlay` 链合成并进 trim 缓存键（3 例单测锁定，含恒等变换不引入 filter_complex）；V5 token 模式媒体 401：后端 `GET /api/asset/by-path` 允许 query token（jwt 模式另收验签 JWT；中间件已在日志前抹除 token），前端 `withMediaToken` 自动附带 session token；V6 代理生成覆盖全部视频/图片素材 + 切换后经 `setTimeline` 旋点按 URL 变化全量重注册；V7 缩略图改用每素材独立隐藏 video 元素（不再 seek 预览元素，播放中抓帧零跳帧）；V9 播放头后 3s 窗口内片段 `preload` 升级 auto（消除边界闪白，幂等可高频调用）；V10 末帧 `dur−ε` 钳位（黑帧消除）、画布点击后 blur（空格焦点陷阱）、visibilitychange 自动暂停（防音画错位）、Undo/重做/导入后经 `setTimeline` 重注册媒体。
+
+### 批次 X — 全部落地（X1–X4）
+
+X1 蒙版枚举：后端兼容 `rect`（=rectangle）别名，`ellipse` 经 geq alpha 椭圆遮罩真实导出（此前前端两种蒙版导出全部静默失效）；X2 blend 收敛：UI 选项收敛到后端支持集 normal/screen/multiply/overlay，历史不支持值以「仅预览」保留；X3 文字锚点对齐：预览新增 `textLayout`（`metadata.position` → 轨序回退 {1:bottom,2:top,3:center} → 同轨 35px 堆叠，9 宫格映射与导出 drawtext 一致），描边预览 ×2 补偿 `borderw` 纯外侧语义，字距/阴影模糊标注「仅预览」，命中框同步新锚点（5+8 例单测）；X4 音频速率：混音链 `atrim` 时长按源时间换算（dur×speed）+ `atempo` 链式分级（单级限 0.5–2.0），与预览 playbackRate 语义一致（2 例单测）。
+
+**最终回归（2026-09-06）**：后端 `python -m pytest tests -q` = **1349 passed**（基线 1344 只增不减）；前端 `npx tsc --noEmit` ✓、`npm run test` = **377 passed**、`npm run build` ✓。

@@ -7,6 +7,17 @@
  */
 
 import type { Timeline, Clip } from '@/types/timeline';
+import { session } from '@/services/api/session';
+
+/**
+ * V5: <video>/<img> 无法携带 Authorization 头——by-path 代理 URL 附带
+ * query token（后端中间件已兼容并在日志前抹除；无 token 时原样返回）。
+ */
+export function withMediaToken(url: string): string {
+  const token = session.token;
+  if (!token || !url.includes('/api/asset/by-path')) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+}
 
 /** Resolve a clip's real-media URL for preview playback. */
 export function resolveMediaUrl(clip: Pick<Clip, 'metadata' | 'asset_id'>): string | undefined {
@@ -17,7 +28,7 @@ export function resolveMediaUrl(clip: Pick<Clip, 'metadata' | 'asset_id'>): stri
   const localPath = typeof meta.local_path === 'string' ? meta.local_path : '';
   const path = localPath || clip.asset_id;
   if (!path) return undefined;
-  return `/api/asset/by-path?path=${encodeURIComponent(path)}`;
+  return withMediaToken(`/api/asset/by-path?path=${encodeURIComponent(path)}`);
 }
 
 interface MediaEntry {
@@ -26,6 +37,8 @@ interface MediaEntry {
   videoEl?: HTMLVideoElement;
   audioEl?: HTMLAudioElement;
   img?: HTMLImageElement;
+  /** V7: 缩略图专用隐藏 video 元素——不 seek 预览元素，避免播放中跳帧闪烁 */
+  thumbVideoEl?: HTMLVideoElement;
   durationSec: number;
   waveform?: number[];
   thumbnails: Map<number, string>;
@@ -145,15 +158,22 @@ class MediaManager {
   /**
    * registerTimeline — 把时间线上所有媒体片段（video/audio/image）注册为真实媒体。
    *
-   * 幂等：已注册的 asset_id 跳过；无法解析 URL 的片段静默跳过（预览回退占位块）。
+   * 幂等：已注册且 URL 未变的 asset_id 跳过；URL 变化（如代理切换/代理生成）
+   * 时刷新媒体元素（V6）；无法解析 URL 的片段静默跳过（预览回退占位块）。
+   * blob: 对象 URL（本地上传）不参与刷新。
    */
   registerTimeline(timeline: Timeline): void {
     for (const track of timeline.tracks) {
       for (const clip of track.clips) {
         if (clip.kind !== 'video' && clip.kind !== 'audio' && clip.kind !== 'image') continue;
-        if (this.entries.has(clip.asset_id)) continue;
         const url = resolveMediaUrl(clip);
         if (!url) continue;
+        const existing = this.entries.get(clip.asset_id);
+        if (existing) {
+          if (existing.isObjectUrl || existing.url === url) continue;
+          // V6: URL 变了（代理切换）——先卸载旧元素再按新 URL 重注册
+          this.unregister(clip.asset_id);
+        }
         this.registerUrl(clip.asset_id, url, clip.kind);
       }
     }
@@ -177,6 +197,7 @@ class MediaManager {
       e.audioEl.removeAttribute('src');
       e.audioEl.load();
     }
+    this.releaseThumbVideo(e); // V7
     e.thumbnails.clear();
     if (e.isObjectUrl) URL.revokeObjectURL(e.url);
     this.entries.delete(assetId);
@@ -193,6 +214,22 @@ class MediaManager {
     for (const e of this.entries.values()) {
       if (e.videoEl && !e.videoEl.paused) e.videoEl.pause();
       if (e.audioEl && !e.audioEl.paused) e.audioEl.pause();
+    }
+  }
+
+  /**
+   * V9: 预缓冲——把播放头临近片段的 preload 升到 auto（默认 metadata 只取
+   * 元数据，跨片段边界时无缓冲导致占位闪白）。仅处理暂停中的元素（load()
+   * 会重置播放位置），幂等可高频调用。
+   */
+  prebuffer(assetIds: string[]): void {
+    for (const id of assetIds) {
+      const e = this.entries.get(id);
+      const el = e?.videoEl;
+      if (!el || el.preload === 'auto') continue;
+      if (!el.paused) continue;
+      el.preload = 'auto';
+      try { el.load(); } catch { /* detached src */ }
     }
   }
 
@@ -236,17 +273,20 @@ class MediaManager {
       return cached;
     }
 
-    if (e.kind === 'video' && e.videoEl) {
+    // V7: 缩略图改用独立隐藏 video 元素——原实现直接 seek 预览共享的
+    // videoEl，播放中抓帧导致预览跳帧闪烁
+    if (e.kind === 'video' && e.url) {
+      const tv = this.ensureThumbVideo(e);
+      if (!tv) return null;
       return new Promise((resolve) => {
-        const v = e.videoEl!;
         const grab = () => {
           try {
             const c = document.createElement('canvas');
-            const scale = width / (v.videoWidth || width);
+            const scale = width / (tv.videoWidth || width);
             c.width = width;
-            c.height = Math.round((v.videoHeight || 90) * scale);
+            c.height = Math.round((tv.videoHeight || 90) * scale);
             const ctx = c.getContext('2d')!;
-            ctx.drawImage(v, 0, 0, c.width, c.height);
+            ctx.drawImage(tv, 0, 0, c.width, c.height);
             const dataUrl = c.toDataURL('image/jpeg', 0.7);
             e.thumbnails.set(bucket, dataUrl);
             this.touchThumb(e, bucket);
@@ -255,18 +295,44 @@ class MediaManager {
             resolve(null);
           }
         };
-        if (v.readyState >= 2) {
-          v.currentTime = Math.min(bucket, (e.durationSec || bucket) - 0.05);
-          v.addEventListener('seeked', grab, { once: true });
+        if (tv.readyState >= 2) {
+          tv.currentTime = Math.min(bucket, (e.durationSec || bucket) - 0.05);
+          tv.addEventListener('seeked', grab, { once: true });
         } else {
-          v.addEventListener('loadeddata', () => {
-            v.currentTime = Math.min(bucket, (e.durationSec || bucket) - 0.05);
-            v.addEventListener('seeked', grab, { once: true });
+          tv.addEventListener('loadeddata', () => {
+            tv.currentTime = Math.min(bucket, (e.durationSec || bucket) - 0.05);
+            tv.addEventListener('seeked', grab, { once: true });
           }, { once: true });
         }
       });
     }
     return null;
+  }
+
+  /** V7: 懒创建缩略图专用隐藏 video 元素（跟随 entry 生命周期）。 */
+  private ensureThumbVideo(e: MediaEntry): HTMLVideoElement | null {
+    if (e.thumbVideoEl) return e.thumbVideoEl;
+    try {
+      const tv = document.createElement('video');
+      tv.src = e.url;
+      tv.preload = 'auto';
+      tv.muted = true;
+      tv.crossOrigin = 'anonymous';
+      tv.playsInline = true;
+      e.thumbVideoEl = tv;
+      return tv;
+    } catch {
+      return null;
+    }
+  }
+
+  /** V7: 释放缩略图专用元素。 */
+  private releaseThumbVideo(e: MediaEntry): void {
+    if (!e.thumbVideoEl) return;
+    e.thumbVideoEl.pause();
+    e.thumbVideoEl.removeAttribute('src');
+    e.thumbVideoEl.load();
+    e.thumbVideoEl = undefined;
   }
 
   /**

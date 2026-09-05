@@ -78,6 +78,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     usePreviewStore.getState().setDuration(timeline.duration_sec);
     usePreviewStore.getState().setFps(timeline.fps);
     useSelectionStore.getState().deselectAll();
+    // V10: Undo/重做/导入/代理切换后重注册媒体——历史快照可能指向不同素材 URL
+    // （动态 import 避免 store↔service 初始化耦合）
+    void import('@/services/media/mediaManager').then(({ mediaManager }) =>
+      mediaManager.registerTimeline(timeline),
+    );
   },
 
   resetTimeline: () => {

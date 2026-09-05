@@ -100,21 +100,23 @@ export function EditorToolbar() {
   const [proxyNotice, setProxyNotice] = useState<string | null>(null);
 
   const handleGenerateProxy = async () => {
-    // 以第一个视频片段/素材作为输入
+    // V6: 覆盖全部视频/图片素材（原实现只取第一个 clip → 其余素材无代理 404）
     const store = useTimelineStore.getState();
-    let inputPath = '';
-    outer: for (const tr of store.timeline.tracks) {
+    const inputPaths = new Set<string>();
+    for (const tr of store.timeline.tracks) {
       for (const c of tr.clips) {
-        if (c.asset_id && (c.kind === 'video' || c.kind === 'image')) { inputPath = c.asset_id; break outer; }
+        if (c.asset_id && (c.kind === 'video' || c.kind === 'image')) inputPaths.add(c.asset_id);
       }
     }
-    if (!inputPath) { setProxyNotice('时间轴中没有视频片段，无法生成代理'); return; }
+    if (inputPaths.size === 0) { setProxyNotice('时间轴中没有视频片段，无法生成代理'); return; }
     setProxyBusy(true);
     setProxyNotice(null);
     try {
       const { proxyApi } = await import('@/services/api');
-      const res = await proxyApi.generate(inputPath);
-      setProxyNotice(`代理已生成：${String((res as Record<string, unknown>).proxy_path ?? '完成')}`);
+      const results = await Promise.allSettled([...inputPaths].map((p) => proxyApi.generate(p)));
+      const ok = results.filter((r) => r.status === 'fulfilled').length;
+      const failed = results.length - ok;
+      setProxyNotice(failed > 0 ? `代理生成：${ok} 成功 / ${failed} 失败` : `已为 ${ok} 个素材生成代理`);
     } catch {
       setProxyNotice('代理生成失败（后端离线或文件不可达）');
     } finally {
@@ -134,8 +136,11 @@ export function EditorToolbar() {
         ? await proxyApi.switchToProxy(tl as unknown as Record<string, unknown>)
         : await proxyApi.switchToFull(tl as unknown as Record<string, unknown>);
       useHistoryStore.getState().pushState(tl, 'proxy-switch');
-      useTimelineStore.getState().setTimeline(result as unknown as ReturnType<typeof createEmptyTimeline>);
+      const nextTl = result as unknown as ReturnType<typeof createEmptyTimeline>;
+      useTimelineStore.getState().setTimeline(nextTl);
       setProxyMode(next);
+      // V6: setTimeline 内部已按 URL 变化全量重注册媒体（timelineStore 旋点），
+      // 切换改写的素材路径由此获得新 URL，预览不再指向旧地址
       setProxyNotice(next === 'proxy' ? '已切换到代理素材（低分辨率）' : '已切回原始素材（全分辨率）');
     } catch {
       setProxyNotice('切换失败（后端离线）');

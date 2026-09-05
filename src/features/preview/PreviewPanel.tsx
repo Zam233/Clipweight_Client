@@ -129,6 +129,19 @@ export function PreviewPanel() {
         }
       }
     }
+    // V9: 预缓冲——播放头后 3s 内的画面片段升级 preload=auto，消除跨片段边界闪白
+    if (playing) {
+      const upcoming = new Set<string>();
+      for (const track of timeline.tracks) {
+        if (track.kind !== 'video' && track.kind !== 'image') continue;
+        for (const clip of track.clips) {
+          if (clip.enabled === false) continue;
+          const end = clip.start_sec + clip.duration_sec;
+          if (end > t && clip.start_sec < t + 3) upcoming.add(clip.asset_id);
+        }
+      }
+      if (upcoming.size > 0) mediaManager.prebuffer([...upcoming]);
+    }
   }, [currentTimeSec, isPlaying, isMuted, timeline, volume]);
 
   // Playback loop
@@ -178,6 +191,18 @@ export function PreviewPanel() {
     mediaManager.pauseAll();
   }, []);
 
+  // V10: 页面隐藏时暂停播放——RAF 停摆但音频元素继续出声，回切后音画错位
+  useEffect(() => {
+    const onVis = () => {
+      if (document.hidden && usePreviewStore.getState().isPlaying) {
+        usePreviewStore.getState().setPlaying(false);
+        mediaManager.pauseAll();
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
+
   // Canvas pointer scrub: drag horizontally to seek the playhead, click to toggle play.
   // 画布指针刷洗：水平拖拽移动播放头，单击切换播放/暂停。
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -220,6 +245,9 @@ export function PreviewPanel() {
       usePreviewStore.getState().setCurrentTime(s.targetTime);
     }
     if (!s.dragging) {
+      // V10: 画布点击后移除焦点——残留焦点在按钮上时空格会二次触发该按钮（焦点陷阱）
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && ae !== document.body && typeof ae.blur === 'function') ae.blur();
       usePreviewStore.getState().togglePlay();
     }
     if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
@@ -283,7 +311,8 @@ export function PreviewPanel() {
 
       const pst = usePreviewStore.getState();
       const tl = useTimelineStore.getState().timeline;
-      const t = pst.currentTimeSec;
+      // V10: 播放头停在末尾时钳到 dur−ε——t==dur 时刻没有任何活跃 clip，会画出末帧黑屏
+      const t = tl.duration_sec > 0 ? Math.min(pst.currentTimeSec, tl.duration_sec - 0.001) : 0;
       const showSafe = pst.showSafeArea;
 
       // Letterbox background
