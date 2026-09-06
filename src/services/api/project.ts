@@ -176,7 +176,7 @@ export const pluginApi = {
 
   async list() {
     const { data } = await getApiClient().get('/api/plugin/list');
-    return data as { manifest: { id: string; name: string; description?: string; version?: string; kind?: string }; enabled: boolean }[];
+    return data as { manifest: { id: string; name: string; description?: string; version?: string; kind?: string }; enabled: boolean; agents?: string[] }[];
   },
 
   async loadAll() {

@@ -16,6 +16,7 @@ interface PluginItem {
   kind?: string;
   loaded: boolean;
   has_ui?: boolean;
+  agents?: string[];
 }
 
 export function PluginsPage() {
@@ -234,6 +235,12 @@ export function PluginsPage() {
                   <p className="font-mono text-body-sm font-semibold text-on-surface truncate">{p.id}</p>
                   {p.version && <span className="font-mono text-caption text-on-surface-variant shrink-0">v{p.version}</span>}
                   {p.kind && <span className="text-caption text-on-surface-variant/50 font-mono">{p.kind}</span>}
+                  {p.agents && p.agents.length > 0 && (
+                    <span className="font-mono text-caption text-primary/80 shrink-0"
+                      title={p.agents.join(', ')}>
+                      {p.agents.length} agent{p.agents.length > 1 ? 's' : ''}
+                    </span>
+                  )}
                 </div>
                 {p.description && <p className="text-caption text-on-surface-variant truncate mt-0.5">{p.description}</p>}
               </div>
@@ -412,6 +419,7 @@ function normalize(data: unknown): PluginItem[] {
         version: m.version ? String(m.version) : undefined,
         kind: m.kind ? String(m.kind) : undefined,
         loaded: Boolean(o.enabled ?? o.loaded ?? true),
+        agents: Array.isArray(o.agents) ? o.agents.map(String) : undefined,
       };
     });
   }
