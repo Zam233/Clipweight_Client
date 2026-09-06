@@ -228,6 +228,42 @@ describe('V9 prebuffer', () => {
   });
 });
 
+describe('V7b setThumbCacheLimit — 每素材缩略图 LRU 上限自适应', () => {
+  beforeEach(() => {
+    mediaManager.clear();
+    mediaManager.setThumbCacheLimit(24); // 复位默认
+  });
+
+  it('收紧上限时立即淘汰既有最久未用 bucket', () => {
+    mediaManager.registerUrl('asset_v1', 'http://mock.local/v.mp4', 'video');
+    const entry = mediaManager.get('asset_v1')!;
+    for (const b of [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5]) {
+      entry.thumbnails.set(b, `u${b}`);
+      // 直接经 touch 语义维护 LRU 序
+      (mediaManager as unknown as { touchThumb: (e: typeof entry, b: number) => void })
+        .touchThumb(entry, b);
+    }
+    mediaManager.setThumbCacheLimit(8); // 下限 8
+    expect(entry.thumbLru.length).toBe(8);
+    expect(entry.thumbnails.has(0)).toBe(false); // 最久未用被淘汰
+    expect(entry.thumbnails.has(4.5)).toBe(true);
+  });
+
+  it('放大上限后可继续缓存更多 bucket', () => {
+    mediaManager.setThumbCacheLimit(64);
+    mediaManager.registerUrl('asset_v1', 'http://mock.local/v.mp4', 'video');
+    const touch = (mediaManager as unknown as {
+      touchThumb: (e: { thumbLru: number[]; thumbnails: Map<number, string> }, b: number) => void;
+    }).touchThumb;
+    const entry = mediaManager.get('asset_v1')!;
+    for (let i = 0; i < 40; i += 1) {
+      entry.thumbnails.set(i * 0.5, 'u');
+      touch(entry, i * 0.5);
+    }
+    expect(entry.thumbLru.length).toBe(40);
+  });
+});
+
 describe('mediaManager error tracking', () => {
   beforeEach(() => {
     mediaManager.clear();

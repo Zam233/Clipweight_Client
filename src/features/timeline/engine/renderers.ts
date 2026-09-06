@@ -549,14 +549,29 @@ function drawWaveform(
   }
 }
 
-/** Image cache for thumbnail dataURLs (so drawImage can use them). */
+/** Image cache for thumbnail dataURLs (so drawImage can use them).
+ *  V10: LRU 驱逐——时间轴大量 clip × 多 bucket 时 dataURL 解码图无界增长会
+ *  吃满内存；上限随缩放级别可调（V7b，默认 256 张约数十 MB 上限）。 */
 const thumbImageCache = new Map<string, HTMLImageElement>();
+let thumbImageCacheLimit = 256;
+export function setThumbImageCacheLimit(n: number): void {
+  thumbImageCacheLimit = Math.max(32, Math.min(1024, Math.round(n)));
+}
 function getThumbImage(dataUrl: string): HTMLImageElement {
   let img = thumbImageCache.get(dataUrl);
-  if (!img) {
-    img = new Image();
-    img.src = dataUrl;
+  if (img) {
+    // LRU touch：删了重插，Map 保持访问序
+    thumbImageCache.delete(dataUrl);
     thumbImageCache.set(dataUrl, img);
+    return img;
+  }
+  img = new Image();
+  img.src = dataUrl;
+  thumbImageCache.set(dataUrl, img);
+  while (thumbImageCache.size > thumbImageCacheLimit) {
+    const oldest = thumbImageCache.keys().next().value;
+    if (oldest === undefined) break;
+    thumbImageCache.delete(oldest);
   }
   return img;
 }

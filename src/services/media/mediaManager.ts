@@ -50,8 +50,10 @@ interface MediaEntry {
   error?: boolean;
 }
 
-/** W16: 单素材缩略图缓存上限（数据 URL 可能很大，防内存无界增长）。 */
+/** W16: 单素材缩略图缓存上限（数据 URL 可能很大，防内存无界增长）。
+ *  V7b: 上限随时间轴缩放级别自适应（TimelineEngine 调 setThumbCacheLimit）。 */
 const MAX_THUMBNAILS_PER_ENTRY = 24;
+let thumbCacheLimit = MAX_THUMBNAILS_PER_ENTRY;
 
 class MediaManager {
   private entries = new Map<string, MediaEntry>();
@@ -342,9 +344,24 @@ class MediaManager {
   private touchThumb(e: MediaEntry, bucket: number): void {
     e.thumbLru = e.thumbLru.filter((b) => b !== bucket);
     e.thumbLru.push(bucket);
-    while (e.thumbLru.length > MAX_THUMBNAILS_PER_ENTRY) {
+    while (e.thumbLru.length > thumbCacheLimit) {
       const oldest = e.thumbLru.shift();
       if (oldest !== undefined) e.thumbnails.delete(oldest);
+    }
+  }
+
+  /** V7b: 调整每素材缩略图 LRU 上限（缩小时间轴→更多可见→放宽上限）。 */
+  setThumbCacheLimit(n: number): void {
+    const v = Math.max(8, Math.min(192, Math.round(n)));
+    if (v === thumbCacheLimit) return;
+    thumbCacheLimit = v;
+    // 上限收紧时立即对既有条目执行一次淘汰
+    for (const e of this.entries.values()) {
+      while (e.thumbLru.length > thumbCacheLimit) {
+        const oldest = e.thumbLru.shift();
+        if (oldest === undefined) break;
+        e.thumbnails.delete(oldest);
+      }
     }
   }
 

@@ -478,11 +478,36 @@ export function PreviewPanel() {
           </Tooltip>
           <Tooltip content="导出当前帧 (PNG)">
             <button onClick={() => {
-              const canvas = canvasRef.current;
-              if (!canvas) return;
+              // V10: 离屏按时间线分辨率重渲当前帧——直接导出预览画布会带上
+              // safe-area 叠层/窗口 DPR 缩放/黑边，与成片不一致
+              const tl = useTimelineStore.getState().timeline;
+              if (tl.width <= 0 || tl.height <= 0) return;
+              const t = tl.duration_sec > 0
+                ? Math.min(usePreviewStore.getState().currentTimeSec, tl.duration_sec - 0.001)
+                : 0;
+              const off = document.createElement('canvas');
+              off.width = tl.width;
+              off.height = tl.height;
+              const ctx = off.getContext('2d');
+              if (!ctx) return;
+              ctx.fillStyle = '#0E101A';
+              ctx.fillRect(0, 0, off.width, off.height);
+              for (const track of orderTracksForComposite(tl.tracks)) {
+                if (track.hidden) continue;
+                if (track.muted && (track.kind === 'audio' || track.kind === 'waveform')) continue;
+                for (const clip of track.clips) {
+                  if (t < clip.start_sec || t >= clip.start_sec + clip.duration_sec) continue;
+                  if (clip.enabled === false) continue;
+                  if (clip.nested_timeline) {
+                    drawNestedTimeline(ctx, clip, track, 0, 0, off.width, off.height, t, 0);
+                    continue;
+                  }
+                  drawClipToPreview(ctx, clip, track, 0, 0, off.width, off.height, t);
+                }
+              }
               const link = document.createElement('a');
-              link.download = `frame_${Math.floor(currentTimeSec * 1000)}.png`;
-              link.href = canvas.toDataURL('image/png');
+              link.download = `frame_${Math.floor(usePreviewStore.getState().currentTimeSec * 1000)}.png`;
+              link.href = off.toDataURL('image/png');
               link.click();
             }}
               className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">

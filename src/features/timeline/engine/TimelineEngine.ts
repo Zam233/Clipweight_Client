@@ -851,8 +851,20 @@ export class TimelineEngine {
     const centerTime = xToTime(L.headerW + (L.width - L.headerW) / 2, L);
     this.zoom = clamp(z, MIN_ZOOM, MAX_ZOOM);
     this.scrollX = Math.max(0, centerTime * this.zoom - (L.width - L.headerW) / 2);
+    this.applyThumbCacheLimits();
     this.clampScroll();
     this.requestRender();
+  }
+
+  /** V7b: 缩略图缓存上限随缩放级别自适应——缩小（一屏更多 clip）时放宽上限，
+   *  放大（可见缩略图更少）时收紧，避免低缩放下 24 上限导致重采、高缩放下
+   *  缓存驻留浪费。 */
+  private applyThumbCacheLimits(): void {
+    const perEntry = Math.round(clamp(24 * (DEFAULT_ZOOM / this.zoom), 16, 96));
+    mediaManager.setThumbCacheLimit(perEntry);
+    void import('./renderers').then(({ setThumbImageCacheLimit }) =>
+      setThumbImageCacheLimit(perEntry * 8),
+    );
   }
 
   addMarkerAtPlayhead() {
