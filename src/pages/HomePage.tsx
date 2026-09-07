@@ -397,8 +397,17 @@ export function HomePage() {
           clearRequirementsDraft();
           navigate({ to: '/editor/$projectId', params: { projectId: project.id } });
           return;
-        } catch {
-          // Fall through — offline
+        } catch (e) {
+          // 批B：后端在线但创建失败（认证/校验等）→ 显式报错。
+          // 旧实现静默滑入本地演示模式，用户以为创建成功但什么都没保存。
+          const anyE = e as { response?: { data?: { detail?: string } }; code?: string };
+          const isNetwork = anyE?.code === 'ERR_NETWORK' || anyE?.code === 'ECONNABORTED';
+          if (!isNetwork) {
+            const detail = anyE?.response?.data?.detail;
+            toast(`项目创建失败：${typeof detail === 'string' && detail ? detail : '请稍后重试'}`, 'error');
+            return;
+          }
+          // 网络断开才落入离线演示模式
         }
       }
     }

@@ -37,6 +37,40 @@ function parseBlocks(text: string): ReactNode[] {
       continue;
     }
 
+    // 批B：表格（规划书场景表 `| 场景标题 | 时长 | ...` 此前渲染为原始竖线文本）
+    if (line.trim().startsWith('|') && i + 1 < lines.length && /^\s*\|[\s:|-]+$/.test(lines[i + 1])) {
+      const tbl: string[][] = [];
+      const header = line.trim().replace(/^\||\|$/g, '').split('|').map((s) => s.trim());
+      i += 2; // 跳过表头分隔行
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        tbl.push(lines[i].trim().replace(/^\||\|$/g, '').split('|').map((s) => s.trim()));
+        i++;
+      }
+      out.push(
+        <div key={key++} className="my-2 overflow-x-auto">
+          <table className="w-full border-collapse text-caption">
+            <thead>
+              <tr>
+                {header.map((cell, ci) => (
+                  <th key={ci} className="border border-outline-variant/40 px-2 py-1 text-left font-semibold bg-surface-container/40">{renderInline(cell)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {tbl.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => (
+                    <td key={ci} className="border border-outline-variant/30 px-2 py-1 align-top">{renderInline(cell)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      );
+      continue;
+    }
+
     // heading
     const h = line.match(/^(#{1,4})\s+(.*)$/);
     if (h) {

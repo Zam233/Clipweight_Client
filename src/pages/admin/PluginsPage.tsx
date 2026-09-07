@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ConsoleShell, ConsoleHeading, StatusPill } from './ConsoleShell';
 import { pluginApi } from '@/services/api';
+import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import type { PluginConfigField, PluginConfigResponse } from '@/types/api';
@@ -104,17 +105,31 @@ export function PluginsPage() {
     setBusyId(p.id);
     try {
       // M8: 启停持久化 — enable/disable 落盘，重启后保持状态
-      if (p.loaded) await pluginApi.disable(p.id);
-      else await pluginApi.enable(p.id);
-    } catch { /* offline */ }
-    setPlugins((ps) => ps.map((x) => (x.id === p.id ? { ...x, loaded: !x.loaded } : x)));
+      if (p.loaded) {
+        await pluginApi.disable(p.id);
+        setPlugins((ps) => ps.map((x) => (x.id === p.id ? { ...x, loaded: false } : x)));
+      } else {
+        await pluginApi.enable(p.id);
+        // 批C：以后端实际状态为准——enable 加载失败会 502 并回退禁用态，
+        // 旧实现吞错后无条件翻转开关，用户看到假 ACTIVE
+        setPlugins((ps) => ps.map((x) => (x.id === p.id ? { ...x, loaded: true } : x)));
+      }
+    } catch (e) {
+      const anyE = e as { response?: { data?: { detail?: string } }; code?: string };
+      const isNetwork = anyE?.code === 'ERR_NETWORK' || anyE?.code === 'ECONNABORTED';
+      toast(isNetwork ? '后端离线，操作未生效' : (anyE?.response?.data?.detail ?? '操作失败，状态未变更'), 'error');
+    }
     setBusyId(null);
   };
 
   const loadAll = async () => {
     setLoadingAll(true);
-    try { await pluginApi.loadAll(); } catch { /* offline */ }
-    setPlugins((ps) => ps.map((x) => ({ ...x, loaded: true })));
+    try {
+      await pluginApi.loadAll();
+      await load(); // 批C：以服务端实际加载状态刷新列表（此前无条件全标 loaded）
+    } catch {
+      toast('后端离线，批量加载未执行', 'error');
+    }
     setLoadingAll(false);
   };
 

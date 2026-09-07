@@ -26,11 +26,15 @@ interface PresetDef {
 
 const PRESETS: Record<string, PresetDef> = {
   bilibili: { name: 'Bilibili 1080p', width: 1920, height: 1080, fps: 30, bitrate: '6M', icon: '📺' },
-  bilibili_4k: { name: 'Bilibili 4K', width: 3840, height: 2160, fps: 30, bitrate: '20M', icon: '🎞️' },
   youtube: { name: 'YouTube 1080p', width: 1920, height: 1080, fps: 30, bitrate: '8M', icon: '▶️' },
   tiktok: { name: '抖音竖屏', width: 1080, height: 1920, fps: 30, bitrate: '4M', icon: '📱' },
-  weibo: { name: '微博 720p', width: 1280, height: 720, fps: 25, bitrate: '3M', icon: '🌐' },
+  weibo: { name: '微博竖屏', width: 720, height: 1280, fps: 24, bitrate: '3M', icon: '🌐' },
   custom: { name: '自定义', width: 1920, height: 1080, fps: 30, bitrate: '5M', icon: '⚙️' },
+  // 批C：以下预设仅存在于后端（_EXPORT_PRESETS），提交时携带 preset 名由后端解析
+  prores422hq: { name: 'ProRes 422 HQ（母带 .mov）', width: 1920, height: 1080, fps: 30, bitrate: '12M', icon: '🎬' },
+  h265_10bit: { name: 'H.265 10bit', width: 1920, height: 1080, fps: 30, bitrate: '12M', icon: '🧊' },
+  '720p': { name: '标准 720p', width: 1280, height: 720, fps: 30, bitrate: '3M', icon: '🖥️' },
+  '480p': { name: '标准 480p', width: 854, height: 480, fps: 24, bitrate: '1.5M', icon: '🖥️' },
 };
 
 interface QueueItem extends RenderProgress {
@@ -40,6 +44,9 @@ interface QueueItem extends RenderProgress {
   filename?: string;
   output_path?: string;
   simulated?: boolean;
+  /** 批C：非致命渲染告警与平台封面（后端 result/cover_paths 此前被丢弃） */
+  warnings?: string[];
+  coverPaths?: string[];
   /** 重试所需的原始提交参数（U14） */
   retrySettings?: ExportSettings;
   retryFilename?: string;
@@ -188,10 +195,15 @@ export function ExportPage() {
     const taskId = uid('render');
     // 文件名消毒：去掉路径分隔符与非法字符，空名称用默认值兜底
     const safeName = (projectName.trim() || 'project').replace(/[\\/:*?"<>|\s]+/g, '_');
-    const filename = `${safeName}_${settings.width}x${settings.height}.mp4`;
+    // 批C：容器扩展名跟随预设（ProRes=MOV——MP4 容器装不下 prores 编码），
+    // 并加时间戳避免同名任务互相覆盖
+    const presetDef = presets[presetId];
+    const ext = presetId === 'prores422hq' ? 'mov' : 'mp4';
+    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+    const filename = `${safeName}_${settings.width}x${settings.height}_${stamp}.${ext}`;
     const item: QueueItem = {
       task_id: taskId, status: 'pending', progress: 0,
-      label: projectName, presetName: presets[presetId].name,
+      label: projectName, presetName: presetDef?.name ?? '自定义',
       startedAt: new Date().toLocaleTimeString(), filename,
       retrySettings: { ...settings }, retryFilename: filename,
     };
@@ -209,10 +221,19 @@ export function ExportPage() {
       const realId = res.task_id ?? taskId;
       if (realId !== taskId) updateQueue(taskId, { task_id: realId });
       openSSE(realId);
-    } catch {
-      // Offline: simulate render progress — 明确提示这是演示模式（U3）
-      toast('后端离线，无法真实渲染，已进入演示模式', 'error');
-      simulateRender(taskId);
+    } catch (e) {
+      // 批C：区分 HTTP 错误与网络离线——旧实现把 400（如未知预设）伪装成
+      // "后端离线"并跑假进度到 100%
+      const anyE = e as { code?: string; response?: { status?: number; data?: { detail?: string } } };
+      const isNetwork = anyE?.code === 'ERR_NETWORK' || anyE?.code === 'ECONNABORTED';
+      if (isNetwork) {
+        toast('后端离线，无法真实渲染，已进入演示模式', 'error');
+        simulateRender(taskId);
+      } else {
+        const detail = anyE?.response?.data?.detail;
+        updateQueue(taskId, { status: 'failed', detail: typeof detail === 'string' ? detail : '提交失败' });
+        toast(typeof detail === 'string' && detail ? detail : '渲染提交失败', 'error');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -245,7 +266,7 @@ export function ExportPage() {
     const handle = connectSseStream({
       url: renderApi.getQueueStreamUrl(taskId),
       onMessage: (raw) => {
-        let d: { type?: string; progress?: number; phase?: string; detail?: string; output_path?: string };
+        let d: { type?: string; progress?: number; phase?: string; detail?: string; output_path?: string; message?: string; result?: { warnings?: string[]; cover_paths?: string[] } };
         if (typeof raw === 'string') {
           try {
             d = JSON.parse(raw);
@@ -258,11 +279,27 @@ export function ExportPage() {
         if (d.type === 'progress') {
           updateQueue(taskId, { progress: d.progress ?? 0, phase: d.phase, detail: d.detail, status: 'rendering' });
         } else if (d.type === 'completed') {
-          updateQueue(taskId, { status: 'completed', progress: 100, output_path: d.output_path });
+          // 批C：采集后端 result 中的非致命告警与平台封面
+          const warns = d.result?.warnings ?? [];
+          const covers = d.result?.cover_paths ?? [];
+          updateQueue(taskId, {
+            status: 'completed', progress: 100, output_path: d.output_path,
+            ...(warns.length ? { warnings: warns } : {}),
+            ...(covers.length ? { coverPaths: covers } : {}),
+          });
           esRefs.current.get(taskId)?.close();
           esRefs.current.delete(taskId);
         } else if (d.type === 'failed') {
           updateQueue(taskId, { status: 'failed', detail: d.detail ?? '渲染失败', output_path: d.output_path });
+          esRefs.current.get(taskId)?.close();
+          esRefs.current.delete(taskId);
+        } else if (d.type === 'cancelled') {
+          // 批C：取消是中性结果（旧实现无分支 → SSE 重连耗尽误报失败）
+          updateQueue(taskId, { status: 'cancelled', detail: '已取消' });
+          esRefs.current.get(taskId)?.close();
+          esRefs.current.delete(taskId);
+        } else if (d.type === 'error') {
+          updateQueue(taskId, { status: 'failed', detail: String(d.message ?? '任务不存在或已清理') });
           esRefs.current.get(taskId)?.close();
           esRefs.current.delete(taskId);
         } else if (d.type === 'timeout') {
@@ -492,7 +529,10 @@ export function ExportPage() {
           ) : (
             <div className="space-y-2.5">
               {queue.map((item) => (
-                <QueueCard key={item.task_id} item={item} onRetry={() => retryRender(item.task_id)} />
+                <QueueCard key={item.task_id} item={item} onRetry={() => retryRender(item.task_id)}
+                    onCancel={() => renderApi.cancel(item.task_id)
+                      .then(() => updateQueue(item.task_id, { status: 'cancelled', detail: '已取消' }))
+                      .catch(() => toast('取消失败 — 后端不可达', 'error'))} />
               ))}
             </div>
           )}
@@ -502,7 +542,7 @@ export function ExportPage() {
   );
 }
 
-function QueueCard({ item, onRetry }: { item: QueueItem; onRetry?: () => void }) {
+function QueueCard({ item, onRetry, onCancel }: { item: QueueItem; onRetry?: () => void; onCancel?: () => void }) {
   const active = item.status === 'rendering' || item.status === 'pending';
   return (
     <div className={`bg-surface-container border rounded-cw-md p-3.5 transition-colors duration-short3 ${
@@ -514,6 +554,7 @@ function QueueCard({ item, onRetry }: { item: QueueItem; onRetry?: () => void })
         <span className={`w-8 h-8 rounded-cw-sm flex items-center justify-center shrink-0 ${
           item.status === 'completed' ? 'bg-track-audio/15 text-track-audio'
             : item.status === 'failed' ? 'bg-error/15 text-error'
+            : item.status === 'cancelled' ? 'bg-track-text/15 text-track-text'
             : 'bg-primary/15 text-primary'
         }`}>
           {item.status === 'completed' ? <CheckCircle2 className="w-4 h-4" />
@@ -551,6 +592,21 @@ function QueueCard({ item, onRetry }: { item: QueueItem; onRetry?: () => void })
             <Download className="w-4 h-4" />
           </button>
         )}
+        {item.status === 'completed' && (item.warnings?.length || item.coverPaths?.length) ? (
+          <div className="col-span-full mt-1 space-y-1">
+            {(item.warnings ?? []).slice(0, 4).map((w, wi) => (
+              <div key={wi} className="text-caption text-track-text/80">⚠️ {w}</div>
+            ))}
+            {(item.coverPaths ?? []).length > 0 && (
+              <div className="flex gap-2 flex-wrap">
+                {(item.coverPaths ?? []).map((cp) => (
+                  <a key={cp} href={cp} target="_blank" rel="noreferrer"
+                     className="text-caption text-primary hover:underline">封面</a>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
         {/* P8: 渲染后添加水印（工具级；调用后端 watermark 工具） */}
         {item.status === 'completed' && !item.simulated && (item.filename || item.output_path) && (
           <button
@@ -573,6 +629,19 @@ function QueueCard({ item, onRetry }: { item: QueueItem; onRetry?: () => void })
             aria-label="添加水印"
           >
             <Wand2 className="w-4 h-4" />
+          </button>
+        )}
+        {active && onCancel && (
+          <button
+            onClick={() => {
+              if (!window.confirm('确认取消该渲染任务？')) return;
+              onCancel();
+            }}
+            className="p-2 rounded-cw-sm bg-error/10 text-error hover:bg-error/20 transition-colors cursor-pointer"
+            title="取消渲染"
+            aria-label="取消渲染"
+          >
+            <XCircle className="w-4 h-4" />
           </button>
         )}
         {item.status === 'failed' && onRetry && (

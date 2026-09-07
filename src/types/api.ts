@@ -125,7 +125,7 @@ export interface RenderRequest {
 
 export interface RenderProgress {
   task_id: string;
-  status: 'pending' | 'queued' | 'rendering' | 'completed' | 'failed';
+  status: 'pending' | 'queued' | 'rendering' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   phase?: string;
   detail?: string;

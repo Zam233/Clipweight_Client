@@ -112,7 +112,8 @@ describe('U3: simulated renders are clearly marked', () => {
   it('toasts offline warning and shows 演示模式 badge without download link', async () => {
     vi.useFakeTimers();
     timelineState.timeline = { ...NONEMPTY_TIMELINE };
-    mocks.submitQueue.mockRejectedValue(new Error('network down'));
+    // 批C：只有网络层失败才进演示模式（HTTP 4xx/5xx 现在如实报错）
+    mocks.submitQueue.mockRejectedValue(Object.assign(new Error('network down'), { code: 'ERR_NETWORK' }));
 
     render(<ExportPage />);
     await act(async () => {}); // flush mount effects

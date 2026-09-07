@@ -124,8 +124,9 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
         const audioDur = st.audioDurationSec || 0;
         const plan = useAgentStore.getState().productionPlan;
         const sceneCount = plan?.scenes?.length ?? 0;
-        // 动画阶段逐片段生成耗时长：按音频时长×4 与场景数×240s 取大者，避免管线误超时
-        const pipelineTimeoutSec = Math.max(1800, audioDur * 4, sceneCount * 240);
+        // 批B：与后端统一公式对齐（audio×6 / scene×360 / min 1800）——
+        // 旧实现 ×4/×240 会在长动画管线被 TaskQueue 提前杀死
+        const pipelineTimeoutSec = Math.max(1800, audioDur * 6, sceneCount * 360);
         const res = await pipelineApi.runAsync({
           persona_id: st.personaId ?? 'default',
           category_plugin_id: st.pluginId ?? 'knowledge_longform',
@@ -146,6 +147,8 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
           },
         });
         useAgentStore.getState().setPipelineId(res.pipeline_id);
+        // 批B：持久化 pipeline id——刷新后 BottomBar 才能恢复 SSE 追踪
+        try { sessionStorage.setItem('cw_pipeline_id', res.pipeline_id); } catch { /* ignore */ }
         useAgentStore.getState().updatePhase('structure', 5);
       } else {
         setStatus('brief_confirmed');

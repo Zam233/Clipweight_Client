@@ -131,6 +131,9 @@ export function PropertiesPanel() {
     if (created) {
       useSelectionStore.setState({ selectedClipIds: [created] });
       toast('已创建嵌套序列', 'success');
+      // 批C：诚实告知——后端渲染端尚未实现嵌套序列递归合成，
+      // 导出 MP4 时该段内容不会出现在成片中
+      toast('注意：当前渲染端暂不支持嵌套序列合成，导出时该段不会出现在成片中', 'error');
     } else {
       toast('创建嵌套序列失败（需要 ≥2 个片段）', 'error');
     }

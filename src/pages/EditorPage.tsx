@@ -109,8 +109,10 @@ export function EditorPage() {
           project = await projectApi.load(projectId);
         } catch (loadErr) {
           console.warn('[EditorPage] Backend load failed, using local empty project:', loadErr);
-          toast('后端离线 — 已打开本地空项目', 'info');
-          project = { id: projectId, name: '未命名项目', timeline: null };
+          toast('后端加载失败 — 已打开全新的本地空项目（原项目未被修改）', 'info');
+          // 批B：换新 id——旧实现沿用真实 projectId，自动保存会把本地空项目
+          // PUT 回后端，覆盖/复活加载失败的项目
+          project = { id: `proj_local_${Date.now().toString(36)}`, name: '未命名项目', timeline: null };
         }
         if (!alive) return;
         useProjectStore.getState().setProjectId(project.id);

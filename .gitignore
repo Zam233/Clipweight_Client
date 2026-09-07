@@ -87,3 +87,7 @@ ux-*.png
 web_search_tool.py
 stage.md
 .opencode/
+
+# 个人文件（勿提交）
+简历*.md
+简历修改方案*.md

@@ -43,6 +43,22 @@ const LOG_COLORS: Record<LogEventType, string> = {
   mg_start: 'text-track-text', mg_end: 'text-track-animation',
 };
 
+function errText(e: unknown): string {
+  const anyE = e as {
+    code?: string;
+    response?: { status?: number; data?: { detail?: string } };
+  };
+  const detail = anyE?.response?.data?.detail;
+  if (typeof detail === 'string' && detail) return detail;
+  if (anyE?.code === 'ERR_NETWORK' || anyE?.code === 'ECONNABORTED') {
+    return '无法连接后端服务（离线模式）';
+  }
+  return anyE?.response?.status
+    ? `请求失败 (HTTP ${anyE.response.status})`
+    : '请求失败';
+}
+
+
 export function AgentPanel() {
   const [tab, setTab] = useState<'requirements' | 'logs'>('requirements');
   const agentTimeline = useAgentStore((s) => s.agentTimeline);
@@ -192,18 +208,22 @@ function RequirementsView() {
         audio_duration_sec: st.requirementsAudioDuration || st.audioDurationSec || undefined,
         extra: {
           audio_path: st.audioPath || undefined,
-          material_sources: st.materialSourceIds.length > 0 ? st.materialSourceIds : undefined,
+          // 批B：键名统一 material_source_ids（旧 material_sources 后端不消费）
+          material_source_ids: st.materialSourceIds.length > 0 ? st.materialSourceIds : undefined,
           split_mode: st.splitMode || undefined,
+          video_mode: st.videoMode || undefined,
+          auto_dub: st.autoDub,
+          voice_id: st.voiceId || undefined,
+          dub_segments: st.dubSegments?.length ? st.dubSegments : undefined,
         },
       });
       setSession(res.session_id);
       await sendChat(res.session_id, `我的选题是：${topic}。请帮我生成创意简报。`);
-    } catch {
-      const brief = demoBrief(topic);
-      setBrief(brief);
-      setStatus('brief_ready');
+    } catch (e) {
+      // 批B：失败如实上屏（旧实现静默降级假简报 → 用户确认假方案后管线无法启动）
       addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-        content: '已为你生成创意简报，请审阅后确认。', creative_brief: brief });
+        content: `会话创建失败：${errText(e)}` });
+      setStatus('gathering');
     } finally { setBusy(false); }
   };
 
@@ -216,14 +236,12 @@ function RequirementsView() {
         reply?: unknown; message?: unknown; creative_brief?: unknown;
         production_plan?: unknown; status?: unknown;
       } = {};
-      try {
-        res = await requirementsApi.streamChat(sessionId, message, (chunk) => {
-          if (chunk.type === 'status') setStatus('gathering');
-        });
-        if (Object.keys(res).length === 0) {
-          res = await requirementsApi.chat({ session_id: sessionId, message });
-        }
-      } catch {
+      // 批B：流式失败不再自动整跑一次性 chat（会重复消耗一次完整 LLM 生成），
+      // 如实上屏错误；仅在流正常返回但无内容时回退
+      res = await requirementsApi.streamChat(sessionId, message, (chunk) => {
+        if (chunk.type === 'status') setStatus('gathering');
+      });
+      if (Object.keys(res).length === 0) {
         res = await requirementsApi.chat({ session_id: sessionId, message });
       }
       const brief = res.creative_brief ? (res.creative_brief as CreativeBrief) : null;
@@ -242,9 +260,9 @@ function RequirementsView() {
         timestamp: new Date().toISOString(),
         creative_brief: att.creative_brief,
         production_plan: att.production_plan });
-    } catch {
+    } catch (e) {
       addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-        content: '（离线演示）已记录你的需求。' });
+        content: `消息发送失败：${errText(e)}` });
     } finally { setBusy(false); }
   };
 
@@ -278,9 +296,9 @@ function RequirementsView() {
       addMessage({ id: uid('m'), role: 'assistant', content: res.reply ?? '已根据你的指令调整时间线。',
         timestamp: new Date().toISOString(),
         creative_brief: att.creative_brief, production_plan: att.production_plan });
-    } catch {
+    } catch (e) {
       addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-        content: '（离线演示）已记录你的时间线编辑指令。' });
+        content: `时间线编辑失败：${errText(e)}` });
     } finally { setBusy(false); }
   };
 
@@ -298,16 +316,10 @@ function RequirementsView() {
         await sendChat(sid, '确认，请生成完整的制作规划书。');
         return;
       }
-      // Offline demo path: exactly ONE user + ONE assistant
-      setBusy(true);
-      addMessage({ id: uid('m'), role: 'user', content: '确认，请生成制作规划书。', timestamp: new Date().toISOString() });
-      await new Promise((r) => setTimeout(r, 600));
-      const plan = { markdown: demoPlanMarkdown(topic) };
-      setPlan(plan);
-      setStatus('plan_ready');
+      // 批B：无会话 = 后端未连接/初始化失败——如实提示（旧实现伪造假规划书）
       addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-        content: '制作规划书已生成，请审阅。', production_plan: plan });
-      setBusy(false);
+        content: '会话未建立，无法生成规划书。请刷新页面重新发起需求。' });
+      setStatus('gathering');
     } finally {
       useAgentStore.getState().setRequirementsBusy(false);
     }
@@ -320,8 +332,13 @@ function RequirementsView() {
     ag.setRequirementsBusy(true);
     const sid = ag.requirementsSessionId;
     try {
+      // 批B：已在运行则拒绝（旧实现刷新后草稿状态回 plan_ready → 重复启动双倍开销）
+      if (ag.requirementsStatus === 'pipeline_running') {
+        addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: '管线已在运行中，请勿重复启动。' });
+        return;
+      }
       if (!sid) {
-        // 离线演示：无会话，无法启动管线（底部启动 UI 已移除）
         addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
           content: '离线模式无法启动管线，请连接后端后重试。' });
         return;
@@ -336,6 +353,8 @@ function RequirementsView() {
         st.pluginId ?? 'knowledge_longform',
         // P8: dry-run 预览模式 — 只生成粗剪时间线，跳过动画/音频/质检
         { dry_run: st.dryRun },
+        // 批B：携带当前项目——成品时间线自动保存回项目（否则 60s 后丢失）
+        st.projectId ?? undefined,
       ) as { pipeline_id?: string };
       if (res.pipeline_id) {
         // 设置 pipelineId + 运行相位，BottomBar 的 effect 会自动挂接 SSE 追踪
@@ -615,6 +634,8 @@ function BottomBar() {
   // G2: 停止管线 —— 发送取消请求；SSE 端收到 cancelled 事件后走 finish(false) 收尾
   const handleStop = useCallback(async () => {
     if (!pipelineId) return;
+    // 批B：取消不可逆（中间产物保留），先确认
+    if (!window.confirm('确认取消当前管线？已生成的中间结果将保留，可在规划书确认后重新启动。')) return;
     setCancelling(true);
     try {
       await pipelineApi.cancel(pipelineId);
@@ -744,9 +765,14 @@ function BottomBar() {
           break;
         }
         case 'error':
-          // 管线级失败（终态）→ 标记失败并结束
+          // 批B：error 事件不再视为终态——后端在熔断跳过/自愈重做异常时也发
+          // error（管线仍继续并可能成功），终态由 done（按 result.status 判定）、
+          // cancelled、timeout 决定
           addLogEntry({ timestamp: Date.now(), agent: name, type: 'error', summary: (d.error || d.summary || `${name} 失败`) as string });
-          void finish(false, (d.error || d.summary || '管线执行失败') as string);
+          useAgentStore.getState().addSuggestion({
+            id: `e_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            type: 'pace', message: `[警告] ${(d.error || d.summary || `${name} 失败`) as string}`, confidence: 0.6,
+          });
           break;
         case 'agent_error':
           // 单个 Agent 错误（管线可能自愈恢复）→ 仅记录
@@ -764,7 +790,17 @@ function BottomBar() {
         }
         case 'done':
         case 'pipeline_complete':
-          void finish(true);
+          // 批B：done 不必然成功——按 /result 的 status 判定（后端失败也发 done）
+          void (async () => {
+            try {
+              const res = await pipelineApi.getResult(pid) as { status?: string };
+              if (res?.status === 'failed') {
+                void finish(false, '管线执行失败（详见质检与日志）');
+                return;
+              }
+            } catch { /* 结果可能已清理：按成功收尾 */ }
+            void finish(true);
+          })();
           break;
         case 'progress': {
           // C5: 细粒度进度事件 → 更新 store 进度条
@@ -814,9 +850,13 @@ function BottomBar() {
           });
           break;
         case 'cancelled':
-          // G2: 管线已取消 → 复用 failed 相位收尾（类型不扩散）
-          addLogEntry({ timestamp: Date.now(), agent: name, type: 'error', summary: (d.summary || '管线已取消') as string });
-          void finish(false, '管线已取消');
+          // 批B：取消为中性结果（旧实现按 failed 红色报错展示）
+          addLogEntry({ timestamp: Date.now(), agent: name, type: 'info', summary: (d.summary || '管线已取消') as string });
+          void finish(false, '管线已取消（可在规划书确认后重新启动）');
+          break;
+        case 'timeout':
+          addLogEntry({ timestamp: Date.now(), agent: name, type: 'error', summary: (d.summary || '管线执行超时') as string });
+          void finish(false, (d.summary || '管线执行超时，可在规划书确认后重试') as string);
           break;
         default:
           break;
@@ -947,7 +987,7 @@ function BottomBar() {
                 </span>
                 {active && (
                   <div className="flex-1 h-0.5 bg-surface-container rounded-cw-full overflow-hidden">
-                    <div className="h-full bg-primary animate-pulse" style={{ width: `${progress % 100 || 50}%` }} />
+                    <div className="h-full bg-primary animate-pulse" style={{ width: `${Math.min(100, Math.max(2, progress))}%` }} />
                   </div>
                 )}
               </div>

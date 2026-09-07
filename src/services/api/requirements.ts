@@ -111,12 +111,13 @@ export const requirementsApi = {
     return data;
   },
 
-  /** Proceed to pipeline */
-  async proceed(sessionId: string, personaId: string, pluginId: string, extraParams?: Record<string, unknown>) {
+  /** Proceed to pipeline（批B：projectId 可选——成品时间线自动保存回项目） */
+  async proceed(sessionId: string, personaId: string, pluginId: string, extraParams?: Record<string, unknown>, projectId?: string) {
     const { data } = await getApiClient().post('/api/requirements/proceed', {
       session_id: sessionId,
       persona_id: personaId,
       category_plugin_id: pluginId,
+      project_id: projectId || '',
       extra_params: extraParams,
     }, { timeout: 300_000 });
     return data;

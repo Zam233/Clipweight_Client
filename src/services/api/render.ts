@@ -53,6 +53,12 @@ export const renderApi = {
     return data;
   },
 
+  /** 批C：取消队列渲染任务（后端 terminate ffmpeg 进程并标记 cancelled） */
+  async cancel(taskId: string) {
+    const { data } = await getApiClient().delete(`/api/render/queue/${taskId}`);
+    return data;
+  },
+
   /** List all queue tasks (for restoring in-flight renders after page reload) */
   async listQueue() {
     const { data } = await getApiClient().get<{ tasks: RenderProgress[] }>('/api/render/queue');

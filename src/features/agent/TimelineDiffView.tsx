@@ -120,7 +120,11 @@ export function TimelineDiffView({
     onDone();
   };
 
-  const ignore = () => onDone();
+  const ignore = () => {
+        // 批B：忽略 = 丢弃管线产出的时间线（60s 后无法找回），二次确认
+        if (!window.confirm('确认忽略本次生成的时间线？忽略后无法找回（项目不会保存该结果）。')) return;
+        onDone();
+      };
 
   if (diff.isEmpty) {
     return (

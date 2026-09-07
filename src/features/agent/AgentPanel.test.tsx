@@ -241,7 +241,7 @@ describe('B17: reset requirements status on pipeline finish', () => {
     expect(screen.getByPlaceholderText(/继续与需求 Agent 对话/)).toBeTruthy();
   });
 
-  it('SSE error 事件后 store.status 复位为 error 且输入框恢复', async () => {
+  it('SSE error 事件为非终态：仅记录警告建议，不判失败（终态由 done/timeout 决定）', async () => {
     useAgentStore.setState({
       pipelineId: 'p2',
       phase: 'structure',
@@ -259,9 +259,15 @@ describe('B17: reset requirements status on pipeline finish', () => {
 
     await act(async () => { await Promise.resolve(); });
 
-    expect(useAgentStore.getState().requirementsStatus).toBe('error');
-    expect(useAgentStore.getState().phase).toBe('failed');
-    expect(screen.getByPlaceholderText(/继续与需求 Agent 对话/)).toBeTruthy();
+    // 批B：error 事件不再判终态失败——熔断跳过/自愈重做异常时管线仍继续，
+    // 终态由 done（按 result.status 判定）/ cancelled / timeout 决定
+    expect(useAgentStore.getState().requirementsStatus).toBe('pipeline_running');
+    expect(useAgentStore.getState().phase).toBe('structure');
+    const suggestions = useAgentStore.getState().suggestions;
+    expect(suggestions.some((s) => s.message.includes('boom'))).toBe(true);
+    // 运行态输入框隐藏（既有设计：pipeline_running 时输入区让位给进度条）；
+    // 非终态错误不中断管线，也不把会话打成 error
+    expect(screen.queryByPlaceholderText(/继续与需求 Agent 对话/)).toBeNull();
   });
 });
 
@@ -393,6 +399,7 @@ describe('G2: pipeline cancel', () => {
   it('clicking stop calls pipelineApi.cancel with the pipelineId', async () => {
     useAgentStore.setState({ pipelineId: 'p1', phase: 'structure', cancelling: false });
     const cancel = vi.mocked(pipelineApi.cancel).mockResolvedValue({});
+    vi.spyOn(window, 'confirm').mockReturnValue(true); // 批B：取消前确认
     render(<AgentPanel />);
 
     fireEvent.click(screen.getByText('停止'));
@@ -403,6 +410,7 @@ describe('G2: pipeline cancel', () => {
   it('cancel failure logs error and keeps SSE open', async () => {
     useAgentStore.setState({ pipelineId: 'p1', phase: 'structure', cancelling: false });
     vi.mocked(pipelineApi.cancel).mockRejectedValue(new Error('boom'));
+    vi.spyOn(window, 'confirm').mockReturnValue(true); // 批B：取消前确认
     render(<AgentPanel />);
     await act(async () => {}); // flush SSE 挂接
     expect(MockEventSource.instances.length).toBe(1);
@@ -434,6 +442,7 @@ describe('G2: pipeline cancel', () => {
     expect(es.closed).toBe(true);
     expect(sessionStorage.getItem('cw_pipeline_id')).toBeNull();
     const logs = useAgentStore.getState().logEntries;
-    expect(logs.some((e) => e.type === 'error' && e.summary === '管线已取消')).toBe(true);
+    // 批B：取消为中性结果 → info 级日志（不再红色 error）
+    expect(logs.some((e) => e.type === 'info' && e.summary === '管线已取消')).toBe(true);
   });
 });
