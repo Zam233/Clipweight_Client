@@ -409,6 +409,8 @@ function RequirementsView() {
           <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[85%] rounded-cw-md px-3 py-2 text-body-sm leading-relaxed ${m.role === 'user'
               ? 'bg-primary-container text-on-primary-container rounded-br-cw-xs whitespace-pre-wrap'
+              : /^(会话创建失败|消息发送失败|时间线编辑失败|初始化失败|管线启动失败)/.test(m.content)
+              ? 'bg-error/10 text-error border border-error/30 rounded-bl-cw-xs'
               : 'bg-surface-container text-on-surface rounded-bl-cw-xs border border-outline-variant/20'}`}>
               {m.role === 'user'
                 ? m.content
@@ -475,21 +477,28 @@ function RequirementsView() {
               onClick={() => uploadInputRef.current?.click()} title="上传参考文件">
               <Paperclip className="w-3.5 h-3.5" />
             </Button>
-            <input value={input} onChange={(e) => setInput(e.target.value)}
+            <textarea value={input} rows={1}
+              onChange={(e) => {
+                setInput(e.target.value);
+                // 批P2：自动增高（上限 ~5 行）
+                e.target.style.height = 'auto';
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+              }}
               onKeyDown={(e) => {
-                if (e.key !== 'Enter') return;
+                if (e.key !== 'Enter' || e.shiftKey) return; // Shift+Enter 换行
                 // 批B(P0-1)：中文输入法组词中的回车是"确认候选词"，不是发送
                 if (e.nativeEvent.isComposing) return;
                 if (busy) return; // 与发送按钮一致，避免并发重复发送
                 const sid = useAgentStore.getState().requirementsSessionId;
                 if (input.trim() && sid) {
                   const m = input; setInput('');
+                  (e.target as HTMLTextAreaElement).style.height = 'auto';
                   if (selectedClipIds.length > 0) sendEdit(sid, m);
                   else sendChat(sid, m);
                 }
               }}
-              placeholder={selectedClipIds.length > 0 ? '描述对选中素材的修改…（如：换一个更明亮的素材）' : '继续与需求 Agent 对话…'}
-              className="flex-1 bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm text-on-surface
+              placeholder={selectedClipIds.length > 0 ? '描述对选中素材的修改…（Shift+Enter 换行）' : '继续与需求 Agent 对话…（Shift+Enter 换行）'}
+              className="flex-1 bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm text-on-surface resize-none
                 outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50" />
             <Button size="icon" onClick={() => {
               const sid = useAgentStore.getState().requirementsSessionId;
@@ -513,11 +522,17 @@ function LogPanel() {
   const toggleExpand = useAgentStore((s) => s.toggleLogExpand);
   const clearLogs = useAgentStore((s) => s.clearLogs);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
   const [grouped, setGrouped] = useState(true);
 
+  // 批P2：以最后一条 id 为依赖（旧实现依赖 length——500 条上限后长度恒定，
+  // 自动滚动永久失效）；用户上翻阅读时不再强制拉底
+  const lastId = logEntries.length ? logEntries[logEntries.length - 1].id : '';
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [logEntries.length]);
+    if (stickToBottom.current) {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    }
+  }, [lastId]);
 
   const groups = grouped ? buildGroups(logEntries) : null;
 
@@ -531,12 +546,34 @@ function LogPanel() {
           className="text-caption text-on-surface-variant hover:text-on-surface cursor-pointer ml-auto">
           {grouped ? '展开全部' : '分组'}
         </button>
+        <button
+          onClick={() => {
+            const text = logEntries
+              .map((e) => `[${new Date(e.timestamp).toLocaleTimeString()}] ${e.agent}/${e.type}: ${e.summary}`)
+              .join('\n');
+            const blob = new Blob([text || '（空）'], { type: 'text/plain;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `pipeline_log_${Date.now()}.log`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+          }}
+          className="text-caption text-on-surface-variant hover:text-on-surface cursor-pointer"
+          title="导出日志"
+        >
+          导出
+        </button>
         <button onClick={clearLogs}
           className="text-caption text-on-surface-variant hover:text-error cursor-pointer">
           清空
         </button>
       </div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-2 min-h-0 font-mono text-label-sm leading-relaxed">
+      <div ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        }}
+        className="flex-1 overflow-y-auto p-2 min-h-0 font-mono text-label-sm leading-relaxed">
         {logEntries.length === 0 && (
           <div className="text-center py-8 text-on-surface-variant/40 text-label-sm">等待操作…</div>
         )}
@@ -585,7 +622,10 @@ function LogLine({ entry, onToggle }: { entry: LogEntry; onToggle: (id: string) 
       <button onClick={() => onToggle(entry.id)}
         className={`w-full text-left flex items-start gap-1 py-0.5 hover:bg-surface-container/40 rounded-cw-xs px-1 cursor-pointer ${LOG_COLORS[entry.type]}`}>
         <span className="shrink-0 w-4 text-center">{LOG_ICONS[entry.type]}</span>
-        <span className="flex-1 truncate">{entry.summary}</span>
+        <span className="shrink-0 text-on-surface-variant/50 text-caption tabular-nums">
+          {new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false })}
+        </span>
+        <span className="flex-1 truncate" title={entry.summary}>{entry.summary}</span>
         {entry.detail && (
           <span className="text-on-surface-variant/30 text-caption shrink-0">{entry.expanded ? '▾' : '▸'}</span>
         )}
