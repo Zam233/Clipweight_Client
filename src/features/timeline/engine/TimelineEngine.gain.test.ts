@@ -148,7 +148,10 @@ describe('TimelineEngine C2 (Alt 拖拽增益)', () => {
     expect((engine as any).drag.mode).toBe('gain');
     expect((engine as any).drag.gainClipId).toBe('clip1');
     expect(selectClipMock).toHaveBeenCalledWith('clip1', false);
-    expect(pushMock).toHaveBeenCalled(); // history push
+    // 批C(P0-1)：历史推送延迟到 pointerup（有实际变更才推）——
+    // preSnapshot 已在 pointerdown 捕获
+    expect((engine as any).drag.preSnapshot).toBeTruthy();
+    expect((engine as any).drag.preSnapshotLabel).toBe('gain');
   });
 
   it('向上拖拽 → 增益提高；向下 → 衰减（钳制 0-2）', () => {

@@ -387,7 +387,9 @@ function RequirementsView() {
             </p>
             <div className="mt-3">
               <input value={topic} onChange={(e) => setTopic(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && startSession()}
+                onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing) startSession();
+              }}
                 placeholder="输入视频选题…" className="w-full bg-surface-container rounded-cw-xs px-3 py-2 text-body-sm text-on-surface
                   outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50" />
               <Button size="sm" onClick={startSession} disabled={!topic.trim() || busy} className="mt-2 w-full">
@@ -476,6 +478,8 @@ function RequirementsView() {
             <input value={input} onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter') return;
+                // 批B(P0-1)：中文输入法组词中的回车是"确认候选词"，不是发送
+                if (e.nativeEvent.isComposing) return;
                 if (busy) return; // 与发送按钮一致，避免并发重复发送
                 const sid = useAgentStore.getState().requirementsSessionId;
                 if (input.trim() && sid) {
@@ -656,6 +660,8 @@ function BottomBar() {
       esRef.current = es;
 
     const startTimes: Record<string, number> = {};
+    // 批B(P0-2)：SSE 重连回放去重游标（每次挂接重置；finish 后 closed 不再回放）
+    let lastSeq = 0;
     let finished = false;
     // 每次挂接 SSE 前清空上一次运行残留的时间线，避免 finish 复用旧时间线（张冠李戴）
     lastTimelineRef.current = null;
@@ -664,6 +670,8 @@ function BottomBar() {
     const finish = async (ok: boolean, errMsg?: string) => {
       if (finished) return;
       finished = true;
+      // 批B(P1-2)：到达终态即清空上一轮建议（跨运行不再堆叠、回放不再成倍复制）
+      useAgentStore.getState().clearSuggestions();
       if (ok) {
         updatePhase('completed', 100);
         // B17: 管线完成 → 复位需求状态，输入框恢复可继续对话
@@ -692,6 +700,7 @@ function BottomBar() {
                 warning_count?: number;
                 issues?: { severity: string; message: string }[];
               } | null;
+              agent_notes?: Record<string, string[]> | null;
             };
             const q = res?.quality_issues;
             if (q && (q.error_count || q.warning_count)) {
@@ -706,6 +715,21 @@ function BottomBar() {
                     confidence: i.severity === 'error' ? 0.9 : 0.7,
                   });
                 });
+            }
+            // 批8b：agent_notes（结构警告/素材/剪辑/音频备注）此前从未渲染——
+            // 取前 4 条转为建议供用户参考
+            const notes = res?.agent_notes;
+            if (notes && typeof notes === 'object') {
+              const flat = Object.entries(notes).flatMap(([k, arr]) =>
+                (Array.isArray(arr) ? arr : []).slice(0, 2).map((m) => `[${k}] ${m}`));
+              flat.slice(0, 4).forEach((m) => {
+                useAgentStore.getState().addSuggestion({
+                  id: `n_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                  type: 'pace' as const,
+                  message: m,
+                  confidence: 0.5,
+                });
+              });
             }
           } catch {
             /* 离线/结果已清理时静默——质检展示为增强功能 */
@@ -747,6 +771,11 @@ function BottomBar() {
       try {
         d = JSON.parse((e as MessageEvent).data);
       } catch { return; }
+      // 批B(P0-2)：后端重连会全量回放历史事件——按单调 seq 去重，
+      // 只处理比已见游标更新的事件（终态回放的 seq=0 恒放行）
+      const seq = Number(d.seq ?? 0);
+      if (seq > 0 && seq <= lastSeq) return;
+      lastSeq = Math.max(lastSeq, seq);
       const t = (d.type as string) || '';
       const name = (d.agent_name || d.agent || 'system') as string;
 

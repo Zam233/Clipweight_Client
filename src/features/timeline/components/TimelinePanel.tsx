@@ -20,6 +20,7 @@ import { useProjectStore } from '@/stores/projectStore';
 import { versionApi } from '@/services/api/project';
 import type { TimelineVersionEntry } from '@/services/api/project';
 import { mediaManager } from '@/services/media/mediaManager';
+import { toast } from '@/stores/toastStore';
 
 /**
  * TimelinePanel — hosts the Canvas timeline engine plus transport/track controls.
@@ -245,9 +246,31 @@ export function TimelinePanel() {
     return unsub;
   }, [removeClip, rippleDelete, splitClip]);
 
-  const handleAddTrack = (kind: ClipKind) => addTrack(kind);
+  const handleAddTrack = (kind: ClipKind) => {
+    // 批C(P1)：加轨可撤销（旧实现绕过撤销栈，Ctrl+Z 无效）
+    useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'add-track');
+    addTrack(kind);
+  };
 
   const handleSplitAtPlayhead = () => {
+    // 批C(P1)：先确认播放头命中片段，再推历史（旧实现空拆分留幽灵条目）
+    const hits = useTimelineStore
+      .getState()
+      .timeline.tracks.some(
+        (tr) => tr.kind === 'video' || tr.kind === 'audio' || tr.kind === 'image',
+      );
+    const within = useTimelineStore
+      .getState()
+      .timeline.tracks.some(
+        (tr) =>
+          tr.clips.some(
+            (c) => currentTimeSec > c.start_sec && currentTimeSec < c.start_sec + c.duration_sec,
+          ),
+      );
+    if (!within) {
+      toast('播放头未落在任何片段内，无法拆分', 'info');
+      return;
+    }
     useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'split');
     const t = currentTimeSec;
     selectedClipIds.forEach((id) => splitClip(id, t));

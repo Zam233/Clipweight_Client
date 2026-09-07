@@ -367,10 +367,9 @@ export class TimelineEngine {
         this.drag.mode = 'gain';
         this.drag.gainClipId = clip.id;
         this.drag.gainStartVolume = clip.volume;
-        if (!this.drag.historyPushed) {
-          useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'gain');
-          this.drag.historyPushed = true;
-        }
+        // 批C(P0-1)：preSnapshot 引用记录在 drag 上，pointerup 有实际变更才推送
+        this.drag.preSnapshot = useTimelineStore.getState().timeline;
+        this.drag.preSnapshotLabel = 'gain';
         selection.selectClip(clip.id, e.shiftKey || e.ctrlKey || e.metaKey);
         selection.selectTrack(track.id);
         this.requestRender();
@@ -397,14 +396,15 @@ export class TimelineEngine {
         this.drag.mode = 'trim-start';
         this.drag.trimClipId = clip.id;
         this.drag.trimOrig = clip;
-        useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'trim');
-        this.drag.historyPushed = true;
+        // 批C(P0-1)：preSnapshot 延迟推送
+        this.drag.preSnapshot = useTimelineStore.getState().timeline;
+        this.drag.preSnapshotLabel = 'trim';
       } else if (selIds.includes(clip.id) && clipX + clipW - x < TRIM_HANDLE_PX) {
         this.drag.mode = 'trim-end';
         this.drag.trimClipId = clip.id;
         this.drag.trimOrig = clip;
-        useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'trim');
-        this.drag.historyPushed = true;
+        this.drag.preSnapshot = useTimelineStore.getState().timeline;
+        this.drag.preSnapshotLabel = 'trim';
       } else {
         // Begin move for all selected clips (M2: 展开同组片段一起移动)
         this.drag.mode = 'move-clip';
@@ -421,10 +421,9 @@ export class TimelineEngine {
             if (c) this.drag.origClips.set(id, c);
           }
         }
-        if (!this.drag.historyPushed) {
-          useHistoryStore.getState().pushState(tl, 'move');
-          this.drag.historyPushed = true;
-        }
+        // 批C(P0-1)：preSnapshot 延迟推送（单击不再产生幽灵历史）
+        this.drag.preSnapshot = tl;
+        this.drag.preSnapshotLabel = 'move';
       }
     } else {
       // Empty area → marquee
@@ -548,37 +547,42 @@ export class TimelineEngine {
       case 'move-clip': {
         const dt = this.drag.deltaTime;
         const dtr = this.drag.deltaTrack;
+        const draggedIds = new Set(this.drag.origClips.keys());
+        let applied = false;
         if (Math.abs(dt) > 0.001 || dtr !== 0) {
-          const tl = store.timeline;
           for (const [id, orig] of this.drag.origClips) {
             let targetTrackId = orig.track_id;
             if (dtr !== 0) {
+              // 批C(P0-2)：每片落下前重读最新 store 状态（旧实现缓存旧 tl）
+              const cur0 = useTimelineStore.getState().timeline;
               const origIdx = this.trackIndexOf(orig.track_id);
-              const newIdx = clamp(origIdx + dtr, 0, tl.tracks.length - 1);
-              const candidate = tl.tracks[newIdx];
-              if (candidate && candidate.kind === tl.tracks[origIdx].kind) {
+              const newIdx = clamp(origIdx + dtr, 0, cur0.tracks.length - 1);
+              const candidate = cur0.tracks[newIdx];
+              if (candidate && candidate.kind === cur0.tracks[origIdx].kind) {
                 targetTrackId = candidate.id;
               }
             }
+            // 批C(P0-2)：每片落下前重读（前一片刚落位，轨道已变化）
+            const cur = useTimelineStore.getState().timeline;
             const newStartSec = Math.max(0, orig.start_sec + dt);
-            const targetTrack = tl.tracks.find((t) => t.id === targetTrackId);
+            const targetTrack = cur.tracks.find((t) => t.id === targetTrackId);
             if (!targetTrack) continue;
 
             const dur = orig.duration_sec;
-            // Check whether a candidate start position is free of overlap (excluding self)
+            // 批C(P0-2)：重叠判定排除全部同批拖拽片段（旧实现只排除自己）
             const isFree = (start: number) =>
               start >= 0 && !targetTrack.clips.some(
-                (c) => c.id !== id && c.start_sec < start + dur && c.start_sec + c.duration_sec > start,
+                (c) => !draggedIds.has(c.id)
+                  && c.start_sec < start + dur && c.start_sec + c.duration_sec > start,
               );
-
-            // Find the first overlapping clip (excluding self)
             const overlapping = targetTrack.clips.find(
-              (c) => c.id !== id && c.start_sec < newStartSec + dur && c.start_sec + c.duration_sec > newStartSec,
+              (c) => !draggedIds.has(c.id)
+                && c.start_sec < newStartSec + dur && c.start_sec + c.duration_sec > newStartSec,
             );
 
             if (!overlapping) {
-              // No collision → place directly
               store.moveClip(id, targetTrackId, newStartSec);
+              applied = true;
               continue;
             }
 
@@ -594,21 +598,24 @@ export class TimelineEngine {
             let zone: 'before' | 'after' | 'reject' = 'reject';
             if (relPos < 0.1) {
               zone = 'before';
-              placeAt = clipStart - dur;
+              placeAt = Math.max(0, clipStart - dur);
             } else if (relPos > 0.9) {
               zone = 'after';
               placeAt = clipEnd;
             }
 
-            // Final validation: only commit if the target position is actually free
             if (placeAt !== null && isFree(placeAt)) {
               store.moveClip(id, targetTrackId, placeAt);
+              applied = true;
               this.showDropFeedback(zone, id, targetTrackId, placeAt);
             } else {
-              // No valid placement (middle zone, or before/after would still overlap) → reject
               this.showDropFeedback('reject', id, targetTrackId, newStartSec);
             }
           }
+        }
+        // 批C(P0-1)：有实际落位才推送 pre-drag 快照（单击不再产生幽灵历史）
+        if (applied && this.drag.preSnapshot) {
+          useHistoryStore.getState().pushState(this.drag.preSnapshot, this.drag.preSnapshotLabel || 'move');
         }
         break;
       }
@@ -625,6 +632,10 @@ export class TimelineEngine {
               source_offset_sec: ghost.source_offset_sec,
             });
           }
+          // 批C(P0-1)：有实际变更才推送拖拽前快照（单击不再产生幽灵历史）
+          if (this.drag.preSnapshot && store.timeline !== this.drag.preSnapshot) {
+            useHistoryStore.getState().pushState(this.drag.preSnapshot, 'trim');
+          }
         }
         break;
       }
@@ -637,6 +648,17 @@ export class TimelineEngine {
           } else {
             store.updateClip(this.drag.trimOrig.id, { duration_sec: ghost.duration_sec });
           }
+          // 批C(P0-1)：有实际变更才推送拖拽前快照
+          if (this.drag.preSnapshot && store.timeline !== this.drag.preSnapshot) {
+            useHistoryStore.getState().pushState(this.drag.preSnapshot, 'trim');
+          }
+        }
+        break;
+      }
+      case 'gain': {
+        // 批C(P0-1)：增益拖拽有实际变化才推送拖拽前快照
+        if (this.drag.preSnapshot && store.timeline !== this.drag.preSnapshot) {
+          useHistoryStore.getState().pushState(this.drag.preSnapshot, 'gain');
         }
         break;
       }

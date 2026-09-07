@@ -394,7 +394,12 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         ...t,
         clips: t.clips.map((c) => {
           if (c.id !== clipId) return c;
-          const newDuration = Math.max(0.1, newEndSec - c.start_sec);
+          // 批C(P1)：右边界不越过同轨下一片段起点（旧实现可拉出单轨重叠）
+          const next = t.clips
+            .filter((o) => o.id !== clipId && o.start_sec >= c.start_sec + 0.1)
+            .sort((a, b) => a.start_sec - b.start_sec)[0];
+          const maxEnd = next ? next.start_sec : Infinity;
+          const newDuration = Math.max(0.1, Math.min(newEndSec, maxEnd) - c.start_sec);
           return { ...c, duration_sec: newDuration };
         }),
       }));
@@ -414,14 +419,22 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         const idx = sorted.findIndex((c) => c.id === clipId);
         if (idx === -1) return t;
         const clip = sorted[idx];
-        const updated = new Map<string, { start_sec: number; duration_sec: number }>();
+        const updated = new Map<string, { start_sec: number; duration_sec: number; source_offset_sec?: number }>();
+        // 批C(P1)：rolling 同时 remap source_offset_sec——视频/音频剪辑的
+        // 内容窗口随边界移动（旧实现只改 start/duration → 素材内容跳变）
+        const remapOffset = (c: { source_offset_sec?: number; speed?: number }, d: number) =>
+          Math.max(0, (c.source_offset_sec ?? 0) + d * (c.speed ?? 1));
         if (edge === 'start') {
           const prev = sorted[idx - 1];
           if (!prev) return t; // 没有前一片段 → rolling 无从谈起
           const maxShrink = clip.duration_sec - 0.1;
           const maxGrow = prev.duration_sec - 0.1;
           const d = Math.max(-maxShrink, Math.min(maxGrow, deltaSec));
-          updated.set(clip.id, { start_sec: clip.start_sec + d, duration_sec: clip.duration_sec - d });
+          updated.set(clip.id, {
+            start_sec: clip.start_sec + d,
+            duration_sec: clip.duration_sec - d,
+            source_offset_sec: remapOffset(clip, d),
+          });
           updated.set(prev.id, { start_sec: prev.start_sec, duration_sec: prev.duration_sec + d });
         } else {
           const next = sorted[idx + 1];
@@ -429,7 +442,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
           const maxGrow = clip.duration_sec - 0.1;
           const maxShrink = next.duration_sec - 0.1;
           const d = Math.max(-maxGrow, Math.min(maxShrink, deltaSec));
-          updated.set(clip.id, { start_sec: clip.start_sec, duration_sec: clip.duration_sec + d });
+          updated.set(clip.id, {
+            start_sec: clip.start_sec,
+            duration_sec: clip.duration_sec + d,
+            source_offset_sec: remapOffset(clip, -d),
+          });
           updated.set(next.id, { start_sec: next.start_sec + d, duration_sec: next.duration_sec - d });
         }
         return {

@@ -105,22 +105,33 @@ export function useGlobalKeybindings() {
       }
     };
 
+    // 批C(P1)：粘贴深拷贝——剥离 group_id（避免加入原分组）、
+    // nested_timeline/keyframes 深拷贝（旧实现共享引用，改一个巢改俩）
+    const deepCopyClip = (src: typeof clipClipboard.clips[number]) => ({
+      ...structuredClone(src),
+      id: uid('clip'),
+      group_id: undefined as unknown as typeof src.group_id,
+      nested_timeline: src.nested_timeline
+        ? (structuredClone(src.nested_timeline) as typeof src.nested_timeline)
+        : undefined,
+    });
+
     const pasteClips = () => {
       if (clipClipboard.clips.length === 0) return;
       const store = useTimelineStore.getState();
       const t = usePreviewStore.getState().currentTimeSec;
       useHistoryStore.getState().pushState(store.timeline, 'paste');
       for (const src of clipClipboard.clips) {
-        const newId = uid('clip');
+        const copy = deepCopyClip(src);
         const track = store.timeline.tracks.find((tr) => tr.id === src.track_id || tr.kind === src.kind);
         if (!track || track.locked) continue;
         store.addClip(track.id, {
-          ...src,
-          id: newId,
-          start_sec: t + (src.start_sec - clipClipboard.clips[0].start_sec),
-          asset_id: src.asset_id,
-          kind: src.kind,
-          keyframes: src.keyframes?.map((kf) => ({ ...kf })),
+          ...copy,
+          id: uid('clip'),
+          start_sec: t + (copy.start_sec - clipClipboard.clips[0].start_sec),
+          asset_id: copy.asset_id,
+          kind: copy.kind,
+          keyframes: copy.keyframes?.map((kf) => ({ ...kf })),
         });
       }
     };
@@ -194,16 +205,16 @@ export function useGlobalKeybindings() {
       const offset = 1; // 1 second offset for pasted duplicates
       useHistoryStore.getState().pushState(store.timeline, 'duplicate');
       for (const src of found) {
-        const newId = uid('clip');
+        const copy = deepCopyClip(src);
         const track = store.timeline.tracks.find((tr) => tr.id === src.track_id || tr.kind === src.kind);
         if (!track || track.locked) continue;
         store.addClip(track.id, {
-          ...src,
-          id: newId,
+          ...copy,
+          id: uid('clip'),
           start_sec: src.start_sec + offset,
-          asset_id: src.asset_id,
-          kind: src.kind,
-          keyframes: src.keyframes?.map((kf) => ({ ...kf })),
+          asset_id: copy.asset_id,
+          kind: copy.kind,
+          keyframes: copy.keyframes?.map((kf) => ({ ...kf })),
         });
       }
     };

@@ -2,7 +2,7 @@
  * Timeline engine shared types & coordinate helpers.
  * All rendering is done in CSS pixels; the canvas is scaled by devicePixelRatio.
  */
-import type { Clip, TimelineMarker } from '@/types/timeline';
+import type { Clip, Timeline, TimelineMarker } from '@/types/timeline';
 
 export interface TimelineLayout {
   /** Canvas CSS width/height */
@@ -94,6 +94,9 @@ export interface DragState {
   snapX: number | null;
   /** Whether we pushed a history snapshot for this drag */
   historyPushed: boolean;
+  /** 批C(P0-1)：拖拽开始时的快照引用（pointerup 有实际变更才推送历史） */
+  preSnapshot: Timeline | null;
+  preSnapshotLabel: string;
   /** Offset from the scrollbar thumb's left edge to the grab point */
   scrollbarGrabOffset: number;
 }
@@ -113,6 +116,8 @@ export function makeDragState(): DragState {
     marquee: null,
     snapX: null,
     historyPushed: false,
+    preSnapshot: null,
+    preSnapshotLabel: '',
     scrollbarGrabOffset: 0,
   };
 }

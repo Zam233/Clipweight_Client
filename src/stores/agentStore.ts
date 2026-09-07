@@ -164,7 +164,11 @@ export const useAgentStore = create<AgentState>((set) => ({
 
   addSuggestion: (suggestion) =>
     set((state) => ({
-      suggestions: [...state.suggestions, suggestion],
+      // 批B(P1-2)：同文案去重 + 上限 8 条（重连回放/多次完成不再无限堆叠）
+      suggestions: (() => {
+        const base = state.suggestions.filter((s) => s.message !== suggestion.message);
+        return [...base, suggestion].slice(-8);
+      })(),
     })),
 
   clearSuggestions: () => set({ suggestions: [] }),
