@@ -398,7 +398,7 @@ export function EditorToolbar() {
   };
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 bg-surface-dim border-b border-outline-variant/30 shrink-0">
+    <div className="flex items-center gap-2 px-3 py-2 bg-surface-dim border-b border-outline-variant/30 shrink-0 overflow-x-auto">
       {/* Back + Logo + project name */}
       <div className="flex items-center gap-2 mr-2">
         <Tooltip side="bottom" content="返回首页">
@@ -639,8 +639,6 @@ export function EditorToolbar() {
             <PanelRight className="w-4 h-4" />
           </button>
         </Tooltip>
-
-        <div className="w-px h-6 bg-outline-variant/40 mx-1" />
 
         <div className="w-px h-6 bg-outline-variant/40 mx-1" />
 

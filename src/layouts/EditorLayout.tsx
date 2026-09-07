@@ -197,7 +197,7 @@ export function EditorLayout() {
               onPointerDown={(e) => handleDividerPointerDown('properties', e)}
             />
             <div
-              className="h-full overflow-hidden shrink-0 flex flex-col"
+              className="h-full overflow-hidden shrink-0 hidden xl:block flex flex-col"
               style={{ width: panelWidths.properties }}
             >
               <PropertiesPanel />
