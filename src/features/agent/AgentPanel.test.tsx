@@ -470,6 +470,56 @@ describe('G2: pipeline cancel', () => {
   });
 });
 
+describe('轮72: 建议列表交互 + 耗时计时', () => {
+  it('建议可逐条忽略（X 按钮）', async () => {
+    useAgentStore.setState({
+      requirementsMessages: [
+        { id: 'm0', role: 'assistant', content: 'x', timestamp: new Date().toISOString() },
+      ],
+      suggestions: [
+        { id: 's1', type: 'pace', message: '第一条建议', confidence: 0.6 },
+        { id: 's2', type: 'pace', message: '第二条建议', confidence: 0.6 },
+      ],
+    });
+    render(<AgentPanel />);
+    expect(screen.getByText('第一条建议')).toBeTruthy();
+
+    fireEvent.click(screen.getAllByTitle('忽略该建议')[0]);
+    await waitFor(() => {
+      expect(useAgentStore.getState().suggestions.map((s) => s.id)).toEqual(['s2']);
+    });
+    expect(screen.queryByText('第一条建议')).toBeNull();
+  });
+
+  it('建议可复制（调用剪贴板）', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    useAgentStore.setState({
+      requirementsMessages: [
+        { id: 'm0', role: 'assistant', content: 'x', timestamp: new Date().toISOString() },
+      ],
+      suggestions: [{ id: 's1', type: 'pace', message: '可复制的建议', confidence: 0.6 }],
+    });
+    render(<AgentPanel />);
+    fireEvent.click(screen.getByTitle('复制建议'));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('可复制的建议'));
+  });
+
+  it('运行中显示耗时（mm:ss）', async () => {
+    useAgentStore.setState({
+      pipelineId: 'p1',
+      phase: 'structure',
+      pipelineStartedAt: Date.now() - 65_000,
+      requirementsMessages: [
+        { id: 'm0', role: 'assistant', content: 'x', timestamp: new Date().toISOString() },
+      ],
+    });
+    render(<AgentPanel />);
+    await act(async () => {});
+    expect(screen.getByTitle('本轮耗时').textContent).toMatch(/^01:0\d$/);
+  });
+});
+
 describe('轮69: SSE delta 流式消费', () => {
   it('delta 增量填充同一条气泡，result 到达后收尾替换', async () => {
     const api = await import('@/services/api');

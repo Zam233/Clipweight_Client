@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useAgentStore } from '@/stores/agentStore';
 import { requirementsApi } from '@/services/api';
+import { savePipelineId } from '@/services/storage/pipelineSession';
 import { useProjectStore } from '@/stores/projectStore';
 import { Button } from '@/components/ui';
 import { Markdown } from '@/components/shared/Markdown';
@@ -141,7 +142,7 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
         if (res.pipeline_id) {
           useAgentStore.getState().setPipelineId(res.pipeline_id);
           // 批B：持久化 pipeline id——刷新后 BottomBar 才能恢复 SSE 追踪
-          try { sessionStorage.setItem('cw_pipeline_id', res.pipeline_id); } catch { /* ignore */ }
+          savePipelineId(res.pipeline_id);
           useAgentStore.getState().updatePhase('structure', 5);
         }
       } else {

@@ -4,7 +4,6 @@ import type { Timeline } from '@/types/timeline';
 import type {
   PipelinePhase,
   AgentSuggestion,
-  AgentChatMessage,
   LogEntry,
   AgentStat,
   PipelineSummary,
@@ -47,10 +46,10 @@ interface AgentState {
   progress: number;
   agentTimeline: Timeline | null;
   suggestions: AgentSuggestion[];
-  chatMessages: AgentChatMessage[];
   error: string | null;
-  isStreaming: boolean;
   cancelling: boolean;
+  /** 轮72：本轮管线启动时刻（epoch ms）——运行中显示耗时；无管线为 null */
+  pipelineStartedAt: number | null;
 
   // Log entries
   logEntries: LogEntry[];
@@ -80,10 +79,9 @@ interface AgentState {
   updatePhase: (phase: PipelinePhase, progress?: number) => void;
   setAgentTimeline: (timeline: Timeline | null) => void;
   addSuggestion: (suggestion: AgentSuggestion) => void;
+  removeSuggestion: (id: string) => void;
   clearSuggestions: () => void;
-  addChatMessage: (message: AgentChatMessage) => void;
   setError: (error: string | null) => void;
-  setStreaming: (streaming: boolean) => void;
   setCancelling: (busy: boolean) => void;
   resetPipeline: () => void;
 
@@ -133,10 +131,9 @@ export const useAgentStore = create<AgentState>((set) => ({
   progress: 0,
   agentTimeline: null,
   suggestions: [],
-  chatMessages: [],
   error: null,
-  isStreaming: false,
   cancelling: false,
+  pipelineStartedAt: null,
 
   logEntries: [],
   agentStats: [],
@@ -154,7 +151,14 @@ export const useAgentStore = create<AgentState>((set) => ({
   annotations: [],
   reviewMode: null,
 
-  setPipelineId: (id) => set({ pipelineId: id }),
+  // 轮72：同一 pipelineId 重复设置不重置计时；新 id 记启动时刻，清空 id 清计时
+  setPipelineId: (id) =>
+    set((state) => ({
+      pipelineId: id,
+      pipelineStartedAt: id
+        ? (state.pipelineId === id ? state.pipelineStartedAt : Date.now())
+        : null,
+    })),
 
   updatePhase: (phase, progress) =>
     set((state) => ({
@@ -174,16 +178,12 @@ export const useAgentStore = create<AgentState>((set) => ({
       })(),
     })),
 
+  removeSuggestion: (id) =>
+    set((state) => ({ suggestions: state.suggestions.filter((s) => s.id !== id) })),
+
   clearSuggestions: () => set({ suggestions: [] }),
 
-  addChatMessage: (message) =>
-    set((state) => ({
-      chatMessages: [...state.chatMessages, message],
-    })),
-
   setError: (error) => set({ error }),
-
-  setStreaming: (streaming) => set({ isStreaming: streaming }),
 
   setCancelling: (busy) => set({ cancelling: busy }),
 
@@ -195,12 +195,11 @@ export const useAgentStore = create<AgentState>((set) => ({
       agentTimeline: null,
       suggestions: [],
       error: null,
-      isStreaming: false,
       cancelling: false,
+      pipelineStartedAt: null,
       logEntries: [],
       agentStats: [],
       pipelineSummary: null,
-      chatMessages: [],
       mgTotal: 0,
       mgDone: 0,
     }),
@@ -245,7 +244,8 @@ export const useAgentStore = create<AgentState>((set) => ({
 
   addRequirementsMessage: (message) =>
     set((state) => {
-      const msgs = [...state.requirementsMessages, message];
+      // 轮72：内存上限 200 条（草稿本就只存 50 条，长会话不再无限增长）
+      const msgs = [...state.requirementsMessages, message].slice(-200);
       saveDraft({ messages: msgs, brief: state.creativeBrief, plan: state.productionPlan, sessionId: state.requirementsSessionId, status: state.requirementsStatus });
       return { requirementsMessages: msgs };
     }),

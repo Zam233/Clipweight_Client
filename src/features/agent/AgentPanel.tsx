@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { useAgentStore, loadRequirementsDraft, clearRequirementsDraft } from '@/stores/agentStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSelectionStore } from '@/stores/selectionStore';
@@ -8,7 +8,9 @@ import { TimelineDiffView } from './TimelineDiffView';
 import { resolveMessageAttachments } from './requirementsAttachments';
 import { pipelineApi, requirementsApi, personaApi } from '@/services/api';
 import { fetchSseToken, withSseToken } from '@/services/api/sse';
+import { savePipelineId, loadPipelineId, clearPipelineId } from '@/services/storage/pipelineSession';
 import { useBackendHealth } from '@/pages/useBackendHealth';
+import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
 import { uid } from '@/lib/utils';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
@@ -16,7 +18,7 @@ import type { Timeline, Clip, ClipKind } from '@/types/timeline';
 import type { RequirementsStatus, CreativeBrief, ProductionPlan } from '@/types/persona';
 import {
   Bot, Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
-  MessageSquareText, ChevronDown, ChevronRight, X, Paperclip, RefreshCw,
+  MessageSquareText, ChevronDown, ChevronRight, X, Paperclip, RefreshCw, Copy,
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<PipelinePhase, string> = {
@@ -404,7 +406,7 @@ function RequirementsView() {
         setPipelineId(res.pipeline_id);
         updatePhase('structure', 5);
         // 持久化到 sessionStorage：页面刷新后 BottomBar 挂载时可恢复并自动重连 SSE
-        try { sessionStorage.setItem('cw_pipeline_id', res.pipeline_id); } catch { /* ignore */ }
+        savePipelineId(res.pipeline_id);
       }
     } catch {
       setStatus('plan_ready');
@@ -586,7 +588,8 @@ function LogPanel() {
     }
   }, [lastId]);
 
-  const groups = grouped ? buildGroups(logEntries) : null;
+  // 轮72：分组结果按 logEntries 记忆——其他 store 字段变化（进度/计时）不再重算
+  const groups = useMemo(() => (grouped ? buildGroups(logEntries) : null), [grouped, logEntries]);
 
   return (
     <div className="flex flex-col h-full">
@@ -668,7 +671,7 @@ function AgentGroup({ group, onToggle, defaultOpen = false }: {
   );
 }
 
-function LogLine({ entry, onToggle }: { entry: LogEntry; onToggle: (id: string) => void }) {
+function LogLineBase({ entry, onToggle }: { entry: LogEntry; onToggle: (id: string) => void }) {
   return (
     <div className="group">
       <button onClick={() => onToggle(entry.id)}
@@ -693,6 +696,9 @@ function LogLine({ entry, onToggle }: { entry: LogEntry; onToggle: (id: string) 
   );
 }
 
+// 轮72：日志行 memo——展开/折叠单条时其余条目不再重渲染（store 保留未动条目引用）
+const LogLine = memo(LogLineBase);
+
 function BottomBar() {
   const phase = useAgentStore((s) => s.phase);
   const progress = useAgentStore((s) => s.progress);
@@ -707,6 +713,17 @@ function BottomBar() {
   const cancelling = useAgentStore((s) => s.cancelling);
   const setCancelling = useAgentStore((s) => s.setCancelling);
   const suggestions = useAgentStore((s) => s.suggestions);
+  const removeSuggestion = useAgentStore((s) => s.removeSuggestion);
+  // 轮72：运行中耗时计时
+  const pipelineStartedAt = useAgentStore((s) => s.pipelineStartedAt);
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!pipelineStartedAt) return;
+    const t = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [pipelineStartedAt]);
+  const elapsedSec = pipelineStartedAt ? Math.max(0, Math.floor((clock - pipelineStartedAt) / 1000)) : 0;
+  const elapsedText = `${String(Math.floor(elapsedSec / 60)).padStart(2, '0')}:${String(elapsedSec % 60).padStart(2, '0')}`;
 
   // M13: 编辑器内 Persona 切换
   const personaId = useProjectStore((s) => s.personaId);
@@ -847,7 +864,7 @@ function BottomBar() {
       es.close();
       esRef.current = null;
       // 管线到达终态：清除持久化的 pipelineId，避免刷新后误重连
-      try { sessionStorage.removeItem('cw_pipeline_id'); } catch { /* ignore */ }
+      clearPipelineId();
     };
 
     es.onopen = () => {
@@ -1012,11 +1029,10 @@ function BottomBar() {
     });
   }, [addLogEntry, updatePhase]);
 
-  // 页面刷新后 store 被重置：从 sessionStorage 恢复运行中的 pipelineId 并重新挂接 SSE。
-  // confirmPlan 启动管线时写入 cw_pipeline_id，finish（终态）时清除。
+  // 页面刷新后 store 被重置：从 pipelineSession 恢复运行中的 pipelineId 并重新挂接 SSE。
+  // confirmPlan 启动管线时写入，finish（终态）时清除；轮72 起跨标签页可见。
   useEffect(() => {
-    let stored: string | null = null;
-    try { stored = sessionStorage.getItem('cw_pipeline_id'); } catch { /* ignore */ }
+    const stored = loadPipelineId();
     if (stored && !useAgentStore.getState().pipelineId) {
       useAgentStore.getState().setPipelineId(stored);
       // phase 刷新后回落为 idle，恢复为运行相位以触发下方 SSE 挂接 effect
@@ -1124,6 +1140,11 @@ function BottomBar() {
         <div className="px-3 pt-1 text-caption text-on-surface-variant">
           <span className="text-on-surface-variant/60">当前：</span>
           <span className="text-primary font-medium">{currentActivity(logEntries) ?? PHASE_LABELS[phase as keyof typeof PHASE_LABELS] ?? phase}</span>
+          {pipelineStartedAt && (
+            <span className="ml-2 font-mono text-on-surface-variant/60 tabular-nums" title="本轮耗时">
+              {elapsedText}
+            </span>
+          )}
         </div>
       )}
 
@@ -1160,9 +1181,26 @@ function BottomBar() {
         <div className="px-3 pb-2 space-y-1">
           <p className="text-caption font-medium text-on-surface-variant">建议</p>
           {suggestions.map((s, i) => (
-            <div key={s.id ?? i} className="flex items-start gap-1.5 text-caption text-on-surface-variant">
+            <div key={s.id ?? i} className="flex items-start gap-1.5 text-caption text-on-surface-variant group">
               <span className="text-primary shrink-0 mt-0.5">▸</span>
-              <span>{s.message}</span>
+              <span className="flex-1">{s.message}</span>
+              <button
+                onClick={() => {
+                  void navigator.clipboard?.writeText(s.message);
+                  toast('已复制建议', 'success');
+                }}
+                title="复制建议"
+                className="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 text-on-surface-variant/60 hover:text-on-surface cursor-pointer"
+              >
+                <Copy className="w-3 h-3" />
+              </button>
+              <button
+                onClick={() => removeSuggestion(s.id)}
+                title="忽略该建议"
+                className="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 text-on-surface-variant/60 hover:text-error cursor-pointer"
+              >
+                <X className="w-3 h-3" />
+              </button>
             </div>
           ))}
         </div>
