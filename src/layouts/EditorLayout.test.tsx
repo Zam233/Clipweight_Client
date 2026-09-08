@@ -12,6 +12,7 @@ const { mocks } = vi.hoisted(() => ({
     timelineHeight: 260,
     mobilePanel: null as string | null,
     setMobilePanel: vi.fn(),
+    timelineDirty: false,
   },
 }));
 
@@ -59,7 +60,11 @@ vi.mock('@/stores/previewStore', () => ({
 }));
 vi.mock('@/stores/timelineStore', () => ({
   useTimelineStore: (sel?: (s: unknown) => unknown) => {
-    const st = { ...storeMock(), timeline: { fps: 30, duration_sec: 0, tracks: [] } };
+    const st = {
+      ...storeMock(),
+      timeline: { fps: 30, duration_sec: 0, tracks: [] },
+      isDirty: mocks.timelineDirty,
+    };
     return sel ? sel(st) : st;
   },
 }));
@@ -122,6 +127,24 @@ describe('EditorLayout 面板分隔条方向（BUG2 回归）', () => {
     const dividers = container.querySelectorAll('.panel-divider');
     dragDivider(dividers[1] as HTMLElement, 400, 460); // dx = +60
     expect(mocks.setPanelWidth).toHaveBeenCalledWith('properties', 320 - 60);
+  });
+});
+
+describe('轮75: 状态栏未保存指示', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.timelineDirty = false;
+  });
+
+  it('isDirty=true 时显示「● 未保存」', () => {
+    mocks.timelineDirty = true;
+    const { container } = render(<EditorLayout />);
+    expect(container.textContent).toContain('● 未保存');
+  });
+
+  it('isDirty=false 时不显示未保存', () => {
+    const { container } = render(<EditorLayout />);
+    expect(container.textContent).not.toContain('● 未保存');
   });
 });
 

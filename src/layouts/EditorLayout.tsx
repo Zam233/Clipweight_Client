@@ -314,6 +314,8 @@ function StatusBar() {
   const isSaving = useProjectStore((s) => s.isSaving);
   const lastSavedAt = useProjectStore((s) => s.lastSavedAt);
   const saveError = useProjectStore((s) => s.saveError);
+  // 轮75：时间轴有未落盘更改（自动保存 5s 窗口内也会显示）
+  const isDirty = useTimelineStore((s) => s.isDirty);
   const currentTime = usePreviewStore((s) => s.currentTimeSec);
   const fps = useTimelineStore((s) => s.timeline.fps);
   const duration = useTimelineStore((s) => s.timeline.duration_sec);
@@ -332,10 +334,12 @@ function StatusBar() {
   let statusText = 'Ready';
   if (isSaving) statusText = '保存中…';
   else if (saveError) statusText = '保存失败';
+  else if (isDirty) statusText = '● 未保存';
   else if (lastSavedAt) {
     const t = new Date(lastSavedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     statusText = `已保存 ${t}`;
   }
+  const statusDirty = isDirty && !isSaving && !saveError;
 
   const currentFrame = Math.round(currentTime * fps);
   const totalFrames = Math.round(duration * fps);
@@ -380,7 +384,7 @@ function StatusBar() {
         >
           {showFrames ? `帧 ${currentFrame} / ${totalFrames}` : formatTimecode(currentTime, fps)}
         </button>
-        <span className="font-mono">{statusText}</span>
+        <span className={cn('font-mono', statusDirty && 'text-warning')}>{statusText}</span>
       </div>
     </div>
   );

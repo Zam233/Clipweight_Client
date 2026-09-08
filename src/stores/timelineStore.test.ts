@@ -487,3 +487,24 @@ describe('轮73: 修剪左边界不越过同轨前一片段', () => {
     expect(clip.duration_sec).toBeCloseTo(5.5, 5);
   });
 });
+
+describe('轮75: 未保存标记', () => {
+  beforeEach(() => {
+    useTimelineStore.getState().setTimeline(createEmptyTimeline());
+  });
+
+  it('编辑后 isDirty=true，markSaved 后复位', () => {
+    const tid = useTimelineStore.getState().addTrack('video', 'V1');
+    expect(useTimelineStore.getState().isDirty).toBe(true);
+    useTimelineStore.getState().markSaved();
+    expect(useTimelineStore.getState().isDirty).toBe(false);
+  });
+
+  it('markSaved 不改变时间轴内容', () => {
+    const tid = useTimelineStore.getState().addTrack('video', 'V1');
+    useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 0, duration_sec: 3 });
+    const before = useTimelineStore.getState().timeline;
+    useTimelineStore.getState().markSaved();
+    expect(useTimelineStore.getState().timeline).toBe(before);
+  });
+});

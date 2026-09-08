@@ -213,6 +213,8 @@ export function EditorPage() {
       st.setSaving(false);
       st.setLastSaved(new Date().toISOString());
       dirtyRef.current = false;
+      // 轮75：清除时间轴未保存标记（状态栏「未保存」指示复位）
+      useTimelineStore.getState().markSaved();
       // G3: 广播保存事件，通知其他标签页重新拉取
       tabSync.broadcastSaved(st.projectId);
     } catch {

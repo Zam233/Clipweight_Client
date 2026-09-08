@@ -12,6 +12,8 @@ interface TimelineState {
   // Timeline-level actions
   setTimeline: (timeline: Timeline) => void;
   resetTimeline: () => void;
+  /** 轮75：保存成功后清除未保存标记（状态栏「未保存」指示用） */
+  markSaved: () => void;
   updateTimelineMeta: (meta: Partial<Pick<Timeline, 'width' | 'height' | 'fps' | 'duration_sec'>>) => void;
   /** M8: 批量设置时间轴标记（引擎变更回调写回 store，随项目保存持久化） */
   setTimelineMarkers: (markers: TimelineMarker[]) => void;
@@ -90,6 +92,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     usePreviewStore.getState().setDuration(0);
     useSelectionStore.getState().deselectAll();
   },
+
+  markSaved: () => set({ isDirty: false }),
 
   setTimelineMarkers: (markers) =>
     set((state) => ({

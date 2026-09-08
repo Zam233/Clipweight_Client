@@ -3,7 +3,7 @@ import { useSelectionStore } from '@/stores/selectionStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { usePreviewStore } from '@/stores/previewStore';
-import { Slider, Badge } from '@/components/ui';
+import { Slider, Badge, Button } from '@/components/ui';
 import { Tooltip } from '@/components/ui';
 import { TRACK_COLORS } from '@/types/timeline';
 import { EASING_NAMES, interpolateProperties } from '@/features/timeline/engine/easing';
@@ -81,6 +81,19 @@ export function PropertiesPanel() {
     } else if (clip) {
       updateClip(clip.id, updates);
     }
+  };
+
+  // 轮75：多选整体平移——按最小起点钳制位移，保持相对间距（不会把先到的片段挤到 0 后重叠）
+  const shiftSelectedBy = (deltaSec: number) => {
+    const store = useTimelineStore.getState();
+    const clips = selectedClipIds
+      .map((id) => store.getClip(id))
+      .filter((c): c is Clip => Boolean(c));
+    if (clips.length === 0) return;
+    const d = effectiveShift(deltaSec, clips.map((c) => c.start_sec));
+    if (d === 0) return;
+    pushHistory();
+    clips.forEach((c) => store.moveClip(c.id, c.track_id, c.start_sec + d));
   };
 
   // B16: 编辑事件上报 — 有活跃 Persona 时向 PersonaLearner 学习偏好（fire-and-forget）
@@ -210,6 +223,7 @@ export function PropertiesPanel() {
         {selectedClipIds.length === 0 && <NoSelection />}
         {selectedClipIds.length > 1 && (
           <BatchEditSection count={selectedClipIds.length} set={set} pushHistory={pushHistory}
+            onShift={shiftSelectedBy}
             initial={clip ? { speed: clip.speed, volume: clip.volume, opacity: clip.opacity } : { speed: 1, volume: 1, opacity: 1 }} />
         )}
         {clip && (
@@ -1162,12 +1176,15 @@ function TransitionSelect({ value, onChange }: { value: string; onChange: (v: st
   );
 }
 
-function BatchEditSection({ count, set, pushHistory, initial }: {
+function BatchEditSection({ count, set, pushHistory, initial, onShift }: {
   count: number;
   set: (u: Partial<Clip>) => void;
   pushHistory: () => void;
   initial: Pick<Clip, 'speed' | 'volume' | 'opacity'>;
+  /** 轮75：多选整体平移（秒，负数左移）；返回实际生效的位移（0 = 被 0s 边界钳制） */
+  onShift: (deltaSec: number) => void;
 }) {
+  const [shift, setShift] = useState(0);
   return (
     <Section title={`批量编辑 · ${count} 个片段`}>
       <Slider label="速度（全部）" min={0.25} max={4} step={0.25} value={initial.speed}
@@ -1176,6 +1193,24 @@ function BatchEditSection({ count, set, pushHistory, initial }: {
         onChange={(v) => { pushHistory(); set({ volume: v }); }} />
       <Slider label="不透明度（全部）" min={0} max={1} step={0.05} value={initial.opacity}
         onChange={(v) => { pushHistory(); set({ opacity: v }); }} />
+      {/* 轮75：字幕/文字多选整体平移——旧实现只能逐条逐帧 nudge */}
+      <div className="flex items-center gap-1.5 mt-2">
+        <span className="text-label-sm text-on-surface-variant shrink-0">整体平移</span>
+        <input
+          type="number"
+          step="0.1"
+          value={shift}
+          onChange={(e) => setShift(Number(e.target.value) || 0)}
+          className="w-20 bg-surface-container rounded-cw-xs px-1.5 py-1 text-label-sm text-on-surface font-mono
+            outline-none border border-outline-variant/30 focus:border-primary"
+          title="正数右移，负数左移（整体受 0s 边界钳制，保持相对间距）"
+        />
+        <span className="text-caption text-on-surface-variant">秒</span>
+        <Button size="sm" variant="outline" disabled={shift === 0}
+          onClick={() => onShift(shift)}>
+          应用
+        </Button>
+      </div>
     </Section>
   );
 }
@@ -1185,6 +1220,13 @@ function clipLabel(clip: Clip, kind: string): string {
   if (clip.metadata && typeof clip.metadata.title === 'string') return clip.metadata.title as string;
   if (clip.asset_id) return clip.asset_id;
   return kind;
+}
+
+/** 轮75：多选整体平移的有效位移（按最小起点钳制，保持相对间距）。 */
+export function effectiveShift(deltaSec: number, startSecs: number[]): number {
+  if (!deltaSec || startSecs.length === 0) return 0;
+  const minStart = Math.min(...startSecs);
+  return Math.max(deltaSec, -minStart);
 }
 
 function round2(n: number): number {
