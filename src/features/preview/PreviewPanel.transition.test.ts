@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
-import { applyTransitionAlpha } from './PreviewPanel';
+import { applyTransitionAlpha, transitionGeometry } from './PreviewPanel';
 import { interpolateProperties } from '@/features/timeline/engine/easing';
 import type { Clip } from '@/types/timeline';
 import { createDefaultClip } from '@/types/timeline';
@@ -46,6 +46,45 @@ describe('applyTransitionAlpha (M11 转场可见性)', () => {
   it('无效转场类型（空/未知字符串）→ 不调制', () => {
     const c = clip({ duration_sec: 5, transition_in: 'not_a_real_type' });
     expect(applyTransitionAlpha(0.7, c, 0.01)).toBeCloseTo(0.7, 5);
+  });
+
+  it('轮76: slide/wipe 不再走 alpha 调制（改由几何转场呈现）', () => {
+    const slide = clip({ duration_sec: 5, transition_in: 'slide', transition_duration_sec: 0.5 });
+    expect(applyTransitionAlpha(0.8, slide, 0)).toBeCloseTo(0.8, 5);
+    const wipe = clip({ duration_sec: 5, transition_out: 'wipe', transition_duration_sec: 0.5 });
+    expect(applyTransitionAlpha(0.8, wipe, 1)).toBeCloseTo(0.8, 5);
+  });
+});
+
+describe('轮76: transitionGeometry 几何转场', () => {
+  it('无转场 → 无位移无裁剪', () => {
+    const c = clip({ duration_sec: 5 });
+    expect(transitionGeometry(c, 0, 1280, 720)).toEqual({ dx: 0, clipW: null });
+  });
+
+  it('slide-in：从右侧滑入（起点 dx=fw，窗口结束 dx=0）', () => {
+    const c = clip({ duration_sec: 5, transition_in: 'slide', transition_duration_sec: 0.5 });
+    expect(transitionGeometry(c, 0, 1280, 720).dx).toBeCloseTo(1280, 5);
+    expect(transitionGeometry(c, 0.05, 1280, 720).dx).toBeCloseTo(640, 5);
+    expect(transitionGeometry(c, 0.1, 1280, 720).dx).toBeCloseTo(0, 5);
+  });
+
+  it('slide-out：向左滑出（dx 从 0 到 -fw）', () => {
+    const c = clip({ duration_sec: 5, transition_out: 'slide', transition_duration_sec: 0.5 });
+    expect(transitionGeometry(c, 0.9, 1280, 720).dx).toBeCloseTo(0, 5);
+    expect(transitionGeometry(c, 0.95, 1280, 720).dx).toBeCloseTo(-640, 5);
+    expect(transitionGeometry(c, 1, 1280, 720).dx).toBeCloseTo(-1280, 5);
+  });
+
+  it('wipe-in：可见宽从 0 到 fw；wipe-out：从 fw 到 0', () => {
+    const inC = clip({ duration_sec: 5, transition_in: 'wipe', transition_duration_sec: 0.5 });
+    expect(transitionGeometry(inC, 0, 1280, 720).clipW).toBeCloseTo(0, 5);
+    expect(transitionGeometry(inC, 0.05, 1280, 720).clipW).toBeCloseTo(640, 5);
+    expect(transitionGeometry(inC, 0.1, 1280, 720).clipW).toBeCloseTo(1280, 5);
+
+    const outC = clip({ duration_sec: 5, transition_out: 'wipe', transition_duration_sec: 0.5 });
+    expect(transitionGeometry(outC, 0.9, 1280, 720).clipW).toBeCloseTo(1280, 5);
+    expect(transitionGeometry(outC, 1, 1280, 720).clipW).toBeCloseTo(0, 5);
   });
 });
 

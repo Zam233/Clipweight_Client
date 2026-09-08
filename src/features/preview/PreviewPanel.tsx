@@ -575,11 +575,12 @@ export function PreviewPanel() {
  * M11: 转场可见性 — 在进/出转场窗口内调制透明度，让淡入淡出/溶解类转场在预览中可见。
  * - transition_in：片段开头 dur 秒内透明度 0→1（前一片段叠化进来）
  * - transition_out：片段结尾 dur 秒内透明度 1→0（叠化到下一片段）
- * - hard_cut / 无转场：不调制。
+ * - hard_cut / 无转场：不调制
+ * - 轮76：slide/wipe 改为几何转场（见 transitionGeometry），不再退化为 alpha 渐隐
  */
 export function applyTransitionAlpha(opacity: number, clip: Clip, localT: number): number {
   const dur = Math.max(0.05, clip.transition_duration_sec ?? 0.5);
-  const fadeKinds = new Set(['fade', 'dissolve', 'pixel_dissolve', 'slide', 'wipe', 'glitch']);
+  const fadeKinds = new Set(['fade', 'dissolve', 'pixel_dissolve', 'glitch']);
   if (clip.transition_in && clip.transition_in !== 'hard_cut' && fadeKinds.has(clip.transition_in)) {
     const windowFrac = clamp(localT / (dur / clip.duration_sec), 0, 1);
     opacity *= windowFrac; // 0→1 淡入
@@ -589,6 +590,37 @@ export function applyTransitionAlpha(opacity: number, clip: Clip, localT: number
     opacity *= windowFrac; // 1→0 淡出
   }
   return clamp(opacity, 0, 1);
+}
+
+export interface TransitionGeometry {
+  /** 水平位移（像素）：slide 转场用 */
+  dx: number;
+  /** 可见宽度（像素）：wipe 转场用；null = 不裁剪 */
+  clipW: number | null;
+}
+
+/**
+ * 轮76：几何转场预览 —— slide 位移 / wipe 擦除，替代此前的统一 alpha 渐隐。
+ * - slide-in：从右侧滑入（dx: fw→0）；slide-out：向左滑出（dx: 0→-fw）
+ * - wipe-in：从左向右擦除（可见宽 0→fw）；wipe-out：向右收缩（fw→0）
+ */
+export function transitionGeometry(
+  clip: Clip, localT: number, fw: number, fh: number,
+): TransitionGeometry {
+  const dur = Math.max(0.05, clip.transition_duration_sec ?? 0.5);
+  const w = clamp(dur / clip.duration_sec, 0, 1); // 转场窗口占片段比例
+  const geo: TransitionGeometry = { dx: 0, clipW: null };
+  if (clip.transition_in === 'slide') {
+    geo.dx = (1 - clamp(localT / w, 0, 1)) * fw;
+  } else if (clip.transition_in === 'wipe') {
+    geo.clipW = clamp(localT / w, 0, 1) * fw;
+  }
+  if (clip.transition_out === 'slide') {
+    geo.dx = -(1 - clamp((1 - localT) / w, 0, 1)) * fw;
+  } else if (clip.transition_out === 'wipe') {
+    geo.clipW = clamp((1 - localT) / w, 0, 1) * fw;
+  }
+  return geo;
 }
 
 /**
@@ -686,6 +718,15 @@ function drawClipToPreview(
   if (clip.blend_mode && clip.blend_mode !== 'normal') {
     (ctx as CanvasRenderingContext2D).globalCompositeOperation = clip.blend_mode as GlobalCompositeOperation;
   }
+
+  // 轮76：几何转场（slide 位移 / wipe 擦除）——与 alpha 路径互斥
+  const geo = transitionGeometry(clip, localT, fw, fh);
+  if (geo.clipW !== null) {
+    ctx.beginPath();
+    ctx.rect(fx, fy, Math.max(0, geo.clipW), fh);
+    ctx.clip();
+  }
+  if (geo.dx) ctx.translate(geo.dx, 0);
 
   // M4: 蒙版 — 裁剪到矩形/椭圆内
   applyMaskClip(ctx, clip, fx, fy, fw, fh);
@@ -851,6 +892,17 @@ function drawClipToPreview(
       ctx.save();
       ctx.globalAlpha = clamp(opacity, 0, 1) * 0.85;
       ctx.translate(cx, cy);
+      // 轮76：占位形状不是真实 MG/动画渲染结果——加「未渲染预览」标注，
+      // 避免用户把脉冲占位形误当成成片效果（渲染后才由 Hyperframes 出图）
+      ctx.font = "500 12px 'Inter','Noto Sans SC',sans-serif";
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const badge = '未渲染预览';
+      const badgeW = ctx.measureText(badge).width + 12;
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      ctx.fillRect(-badgeW / 2, size + 8, badgeW, 18);
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillText(badge, 0, size + 11);
       if (tf.rotation !== 0) ctx.rotate((tf.rotation * Math.PI) / 180);
       ctx.fillStyle = color;
       ctx.beginPath();
