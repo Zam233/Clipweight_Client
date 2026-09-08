@@ -233,4 +233,6 @@ export interface RequirementMessage {
   timestamp: string;
   creative_brief?: CreativeBrief | null;
   production_plan?: ProductionPlan | null;
+  /** 轮69：SSE delta 正在追加中（渲染打字光标）；result 到达后置 false */
+  streaming?: boolean;
 }

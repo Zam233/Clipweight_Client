@@ -22,9 +22,12 @@ interface WorkspaceState {
   timelineCollapsed: boolean;
   /** Active bottom tab in timeline area */
   activeBottomTab: 'timeline' | 'keyframes' | 'audio';
+  /** 轮69：<lg 视口下的折叠抽屉面板（桌面端恒为 null，不持久化） */
+  mobilePanel: keyof WorkspacePanel | null;
 
   // Actions
   togglePanel: (panel: keyof WorkspacePanel) => void;
+  setMobilePanel: (panel: keyof WorkspacePanel | null) => void;
   setPanelWidth: (panel: keyof WorkspacePanel, width: number) => void;
   setTimelineHeight: (height: number) => void;
   toggleTimelineCollapsed: () => void;
@@ -83,11 +86,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   timelineHeight: layout.timelineHeight,
   timelineCollapsed: false,
   activeBottomTab: 'timeline',
+  mobilePanel: null,
 
   togglePanel: (panel) =>
     set((state) => ({
       panels: { ...state.panels, [panel]: !state.panels[panel] },
     })),
+
+  setMobilePanel: (panel) => set({ mobilePanel: panel }),
 
   setPanelWidth: (panel, width) =>
     set((state) => ({

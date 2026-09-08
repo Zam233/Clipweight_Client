@@ -10,17 +10,24 @@ const { mocks } = vi.hoisted(() => ({
     panels: { assets: true, properties: true, agent: true },
     panelWidths: { assets: 260, properties: 320, agent: 300 },
     timelineHeight: 260,
+    mobilePanel: null as string | null,
+    setMobilePanel: vi.fn(),
   },
 }));
 
 vi.mock('@/stores/workspaceStore', () => ({
-  useWorkspaceStore: () => ({
-    panels: mocks.panels,
-    panelWidths: mocks.panelWidths,
-    timelineHeight: mocks.timelineHeight,
-    setPanelWidth: mocks.setPanelWidth,
-    setTimelineHeight: mocks.setTimelineHeight,
-  }),
+  useWorkspaceStore: (sel?: (s: unknown) => unknown) => {
+    const st = {
+      panels: mocks.panels,
+      panelWidths: mocks.panelWidths,
+      timelineHeight: mocks.timelineHeight,
+      setPanelWidth: mocks.setPanelWidth,
+      setTimelineHeight: mocks.setTimelineHeight,
+      mobilePanel: mocks.mobilePanel,
+      setMobilePanel: mocks.setMobilePanel,
+    };
+    return sel ? sel(st) : st;
+  },
 }));
 
 vi.mock('@/features/assets/AssetPanel', () => ({ AssetPanel: () => <div>assets</div> }));
@@ -66,7 +73,10 @@ vi.mock('@/stores/settingsStore', () => ({
   useSettingsStore: (sel?: (s: unknown) => unknown) => sel ? sel(storeMock()) : storeMock(),
 }));
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 /** 触发分隔条拖拽：从 startX 拖到 endX（鼠标按下 → 移动 → 抬起）。 */
 function dragDivider(divider: HTMLElement, startX: number, endX: number) {
@@ -112,5 +122,76 @@ describe('EditorLayout 面板分隔条方向（BUG2 回归）', () => {
     const dividers = container.querySelectorAll('.panel-divider');
     dragDivider(dividers[1] as HTMLElement, 400, 460); // dx = +60
     expect(mocks.setPanelWidth).toHaveBeenCalledWith('properties', 320 - 60);
+  });
+});
+
+describe('轮69: 响应式 3b 折叠抽屉', () => {
+  /** 模拟 <lg 视口：所有媒体查询均不匹配。 */
+  function stubNarrowViewport() {
+    vi.stubGlobal('matchMedia', (q: string) => ({
+      matches: false,
+      media: q,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.mobilePanel = null;
+  });
+
+  it('<lg 视口：docked 面板全部隐藏（无分隔条）', () => {
+    stubNarrowViewport();
+    const { container } = render(<EditorLayout />);
+    expect(container.querySelectorAll('.panel-divider').length).toBe(0);
+    // 预览与时间线仍在（画布已流式）
+    expect(container.textContent).toContain('preview');
+    expect(container.textContent).toContain('timeline');
+  });
+
+  it('<lg 视口：mobilePanel 渲染为抽屉（dialog 角色 + 面板内容）', () => {
+    stubNarrowViewport();
+    mocks.mobilePanel = 'agent';
+    const { container } = render(<EditorLayout />);
+    expect(container.querySelectorAll('.panel-divider').length).toBe(0);
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(dialog).toBeTruthy();
+    expect(dialog?.textContent).toContain('agent');
+  });
+
+  it('抽屉关闭按钮调用 setMobilePanel(null)', () => {
+    stubNarrowViewport();
+    mocks.mobilePanel = 'assets';
+    const { getByLabelText } = render(<EditorLayout />);
+    act(() => { fireEvent.click(getByLabelText('关闭面板')); });
+    expect(mocks.setMobilePanel).toHaveBeenCalledWith(null);
+  });
+
+  it('<768 视口：时间线渲染只读提示层', () => {
+    stubNarrowViewport();
+    const { getByLabelText } = render(<EditorLayout />);
+    expect(getByLabelText('时间线只读提示')).toBeTruthy();
+  });
+
+  it('≥lg 视口（matchMedia 匹配）：抽屉不渲染，docked 恢复', () => {
+    vi.stubGlobal('matchMedia', (q: string) => ({
+      matches: true,
+      media: q,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    mocks.mobilePanel = 'agent';
+    const { container } = render(<EditorLayout />);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelectorAll('.panel-divider').length).toBe(3);
   });
 });

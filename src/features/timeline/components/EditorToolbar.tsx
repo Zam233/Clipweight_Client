@@ -7,6 +7,7 @@ import { useHistoryStore } from '@/stores/historyStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { toast } from '@/stores/toastStore';
 import { Button, Tooltip } from '@/components/ui';
 import { formatTimecode, uid } from '@/lib/utils';
@@ -54,6 +55,16 @@ export function EditorToolbar() {
 
   const panels = useWorkspaceStore((s) => s.panels);
   const togglePanel = useWorkspaceStore((s) => s.togglePanel);
+  // 轮69 响应式 3b：<lg 时面板改为折叠抽屉，开关按钮转为抽屉开合
+  const mobilePanel = useWorkspaceStore((s) => s.mobilePanel);
+  const setMobilePanel = useWorkspaceStore((s) => s.setMobilePanel);
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+  const panelActive = (p: 'assets' | 'properties' | 'agent') =>
+    isDesktop ? panels[p] : mobilePanel === p;
+  const handlePanelToggle = (p: 'assets' | 'properties' | 'agent') => {
+    if (isDesktop) togglePanel(p);
+    else setMobilePanel(mobilePanel === p ? null : p);
+  };
 
   const undo = useHistoryStore((s) => s.undo);
   const redo = useHistoryStore((s) => s.redo);
@@ -622,20 +633,20 @@ export function EditorToolbar() {
           )}
         </div>
         <Tooltip side="bottom" content="素材面板">
-          <button onClick={() => togglePanel('assets')}
-            className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panels.assets ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
+          <button onClick={() => handlePanelToggle('assets')}
+            className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panelActive('assets') ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
             <PanelLeft className="w-4 h-4" />
           </button>
         </Tooltip>
         <Tooltip side="bottom" content="Agent 副驾驶">
-          <button onClick={() => togglePanel('agent')}
-            className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panels.agent ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
+          <button onClick={() => handlePanelToggle('agent')}
+            className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panelActive('agent') ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
             <Bot className="w-4 h-4" />
           </button>
         </Tooltip>
         <Tooltip side="bottom" content="属性面板">
-          <button onClick={() => togglePanel('properties')}
-            className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panels.properties ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
+          <button onClick={() => handlePanelToggle('properties')}
+            className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panelActive('properties') ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
             <PanelRight className="w-4 h-4" />
           </button>
         </Tooltip>

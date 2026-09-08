@@ -446,3 +446,90 @@ describe('G2: pipeline cancel', () => {
     expect(logs.some((e) => e.type === 'info' && e.summary === '管线已取消')).toBe(true);
   });
 });
+
+describe('轮69: SSE delta 流式消费', () => {
+  it('delta 增量填充同一条气泡，result 到达后收尾替换', async () => {
+    const api = await import('@/services/api');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const streamChat = vi.fn(async (
+      _sid: string,
+      _msg: string,
+      onChunk?: (c: { type: string; data: unknown }) => void,
+    ) => {
+      onChunk?.({ type: 'status', data: 'typing' });
+      onChunk?.({ type: 'delta', data: '你好' });
+      await gate;
+      onChunk?.({ type: 'delta', data: '，世界' });
+      return { reply: '你好，世界', status: 'gathering' };
+    });
+    (api.requirementsApi as unknown as { streamChat: typeof streamChat }).streamChat = streamChat;
+
+    useAgentStore.setState({
+      requirementsSessionId: 'sess_1',
+      requirementsStatus: 'gathering',
+      requirementsMessages: [
+        { id: 'm0', role: 'assistant', content: '请描述选题', timestamp: new Date().toISOString() },
+      ],
+    });
+    render(<AgentPanel />);
+
+    const ta = screen.getByPlaceholderText('继续与需求 Agent 对话…（Shift+Enter 换行）');
+    fireEvent.change(ta, { target: { value: '做一期数码评测' } });
+    fireEvent.keyDown(ta, { key: 'Enter' });
+
+    // 流中间态：打字气泡已出现且标记 streaming
+    await waitFor(() => {
+      const msgs = useAgentStore.getState().requirementsMessages;
+      const last = msgs[msgs.length - 1];
+      expect(last.role).toBe('assistant');
+      expect(last.content).toBe('你好');
+      expect(last.streaming).toBe(true);
+    });
+    expect(screen.getByLabelText('正在输出')).toBeTruthy();
+
+    release();
+    // 收尾：同一气泡被权威 reply 替换，streaming 复位，不新增气泡
+    await waitFor(() => {
+      const msgs = useAgentStore.getState().requirementsMessages;
+      const assistant = msgs.filter((m) => m.role === 'assistant');
+      expect(assistant).toHaveLength(2); // 初始一条 + 流式一条
+      expect(assistant[1].content).toBe('你好，世界');
+      expect(assistant[1].streaming).toBe(false);
+    });
+    expect(useAgentStore.getState().requirementsBusy).toBe(false);
+  });
+
+  it('流式失败时打字气泡转为错误文案且 streaming 复位', async () => {
+    const api = await import('@/services/api');
+    const streamChat = vi.fn(async (
+      _sid: string,
+      _msg: string,
+      onChunk?: (c: { type: string; data: unknown }) => void,
+    ) => {
+      onChunk?.({ type: 'delta', data: '部分内容' });
+      throw new Error('network down');
+    });
+    (api.requirementsApi as unknown as { streamChat: typeof streamChat }).streamChat = streamChat;
+
+    useAgentStore.setState({
+      requirementsSessionId: 'sess_2',
+      requirementsStatus: 'gathering',
+      requirementsMessages: [
+        { id: 'm0', role: 'assistant', content: '请描述选题', timestamp: new Date().toISOString() },
+      ],
+    });
+    render(<AgentPanel />);
+
+    const ta = screen.getByPlaceholderText('继续与需求 Agent 对话…（Shift+Enter 换行）');
+    fireEvent.change(ta, { target: { value: '选题' } });
+    fireEvent.keyDown(ta, { key: 'Enter' });
+
+    await waitFor(() => {
+      const msgs = useAgentStore.getState().requirementsMessages;
+      const last = msgs[msgs.length - 1];
+      expect(last.content).toContain('消息发送失败');
+      expect(last.streaming).toBe(false);
+    });
+  });
+});

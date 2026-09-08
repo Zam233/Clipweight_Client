@@ -188,9 +188,11 @@ function RequirementsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- store actions are stable; draft loading must run once
   }, [draftLoaded]);
 
+  // 轮69：流式追加时消息数不变、内容变长——依赖末条内容长度才能持续贴底
+  const lastMsgLen = messages.length ? messages[messages.length - 1].content.length : 0;
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages.length, busy]);
+  }, [messages.length, busy, lastMsgLen]);
 
   const startSession = async () => {
     if (!topic.trim()) return;
@@ -230,6 +232,21 @@ function RequirementsView() {
   const sendChat = async (sessionId: string, message: string) => {
     addMessage({ id: uid('m'), role: 'user', content: message, timestamp: new Date().toISOString() });
     setBusy(true);
+    // 轮69：真流式——首个 delta 创建打字气泡，后续增量追加；result 到达后收尾替换
+    let streamId: string | null = null;
+    const pushDelta = (text: string) => {
+      if (!text) return;
+      const ag = useAgentStore.getState();
+      if (!streamId) {
+        streamId = uid('m');
+        ag.addRequirementsMessage({
+          id: streamId, role: 'assistant', content: text,
+          timestamp: new Date().toISOString(), streaming: true,
+        });
+      } else {
+        ag.appendRequirementsDelta(streamId, text);
+      }
+    };
     try {
       // W1: 优先流式消费（实时「思考中」状态 + 无长轮询超时）；失败回退一次性 chat
       let res: {
@@ -240,6 +257,7 @@ function RequirementsView() {
       // 如实上屏错误；仅在流正常返回但无内容时回退
       res = await requirementsApi.streamChat(sessionId, message, (chunk) => {
         if (chunk.type === 'status') setStatus('gathering');
+        else if (chunk.type === 'delta' && typeof chunk.data === 'string') pushDelta(chunk.data);
       });
       if (Object.keys(res).length === 0) {
         res = await requirementsApi.chat({ session_id: sessionId, message });
@@ -256,13 +274,28 @@ function RequirementsView() {
       else if (plan) setStatus('plan_ready');
       else if (brief) setStatus('brief_ready');
       const att = resolveMessageAttachments(st, brief, plan);
-      addMessage({ id: uid('m'), role: 'assistant', content: (res.reply ?? res.message ?? '已收到。') as string,
-        timestamp: new Date().toISOString(),
-        creative_brief: att.creative_brief,
-        production_plan: att.production_plan });
+      const finalContent = (res.reply ?? res.message ?? '已收到。') as string;
+      if (streamId) {
+        // 流式气泡已存在 → 用权威回复替换（delta 与最终 reply 内容一致，此处兜底差异）
+        useAgentStore.getState().updateRequirementsMessage(streamId, {
+          content: finalContent, streaming: false,
+          creative_brief: att.creative_brief, production_plan: att.production_plan,
+        });
+      } else {
+        addMessage({ id: uid('m'), role: 'assistant', content: finalContent,
+          timestamp: new Date().toISOString(),
+          creative_brief: att.creative_brief,
+          production_plan: att.production_plan });
+      }
     } catch (e) {
-      addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-        content: `消息发送失败：${errText(e)}` });
+      if (streamId) {
+        useAgentStore.getState().updateRequirementsMessage(streamId, {
+          content: `消息发送失败：${errText(e)}`, streaming: false,
+        });
+      } else {
+        addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: `消息发送失败：${errText(e)}` });
+      }
     } finally { setBusy(false); }
   };
 
@@ -416,6 +449,9 @@ function RequirementsView() {
                 ? m.content
                 // 带简报/规划书卡片的消息：正文往往嵌入了同一份内容的 markdown，跳过以避免重复渲染
                 : (!m.creative_brief && !m.production_plan ? <Markdown text={m.content} /> : null)}
+              {m.streaming && (
+                <span className="inline-block w-1.5 h-3.5 align-text-bottom ml-0.5 bg-primary animate-pulse" aria-label="正在输出" />
+              )}
               {m.creative_brief && (
                 <div className="mt-2 pt-2 border-t border-outline-variant/20">
                   <BriefCard brief={m.creative_brief} onConfirm={confirmBrief} busy={busy} onReview={() => setReviewMode('brief')} />
@@ -430,7 +466,7 @@ function RequirementsView() {
           </div>
         ))}
 
-        {busy && (
+        {busy && !messages.some((m) => m.streaming) && (
           <div className="flex items-center gap-2 text-label-sm text-on-surface-variant px-3">
             <Loader2 className="w-3 h-3 animate-spin text-primary" /> 正在思考…
           </div>

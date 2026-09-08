@@ -1,7 +1,9 @@
 import React, { useCallback, useRef, useState, useEffect } from 'react';
+import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip } from '@/components/ui';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { AssetPanel } from '@/features/assets/AssetPanel';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { TimelinePanel } from '@/features/timeline/components/TimelinePanel';
@@ -40,6 +42,14 @@ import { formatTimecode } from '@/lib/utils';
 export function EditorLayout() {
   const { panels, panelWidths, timelineHeight, setPanelWidth, setTimelineHeight } =
     useWorkspaceStore();
+  // 轮69 响应式 3b：<lg 视口折叠抽屉——docked 面板隐藏，同组件渲染进右侧滑出抽屉；
+  // ≥lg 恢复 docked；≥xl 才停靠 Properties（否则 1024px 下三栏挤压预览）
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+  const isWide = useMediaQuery('(min-width: 1280px)');
+  // <768 只读（设计规范排除移动端剪辑）：时间线覆盖提示层，阻断编辑手势
+  const isNarrow = !useMediaQuery('(min-width: 768px)');
+  const mobilePanel = useWorkspaceStore((s) => s.mobilePanel);
+  const setMobilePanel = useWorkspaceStore((s) => s.setMobilePanel);
   const reviewMode = useAgentStore((s) => s.reviewMode);
   const setReviewMode = useAgentStore((s) => s.setReviewMode);
   const creativeBrief = useAgentStore((s) => s.creativeBrief);
@@ -61,6 +71,20 @@ export function EditorLayout() {
       }
     };
   }, []);
+
+  // 轮69：回到桌面宽度时关闭抽屉（避免遗留遮罩）；抽屉打开时 Esc 关闭
+  useEffect(() => {
+    if (isDesktop && mobilePanel) setMobilePanel(null);
+  }, [isDesktop, mobilePanel, setMobilePanel]);
+
+  useEffect(() => {
+    if (!mobilePanel) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobilePanel(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [mobilePanel, setMobilePanel]);
 
   // Shared drag core — both the mouse and pointer (touch/pen) paths funnel into
   // this so the resize math stays identical. Idempotent per coordinate: if both
@@ -149,7 +173,7 @@ export function EditorLayout() {
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left: Assets Panel */}
-        {panels.assets && (
+        {panels.assets && isDesktop && (
           <>
             <div
               className="h-full overflow-hidden shrink-0"
@@ -181,15 +205,26 @@ export function EditorLayout() {
 
           {/* Timeline */}
           <div
-            className="shrink-0 overflow-hidden"
+            className="shrink-0 overflow-hidden relative"
             style={{ height: timelineHeight }}
           >
             <TimelinePanel />
+            {isNarrow && (
+              <div
+                role="note"
+                aria-label="时间线只读提示"
+                className="absolute inset-0 z-10 bg-surface/70 flex items-center justify-center px-4 text-center"
+              >
+                <span className="text-label-sm text-on-surface-variant">
+                  窗口宽度不足 768px，时间线为只读预览。<br />请加宽窗口后再进行剪辑。
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Right: Properties + Agent */}
-        {panels.properties && (
+        {panels.properties && isWide && (
           <>
             <div
               className={cn('panel-divider shrink-0', dragging === 'properties' && 'bg-primary')}
@@ -197,7 +232,7 @@ export function EditorLayout() {
               onPointerDown={(e) => handleDividerPointerDown('properties', e)}
             />
             <div
-              className="h-full overflow-hidden shrink-0 hidden xl:block flex flex-col"
+              className="h-full overflow-hidden shrink-0 flex flex-col"
               style={{ width: panelWidths.properties }}
             >
               <PropertiesPanel />
@@ -205,7 +240,7 @@ export function EditorLayout() {
           </>
         )}
 
-        {panels.agent && (
+        {panels.agent && isDesktop && (
           <>
             <div
               className={cn('panel-divider shrink-0', dragging === 'agent' && 'bg-primary')}
@@ -224,6 +259,38 @@ export function EditorLayout() {
 
       {/* Status Bar */}
       <StatusBar />
+
+      {/* 轮69 响应式 3b：<lg 折叠抽屉——右侧滑出，遮罩点击/Esc 关闭 */}
+      {!isDesktop && mobilePanel && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/40"
+            onClick={() => setMobilePanel(null)}
+            aria-hidden="true"
+          />
+          <div
+            className="fixed top-0 right-0 bottom-0 z-50 w-[85vw] max-w-[420px] bg-surface border-l border-outline-variant/30 flex flex-col shadow-xl"
+            role="dialog"
+            aria-label={MOBILE_PANEL_LABELS[mobilePanel]}
+          >
+            <div className="flex items-center justify-between px-3 py-2 border-b border-outline-variant/20 shrink-0">
+              <span className="text-label-sm text-on-surface">{MOBILE_PANEL_LABELS[mobilePanel]}</span>
+              <button
+                onClick={() => setMobilePanel(null)}
+                aria-label="关闭面板"
+                className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden min-h-0">
+              {mobilePanel === 'assets' && <AssetPanel />}
+              {mobilePanel === 'properties' && <PropertiesPanel />}
+              {mobilePanel === 'agent' && <AgentPanel />}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Full-screen Review Panel overlay */}
       {reviewMode && (
@@ -327,3 +394,9 @@ function toolLabel(mode: SelectionMode): string {
     default: return mode;
   }
 }
+
+const MOBILE_PANEL_LABELS: Record<'assets' | 'properties' | 'agent', string> = {
+  assets: '素材面板',
+  properties: '属性面板',
+  agent: 'Agent 副驾驶',
+};

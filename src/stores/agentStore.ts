@@ -104,6 +104,9 @@ interface AgentState {
   setRequirementsSession: (sessionId: string | null) => void;
   setRequirementsStatus: (status: RequirementsStatus) => void;
   addRequirementsMessage: (message: RequirementMessage) => void;
+  /** 轮69：流式追加/收尾——按 id 局部更新已存在的消息 */
+  updateRequirementsMessage: (id: string, patch: Partial<RequirementMessage>) => void;
+  appendRequirementsDelta: (id: string, text: string) => void;
   setRequirementsBusy: (busy: boolean) => void;
   setCreativeBrief: (brief: CreativeBrief | null) => void;
   setProductionPlan: (plan: ProductionPlan | null) => void;
@@ -244,6 +247,20 @@ export const useAgentStore = create<AgentState>((set) => ({
     set((state) => {
       const msgs = [...state.requirementsMessages, message];
       saveDraft({ messages: msgs, brief: state.creativeBrief, plan: state.productionPlan, sessionId: state.requirementsSessionId, status: state.requirementsStatus });
+      return { requirementsMessages: msgs };
+    }),
+
+  updateRequirementsMessage: (id, patch) =>
+    set((state) => {
+      const msgs = state.requirementsMessages.map((m) => (m.id === id ? { ...m, ...patch } : m));
+      saveDraft({ messages: msgs, brief: state.creativeBrief, plan: state.productionPlan, sessionId: state.requirementsSessionId, status: state.requirementsStatus });
+      return { requirementsMessages: msgs };
+    }),
+
+  appendRequirementsDelta: (id, text) =>
+    set((state) => {
+      const msgs = state.requirementsMessages.map((m) =>
+        m.id === id ? { ...m, content: m.content + text } : m);
       return { requirementsMessages: msgs };
     }),
 
