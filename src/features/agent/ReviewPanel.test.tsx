@@ -8,13 +8,14 @@ import type { CreativeBrief } from '@/types/persona';
 const { mocks } = vi.hoisted(() => ({
   mocks: {
     chat: vi.fn(),
+    proceed: vi.fn(),
     runAsync: vi.fn(),
     getResult: vi.fn(),
   },
 }));
 
 vi.mock('@/services/api', () => ({
-  requirementsApi: { chat: mocks.chat },
+  requirementsApi: { chat: mocks.chat, proceed: mocks.proceed },
   pipelineApi: { runAsync: mocks.runAsync, getResult: mocks.getResult },
 }));
 vi.mock('@/components/shared/Markdown', () => ({ Markdown: () => null }));
@@ -73,5 +74,34 @@ describe('B14: 反馈发送错误分类', () => {
     const msgs = useAgentStore.getState().requirementsMessages;
     expect(msgs.some((m) => m.content.includes('发送失败'))).toBe(true);
     expect(onBack).not.toHaveBeenCalled();
+  });
+});
+
+describe('轮71: 规划确认统一走 /proceed', () => {
+  it('确认实施（规划书）→ requirementsApi.proceed，不再直连 runAsync', async () => {
+    mocks.proceed.mockResolvedValue({ pipeline_id: 'pl_1' });
+    const onBack = vi.fn();
+    render(<ReviewPanel planMarkdown="# 规划书" onBack={onBack} />);
+
+    fireEvent.click(screen.getByText('确认实施'));
+    await waitFor(() => expect(mocks.proceed).toHaveBeenCalled());
+
+    expect(mocks.runAsync).not.toHaveBeenCalled();
+    expect(mocks.proceed.mock.calls[0][0]).toBe('req_1');
+    expect(useAgentStore.getState().pipelineId).toBe('pl_1');
+    expect(useAgentStore.getState().requirementsStatus).toBe('pipeline_running');
+  });
+
+  it('无会话 → 不启动管线，如实提示并保持 plan_ready', async () => {
+    useAgentStore.setState({ requirementsSessionId: null });
+    render(<ReviewPanel planMarkdown="# 规划书" onBack={vi.fn()} />);
+
+    fireEvent.click(screen.getByText('确认实施'));
+    await waitFor(() => {
+      const msgs = useAgentStore.getState().requirementsMessages;
+      expect(msgs.some((m) => m.content.includes('会话未建立'))).toBe(true);
+    });
+    expect(mocks.proceed).not.toHaveBeenCalled();
+    expect(useAgentStore.getState().requirementsStatus).toBe('plan_ready');
   });
 });

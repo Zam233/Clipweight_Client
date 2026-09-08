@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { useAgentStore } from '@/stores/agentStore';
-import { requirementsApi, pipelineApi } from '@/services/api';
+import { requirementsApi } from '@/services/api';
 import { useProjectStore } from '@/stores/projectStore';
 import { Button } from '@/components/ui';
 import { Markdown } from '@/components/shared/Markdown';
@@ -118,38 +118,32 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
     const st = useProjectStore.getState();
     try {
       if (planMarkdown) {
+        // 轮71：与 AgentPanel.confirmPlan 统一走 /proceed（旧实现直连 /run-async，
+        // 会话停在 plan_ready、animation_intents/素材源等 user_inputs 全部丢失）
+        if (!sessionId) {
+          setStatus('plan_ready');
+          addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+            content: '会话未建立，无法启动管线。请返回需求面板重新发起。' });
+          return;
+        }
         setStatus('pipeline_running');
+        useAgentStore.getState().setError(null);
         addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
           content: '已确认规划书，启动管线中…请切换到「执行日志」标签查看进度。' });
-        const audioDur = st.audioDurationSec || 0;
-        const plan = useAgentStore.getState().productionPlan;
-        const sceneCount = plan?.scenes?.length ?? 0;
-        // 批B：与后端统一公式对齐（audio×6 / scene×360 / min 1800）——
-        // 旧实现 ×4/×240 会在长动画管线被 TaskQueue 提前杀死
-        const pipelineTimeoutSec = Math.max(1800, audioDur * 6, sceneCount * 360);
-        const res = await pipelineApi.runAsync({
-          persona_id: st.personaId ?? 'default',
-          category_plugin_id: st.pluginId ?? 'knowledge_longform',
-          topic: st.projectName,
-          use_v2: true,
-          extra_params: {
-            script_text: st.scriptText || undefined,
-            audio_duration_sec: st.audioDurationSec || undefined,
-            split_mode: st.splitMode || undefined,
-            video_mode: st.videoMode || undefined,
-            audio_path: st.audioPath || undefined,
-            auto_dub: st.autoDub,
-            voice_id: st.voiceId || undefined,
-            dub_segments: st.dubSegments ?? undefined,
-            creative_brief: useAgentStore.getState().creativeBrief ?? undefined,
-            production_plan: useAgentStore.getState().productionPlan ?? undefined,
-            pipeline_timeout_sec: pipelineTimeoutSec,
-          },
-        });
-        useAgentStore.getState().setPipelineId(res.pipeline_id);
-        // 批B：持久化 pipeline id——刷新后 BottomBar 才能恢复 SSE 追踪
-        try { sessionStorage.setItem('cw_pipeline_id', res.pipeline_id); } catch { /* ignore */ }
-        useAgentStore.getState().updatePhase('structure', 5);
+        const res = await requirementsApi.proceed(
+          sessionId,
+          st.personaId ?? 'default',
+          st.pluginId ?? 'knowledge_longform',
+          // P8: dry-run 预览模式；后端 /proceed 会补齐超时公式与 owner/预算校验
+          { dry_run: st.dryRun },
+          st.projectId ?? undefined,
+        ) as { pipeline_id?: string };
+        if (res.pipeline_id) {
+          useAgentStore.getState().setPipelineId(res.pipeline_id);
+          // 批B：持久化 pipeline id——刷新后 BottomBar 才能恢复 SSE 追踪
+          try { sessionStorage.setItem('cw_pipeline_id', res.pipeline_id); } catch { /* ignore */ }
+          useAgentStore.getState().updatePhase('structure', 5);
+        }
       } else {
         setStatus('brief_confirmed');
         addMessage({ id: uid('m'), role: 'user', content: '确认，请生成完整的制作规划书。', timestamp: new Date().toISOString() });
