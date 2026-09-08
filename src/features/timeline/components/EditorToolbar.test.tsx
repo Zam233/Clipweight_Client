@@ -37,7 +37,9 @@ const { mocks, stores } = vi.hoisted(() => {
       pushState: vi.fn(),
     },
     timeline: {
-      timeline: { tracks: [] },
+      timeline: {
+        tracks: [] as Array<{ id: string; kind: string; name: string; clips: unknown[] }>,
+      },
       addTrack: vi.fn(),
       addClip: vi.fn(),
       setTimeline: vi.fn(),
@@ -174,11 +176,69 @@ describe('U6 toast wiring: audio transcribe failures', () => {
         expect(mocks.toast).toHaveBeenCalledWith('\u97f3\u9891\u8f6c\u5f55\u5931\u8d25 \u2014 \u540e\u7aef\u4e0d\u53ef\u8fbe', 'error');
       });
 
-      const messages = mocks.toast.mock.calls.map((c) => c[0] as string);
-      expect(messages).toHaveLength(2);
-      expect(messages[0]).not.toBe(messages[1]);
+    const messages = mocks.toast.mock.calls.map((c) => c[0] as string);
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).not.toBe(messages[1]);
     } finally {
       createSpy.mockRestore();
     }
+  });
+});
+
+describe('轮74: SRT 导入只落 caption 轨', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stores.timeline.timeline = { tracks: [] };
+  });
+
+  /** 触发 SRT 导入按钮（FileText 图标唯一），返回 addClip 调用参数。 */
+  async function importSrt(container: HTMLElement): Promise<unknown[][]> {
+    const srt = '1\n00:00:00,000 --> 00:00:02,000\n\u4f60\u597d\n';
+    const file = new File([srt], 'a.srt', { type: 'text/plain' });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fakeInput: any = { type: '', accept: '', files: [file] };
+    fakeInput.click = () => { void fakeInput.onchange?.(); };
+    const realCreateElement = document.createElement.bind(document);
+    const createSpy = vi.spyOn(document, 'createElement').mockImplementation(
+      (tagName: string, opts?: ElementCreationOptions) =>
+        tagName === 'input' ? (fakeInput as unknown as HTMLElement) : realCreateElement(tagName, opts),
+    );
+    try {
+      const btn = container.querySelector('button .lucide-file-text')?.closest('button') as HTMLButtonElement;
+      expect(btn).toBeTruthy();
+      fireEvent.click(btn);
+      await waitFor(() => expect(stores.timeline.addClip).toHaveBeenCalled());
+      return stores.timeline.addClip.mock.calls as unknown[][];
+    } finally {
+      createSpy.mockRestore();
+    }
+  }
+
+  it('已有 text 轨时新建 caption 轨（字幕不混进 text 轨，样式级联才生效）', async () => {
+    stores.timeline.timeline = {
+      tracks: [{ id: 'tr_text', kind: 'text', name: 'T1', clips: [] }],
+    };
+    stores.timeline.addTrack.mockImplementation((kind: string, name: string) => {
+      stores.timeline.timeline.tracks.push({ id: 'tr_cap', kind, name, clips: [] });
+      return 'tr_cap';
+    });
+
+    const { container } = render(<EditorToolbar />);
+    const calls = await importSrt(container);
+
+    expect(stores.timeline.addTrack).toHaveBeenCalledWith('caption', '\u5b57\u5e55');
+    expect(calls[0][0]).toBe('tr_cap');
+  });
+
+  it('已有 caption 轨时直接复用，不再新建', async () => {
+    stores.timeline.timeline = {
+      tracks: [{ id: 'tr_cap', kind: 'caption', name: '\u5b57\u5e55', clips: [] }],
+    };
+
+    const { container } = render(<EditorToolbar />);
+    const calls = await importSrt(container);
+
+    expect(stores.timeline.addTrack).not.toHaveBeenCalled();
+    expect(calls[0][0]).toBe('tr_cap');
   });
 });

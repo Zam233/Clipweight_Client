@@ -192,7 +192,9 @@ export function EditorToolbar() {
       if (entries.length === 0) return;
       const store = useTimelineStore.getState();
       useHistoryStore.getState().pushState(store.timeline, 'import srt');
-      let subTrack = store.timeline.tracks.find((t) => t.kind === 'caption' || t.kind === 'text');
+      // 轮74：SRT 只落 caption 轨——旧实现复用已存在的 text 轨，字幕样式级联
+      // （PropertiesPanel 按 trackKind === 'caption' 判断）整层失效
+      let subTrack = store.timeline.tracks.find((t) => t.kind === 'caption');
       if (!subTrack) {
         const tid = store.addTrack('caption', '字幕');
         subTrack = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
