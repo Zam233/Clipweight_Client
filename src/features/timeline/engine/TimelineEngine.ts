@@ -694,7 +694,29 @@ export class TimelineEngine {
     if (!orig) return null;
     const L = this.layout();
     const { x } = this.lastMouse;
-    const t = xToTime(x, L);
+    let t = xToTime(x, L);
+
+    // 轮77：修剪边缘吸附——与移动吸附共用目标集/阈值（此前 trim 显式关闭吸附，
+    // 对齐到相邻片段边界只能靠像素级微调）
+    const settings = useSettingsStore.getState();
+    if (settings.snapEnabled) {
+      const targets = collectSnapTargets(
+        useTimelineStore.getState().timeline.tracks,
+        new Set([orig.id]),
+        usePreviewStore.getState().currentTimeSec,
+        this.markers,
+      );
+      const snapped = applySnap([t], 0, targets, L, settings.snapThresholdPx);
+      if (snapped.snapX !== null) {
+        // applySnap 返回的是增量（deltaTime），不是绝对时间
+        t = t + snapped.deltaTime;
+        this.drag.snapX = snapped.snapX;
+      } else {
+        this.drag.snapX = null;
+      }
+    } else {
+      this.drag.snapX = null;
+    }
 
     if (this.drag.mode === 'trim-start') {
       const end = orig.start_sec + orig.duration_sec;
