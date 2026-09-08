@@ -241,6 +241,29 @@ describe('B17: reset requirements status on pipeline finish', () => {
     expect(screen.getByPlaceholderText(/继续与需求 Agent 对话/)).toBeTruthy();
   });
 
+  it('轮70：成功终态清除上一轮失败残留的错误横幅', async () => {
+    useAgentStore.setState({
+      pipelineId: 'p1',
+      phase: 'structure',
+      requirementsStatus: 'pipeline_running',
+      requirementsSessionId: 'req_1',
+      error: '上一轮失败：渲染错误',
+      requirementsMessages: [
+        { id: 'm1', role: 'user', content: '选题', timestamp: new Date().toISOString() },
+      ],
+    });
+    render(<AgentPanel />);
+    await act(async () => {});
+
+    const es = MockEventSource.instances[0];
+    act(() => {
+      es.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'done' }) }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(useAgentStore.getState().error).toBeNull();
+  });
+
   it('SSE error 事件为非终态：仅记录警告建议，不判失败（终态由 done/timeout 决定）', async () => {
     useAgentStore.setState({
       pipelineId: 'p2',

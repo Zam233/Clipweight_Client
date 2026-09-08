@@ -58,6 +58,14 @@ function errText(e: unknown): string {
     : '请求失败';
 }
 
+/** 轮70：消息时间戳格式化（非法/缺失 → 空串，调用方跳过渲染）。 */
+function formatMsgTime(ts: string | undefined): string {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+}
+
 
 export function AgentPanel() {
   const [tab, setTab] = useState<'requirements' | 'logs'>('requirements');
@@ -377,6 +385,8 @@ function RequirementsView() {
         return;
       }
       setStatus('pipeline_running');
+      // 轮70：新一轮启动即清除上一轮失败残留的错误横幅
+      useAgentStore.getState().setError(null);
       addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
         content: '已确认规划书，正在启动制作管线…' });
       const st = useProjectStore.getState();
@@ -461,6 +471,12 @@ function RequirementsView() {
                 <div className="mt-2 pt-2 border-t border-outline-variant/20">
                   <PlanCard markdown={m.production_plan.markdown_content || m.production_plan.markdown || ''} onConfirm={confirmPlan} busy={busy} onReview={() => setReviewMode('plan')} />
                 </div>
+              )}
+              {/* 轮70：消息时间戳（旧草稿可能无 timestamp → 空串不渲染） */}
+              {formatMsgTime(m.timestamp) && (
+                <span className={`block mt-1 text-caption text-on-surface-variant/50 tabular-nums ${m.role === 'user' ? 'text-right' : ''}`}>
+                  {formatMsgTime(m.timestamp)}
+                </span>
               )}
             </div>
           </div>
@@ -750,6 +766,8 @@ function BottomBar() {
       useAgentStore.getState().clearSuggestions();
       if (ok) {
         updatePhase('completed', 100);
+        // 轮70：成功终态清除上一轮失败残留的红色错误横幅
+        useAgentStore.getState().setError(null);
         // B17: 管线完成 → 复位需求状态，输入框恢复可继续对话
         useAgentStore.getState().setRequirementsStatus('pipeline_done');
         // W2: 从 warning 日志生成建议列表（质检/节奏提示等，供用户下一步参考）
