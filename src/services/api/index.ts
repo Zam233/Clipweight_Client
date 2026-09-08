@@ -19,3 +19,7 @@ export { learningApi } from './learning';
 export { videoEditorApi } from './videoEditor';
 export { subtitleApi, sttApi } from './subtitle';
 export { visionApi } from './vision';
+export { backendConfigApi } from './backendConfig';
+export type {
+  BackendConfigField, BackendConfigGroup, BackendConfigResponse, SettingsUpdateResult,
+} from './backendConfig';

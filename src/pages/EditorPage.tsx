@@ -301,8 +301,12 @@ export function EditorPage() {
       if (!st.projectId || ev.projectId !== st.projectId) return;
       // 本地刚保存过（自己广播的）→ 跳过；用时间差粗判（<1s 视为同源回环）
       if (Date.now() - Date.parse(ev.at) < 1000) return;
-      // 本地有未保存修改时跳过，避免覆盖用户正在进行的编辑
-      if (dirtyRef.current) return;
+      // 本地有未保存修改时跳过覆盖，但明确告知冲突（轮 89：旧实现静默
+      // last-writer-wins，用户不知道另一标签页保存过、本地修改会覆盖远端）
+      if (dirtyRef.current) {
+        toast('另一标签页已保存此项目；本页有未保存修改，保存时将覆盖远端', 'error');
+        return;
+      }
       try {
         const project = await projectApi.load(ev.projectId);
         if (!project || !project.timeline) return;

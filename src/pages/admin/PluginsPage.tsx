@@ -3,6 +3,7 @@ import { ConsoleShell, ConsoleHeading, StatusPill } from './ConsoleShell';
 import { pluginApi } from '@/services/api';
 import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
+import { ConfigValueInput } from '@/components/ConfigValueInput';
 import { cn } from '@/lib/utils';
 import type { PluginConfigField, PluginConfigResponse } from '@/types/api';
 import { Puzzle, Power, Loader2, RefreshCw, Zap, Settings, X, Save, Trash2, Eye, Box, AlertTriangle } from 'lucide-react';
@@ -446,65 +447,14 @@ function renderFieldControl(
   field: PluginConfigField,
   onChange: (key: string, value: unknown) => void,
 ) {
-  switch (field.type) {
-    case 'bool':
-      return (
-        <button
-          onClick={() => onChange(key, !field.value)}
-          className={`relative w-11 h-6 rounded-cw-full transition-colors duration-short3 cursor-pointer ${
-            field.value ? 'bg-track-audio' : 'bg-outline-variant/50'
-          }`}
-        >
-          <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-short3 ${
-            field.value ? 'left-[22px]' : 'left-0.5'
-          }`} />
-        </button>
-      );
-    case 'int':
-      return (
-        <input
-          type="number" step={1}
-          value={Number(field.value) || 0}
-          onChange={(e) => onChange(key, parseInt(e.target.value) || 0)}
-          className="w-full bg-surface rounded-cw-xs px-2.5 py-1.5 text-body-sm text-on-surface
-            outline-none border border-outline-variant/30 focus:border-primary"
-        />
-      );
-    case 'float':
-      return (
-        <input
-          type="number" step={0.1}
-          value={Number(field.value) || 0}
-          onChange={(e) => onChange(key, parseFloat(e.target.value) || 0)}
-          className="w-full bg-surface rounded-cw-xs px-2.5 py-1.5 text-body-sm text-on-surface
-            outline-none border border-outline-variant/30 focus:border-primary"
-        />
-      );
-    case 'dict':
-    case 'list':
-      return (
-        <textarea
-          value={JSON.stringify(field.value, null, 2)}
-          onChange={(e) => {
-            try { onChange(key, JSON.parse(e.target.value)); } catch { /* ignore */ }
-          }}
-          rows={4}
-          spellCheck={false}
-          className="w-full bg-surface rounded-cw-xs border border-outline-variant/30 p-2.5 text-label-sm text-on-surface
-            outline-none focus:border-primary resize-y font-mono placeholder:text-on-surface-variant/50"
-        />
-      );
-    default:
-      return (
-        <input
-          type="text"
-          value={String(field.value ?? '')}
-          onChange={(e) => onChange(key, e.target.value)}
-          className="w-full bg-surface rounded-cw-xs px-2.5 py-1.5 text-body-sm text-on-surface
-            outline-none border border-outline-variant/30 focus:border-primary"
-        />
-      );
-  }
+  // 控件分派统一收敛到 ConfigValueInput（与「后端配置」页共用）
+  return (
+    <ConfigValueInput
+      type={field.type}
+      value={field.value}
+      onChange={(v) => onChange(key, v)}
+    />
+  );
 }
 
 function buildConfigYaml(fields: Record<string, PluginConfigField>): string | null {

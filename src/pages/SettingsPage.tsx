@@ -5,7 +5,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { healthApi, assetApi, resetApiClient } from '@/services/api';
 import { getApiClient } from '@/services/api/client';
 import { Button, Badge, Slider } from '@/components/ui';
-import { Server, Palette, Ruler, Save, RefreshCw, Terminal, ChevronRight, FolderOpen, Clapperboard, Film, Captions, GraduationCap, Gauge, Keyboard } from 'lucide-react';
+import { Server, Palette, Ruler, Save, RefreshCw, Terminal, ChevronRight, FolderOpen, Clapperboard, Film, Captions, GraduationCap, Gauge, Keyboard, SlidersHorizontal } from 'lucide-react';
 import { keybindingEngine } from '@/features/keyboard/KeybindingEngine';
 import { useKeybindingStore } from '@/features/keyboard/keybindingStore';
 
@@ -204,6 +204,30 @@ export function SettingsPage() {
           </div>
         </Card>
 
+        {/* 轮 89：演示回退开关（生产默认关） */}
+        <Card icon={<SlidersHorizontal className="w-4 h-4" />} title="演示模式">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-body-sm text-on-surface">后端离线时展示演示数据</p>
+              <p className="text-label-sm text-on-surface-variant">
+                关闭时离线显示错误/空状态，不展示假数据（生产环境保持关闭）
+              </p>
+            </div>
+            <button
+              onClick={() => s.setAllowDemoFallback(!s.allowDemoFallback)}
+              className={`relative w-11 h-6 rounded-cw-full transition-colors duration-short3 cursor-pointer ${
+                s.allowDemoFallback ? 'bg-primary' : 'bg-outline-variant'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-short3 ${
+                  s.allowDemoFallback ? 'left-[22px]' : 'left-0.5'
+                }`}
+              />
+            </button>
+          </div>
+        </Card>
+
         {/* Material Sources */}
         <Card icon={<FolderOpen className="w-4 h-4" />} title="素材源">
           {matSources.length === 0 && !matLoading && (
@@ -220,6 +244,22 @@ export function SettingsPage() {
             <RefreshCw className={`w-3.5 h-3.5 ${matLoading ? 'animate-spin' : ''}`} /> 刷新素材源
           </Button>
         </Card>
+
+        {/* backend config entry */}
+        <button
+          onClick={() => navigate({ to: '/settings/backend-config' })}
+          className="w-full flex items-center gap-4 bg-surface-container border border-outline-variant/30 rounded-cw-md px-5 py-4
+            hover:border-primary/50 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/10 transition-all duration-short3 cursor-pointer group text-left"
+        >
+          <span className="w-10 h-10 rounded-cw-sm bg-primary-container flex items-center justify-center shrink-0">
+            <SlidersHorizontal className="w-5 h-5 text-on-primary-container" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-body-sm font-semibold text-on-surface group-hover:text-primary transition-colors">后端配置</p>
+            <p className="text-caption text-on-surface-variant">模型密钥 · 渲染 · RAG · TTS · 搜索 · 限流（替代手改 .env）</p>
+          </div>
+          <ChevronRight className="w-4.5 h-4.5 text-on-surface-variant group-hover:text-primary group-hover:translate-x-1 transition-all shrink-0" />
+        </button>
 
         {/* system console entry */}
         <button
@@ -396,7 +436,7 @@ function normalizeCaptureKey(key: string): string {
   };
   const mapped = map[k] ?? k;
   // 单字符（字母/数字/标点）或功能键 F1-F24
-  if (/^[a-z0-9.,/;'\[\]\\`=\-]$/.test(mapped)) return mapped;
+  if (/^[a-z0-9.,/;'[\]\\`=-]$/.test(mapped)) return mapped;
   if (/^f([1-9]|1[0-9]|2[0-4])$/.test(mapped)) return mapped;
   if (['space', 'escape', 'delete', 'backspace', 'enter', 'tab', 'home', 'end', 'pageup', 'pagedown',
     'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(mapped)) return mapped;

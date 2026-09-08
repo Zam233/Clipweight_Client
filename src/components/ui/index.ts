@@ -3,3 +3,4 @@ export { Panel } from './panel';
 export { Tooltip } from './tooltip';
 export { Badge } from './badge';
 export { Slider } from './slider';
+export { Skeleton, SkeletonCardGrid } from './skeleton';

@@ -6,6 +6,8 @@ import { usePreviewStore } from '@/stores/previewStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { keybindingEngine } from '@/features/keyboard/KeybindingEngine';
 import { Tooltip } from '@/components/ui';
+import { TimelineContextMenu } from './TimelineContextMenu';
+import type { TimelineContextMenuItem } from './TimelineContextMenu';
 import { formatTimecode, cn } from '@/lib/utils';
 import type { ClipKind } from '@/types/timeline';
 import { TRACK_COLORS } from '@/types/timeline';
@@ -31,6 +33,8 @@ export function TimelinePanel() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [dropActive, setDropActive] = useState(false);
+  // 轮 89（批次 10）：右键菜单位置（null = 关闭）
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
   const addTrack = useTimelineStore((s) => s.addTrack);
   const removeClip = useTimelineStore((s) => s.removeClip);
@@ -288,6 +292,35 @@ export function TimelinePanel() {
     useSelectionStore.getState().deselectAll();
   };
 
+  // 轮 89（批次 10）：右键菜单项（复用工具栏既有动作）
+  const buildContextMenuItems = (): TimelineContextMenuItem[] => [
+    {
+      label: '在播放头处切分',
+      shortcut: 'S',
+      disabled: selectedClipIds.length === 0,
+      onSelect: handleSplitAtPlayhead,
+    },
+    {
+      label: '删除选中',
+      shortcut: 'Del',
+      danger: true,
+      disabled: selectedClipIds.length === 0,
+      onSelect: handleDelete,
+    },
+    {
+      label: '波纹删除（闭合空隙）',
+      danger: true,
+      disabled: selectedClipIds.length === 0,
+      onSelect: handleRippleDelete,
+    },
+    {
+      label: '取消选择',
+      shortcut: 'Esc',
+      disabled: selectedClipIds.length === 0,
+      onSelect: () => useSelectionStore.getState().deselectAll(),
+    },
+  ];
+
   return (
     <div className="flex flex-col h-full bg-surface-container-low">
       {/* Timeline toolbar */}
@@ -519,6 +552,15 @@ export function TimelinePanel() {
       <div
         ref={containerRef}
         className="flex-1 relative overflow-hidden min-h-0"
+        onContextMenu={(e) => {
+          // 轮 89（批次 10）：右键命中片段 → 选中并弹出自定义菜单
+          e.preventDefault();
+          const rect = containerRef.current?.getBoundingClientRect();
+          if (!rect || !engineRef.current) return;
+          const hit = engineRef.current.hitTestClip(e.clientX - rect.left, e.clientY - rect.top);
+          if (hit) useSelectionStore.getState().selectClip(hit.clip.id);
+          setCtxMenu({ x: e.clientX, y: e.clientY });
+        }}
         onDragOver={(e) => {
           const types = e.dataTransfer.types;
           if (types.includes('application/x-clipwright-asset') || types.includes('text/plain')) {
@@ -545,6 +587,15 @@ export function TimelinePanel() {
         {/* Drop highlight overlay */}
         {dropActive && (
           <div className="absolute inset-0 z-10 pointer-events-none border-2 border-dashed border-primary/60 bg-primary/5 rounded-cw-sm" />
+        )}
+        {/* 轮 89（批次 10）：时间线右键菜单 */}
+        {ctxMenu && (
+          <TimelineContextMenu
+            x={ctxMenu.x}
+            y={ctxMenu.y}
+            onClose={() => setCtxMenu(null)}
+            items={buildContextMenuItems()}
+          />
         )}
         {/* M8: 标记重命名输入框（定位在标尺对应 x） */}
         {renamingMarker && (

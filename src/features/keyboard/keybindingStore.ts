@@ -18,7 +18,7 @@ export function isValidCombo(combo: string): boolean {
   const key = keys[0];
   // 单字符（字母/数字/标点）或白名单功能键
   if (/^[a-z0-9]$/.test(key)) return true;
-  if (/^[.,/;'\[\]\\`=\-]$/.test(key)) return true;
+  if (/^[.,/;'[\]\\`=-]$/.test(key)) return true;
   const named = [
     'space', 'enter', 'tab', 'escape', 'delete', 'backspace', 'home', 'end',
     'pageup', 'pagedown', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright',

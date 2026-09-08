@@ -36,6 +36,7 @@ const WebhooksPage = lazyPage(() => import('./pages/admin/WebhooksPage'), 'Webho
 const FontsPage = lazyPage(() => import('./pages/admin/FontsPage'), 'FontsPage');
 const MgPreviewPage = lazyPage(() => import('./pages/admin/MgPreviewPage'), 'MgPreviewPage');
 const SubtitleToolsPage = lazyPage(() => import('./pages/admin/SubtitleToolsPage'), 'SubtitleToolsPage');
+const BackendConfigPage = lazyPage(() => import('./pages/admin/BackendConfigPage'), 'BackendConfigPage');
 const PreprocessPage = lazyPage(() => import('./pages/admin/PreprocessPage'), 'PreprocessPage');
 const PipelineAdminPage = lazyPage(() => import('./pages/admin/PipelineAdminPage'), 'PipelineAdminPage');
 const VoicePage = lazyPage(() => import('./pages/VoicePage'), 'VoicePage');
@@ -182,6 +183,14 @@ const modelsRoute = createRoute({
   errorComponent: RouteErrorFallback,
 });
 
+const backendConfigRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/backend-config',
+  beforeLoad: requireAdmin,
+  component: BackendConfigPage,
+  errorComponent: RouteErrorFallback,
+});
+
 const toolsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/tools',
@@ -317,6 +326,7 @@ const routeTree = rootRoute.addChildren([
   personaForgeRoute,
   helpRoute,
   modelsRoute,
+  backendConfigRoute,
   toolsRoute,
   pluginsRoute,
   typeMakerRoute,

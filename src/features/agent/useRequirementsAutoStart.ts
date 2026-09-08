@@ -4,6 +4,7 @@ import { useAgentStore } from '@/stores/agentStore';
 import { requirementsApi } from '@/services/api';
 import { uid } from '@/lib/utils';
 import { demoBrief } from './AgentPanel';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { resolveMessageAttachments } from './requirementsAttachments';
 
 /**
@@ -72,6 +73,11 @@ export function useRequirementsAutoStart(ready: boolean) {
             timestamp: new Date().toISOString(), creative_brief: att.creative_brief, production_plan: att.production_plan,
           });
         } catch {
+          if (!useSettingsStore.getState().allowDemoFallback) {
+            useAgentStore.getState().addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '后端暂不可达，无法生成简报（可在设置中开启离线演示回退）' });
+            useAgentStore.getState().setRequirementsStatus('idle');
+            return;
+          }
           const brief = demoBrief(t);
           const ag2 = useAgentStore.getState();
           ag2.setCreativeBrief(brief);
@@ -79,6 +85,12 @@ export function useRequirementsAutoStart(ready: boolean) {
           ag2.addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '已为你生成创意简报，请审阅后确认。', creative_brief: brief });
         }
       } catch {
+        if (!useSettingsStore.getState().allowDemoFallback) {
+          const ag2 = useAgentStore.getState();
+          ag2.addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '后端暂不可达，无法生成简报（可在设置中开启离线演示回退）' });
+          ag2.setRequirementsStatus('idle');
+          return;
+        }
         const brief = demoBrief(t);
         const ag2 = useAgentStore.getState();
         ag2.setCreativeBrief(brief);

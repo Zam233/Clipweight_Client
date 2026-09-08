@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { projectApi } from '@/services/api';
 import { ProjectCard, type ProjectCardData } from '@/components/shared/ProjectCard';
 import { Badge } from '@/components/ui';
+import { SkeletonCardGrid } from '@/components/ui/skeleton';
 import {
   Film, ArrowLeft, Search, FolderOpen, Folder, X, Plus,
   Loader2, PackageOpen, Tag, Trash2, RotateCcw, ChevronLeft,
@@ -403,9 +404,8 @@ export function ProjectsPage() {
               )}
             </div>
           ) : loading ? (
-            <div className="flex flex-col items-center justify-center py-20 gap-3">
-              <Loader2 className="w-6 h-6 text-primary animate-spin" />
-              <span className="text-caption text-on-surface-variant">加载中…</span>
+            <div className="py-4">
+              <SkeletonCardGrid count={6} />
             </div>
           ) : error ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3">

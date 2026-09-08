@@ -1,4 +1,5 @@
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useAssetStore } from '@/stores/assetStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -54,8 +55,14 @@ export function AssetPanel() {
       const list = await assetApi.list(projectId ?? undefined);
       setAssets(Array.isArray(list) ? list : []);
     } catch {
-      setAssets(demoAssets());
-      setDemoMode(true);
+      // 轮 89：演示回退受设置开关控制（生产默认关——离线显示空列表而非假数据）
+      if (useSettingsStore.getState().allowDemoFallback) {
+        setAssets(demoAssets());
+        setDemoMode(true);
+      } else {
+        setAssets([]);
+        setLoadError(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -489,7 +496,9 @@ function AIMatchView() {
       setResults(Array.isArray(res) ? res : []);
     } catch {
       if (seq !== searchSeqRef.current) return;
-      setResults(demoMatches(queryText));
+      if (useSettingsStore.getState().allowDemoFallback) {
+        setResults(demoMatches(queryText));
+      }
     } finally {
       if (seq === searchSeqRef.current) setSearching(false);
     }

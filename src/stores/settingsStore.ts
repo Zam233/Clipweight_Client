@@ -17,6 +17,8 @@ interface SettingsState {
   showFramesInRuler: boolean;
   defaultFps: number;
   defaultResolution: { width: number; height: number };
+  /** 轮 89：后端离线时是否回退演示假数据（生产默认关；仅本地体验可开） */
+  allowDemoFallback: boolean;
 
   // Actions
   setApiBaseUrl: (url: string) => void;
@@ -32,6 +34,7 @@ interface SettingsState {
   setShowFramesInRuler: (v: boolean) => void;
   setDefaultFps: (fps: number) => void;
   setDefaultResolution: (res: { width: number; height: number }) => void;
+  setAllowDemoFallback: (v: boolean) => void;
 }
 
 /** Load persisted editor preferences. */
@@ -76,6 +79,8 @@ function loadConnectionPrefs() {
 
 const prefs = loadEditorPrefs();
 const connPrefs = loadConnectionPrefs();
+// 轮 89：演示回退开关持久化在 editorPrefs
+const rawAllowDemoFallback = loadPref<Record<string, unknown>>('editorPrefs', {}).allowDemoFallback;
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   // P0-11: 默认空串（同源）；持久化的旧 localStorage 值仍会被 loadConnectionPrefs 采用——
@@ -95,6 +100,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   showFramesInRuler: prefs.showFramesInRuler,
   defaultFps: 30,
   defaultResolution: { width: 1920, height: 1080 },
+  // 轮 89：演示回退默认关闭——生产环境后端不可达时应显示错误而非假数据
+  allowDemoFallback: typeof rawAllowDemoFallback === 'boolean' ? rawAllowDemoFallback : false,
 
   setApiBaseUrl: (url) => { set({ apiBaseUrl: url }); persistConnectionPrefs(); },
   setTheme: (theme) => {
@@ -115,6 +122,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   setShowFramesInRuler: (v) => { set({ showFramesInRuler: v }); persistEditorPrefs(); },
   setDefaultFps: (fps) => set({ defaultFps: fps }),
   setDefaultResolution: (res) => set({ defaultResolution: res }),
+  setAllowDemoFallback: (v) => { set({ allowDemoFallback: v }); persistEditorPrefs(); },
 }));
 
 function persistEditorPrefs() {
@@ -126,6 +134,7 @@ function persistEditorPrefs() {
     snapGridSec: s.snapGridSec,
     showFramesInRuler: s.showFramesInRuler,
     theme: s.theme,
+    allowDemoFallback: s.allowDemoFallback,
   });
 }
 

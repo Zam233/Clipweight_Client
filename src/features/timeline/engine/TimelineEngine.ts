@@ -738,7 +738,7 @@ export class TimelineEngine {
 
   private lastMouse = { x: 0, y: 0 };
 
-  private hitTestClip(x: number, y: number): { clip: Clip; track: Track } | null {
+  hitTestClip(x: number, y: number): { clip: Clip; track: Track } | null {
     const L = this.layout();
     const tl = useTimelineStore.getState().timeline;
     const tIdx = yToTrackIndex(y, L);

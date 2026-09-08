@@ -4,7 +4,7 @@ import { healthApi } from '@/services/api';
 import { cn } from '@/lib/utils';
 import {
   ArrowLeft, Cpu, Wrench, Puzzle, Shapes, LayoutTemplate, Webhook,
-  Type, Activity, Terminal, GraduationCap, Clapperboard, Captions, Film, Sparkles,
+  Type, Activity, Terminal, GraduationCap, Clapperboard, Captions, Film, Sparkles, SlidersHorizontal,
 } from 'lucide-react';
 
 /**
@@ -25,6 +25,7 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
 
   const NAV = [
     { to: '/settings/models', label: '模型测试', icon: Cpu, code: 'LLM' },
+    { to: '/settings/backend-config', label: '后端配置', icon: SlidersHorizontal, code: 'CONF' },
     { to: '/settings/tools', label: '工具与技能', icon: Wrench, code: 'TOOL' },
     { to: '/settings/plugins', label: '插件管理', icon: Puzzle, code: 'PLUG' },
     { to: '/settings/type-maker', label: '类型制作器', icon: Shapes, code: 'TYPE' },
