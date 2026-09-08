@@ -458,3 +458,32 @@ describe('timelineStore C3 (嵌套序列)', () => {
     expect(starts[1]).toBeCloseTo(6, 5);
   });
 });
+
+describe('轮73: 修剪左边界不越过同轨前一片段', () => {
+  beforeEach(() => {
+    useTimelineStore.getState().setTimeline(createEmptyTimeline());
+  });
+
+  it('trimClipStart 拉向左时被前片段结尾钳制（不产生重叠）', () => {
+    const tid = useTimelineStore.getState().addTrack('video', 'V1');
+    useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 0, duration_sec: 4 });
+    const c2 = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 4, duration_sec: 5 });
+
+    useTimelineStore.getState().trimClipStart(c2, 1); // 试图拉到 1s（越过前片段结尾 4s）
+
+    const clip = useTimelineStore.getState().getClip(c2)!;
+    expect(clip.start_sec).toBe(4);
+    expect(clip.duration_sec).toBe(5);
+  });
+
+  it('无前邻片段时可正常向左扩展', () => {
+    const tid = useTimelineStore.getState().addTrack('video', 'V1');
+    const c1 = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 2, duration_sec: 4 });
+
+    useTimelineStore.getState().trimClipStart(c1, 0.5);
+
+    const clip = useTimelineStore.getState().getClip(c1)!;
+    expect(clip.start_sec).toBeCloseTo(0.5, 5);
+    expect(clip.duration_sec).toBeCloseTo(5.5, 5);
+  });
+});

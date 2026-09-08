@@ -368,20 +368,28 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 
   trimClipStart: (clipId, newStartSec) =>
     set((state) => {
-      const tracks = state.timeline.tracks.map((t) => ({
-        ...t,
-        clips: t.clips.map((c) => {
-          if (c.id !== clipId) return c;
-          const newStart = Math.max(0, Math.min(newStartSec, c.start_sec + c.duration_sec - 0.1));
-          const delta = newStart - c.start_sec;
-          return {
-            ...c,
-            start_sec: newStart,
-            duration_sec: Math.max(0.1, c.duration_sec - delta),
-            source_offset_sec: Math.max(0, c.source_offset_sec + delta * c.speed),
-    };
-        }),
-      }));
+      const tracks = state.timeline.tracks.map((t) => {
+        const target = t.clips.find((c) => c.id === clipId);
+        if (!target) return t;
+        // 轮73：左边界不越过同轨上一片段的结尾（与 trimClipEnd 对称，旧实现可拖出单轨重叠）
+        const prevEnd = t.clips
+          .filter((o) => o.id !== clipId && o.start_sec + o.duration_sec <= target.start_sec + 0.001)
+          .reduce((m, o) => Math.max(m, o.start_sec + o.duration_sec), 0);
+        return {
+          ...t,
+          clips: t.clips.map((c) => {
+            if (c.id !== clipId) return c;
+            const newStart = Math.max(prevEnd, Math.min(newStartSec, c.start_sec + c.duration_sec - 0.1));
+            const delta = newStart - c.start_sec;
+            return {
+              ...c,
+              start_sec: newStart,
+              duration_sec: Math.max(0.1, c.duration_sec - delta),
+              source_offset_sec: Math.max(0, c.source_offset_sec + delta * c.speed),
+            };
+          }),
+        };
+      });
       return {
         timeline: { ...state.timeline, tracks, duration_sec: computeTotalDuration(tracks) },
         isDirty: true,

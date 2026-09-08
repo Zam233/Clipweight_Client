@@ -95,6 +95,9 @@ export class KeybindingEngine {
       const rawKey = normalizeKey(e);
       if ((e.ctrlKey || e.metaKey) && ['z', 'c', 'v', 'x', 'a', 's'].includes(rawKey)) return;
     }
+    // 轮73：输入中 Alt 组合一律不触发（Alt+S 切换吸附、Alt+←/→ slip、Ctrl+Alt+←/→ slide）
+    // ——此前只拦「无修饰键」组合，导致在聊天输入框里按 Alt+S 会切换吸附并 preventDefault
+    if (isTypingTarget(e) && e.altKey) return;
     // Don't fire single-key shortcuts while a button/link is focused (Space would re-click it),
     // but keep modifier combos (Ctrl/Cmd/Alt) working — e.g. Ctrl+S with a button focused.
     if (isInteractiveControl(e) && !hasModifier) return;

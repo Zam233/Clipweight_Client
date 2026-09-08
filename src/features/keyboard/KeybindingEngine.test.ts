@@ -59,6 +59,27 @@ describe('KeybindingEngine target guard', () => {
     fireKeyDown(engine, 'DIV', 's');
     expect(handler).toHaveBeenCalledTimes(1);
   });
+
+  it('轮73: blocks alt+s while a TEXTAREA is focused (不再切换吸附)', () => {
+    const engine = new KeybindingEngine();
+    const handler = registerShortcut(engine, 'alt+s');
+    fireKeyDown(engine, 'TEXTAREA', 's', { altKey: true });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('轮73: blocks ctrl+alt+arrow while an INPUT is focused', () => {
+    const engine = new KeybindingEngine();
+    const handler = registerShortcut(engine, 'ctrl+alt+arrowleft');
+    fireKeyDown(engine, 'INPUT', 'ArrowLeft', { ctrlKey: true, altKey: true });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('轮73: alt+s still fires on a plain DIV target', () => {
+    const engine = new KeybindingEngine();
+    const handler = registerShortcut(engine, 'alt+s');
+    fireKeyDown(engine, 'DIV', 's', { altKey: true });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
 });
 
 function fireKeyDownEvent(engine: KeybindingEngine, tag: string, key: string, init: KeyboardEventInit = {}): KeyboardEvent {

@@ -918,9 +918,12 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
   };
 
   // W4: 关键帧属性值编辑（合并更新单个属性）
+  // 轮73：按属性钳制范围——旧实现不透明度可填 42、缩放可填负数
   const setProperty = (time: number, prop: string, value: number) => {
+    const range = KEYFRAME_PROP_RANGES[prop];
+    const v = range ? Math.min(range[1], Math.max(range[0], value)) : value;
     pushHistory();
-    updateKeyframe(clip.id, time, { [prop]: value });
+    updateKeyframe(clip.id, time, { [prop]: v });
   };
 
   const jumpTo = (dir: 1 | -1) => {
@@ -1008,6 +1011,8 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
                       <input
                         type="number"
                         step="0.05"
+                        min={KEYFRAME_PROP_RANGES[prop]?.[0]}
+                        max={KEYFRAME_PROP_RANGES[prop]?.[1]}
                         value={Math.round(val * 100) / 100}
                         onChange={(e) => {
                           const n = Number(e.target.value);
@@ -1185,6 +1190,19 @@ function clipLabel(clip: Clip, kind: string): string {
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
+/** 轮73：关键帧属性取值域（未列出的属性不钳制）。 */
+const KEYFRAME_PROP_RANGES: Record<string, [number, number]> = {
+  opacity: [0, 1],
+  speed: [0.25, 4],
+  volume: [0, 1],
+  scale: [0.01, 10],
+  rotation: [-3600, 3600],
+  position_x: [-10000, 10000],
+  position_y: [-10000, 10000],
+  fx_brightness: [-10, 10],
+  fx_contrast: [0, 10],
+};
 
 /** W4: 关键帧属性名缩写（position_x → x 等）。 */
 function shortPropLabel(prop: string): string {
