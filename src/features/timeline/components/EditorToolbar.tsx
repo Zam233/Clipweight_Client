@@ -189,7 +189,11 @@ export function EditorToolbar() {
       if (!file) return;
       const text = await file.text();
       const entries = parseSrt(text);
-      if (entries.length === 0) return;
+      // P1-27: 解析为空给出提示（旧实现静默 return，用户不知道为什么没反应）
+      if (entries.length === 0) {
+        toast('未在文件中解析到字幕条目（请检查文件是否为标准 SRT/VTT 格式）', 'error');
+        return;
+      }
       const store = useTimelineStore.getState();
       useHistoryStore.getState().pushState(store.timeline, 'import srt');
       // 轮74：SRT 只落 caption 轨——旧实现复用已存在的 text 轨，字幕样式级联
@@ -291,7 +295,17 @@ export function EditorToolbar() {
         const { edlApi } = await import('@/services/api/edl');
         const result = isFcp ? await edlApi.importFCPXML(text) : await edlApi.importEDL(text);
         const clips = result.clips ?? [];
-        if (clips.length === 0) return;
+        // P1-28: 0 片段明确提示（旧实现静默 return——FCP X 的 <asset-clip>
+        // 语法后端暂不解析，用户完全无感知）
+        if (clips.length === 0) {
+          toast(
+            isFcp
+              ? '未解析到片段：该文件可能是 FCP X 格式（asset-clip），当前仅支持 FCP 7 xmeml 语法的 fcpxml'
+              : '未在文件中解析到任何片段',
+            'error',
+          );
+          return;
+        }
 
         const store = useTimelineStore.getState();
         useHistoryStore.getState().pushState(store.timeline, `import ${isFcp ? 'fcpxml' : 'edl'}`);
@@ -332,6 +346,10 @@ export function EditorToolbar() {
         start_sec: c.start_sec,
         duration_sec: c.duration_sec,
         kind: c.kind,
+        // P1-29: 携带源入点与素材 id——缺失让导出的 EDL 全部 00:00:00:00，
+        // 无法在 NLE 里与原始素材重新链接
+        source_offset_sec: c.source_offset_sec,
+        asset_id: c.asset_id,
         title: c.metadata?.title as string ?? c.asset_id,
       })),
     );
@@ -707,18 +725,20 @@ function SaveStatusIndicator() {
 }
 
 function parseSrt(raw: string): SrtEntry[] {
-  const normalized = raw.replace(/\r\n/g, '\n').trim();
+  // P1-27: 兼容 WebVTT——去掉 WEBVTT 头；cue 没有序号行，在块内探测时间行
+  // 位置（旧实现固定取 lines[1]，vtt 每块都匹配失败 → 静默 0 条）
+  const normalized = raw.replace(/\r\n/g, '\n').replace(/^WEBVTT[^\n]*\n?/, '').trim();
   const blocks = normalized.split(/\n\n+/);
   const entries: SrtEntry[] = [];
+  const TIME_RE = /(\d+):(\d+):(\d+)[.,](\d+)\s*-->\s*(\d+):(\d+):(\d+)[.,](\d+)/;
   for (const block of blocks) {
     const lines = block.trim().split('\n');
-    if (lines.length < 2) continue;
-    const timeLine = lines[1];
-    const timeMatch = timeLine.match(/(\d+):(\d+):(\d+)[.,](\d+)\s*-->\s*(\d+):(\d+):(\d+)[.,](\d+)/);
-    if (!timeMatch) continue;
+    const timeIdx = lines.findIndex((l) => TIME_RE.test(l));
+    if (timeIdx < 0) continue;
+    const timeMatch = lines[timeIdx].match(TIME_RE)!;
     const start = +timeMatch[1] * 3600 + +timeMatch[2] * 60 + +timeMatch[3] + +timeMatch[4] / 1000;
     const end = +timeMatch[5] * 3600 + +timeMatch[6] * 60 + +timeMatch[7] + +timeMatch[8] / 1000;
-    const text = lines.slice(2).join('\n').replace(/<[^>]+>/g, '').trim();
+    const text = lines.slice(timeIdx + 1).join('\n').replace(/<[^>]+>/g, '').trim();
     if (text) entries.push({ index: +lines[0] || entries.length + 1, start, end, text });
   }
   return entries;

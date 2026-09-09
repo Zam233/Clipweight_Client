@@ -342,6 +342,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
   moveClip: (clipId, targetTrackId, newStartSec) =>
     set((state) => {
       let movedClip: Clip | undefined;
+      // P1-30: 目标轨/源轨锁定 → 拒绝移动（业务不变量收口到 store 单点，
+      // UI 层的校验只是提前反馈）
+      const srcTrack = state.timeline.tracks.find((t) => t.clips.some((c) => c.id === clipId));
+      const dstTrack = state.timeline.tracks.find((t) => t.id === targetTrackId);
+      if (srcTrack?.locked || dstTrack?.locked) return state;
       // Remove from source
       const tracksWithout = state.timeline.tracks.map((t) => {
         const clip = t.clips.find((c) => c.id === clipId);
@@ -573,21 +578,46 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 
   rippleDelete: (clipId) => {
     set((state) => {
+      // 定位被删片段
+      let target: Clip | undefined;
+      for (const t of state.timeline.tracks) {
+        const c = t.clips.find((cc) => cc.id === clipId);
+        if (c) { target = c; break; }
+      }
+      if (!target) return state;
+
+      // P1-31: 编组扩散——同组片段一并删除，波纹窗口取组的整体跨度
+      const groupIds = new Set(state.getGroupClipIds(clipId));
+      if (groupIds.size === 0) groupIds.add(clipId); // 无组 → 仅删除自身
+      let winStart = target.start_sec;
+      let winEnd = target.start_sec + target.duration_sec;
+      if (groupIds.size > 1) {
+        for (const t of state.timeline.tracks) {
+          for (const c of t.clips) {
+            if (!groupIds.has(c.id)) continue;
+            winStart = Math.min(winStart, c.start_sec);
+            winEnd = Math.max(winEnd, c.start_sec + c.duration_sec);
+          }
+        }
+      }
+      const window = winEnd - winStart;
+
       const tracks = state.timeline.tracks.map((t) => {
-        const idx = t.clips.findIndex((c) => c.id === clipId);
-        if (idx === -1) return t;
-        const removed = t.clips[idx];
-        const gap = removed.duration_sec;
-        const removedStart = removed.start_sec;
-        // Drop the clip, then shift every later clip left by the gap
-        const clips = t.clips
-          .filter((c) => c.id !== clipId)
-          .map((c) =>
-            c.start_sec >= removedStart + gap - 0.0001
-              ? { ...c, start_sec: Math.max(0, c.start_sec - gap) }
-              : c,
-          );
-        return { ...t, clips };
+        if (t.locked) return t; // 锁定轨不动
+        const kept: Clip[] = [];
+        let touched = false;
+        for (const c of t.clips) {
+          if (groupIds.has(c.id)) { touched = true; continue; }
+          // 窗口之后的片段整体左移——音频/字幕与画面同步前移，不再失同步
+          // （旧实现只左移被删片段所在轨，其余轨道保持原位）
+          if (c.start_sec >= winEnd - 0.0001) {
+            kept.push({ ...c, start_sec: Math.max(0, c.start_sec - window) });
+            touched = true;
+          } else {
+            kept.push(c);
+          }
+        }
+        return touched ? { ...t, clips: kept } : t;
       });
       return {
         timeline: { ...state.timeline, tracks, duration_sec: computeTotalDuration(tracks) },

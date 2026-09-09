@@ -558,7 +558,13 @@ export class TimelineEngine {
               const origIdx = this.trackIndexOf(orig.track_id);
               const newIdx = clamp(origIdx + dtr, 0, cur0.tracks.length - 1);
               const candidate = cur0.tracks[newIdx];
-              if (candidate && candidate.kind === cur0.tracks[origIdx].kind) {
+              // P1-30: 源轨/目标轨锁定 → 拒绝跨轨移动（hitTestClip 与键盘
+              // moveClipUp/Down 均校验锁定，拖拽路径原先不一致）
+              const sourceTrack = cur0.tracks[origIdx];
+              if (
+                candidate && sourceTrack && !candidate.locked && !sourceTrack.locked
+                && candidate.kind === sourceTrack.kind
+              ) {
                 targetTrackId = candidate.id;
               }
             }

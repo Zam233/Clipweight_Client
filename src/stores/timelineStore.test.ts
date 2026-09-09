@@ -90,6 +90,36 @@ describe('timelineStore', () => {
     expect(clips[0].start_sec).toBeCloseTo(0, 5); // shifted left to close gap
   });
 
+  it('P1-31: 波纹删除联动其它轨道（音频/字幕同步前移）', () => {
+    const vid = useTimelineStore.getState().addTrack('video');
+    const aud = useTimelineStore.getState().addTrack('audio');
+    useTimelineStore.getState().addClip(vid, { kind: 'video', start_sec: 0, duration_sec: 5 });
+    useTimelineStore.getState().addClip(vid, { kind: 'video', start_sec: 5, duration_sec: 5 });
+    useTimelineStore.getState().addClip(aud, { kind: 'audio', start_sec: 5, duration_sec: 4 });
+    useTimelineStore.getState().addClip(aud, { kind: 'audio', start_sec: 10, duration_sec: 2 });
+    const before = useTimelineStore.getState().timeline;
+    const videoFirst = before.tracks.find((t) => t.id === vid)!.clips[0];
+    useTimelineStore.getState().rippleDelete(videoFirst.id);
+    const after = useTimelineStore.getState().timeline;
+    const audioClips = after.tracks.find((t) => t.id === aud)!.clips;
+    // 窗口 [0,5) 之后的音频片段各左移 5s（5→0、10→5）
+    expect(audioClips[0].start_sec).toBeCloseTo(0, 5);
+    expect(audioClips[1].start_sec).toBeCloseTo(5, 5);
+  });
+
+  it('P1-31: 锁定轨不参与波纹删除联动', () => {
+    const vid = useTimelineStore.getState().addTrack('video');
+    const locked = useTimelineStore.getState().addTrack('audio');
+    useTimelineStore.getState().addClip(vid, { kind: 'video', start_sec: 0, duration_sec: 5 });
+    useTimelineStore.getState().addClip(locked, { kind: 'audio', start_sec: 5, duration_sec: 3 });
+    useTimelineStore.getState().toggleTrackLock(locked);
+    useTimelineStore.getState().rippleDelete(
+      useTimelineStore.getState().timeline.tracks.find((t) => t.id === vid)!.clips[0].id,
+    );
+    const lockedClips = useTimelineStore.getState().timeline.tracks.find((t) => t.id === locked)!.clips;
+    expect(lockedClips[0].start_sec).toBeCloseTo(5, 5); // 保持原位
+  });
+
   it('ripple insert shifts later clips right', () => {
     const tid = useTimelineStore.getState().addTrack('video');
     useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 5, duration_sec: 5 });
