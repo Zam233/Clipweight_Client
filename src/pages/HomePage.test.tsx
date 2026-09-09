@@ -37,6 +37,7 @@ vi.mock('@/services/api', () => ({
   },
   assetApi: { listSources: mocks.listSources },
   typeMakerApi: { list: mocks.typeMakerList },
+  voiceApi: { list: vi.fn(() => Promise.resolve([])) },
   pipelineApi: { predictScript: mocks.predictScript },
   pluginApi: { list: mocks.pluginList },
   getApiClient: vi.fn(),

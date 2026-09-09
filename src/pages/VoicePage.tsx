@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 const PROVIDERS = [
-  { id: 'qwen_tts', label: 'Qwen TTS', color: '#4F8CFF' },
+  { id: 'qwen-tts', label: 'Qwen TTS', color: '#4F8CFF' },
   { id: 'cosyvoice', label: 'CosyVoice', color: '#A855F7' },
   { id: 'minimax', label: 'MiniMax', color: '#F97316' },
 ] as const;
@@ -34,11 +34,17 @@ export function VoicePage({ embedded = false, onSelect }: { embedded?: boolean; 
 
   // Persist voice selection for pipeline (skipped in embedded/modal mode).
   // 持久化的是用户实际选择的 voiceId（projectStore），而不是列表第一项。
+  // P1-26: autoDub 由本地设置驱动（不再硬编码 true）。
   useEffect(() => {
     if (embedded) return;
     const persistVoicePreferences = (state: ReturnType<typeof useProjectStore.getState>) => {
       const voiceId = state.voiceId ?? null;
-      localStorage.setItem('clipwright_voice_prefs', JSON.stringify({ voiceId, autoDub: true }));
+      let autoDub = true;
+      try {
+        const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
+        if (typeof prefs.autoDub === 'boolean') autoDub = prefs.autoDub;
+      } catch { /* ignore */ }
+      localStorage.setItem('clipwright_voice_prefs', JSON.stringify({ voiceId, autoDub }));
     };
 
     const unsub = useProjectStore.subscribe(persistVoicePreferences);
@@ -209,9 +215,28 @@ const VoiceCard = memo(function VoiceCard({ voice, onDelete, onSelect }: { voice
         {previewUrl && <AudioPlayer src={previewUrl} />}
       </div>
 
-      {onSelect && (
+      {onSelect ? (
         <Button size="sm" onClick={() => onSelect(voice)} className="w-full">
           <Check className="w-3.5 h-3.5" /> 选择此音色
+        </Button>
+      ) : (
+        // P1-26: 独立 /voice 页没有「选择」入口——提供设为默认音色（写入
+        // projectStore 并持久化，首页「配音驱动」启动时消费）
+        <Button
+          size="sm" variant="outline"
+          onClick={() => {
+            const st = useProjectStore.getState();
+            st.setVoiceId(voice.voice_id);
+            try {
+              let autoDub = true;
+              const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
+              if (typeof prefs.autoDub === 'boolean') autoDub = prefs.autoDub;
+              localStorage.setItem('clipwright_voice_prefs', JSON.stringify({ voiceId: voice.voice_id, autoDub }));
+            } catch { /* ignore */ }
+          }}
+          className="w-full"
+        >
+          <Check className="w-3.5 h-3.5" /> 设为默认音色
         </Button>
       )}
     </div>
@@ -226,7 +251,7 @@ function CloneDialog({ onClose }: { onClose: () => void }) {
 
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState('');
-  const [provider, setProvider] = useState('qwen_tts');
+  const [provider, setProvider] = useState('qwen-tts');
   const [dragOver, setDragOver] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);

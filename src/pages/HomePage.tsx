@@ -5,9 +5,10 @@ import { clearRequirementsDraft } from '@/stores/agentStore';
 import { useBackendHealth } from './useBackendHealth';
 import {
   healthApi, personaApi, projectApi, assetApi, typeMakerApi, pipelineApi,
-  pluginApi,
+  pluginApi, voiceApi,
   getApiClient,
 } from '@/services/api';
+import type { VoiceRecord } from '@/types/voice';
 import { accountApi } from '@/services/api/account';
 import { useAuthStore } from '@/stores/authStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -141,6 +142,23 @@ export function HomePage() {
   const [pluginId, setPluginId] = useState('knowledge_longform');
   const [mode, setMode] = useState<'voiceover' | 'visual'>('voiceover');
   const [splitMode, setSplitMode] = useState<'period' | 'punctuation'>('period');
+  // P1-26: 首页直接选音色——旧实现音色只能经 /voice 页传递到新项目，管线
+  // 拿到空 voice_id 时音频 Agent 不生成旁白
+  const [voices, setVoices] = useState<VoiceRecord[]>([]);
+  const [voicePick, setVoicePick] = useState('');
+  const [autoDubPref, setAutoDubPref] = useState(true);
+
+  // 加载可用音色（后端离线时静默为空——下拉不渲染）；回填既有偏好
+  useEffect(() => {
+    let alive = true;
+    voiceApi.list().then((vs) => { if (alive && Array.isArray(vs)) setVoices(vs); }).catch(() => {});
+    try {
+      const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
+      if (prefs.voiceId) setVoicePick(String(prefs.voiceId));
+      if (typeof prefs.autoDub === 'boolean') setAutoDubPref(prefs.autoDub);
+    } catch { /* ignore */ }
+    return () => { alive = false; };
+  }, []);
   const [audio, setAudio] = useState<DubAudio | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
@@ -913,6 +931,48 @@ export function HomePage() {
                           <ImageIcon className="w-3 h-3" /> 视觉驱动
                         </button>
                       </div>
+
+                      {mode === 'voiceover' && voices.length > 0 && (
+                        <select
+                          value={voicePick}
+                          onChange={(e) => {
+                            setVoicePick(e.target.value);
+                            const st = useProjectStore.getState();
+                            st.setVoiceId(e.target.value || null);
+                            st.setAutoDub(autoDubPref);
+                            try {
+                              localStorage.setItem('clipwright_voice_prefs', JSON.stringify({ voiceId: e.target.value || null, autoDub: autoDubPref }));
+                            } catch { /* ignore */ }
+                          }}
+                          className="px-2 py-1.5 rounded-cw-xs bg-surface border border-outline-variant/40 text-label-sm text-on-surface cursor-pointer"
+                          title="选择克隆音色（可在「语音克隆」页制作）"
+                        >
+                          <option value="">默认音色（自动）</option>
+                          {voices.map((v) => (
+                            <option key={v.id} value={v.voice_id}>{v.voice_name}（{v.provider}）</option>
+                          ))}
+                        </select>
+                      )}
+
+                      {mode === 'voiceover' && (
+                        <label className="flex items-center gap-1.5 px-1 text-label-sm text-on-surface-variant cursor-pointer select-none" title="关闭后不自动生成旁白（适合纯画面/B-roll 视频）">
+                          <input
+                            type="checkbox"
+                            checked={autoDubPref}
+                            onChange={(e) => {
+                              setAutoDubPref(e.target.checked);
+                              const st = useProjectStore.getState();
+                              st.setAutoDub(e.target.checked);
+                              try {
+                                const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
+                                localStorage.setItem('clipwright_voice_prefs', JSON.stringify({ voiceId: prefs.voiceId ?? null, autoDub: e.target.checked }));
+                              } catch { /* ignore */ }
+                            }}
+                            className="accent-primary cursor-pointer"
+                          />
+                          自动配音
+                        </label>
+                      )}
 
                       {mode === 'voiceover' && (
                         <div className="flex bg-surface rounded-cw-sm border border-outline-variant/40 p-0.5">
