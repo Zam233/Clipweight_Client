@@ -72,9 +72,11 @@ function loadConnectionPrefs() {
       apiBaseUrl: typeof raw.apiBaseUrl === 'string' && raw.apiBaseUrl !== '' ? raw.apiBaseUrl : '',
     });
   }
-  return {
-    apiBaseUrl: typeof raw.apiBaseUrl === 'string' && raw.apiBaseUrl !== '' ? raw.apiBaseUrl : undefined,
-  };
+  // P2-09: 显式空串 = 用户清空（不回落环境变量）；键缺失 = 未设置（回落）
+  if (typeof raw.apiBaseUrl === 'string') {
+    return { apiBaseUrl: raw.apiBaseUrl };
+  }
+  return {};
 }
 
 const prefs = loadEditorPrefs();
@@ -85,7 +87,7 @@ const rawAllowDemoFallback = loadPref<Record<string, unknown>>('editorPrefs', {}
 export const useSettingsStore = create<SettingsState>((set) => ({
   // P0-11: 默认空串（同源）；持久化的旧 localStorage 值仍会被 loadConnectionPrefs 采用——
   // 仅当用户显式在设置中清空 API 地址时回落到空串。WS 已移除（W9）。
-  apiBaseUrl: connPrefs.apiBaseUrl || import.meta.env.VITE_API_BASE_URL || '',
+  apiBaseUrl: connPrefs.apiBaseUrl ?? import.meta.env.VITE_API_BASE_URL ?? '',
   theme: prefs.theme,
   language: 'zh',
   authToken: null,

@@ -69,6 +69,8 @@ class MediaManager {
 
   /** Register an uploaded File so its real media becomes available. */
   registerFile(assetId: string, file: File): void {
+    // P2-11: 重复注册先释放旧 entry（旧 blob URL 与媒体元素曾泄漏）
+    if (this.entries.has(assetId)) this.unregister(assetId);
     const url = URL.createObjectURL(file);
     const kind: MediaEntry['kind'] = file.type.startsWith('video')
       ? 'video'
@@ -395,6 +397,13 @@ class MediaManager {
       const resp = await fetch(e.url, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
+      // P2-10: 非成功响应不再把错误页当音频解码；大文件（>80MB）跳过整文件
+      // 解码（decodeAudioData 会占数倍内存）
+      if (!resp.ok) return null;
+      if ((resp.headers.get('content-length') && Number(resp.headers.get('content-length')) > 80 * 1024 * 1024)
+          || e.durationSec > 3600) {
+        return null;
+      }
       const buf = await resp.arrayBuffer();
       const audioBuf = await this.audioCtx.decodeAudioData(buf);
       const data = audioBuf.getChannelData(0);

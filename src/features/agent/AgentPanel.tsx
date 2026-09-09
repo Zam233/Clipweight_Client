@@ -539,7 +539,7 @@ function RequirementsView() {
             <input
               ref={uploadInputRef}
               type="file"
-              accept=".txt,.md,.pdf,.docx"
+              accept=".txt,.md,.pdf,.docx,.png,.jpg,.jpeg,.webp,.gif,.srt"
               hidden
               onChange={(e) => {
                 const f = e.target.files?.[0];

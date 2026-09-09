@@ -131,6 +131,8 @@ export function PropertiesPanel() {
       toast('没有可粘贴的兼容属性（类型不匹配）', 'info');
       return;
     }
+    // P2-13: 按钮路径与快捷键路径同语义——先推撤销栈再写值
+    pushHistory();
     // 全量 set：单片段用 updateClip，多选批量更新（沿用既有 set 语义）
     set(Object.fromEntries(entries) as Partial<Clip>);
     toast(`已粘贴 ${entries.length} 项属性`, 'success');
@@ -1200,7 +1202,11 @@ function BatchEditSection({ count, set, pushHistory, initial, onShift }: {
           type="number"
           step="0.1"
           value={shift}
-          onChange={(e) => setShift(Number(e.target.value) || 0)}
+          onChange={(e) => {
+            // P2-14: 非法中间态（空串/负号）不写 store
+            const n = Number(e.target.value);
+            if (Number.isFinite(n)) setShift(n);
+          }}
           className="w-20 bg-surface-container rounded-cw-xs px-1.5 py-1 text-label-sm text-on-surface font-mono
             outline-none border border-outline-variant/30 focus:border-primary"
           title="正数右移，负数左移（整体受 0s 边界钳制，保持相对间距）"

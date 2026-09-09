@@ -91,3 +91,12 @@ stage.md
 # 个人文件（勿提交）
 简历*.md
 简历修改方案*.md
+
+# P3-04: 调试/运行产物不入库
+e2e-*.png
+e2e-*.json
+e2e-*.md
+e2e-*.ts
+e2e-*.log
+stage.md
+uvicorn-*.log

@@ -406,7 +406,8 @@ export function EditorToolbar() {
     const store = useTimelineStore.getState();
     const captions = store.timeline.tracks
       .flatMap((t) => t.clips)
-      .filter((c) => (c.kind === 'caption' || c.kind === 'text') && c.text?.trim())
+      // P2-44: 仅导出 caption 轨（text 轨是标题/花字，混入字幕文件语义错误）
+      .filter((c) => c.kind === 'caption' && c.text?.trim())
       .sort((a, b) => a.start_sec - b.start_sec);
 
     if (captions.length === 0) return;
@@ -419,7 +420,8 @@ export function EditorToolbar() {
       srt += `${idx}\n${start} --> ${end}\n${c.text}\n\n`;
     });
 
-    const blob = new Blob([srt], { type: 'text/plain;charset=utf-8' });
+    // P2-44: 加 UTF-8 BOM——Windows 端播放器/NLE 依赖 BOM 识别编码
+    const blob = new Blob(['﻿', srt], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -745,9 +747,13 @@ function parseSrt(raw: string): SrtEntry[] {
 }
 
 function formatSrtTime(sec: number): string {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = (sec % 60);
-  const ms = Math.round((s - Math.floor(s)) * 1000);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(Math.floor(s)).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+  // P2-44: 先整体取整毫秒再拆分——旧实现分秒各自舍入，.9999 会产出 ",1000"
+  let totalMs = Math.round(sec * 1000);
+  const h = Math.floor(totalMs / 3600000);
+  totalMs -= h * 3600000;
+  const m = Math.floor(totalMs / 60000);
+  totalMs -= m * 60000;
+  const s = Math.floor(totalMs / 1000);
+  const ms = totalMs - s * 1000;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
 }

@@ -100,6 +100,9 @@ export function TimelinePanel() {
     setHistoryError(null);
     try {
       const res = await versionApi.restore(projectId, position);
+      // P2-46: 恢复前推送当前时间线快照——Ctrl+Z 可撤销恢复操作
+      useHistoryStore.getState().pushState(
+        useTimelineStore.getState().timeline, 'restore version');
       useTimelineStore.getState().setTimeline(res.timeline);
       mediaManager.registerTimeline(res.timeline);
       await refreshVersions();

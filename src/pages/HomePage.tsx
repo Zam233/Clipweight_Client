@@ -423,6 +423,8 @@ export function HomePage() {
           if (!isNetwork) {
             const detail = anyE?.response?.data?.detail;
             toast(`项目创建失败：${typeof detail === 'string' && detail ? detail : '请稍后重试'}`, 'error');
+            // P2-40: 失败退出必须复位 launching，否则启动按钮永久 disabled
+            setLaunching(false);
             return;
           }
           // 网络断开才落入离线演示模式

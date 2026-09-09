@@ -22,7 +22,7 @@ scripts\stop.ps1         # 停止全部
 ```
 
 - 后端：`uvicorn clipwright.main:app --port 8080`（`CLIPWRIGHT_PORT=8080`，见 `.env.example`）
-- 前端：`cd web && npm run dev`（vite 5173；`/api` 代理 → 8080，`/srv` 代理 → 账号服务 8090）
+- 前端：独立仓库 `J:\Clipweight-Client`（`npm run dev`，vite 5173；`/api` 代理 → 8080，`/srv` 代理 → 账号服务 8090）
 - 账号/市场服务（可选）：`K:\Clipwright Server` 独立仓库，端口 8090
 
 ## 项目结构（monorepo）
@@ -41,7 +41,6 @@ J:\Clipwright
 │   ├── schema/       # 11+ 数据模型
 │   ├── rag/          # RAG 知识库
 │   └── persona/      # Persona 配置系统
-├── web/              # 前端（React 19 + TS 5.5 + Vite，见 web/AGENTS.md）
 ├── plugins/          # 内置第三方插件目录（diagram_style 等）
 ├── docs/             # 20+ 文档
 └── scripts/          # start/stop/check_env 一键启动脚本

@@ -120,7 +120,13 @@ export function ProjectsPage() {
     if (sortBy === 'name') {
       arr.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
     } else {
-      arr.sort((a, b) => String(b.edited ?? '').localeCompare(String(a.edited ?? '')));
+      // 待验证项证实：ISO 字符串排序碰巧等同时间序，但空值/非法值会乱序——
+      // 改为按解析时间戳降序，无法解析的排最后
+      const t = (v: unknown) => {
+        const n = Date.parse(String(v ?? ''));
+        return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY;
+      };
+      arr.sort((a, b) => t(b.edited) - t(a.edited));
     }
     return arr;
   }, [projects, selectedFolder, selectedTag, search, sortBy]);

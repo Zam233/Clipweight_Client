@@ -341,7 +341,7 @@ export function PersonaDetailPage() {
             </Section>
 
             <Section icon={<Music className="w-4 h-4" />} title="音频 Audio">
-              <Slider label="响度 LUFS" min={-24} max={-8} value={P.audio.loudness_target_lufs ?? -16}
+              <Slider label="响度 LUFS" min={-30} max={-10} value={P.audio.loudness_target_lufs ?? -16}
                 onChange={(v) => setParam((p) => ({ ...p, parameter: { ...p.parameter, audio: { ...p.parameter.audio, loudness_target_lufs: v } } }))} />
               <div>
                 <label className="block text-label text-on-surface-variant mb-1">声音克隆模型</label>

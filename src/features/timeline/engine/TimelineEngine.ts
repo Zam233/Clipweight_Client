@@ -348,6 +348,13 @@ export class TimelineEngine {
     // Razor tool → split
     if (selection.toolMode === 'razor' && hit) {
       const t = xToTime(x, L);
+      // P2-12: 先判断切点在片段边界内再推历史——旧实现先 push，
+      // splitClip 对边界切分 no-op 时留下幽灵撤销点
+      const rel = t - hit.clip.start_sec;
+      if (rel <= 0.001 || rel >= hit.clip.duration_sec - 0.001) {
+        useTimelineStore.getState().splitClip(hit.clip.id, t); // 边界 no-op，不推历史
+        return;
+      }
       useHistoryStore.getState().pushState(timeline, 'split');
       useTimelineStore.getState().splitClip(hit.clip.id, t);
       return;

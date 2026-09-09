@@ -71,7 +71,7 @@ src/
 └── styles/globals.css # 设计令牌 + 主题
 ```
 
-> Vite dev server 代理：`/api` → `http://localhost:8000`，`/ws` → `ws://localhost:8000`（见 `vite.config.ts`）。
+> Vite dev server 代理：`/api` → `http://localhost:8080`，（见 `vite.config.ts`；WS 已移除）。
 
 ### 路由表
 
@@ -121,7 +121,7 @@ src/
 
 ### Agent 副驾驶
 - **需求 Agent 两阶段工作流**：创意简报 → 制作规划书（带 TOC）→ 一键生产
-- **六 Agent 管线**：结构→素材→剪辑→动画→音效→质检，SSE 实时追踪
+- **七 Agent 管线**：需求→结构→素材→剪辑→动画→音效→质检，SSE 实时追踪
 - 初稿时间线预览 + 一键接受载入时间轴
 - 离线演示模式：后端未连接时以演示数据运行
 
@@ -145,13 +145,12 @@ npx tsc --noEmit
 npm run build
 ```
 
-> 后端引擎（`J:\Clipwright`）启动于 `http://localhost:8000` 时，前端会自动连接并启用完整 Agent / 素材 / 渲染能力；未连接时以**演示模式**运行。
+> 后端引擎（`J:\Clipwright`）启动于 `http://localhost:8080` 时，前端会自动连接并启用完整 Agent / 素材 / 渲染能力；未连接时以**演示模式**运行。
 
 ### 环境变量
 复制 `.env.example` 为 `.env`：
 ```
-VITE_API_BASE_URL=http://localhost:8000
-VITE_WS_URL=ws://localhost:8000/ws
+VITE_API_BASE_URL=http://localhost:8080
 ```
 
 ---
