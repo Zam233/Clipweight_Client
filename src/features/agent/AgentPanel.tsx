@@ -277,7 +277,16 @@ function RequirementsView() {
       // 批B：流式失败不再自动整跑一次性 chat（会重复消耗一次完整 LLM 生成），
       // 如实上屏错误；仅在流正常返回但无内容时回退
       res = await requirementsApi.streamChat(sessionId, message, (chunk) => {
-        if (chunk.type === 'status') setStatus('gathering');
+        // P2-33: 按后端权威状态映射（旧实现硬编码 gathering，会把 planning
+        // 阶段打回 gathering 导致输入框在错误时机出现）
+        if (chunk.type === 'status' && typeof chunk.data === 'string') {
+          const st = chunk.data;
+          setStatus(
+            (['gathering', 'brief_ready', 'brief_confirmed', 'planning', 'plan_ready', 'plan_confirmed', 'pipeline_running', 'pipeline_done'] as const).includes(st as never)
+              ? (st as Parameters<typeof setStatus>[0])
+              : 'gathering',
+          );
+        }
         else if (chunk.type === 'delta' && typeof chunk.data === 'string') pushDelta(chunk.data);
       }, signal);
       if (Object.keys(res).length === 0) {

@@ -468,8 +468,10 @@ export function HomePage() {
 
   const handleDeleteProject = async (projectId: string) => {
     try {
-      await projectApi.remove(projectId);
+      // P2-39: 走回收站软删除（与项目页一致），不再绕过回收站硬删
+      await projectApi.trashProject(projectId);
       setProjects((prev) => prev.filter((project) => project.id !== projectId));
+      toast('已移入回收站（可在项目页回收站中恢复）', 'success');
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       toast(`删除失败：${reason}，项目已保留`, 'error');

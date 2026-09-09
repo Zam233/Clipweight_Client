@@ -31,9 +31,13 @@ describe('getApiClient 401 interceptor', () => {
     vi.restoreAllMocks();
   });
 
-  it('logs a warning and dispatches cw:unauthorized on 401, then rejects', async () => {
+  it('attempts silent refresh on 401; on failure warns, dispatches cw:unauthorized and rejects', async () => {
     const client = getApiClient();
     client.defaults.adapter = unauthorizedAdapter;
+
+    // P2-23: mock refresh 为确定性的失败（测试环境真实 refresh 会发网络请求导致挂起）
+    const { useAuthStore } = await import('@/stores/authStore');
+    vi.spyOn(useAuthStore.getState(), 'refresh').mockResolvedValue(false);
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const listener = vi.fn();
@@ -41,6 +45,8 @@ describe('getApiClient 401 interceptor', () => {
 
     await expect(client.get('/api/x')).rejects.toThrow();
 
+    // P2-23: refresh 失败（测试环境无账号服务）后才 warn + dispatch —— 等待异步链完成
+    await new Promise((r) => setTimeout(r, 50));
     expect(warnSpy).toHaveBeenCalledWith('[API] Unauthorized (401) — 登录已失效，请重新登录');
     expect(listener).toHaveBeenCalledTimes(1);
     const evt = listener.mock.calls[0][0] as CustomEvent;

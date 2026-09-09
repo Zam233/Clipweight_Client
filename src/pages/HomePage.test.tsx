@@ -13,6 +13,7 @@ const { mocks } = vi.hoisted(() => ({
     personaList: vi.fn(),
     projectList: vi.fn(),
     projectRemove: vi.fn(),
+    projectTrash: vi.fn(),
     projectDuplicate: vi.fn(),
     getThumbnailUrl: vi.fn(),
     typeMakerList: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock('@/services/api', () => ({
   projectApi: {
     list: mocks.projectList,
     remove: mocks.projectRemove,
+    trashProject: mocks.projectTrash,
     duplicate: mocks.projectDuplicate,
     getThumbnailUrl: mocks.getThumbnailUrl,
     create: vi.fn(),
@@ -97,26 +99,27 @@ async function confirmDelete(projectName: string) {
 
 describe('HomePage handleDeleteProject (U1)', () => {
   it('removes the project from the list when delete succeeds', async () => {
-    mocks.projectRemove.mockResolvedValue({ ok: true });
+    mocks.projectTrash.mockResolvedValue({ ok: true });
     render(<HomePage />);
     await screen.findByText('\u9879\u76eeA');
 
     await confirmDelete('\u9879\u76eeA');
 
-    await waitFor(() => expect(mocks.projectRemove).toHaveBeenCalledWith('proj_a'));
+    await waitFor(() => expect(mocks.projectTrash).toHaveBeenCalledWith('proj_a'));
     await waitFor(() => expect(screen.queryByText('\u9879\u76eeA')).toBeNull());
     expect(screen.getByText('\u9879\u76eeB')).toBeTruthy();
-    expect(mocks.toast).not.toHaveBeenCalled();
+    // P2-39: 删除改为移入回收站，成功时有提示
+    expect(mocks.toast).toHaveBeenCalled();
   });
 
   it('keeps the project in the list and shows an error toast when delete fails', async () => {
-    mocks.projectRemove.mockRejectedValue(new Error('\u540e\u7aef\u4e0d\u53ef\u8fbe'));
+    mocks.projectTrash.mockRejectedValue(new Error('\u540e\u7aef\u4e0d\u53ef\u8fbe'));
     render(<HomePage />);
     await screen.findByText('\u9879\u76eeA');
 
     await confirmDelete('\u9879\u76eeA');
 
-    await waitFor(() => expect(mocks.projectRemove).toHaveBeenCalledWith('proj_a'));
+    await waitFor(() => expect(mocks.projectTrash).toHaveBeenCalledWith('proj_a'));
     await waitFor(() => expect(screen.getByText('\u9879\u76eeA')).toBeTruthy());
     expect(mocks.toast).toHaveBeenCalledWith('\u5220\u9664\u5931\u8d25\uff1a\u540e\u7aef\u4e0d\u53ef\u8fbe\uff0c\u9879\u76ee\u5df2\u4fdd\u7559', 'error');
   });

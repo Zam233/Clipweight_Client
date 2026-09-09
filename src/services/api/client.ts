@@ -10,7 +10,7 @@ export function getApiClient(): AxiosInstance {
     // P0-11: 未配置 API 地址时同源（开发走 vite proxy，生产由后端挂载静态/反代）——
     // 原 8000 fallback 与后端实际 8080 漂移导致「无 .env 的生产构建直连错误端口」
     const baseURL = useSettingsStore.getState().apiBaseUrl || '';
-    client = axios.create({
+    const instance: AxiosInstance = axios.create({
       baseURL,
       // 普通请求 60s 上限：后端一旦 hang 住能尽快失败，避免挂起连接越堆越多。
       // 真正的长任务（渲染/管线/聊天流）走 SSE(EventSource)，不受 axios timeout 约束；
@@ -20,7 +20,7 @@ export function getApiClient(): AxiosInstance {
     });
 
     // Request interceptor: attach auth token（P3-3B: 本地令牌优先，其次账号会话令牌）
-    client.interceptors.request.use((config) => {
+    instance.interceptors.request.use((config) => {
       const token = useSettingsStore.getState().authToken || session.token;
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
@@ -29,18 +29,34 @@ export function getApiClient(): AxiosInstance {
     });
 
     // Response interceptor: handle common errors
-    client.interceptors.response.use(
+    instance.interceptors.response.use(
       (res) => res,
       (err) => {
-        if (err.response?.status === 401) {
-          console.warn('[API] Unauthorized (401) — 登录已失效，请重新登录');
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(
-              new CustomEvent('cw:unauthorized', {
-                detail: { status: 401, url: err.config?.url },
-              }),
-            );
-          }
+        // P2-23: 401 后先静默续期，成功则重放原请求（仅一次，__retried401 防循环）；
+        // 续期失败才广播 cw:unauthorized。返回 promise 保持原调用链的 resolve/reject。
+        if (err.response?.status === 401 && !err.config?.__retried401) {
+          return (async () => {
+            const { useAuthStore } = await import('@/stores/authStore');
+            let refreshed = false;
+            try {
+              refreshed = await useAuthStore.getState().refresh();
+            } catch {
+              refreshed = false; // 续期请求自身失败（网络/离线）视作未续期
+            }
+            if (refreshed && err.config) {
+              err.config.__retried401 = true;
+              return instance.request(err.config);
+            }
+            console.warn('[API] Unauthorized (401) — 登录已失效，请重新登录');
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(
+                new CustomEvent('cw:unauthorized', {
+                  detail: { status: 401, url: err.config?.url },
+                }),
+              );
+            }
+            throw err;
+          })();
         }
         if (err.response?.status === 503) {
           console.warn('[API] Service busy, retry later');
@@ -67,6 +83,7 @@ export function getApiClient(): AxiosInstance {
         return Promise.reject(err);
       },
     );
+    client = instance;
   }
   return client;
 }
