@@ -186,7 +186,8 @@ export function ExportPage() {
     const p = presets[id];
     if (!p) return;
     setPresetId(id);
-    setSettings({ preset: id, width: p.width, height: p.height, fps: p.fps, bitrate: p.bitrate });
+    // P1-06：custom 不是后端合法 preset 名（未知预设 400）——置空串走显式参数分支
+    setSettings({ preset: id === 'custom' ? '' : id, width: p.width, height: p.height, fps: p.fps, bitrate: p.bitrate });
   };
 
   const submitRender = async () => {
@@ -230,9 +231,22 @@ export function ExportPage() {
         toast('后端离线，无法真实渲染，已进入演示模式', 'error');
         simulateRender(taskId);
       } else {
-        const detail = anyE?.response?.data?.detail;
-        updateQueue(taskId, { status: 'failed', detail: typeof detail === 'string' ? detail : '提交失败' });
-        toast(typeof detail === 'string' && detail ? detail : '渲染提交失败', 'error');
+        // P1-07：422 的 detail 是 [{loc,msg,type}] 数组——拼接字段级原因，
+        // 优先取 client 拦截器归一化的 userMessage，不再笼统显示「提交失败」
+        const rawDetail = anyE?.response?.data?.detail;
+        let detail: string | undefined;
+        if (typeof rawDetail === 'string') {
+          detail = rawDetail;
+        } else if (Array.isArray(rawDetail)) {
+          detail = (rawDetail as { loc?: unknown[]; msg?: string }[])
+            .slice(0, 3)
+            .map((it) => `${(it.loc ?? []).filter((x) => x !== 'body').join('.')}: ${it.msg ?? '无效'}`)
+            .join('；');
+        }
+        const userMessage = (e as { userMessage?: string }).userMessage;
+        const shown = userMessage || detail;
+        updateQueue(taskId, { status: 'failed', detail: shown || '提交失败' });
+        toast(shown || '渲染提交失败', 'error');
       }
     } finally {
       setSubmitting(false);
@@ -452,7 +466,7 @@ export function ExportPage() {
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-cw-full bg-surface-container-high border border-outline-variant/30 text-caption cursor-pointer hover:border-primary/60"
                     title={`${p.width}×${p.height} · ${p.fps}fps · ${p.bitrate}`}
                   >
-                    <button onClick={() => { setSettings({ ...settings, width: p.width, height: p.height, fps: p.fps, bitrate: p.bitrate }); setPresetId(''); }}
+                    <button onClick={() => { setSettings({ ...settings, preset: '', width: p.width, height: p.height, fps: p.fps, bitrate: p.bitrate }); setPresetId(''); }}
                       className="hover:text-primary">{p.name}</button>
                     <button onClick={() => {
                       const next = savedPresets.filter((x) => x.name !== p.name);

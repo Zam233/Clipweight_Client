@@ -63,6 +63,7 @@ export const useSelectionStore = create<SelectionState>((set) => ({
     const ids: string[] = [];
     for (const track of timeline.tracks) {
       if (trackIds && !trackIds.includes(track.id)) continue;
+      if (track.hidden || track.locked) continue; // P1-37：隐藏/锁定轨不参与框选
       for (const clip of track.clips) {
         const clipEnd = clip.start_sec + clip.duration_sec;
         if (clip.start_sec < endSec && clipEnd > startSec) {

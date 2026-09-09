@@ -508,3 +508,48 @@ describe('轮75: 未保存标记', () => {
     expect(useTimelineStore.getState().timeline).toBe(before);
   });
 });
+
+describe('P1-04: 关键帧时间基归一化', () => {
+  // 复刻真实工程 proj_7d3a69b9eae8/tc_1b89e9d0 的绝对秒关键帧
+  const absTimeline = () => ({
+    ...createEmptyTimeline(),
+    tracks: [{
+      id: 'v1', name: 'V1', kind: 'text' as const, index: 0, locked: false, muted: false,
+      clips: [{
+        id: 'tc_1', kind: 'text' as const, track_id: 'v1',
+        start_sec: 240, duration_sec: 60,
+        keyframes: [
+          { time: 240, properties: { opacity: 0 } },
+          { time: 300, properties: { opacity: 1 } },
+        ],
+      }],
+    }],
+  });
+
+  it('setTimeline 把绝对秒关键帧归一化为 clip_local 并写标记', () => {
+    useTimelineStore.getState().setTimeline(absTimeline() as never);
+    const clip = useTimelineStore.getState().timeline.tracks[0].clips[0];
+    expect(clip.keyframes!.map((k) => k.time)).toEqual([0, 1]);
+    expect(clip.metadata?.kf_time_base).toBe('clip_local');
+  });
+
+  it('已是归一化基的关键帧保持不变（幂等）', () => {
+    useTimelineStore.getState().setTimeline(absTimeline() as never);
+    const once = useTimelineStore.getState().timeline.tracks[0].clips[0];
+    useTimelineStore.getState().setTimeline(useTimelineStore.getState().timeline);
+    const twice = useTimelineStore.getState().timeline.tracks[0].clips[0];
+    expect(twice.keyframes!.map((k) => k.time)).toEqual(once.keyframes!.map((k) => k.time));
+  });
+
+  it('exportTimeline 不再盲目标记绝对秒关键帧', () => {
+    const store = useTimelineStore.getState();
+    // 绕过 setTimeline 的归一化：直接构造带绝对秒关键帧的当前时间线
+    const raw = absTimeline();
+    useTimelineStore.setState({ timeline: raw as never });
+    const exported = useTimelineStore.getState().exportTimeline();
+    const clip = exported.tracks[0].clips[0];
+    // 绝对秒保持原样、无 clip_local 标记（后端启发式可正确识别 absolute）
+    expect(clip.keyframes![0].time).toBe(240);
+    expect(clip.metadata?.kf_time_base).toBeUndefined();
+  });
+});

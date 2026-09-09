@@ -18,7 +18,7 @@ import type { Timeline, Clip, ClipKind } from '@/types/timeline';
 import type { RequirementsStatus, CreativeBrief, ProductionPlan } from '@/types/persona';
 import {
   Bot, Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
-  MessageSquareText, ChevronDown, ChevronRight, X, Paperclip, RefreshCw, Copy,
+  MessageSquareText, ChevronDown, ChevronRight, X, Paperclip, RefreshCw, Copy, Square,
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<PipelinePhase, string> = {
@@ -239,9 +239,20 @@ function RequirementsView() {
     } finally { setBusy(false); }
   };
 
+  // P1-35：长请求可取消——进行中的对话/编辑请求可被「停止」或组件卸载中断
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const cancelInFlight = () => {
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+  };
+  useEffect(() => () => cancelInFlight(), []);
+
   const sendChat = async (sessionId: string, message: string) => {
     addMessage({ id: uid('m'), role: 'user', content: message, timestamp: new Date().toISOString() });
     setBusy(true);
+    cancelInFlight();
+    chatAbortRef.current = new AbortController();
+    const signal = chatAbortRef.current.signal;
     // 轮69：真流式——首个 delta 创建打字气泡，后续增量追加；result 到达后收尾替换
     let streamId: string | null = null;
     const pushDelta = (text: string) => {
@@ -268,9 +279,9 @@ function RequirementsView() {
       res = await requirementsApi.streamChat(sessionId, message, (chunk) => {
         if (chunk.type === 'status') setStatus('gathering');
         else if (chunk.type === 'delta' && typeof chunk.data === 'string') pushDelta(chunk.data);
-      });
+      }, signal);
       if (Object.keys(res).length === 0) {
-        res = await requirementsApi.chat({ session_id: sessionId, message });
+        res = await requirementsApi.chat({ session_id: sessionId, message }, signal);
       }
       const brief = res.creative_brief ? (res.creative_brief as CreativeBrief) : null;
       const plan = res.production_plan ? (res.production_plan as ProductionPlan) : null;
@@ -298,15 +309,18 @@ function RequirementsView() {
           production_plan: att.production_plan });
       }
     } catch (e) {
+      // P1-35：主动取消不是错误——中性提示
+      const aborted = signal.aborted || (e instanceof DOMException && e.name === 'AbortError');
+      const text = aborted ? '已停止生成。' : `消息发送失败：${errText(e)}`;
       if (streamId) {
         useAgentStore.getState().updateRequirementsMessage(streamId, {
-          content: `消息发送失败：${errText(e)}`, streaming: false,
+          content: text, streaming: false,
         });
       } else {
         addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-          content: `消息发送失败：${errText(e)}` });
+          content: text });
       }
-    } finally { setBusy(false); }
+    } finally { setBusy(false); chatAbortRef.current = null; }
   };
 
   // 选中素材 + 自然语言指令 → 时间线编辑（C6）：走 /edit 端点，返回 proposed_timeline 触发 diff 审阅
@@ -318,6 +332,9 @@ function RequirementsView() {
     const content = `【选中素材】${labels.join('、')}\n${message}`;
     addMessage({ id: uid('m'), role: 'user', content, timestamp: new Date().toISOString() });
     setBusy(true);
+    cancelInFlight();
+    chatAbortRef.current = new AbortController();
+    const editSignal = chatAbortRef.current.signal;
     try {
       // W12: 区域级返工 — 附带当前范围选择（M14 range 工具），后端限定编辑窗口
       const sel = useSelectionStore.getState();
@@ -330,7 +347,7 @@ function RequirementsView() {
         timeline: useTimelineStore.getState().timeline,
         selected_clip_ids: selectedClipIds,
         ...region,
-      });
+      }, editSignal);
       if (res.proposed_timeline) {
         // 触发既有 TimelineDiffView 审阅覆盖层；接受/合并时 TimelineDiffView 会注册真实媒体
         useAgentStore.getState().setAgentTimeline(res.proposed_timeline);
@@ -340,9 +357,12 @@ function RequirementsView() {
         timestamp: new Date().toISOString(),
         creative_brief: att.creative_brief, production_plan: att.production_plan });
     } catch (e) {
-      addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-        content: `时间线编辑失败：${errText(e)}` });
-    } finally { setBusy(false); }
+      const aborted = editSignal.aborted || (e instanceof DOMException && e.name === 'AbortError');
+      if (!aborted) {
+        addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: `时间线编辑失败：${errText(e)}` });
+      }
+    } finally { setBusy(false); chatAbortRef.current = null; }
   };
 
   const confirmBrief = async () => {
@@ -554,16 +574,23 @@ function RequirementsView() {
               placeholder={selectedClipIds.length > 0 ? '描述对选中素材的修改…（Shift+Enter 换行）' : '继续与需求 Agent 对话…（Shift+Enter 换行）'}
               className="flex-1 bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm text-on-surface resize-none
                 outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50" />
-            <Button size="icon" onClick={() => {
-              const sid = useAgentStore.getState().requirementsSessionId;
-              if (input.trim() && sid) {
-                const m = input; setInput('');
-                if (selectedClipIds.length > 0) sendEdit(sid, m);
-                else sendChat(sid, m);
-              }
-            }}             disabled={!input.trim() || busy}>
-              <Send className="w-3.5 h-3.5" />
-            </Button>
+            {busy ? (
+              // P1-35：进行中提供「停止」——中断在途请求（网络层真正 abort）
+              <Button size="icon" variant="outline" onClick={cancelInFlight} title="停止生成">
+                <Square className="w-3.5 h-3.5" />
+              </Button>
+            ) : (
+              <Button size="icon" onClick={() => {
+                const sid = useAgentStore.getState().requirementsSessionId;
+                if (input.trim() && sid) {
+                  const m = input; setInput('');
+                  if (selectedClipIds.length > 0) sendEdit(sid, m);
+                  else sendChat(sid, m);
+                }
+              }} disabled={!input.trim()}>
+                <Send className="w-3.5 h-3.5" />
+              </Button>
+            )}
           </div>
         </div>
       )}

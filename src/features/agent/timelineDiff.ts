@@ -22,22 +22,40 @@ export interface TimelineDiff {
   summary: { added: number; removed: number; modified: number };
 }
 
-/** Fields compared when deciding whether a clip was modified. */
-const COMPARED_FIELDS: (keyof Clip)[] = [
-  'kind', 'asset_id', 'track_id', 'start_sec', 'duration_sec',
-  'source_offset_sec', 'speed', 'volume', 'opacity', 'text',
-  'font_size', 'font_color', 'transition_in', 'transition_out',
-];
+/**
+ * P1-05：改为「clip 全字段深比较（排除 id/track_id）」——旧白名单只有 14 个
+ * 基础字段，keyframes/metadata（MG 的 mg_def/mg_html）/字幕样式/fx_* 等改动
+ * 会被误判为「无差异」，用户既看不到也接受不了 Agent 的局部重做。
+ */
+// track_id 必须参与比较：mergeTimeline 的跨轨迁移依赖「track_id 不同 → modified」
+const IGNORED_FIELDS = new Set(['id']);
 
 const EPS = 0.001;
 
-function fieldDiffers(a: Clip, b: Clip, field: keyof Clip): boolean {
-  const va = a[field];
-  const vb = b[field];
+function clipFieldNames(a: Clip, b: Clip): string[] {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of IGNORED_FIELDS) keys.delete(k);
+  return [...keys].sort();
+}
+
+function valuesDiffer(va: unknown, vb: unknown): boolean {
   if (typeof va === 'number' && typeof vb === 'number') {
     return Math.abs(va - vb) > EPS;
   }
-  return va !== vb;
+  if (va === vb) return false;
+  // 对象/数组（keyframes、metadata、样式组等）做稳定序列化比较
+  try {
+    return JSON.stringify(va) !== JSON.stringify(vb);
+  } catch {
+    return true;
+  }
+}
+
+function fieldDiffers(a: Clip, b: Clip, field: string): boolean {
+  return valuesDiffer(
+    (a as unknown as Record<string, unknown>)[field],
+    (b as unknown as Record<string, unknown>)[field],
+  );
 }
 
 /** Index all clips in a timeline by id. */
@@ -70,7 +88,7 @@ export function computeTimelineDiff(current: Timeline, proposed: Timeline): Time
       addedClips.push(pClip);
       continue;
     }
-    const fields = COMPARED_FIELDS.filter((f) => fieldDiffers(cClip, pClip, f));
+    const fields = clipFieldNames(cClip, pClip).filter((f) => fieldDiffers(cClip, pClip, f));
     if (fields.length > 0) {
       modifiedClips.push({ current: cClip, proposed: pClip, fields });
     }

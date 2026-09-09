@@ -1,5 +1,5 @@
 import { getApiClient } from './client';
-import { apiBase, fetchSseToken } from './sse';
+import { apiBase, fetchSseToken, withSseToken } from './sse';
 import type { RequirementsInitRequest, RequirementsChatRequest } from '@/types/api';
 
 export const requirementsApi = {
@@ -10,10 +10,10 @@ export const requirementsApi = {
   },
 
   /** Send a chat message */
-  async chat(request: RequirementsChatRequest) {
+  async chat(request: RequirementsChatRequest, signal?: AbortSignal) {
     // 规划书生成需要结构 Agent + 翻译，耗时可达 2-5 分钟，
-    // 覆盖 axios 默认 60s 超时。
-    const { data } = await getApiClient().post('/api/requirements/chat', request, { timeout: 600_000 });
+    // 覆盖 axios 默认 60s 超时。P1-35: signal 支持取消长请求。
+    const { data } = await getApiClient().post('/api/requirements/chat', request, { timeout: 600_000, signal });
     return data;
   },
 
@@ -25,19 +25,22 @@ export const requirementsApi = {
     sessionId: string,
     message: string,
     onChunk?: (chunk: { type: string; data: unknown }) => void,
+    signal?: AbortSignal,
   ): Promise<Record<string, unknown>> {
     const base = apiBase();
     const form = new URLSearchParams();
     form.append('message', message);
     const token = await fetchSseToken();
-    const url = `${base}/api/requirements/chat/stream/${sessionId}`;
+    // P1-36：一次性 SSE token 走 query（后端 _consume_sse_token 只消费 qtok）——
+    // 旧实现放 Authorization 头在 token/jwt 模式下必 401 且无回退
+    const url = withSseToken(`${base}/api/requirements/chat/stream/${sessionId}`, token);
     const resp = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: form.toString(),
+      signal, // P1-35
     });
     if (!resp.ok || !resp.body) {
       throw new Error(`chat stream failed: ${resp.status}`);
@@ -76,9 +79,9 @@ export const requirementsApi = {
     selected_clip_ids: string[];
     region_start_sec?: number;
     region_end_sec?: number;
-  }) {
+  }, signal?: AbortSignal) {
     // 换素材/重做动画/数值调整可能调用 Agent，耗时可长，对齐 chat 的超时
-    const { data } = await getApiClient().post('/api/requirements/edit', request, { timeout: 600_000 });
+    const { data } = await getApiClient().post('/api/requirements/edit', request, { timeout: 600_000, signal });
     return data;
   },
 
@@ -112,14 +115,14 @@ export const requirementsApi = {
   },
 
   /** Proceed to pipeline（批B：projectId 可选——成品时间线自动保存回项目） */
-  async proceed(sessionId: string, personaId: string, pluginId: string, extraParams?: Record<string, unknown>, projectId?: string) {
+  async proceed(sessionId: string, personaId: string, pluginId: string, extraParams?: Record<string, unknown>, projectId?: string, signal?: AbortSignal) {
     const { data } = await getApiClient().post('/api/requirements/proceed', {
       session_id: sessionId,
       persona_id: personaId,
       category_plugin_id: pluginId,
       project_id: projectId || '',
       extra_params: extraParams,
-    }, { timeout: 300_000 });
+    }, { timeout: 300_000, signal });
     return data;
   },
 };

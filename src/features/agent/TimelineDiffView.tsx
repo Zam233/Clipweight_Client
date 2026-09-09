@@ -127,11 +127,16 @@ export function TimelineDiffView({
       };
 
   if (diff.isEmpty) {
+    // P1-05：无差异时也允许「采用 Agent 版本」——用户可能就是要用 Agent 的时间线
+    // 覆盖本地（例如本地改乱后想要 Agent 产出），只给「关闭」等于堵死入口
     return (
       <div className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-4 text-center">
         <GitCompare className="w-6 h-6 text-on-surface-variant/50 mx-auto mb-2" />
-        <p className="text-body-sm text-on-surface-variant">Agent 时间线与当前一致，无差异。</p>
-        <Button size="sm" variant="outline" className="mt-3" onClick={ignore}>关闭</Button>
+        <p className="text-body-sm text-on-surface-variant">Agent 时间线与当前内容一致，无差异。</p>
+        <div className="mt-3 flex items-center justify-center gap-2">
+          <Button size="sm" variant="outline" onClick={acceptAll}>仍采用 Agent 版本</Button>
+          <Button size="sm" variant="outline" onClick={ignore}>关闭</Button>
+        </div>
       </div>
     );
   }

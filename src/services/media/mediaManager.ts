@@ -15,7 +15,7 @@ import { session } from '@/services/api/session';
  */
 export function withMediaToken(url: string): string {
   const token = session.token;
-  if (!token || !url.includes('/api/asset/by-path')) return url;
+  if (!token || !url.includes('/api/asset/')) return url;
   return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
 }
 
@@ -26,9 +26,14 @@ export function resolveMediaUrl(clip: Pick<Clip, 'metadata' | 'asset_id'>): stri
   // 优先使用 HTTP URL（Agent 时间线可直接预览）；否则把本地路径/asset_id 包装成 by-path 代理
   if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
   const localPath = typeof meta.local_path === 'string' ? meta.local_path : '';
-  const path = localPath || clip.asset_id;
-  if (!path) return undefined;
-  return withMediaToken(`/api/asset/by-path?path=${encodeURIComponent(path)}`);
+  if (localPath) return withMediaToken(`/api/asset/by-path?path=${encodeURIComponent(localPath)}`);
+  // P1-08：只有 asset_id（如 Agent 时间线）时走 /api/asset/{id}/file，
+  // 而不是把 asset_id 当路径传给 by-path（必然 403/404）
+  if (clip.asset_id && clip.asset_id.startsWith('asset_')) {
+    return withMediaToken(`/api/asset/${encodeURIComponent(clip.asset_id)}/file`);
+  }
+  if (!clip.asset_id) return undefined;
+  return withMediaToken(`/api/asset/by-path?path=${encodeURIComponent(clip.asset_id)}`);
 }
 
 interface MediaEntry {
@@ -255,7 +260,12 @@ class MediaManager {
     const v = e.videoEl;
     const target = Math.max(0, Math.min(timeSec, (e.durationSec || timeSec) - 0.01));
     if (Math.abs(v.currentTime - target) > 0.03) {
-      try { v.currentTime = target; } catch { /* not ready */ }
+      try {
+        // P1-33：seek 后立即 drawImage 画的是旧帧——监听 seeked 到新帧就绪后
+        // 通知重绘（拖动/逐帧不再停留在上一画面）
+        v.addEventListener('seeked', () => this.notify(assetId), { once: true });
+        v.currentTime = target;
+      } catch { /* not ready */ }
     }
     return v;
   }

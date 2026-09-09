@@ -772,6 +772,7 @@ export class TimelineEngine {
     if (tIdx < 0 || tIdx >= tl.tracks.length) return null;
     const track = tl.tracks[tIdx];
     if (track.locked) return null;
+    if (track.hidden) return null; // P1-37：隐藏轨不可被点选
     const t = xToTime(x, L);
     for (const clip of track.clips) {
       if (t >= clip.start_sec && t <= clip.start_sec + clip.duration_sec) {

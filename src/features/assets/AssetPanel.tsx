@@ -154,7 +154,8 @@ export function AssetPanel() {
     // Prefer real media duration, but guard against zero (0 is falsy for ??)
     const realDur = mediaManager.getDuration(asset.id);
     const duration = realDur > 0 ? realDur : (asset.duration_sec != null && asset.duration_sec > 0 ? asset.duration_sec : 5);
-    const clipData = { kind, asset_id: asset.id, duration_sec: duration, metadata: { title: asset.filename } };
+    // P1-08：写入 local_path——刷新后 resolveMediaUrl 靠它走 by-path 代理，否则片段全部「素材加载失败」
+    const clipData = { kind, asset_id: asset.id, duration_sec: duration, metadata: { title: asset.filename, ...(asset.path ? { local_path: asset.path } : {}) } };
 
     useHistoryStore.getState().pushState(store.timeline, 'add-asset');
     if (opts?.ripple) {
@@ -534,7 +535,9 @@ function AIMatchView() {
     const lastEnd = track.clips.reduce((m, c) => Math.max(m, c.start_sec + c.duration_sec), 0);
     store.addClip(track.id, {
       kind, asset_id: r.id, start_sec: lastEnd,
-      duration_sec: r.duration_sec != null && r.duration_sec > 0 ? r.duration_sec : 5, metadata: { title: r.title, source: r.source },
+      // P2-16/P1-08：写 url 供 resolveMediaUrl 直接预览（r.id 是外部素材源 id，非本库 asset）
+      duration_sec: r.duration_sec != null && r.duration_sec > 0 ? r.duration_sec : 5,
+      metadata: { title: r.title, source: r.source, ...(r.url ? { url: r.url } : {}) },
     });
   };
 

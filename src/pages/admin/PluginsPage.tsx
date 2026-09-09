@@ -159,6 +159,12 @@ export function PluginsPage() {
 
   const saveConfig = async () => {
     if (!configId) return;
+    // P1-10：secret 字段回显的是掩码（后端不出明文）——直接保存会把掩码存成密钥。
+    // 后端掩码还原上线前，至少让用户知情确认。
+    const masked = Object.values(configFields).some(
+      (f) => f.secret && typeof f.value === 'string' && f.value.includes('****'),
+    );
+    if (masked && !window.confirm('密钥字段显示为掩码，直接保存会把掩码存为密钥导致其失效。如需更新请取消后重新粘贴完整密钥。确认继续保存？')) return;
     const yaml = buildConfigYaml(configFields);
     if (!yaml) return;
     setConfigSaving(true);
@@ -467,6 +473,8 @@ function buildConfigYaml(fields: Record<string, PluginConfigField>): string | nu
     lines.push(`    type: ${f.type}`);
     lines.push(`    label: "${String(f.label).replace(/"/g, '\\"')}"`);
     if (f.description) lines.push(`    description: "${String(f.description).replace(/"/g, '\\"')}"`);
+    // P1-10：secret 标记必须透传——丢失后后端不再加密该字段（明文落盘 + 明文回显）
+    if (f.secret) lines.push('    secret: true');
     if (f.type === 'string') {
       lines.push(`    value: "${String(f.value ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
     } else if (f.type === 'int' || f.type === 'float') {

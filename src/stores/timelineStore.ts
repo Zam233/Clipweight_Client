@@ -70,12 +70,52 @@ interface TimelineState {
   exportTimeline: () => Timeline;
 }
 
+/**
+ * P1-04：关键帧时间基归一化——把 Agent 产出的绝对秒关键帧转换为编辑器约定的
+ * clip_local 归一化基。判定保守：全部 time > 1 且 min(time) >= start_sec 时才转换
+ * （归一化基本来就全 ≤1，重复调用幂等）；无法确定时不动，交给导出端不标记、
+ * 由后端启发式判断。
+ */
+function normalizeKeyframeTimeBase(timeline: Timeline): Timeline {
+  let changed = false;
+  const tracks = (timeline.tracks ?? []).map((track) => ({
+    ...track,
+    clips: (track.clips ?? []).map((clip) => {
+      const kfs = clip.keyframes;
+      if (!Array.isArray(kfs) || kfs.length === 0) return clip;
+      const dur = clip.duration_sec;
+      if (!dur || dur <= 0) return clip;
+      const times = kfs.map((k) => Number(k.time));
+      if (times.some((t) => !Number.isFinite(t))) return clip;
+      if (times.every((t) => t >= 0 && t <= 1)) return clip; // 已是归一化基
+      if (!times.every((t) => t > 1)) return clip; // 混合基，保守不动
+      const start = clip.start_sec ?? 0;
+      if (Math.min(...times) < start - 0.001) return clip; // 时间不在片段窗口内，保守不动
+      changed = true;
+      return {
+        ...clip,
+        keyframes: kfs.map((kf) => ({
+          ...kf,
+          time: +Math.min(1, Math.max(0, (Number(kf.time) - start) / dur)).toFixed(6),
+        })),
+        metadata: { ...(clip.metadata ?? {}), kf_time_base: 'clip_local' },
+      };
+    }),
+  }));
+  return changed ? { ...timeline, tracks } : timeline;
+}
+
 export const useTimelineStore = create<TimelineState>((set, get) => ({
   timeline: createEmptyTimeline(),
   isDirty: false,
 
   setTimeline: (timeline) => {
-    set({ timeline, isDirty: false });
+    // P1-04：Agent 产出的关键帧用绝对秒（如 time=240），而编辑器插值约定
+    // clip_local 归一化 [0,1]——不归一化会让动画恒停在首帧。全部 time > 1
+    // 且带有效时长/起点时判定为绝对秒，转换为 (t-start)/duration。
+    // 归一化后所有 time ≤ 1，重复调用幂等。
+    const normalized = normalizeKeyframeTimeBase(timeline);
+    set({ timeline: normalized, isDirty: false });
     // 同步预览/选择状态，避免 playhead 钳位失效与悬空选择
     usePreviewStore.getState().setDuration(timeline.duration_sec);
     usePreviewStore.getState().setFps(timeline.fps);
@@ -826,6 +866,9 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         const kfs = clip.keyframes;
         if (!Array.isArray(kfs) || kfs.length === 0) continue;
         const dur = clip.duration_sec || 1;
+        // P1-04：仅在关键帧确实处于归一化时间基（全 ≤1）时才标记 clip_local 并转秒；
+        // 绝对秒关键帧保持原样——盲目标记曾让后端 shift=0 + duration 钳制把动画压成常量
+        if (!kfs.every((kf) => typeof kf.time === 'number' && kf.time >= 0 && kf.time <= 1)) continue;
         // V3: 标记关键帧时间基——后端 normalize_keyframe_times 据此做确定性
         // 归一化（translate 单位 likewise：clip_local = 画幅比例）
         const meta = { ...(clip.metadata ?? {}), kf_time_base: 'clip_local' };

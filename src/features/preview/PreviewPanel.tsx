@@ -119,7 +119,8 @@ export function PreviewPanel() {
           try { el.playbackRate = clip.speed; } catch { /* not supported */ }
         }
           if (inClip && playing) {
-          if (Math.abs(el.currentTime - localT) > 0.25) { try { el.currentTime = localT; } catch { /* seek not available */ } }
+          // P1-33：校正阈值 0.25s→0.08s（约 2 帧@30fps）——缩短音画最大漂移
+          if (Math.abs(el.currentTime - localT) > 0.08) { try { el.currentTime = localT; } catch { /* seek not available */ } }
           if (el.paused) {
             mediaManager.attachAnalyser(clip.asset_id);
             el.play().catch(() => {});
@@ -414,9 +415,18 @@ export function PreviewPanel() {
     <div className="flex flex-col h-full bg-surface-dim">
       {/* Preview header */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-outline-variant/30 shrink-0">
-        <span className="text-label font-medium text-on-surface-variant uppercase tracking-wide">
-          节目监视器
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-label font-medium text-on-surface-variant uppercase tracking-wide">
+            节目监视器
+          </span>
+          {/* P1-32：明示预览近似性——MG 动画为占位、部分转场/滤镜为简化呈现 */}
+          <span
+            className="px-1.5 py-0.5 rounded-cw-full bg-surface-container-high border border-outline-variant/40 text-caption text-on-surface-variant cursor-help"
+            title="近似预览：MG/文字动画为占位示意，部分转场（叠化/滑动/擦除）与滤镜为简化呈现；最终效果以渲染成片为准。"
+          >
+            近似预览
+          </span>
+        </div>
         <div className="flex items-center gap-1">
           {/* preview zoom */}
           <Tooltip content="缩小预览">

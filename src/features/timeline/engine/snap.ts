@@ -39,6 +39,7 @@ export function collectSnapTargets(
   }
 
   for (const track of tracks) {
+    if (track.hidden) continue; // P1-37：隐藏轨不参与吸附
     for (const clip of track.clips) {
       if (excludeClipIds.has(clip.id)) continue;
       targets.add(clip.start_sec);
