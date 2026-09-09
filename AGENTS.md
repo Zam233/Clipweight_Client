@@ -10,6 +10,7 @@
 | API 参考 | [docs/api_reference.md](docs/api_reference.md) |
 | 开发指南 | [docs/development.md](docs/development.md) |
 | 修复与功能补全计划 | [docs/fix-and-feature-plan.md](docs/fix-and-feature-plan.md)（§10 执行进度） |
+| **全量缺陷审计与派工计划（2026-09-10）** | [docs/audit-fix-plan-2026-09-10.md](docs/audit-fix-plan-2026-09-10.md)（P0×5 / P1×37 / P2×54 / P3×15 + 待验证×11，含证据与验收标准） |
 | 前后端对账 | [docs/frontend-backend-parity.md](docs/frontend-backend-parity.md) |
 | 项目上下文 | [CLAUDE.md](CLAUDE.md) |
 

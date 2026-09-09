@@ -24,14 +24,20 @@ export const personaApi = {
     return personaFromBackend(data as Record<string, unknown>);
   },
 
+  /** P0-05: 取未经 UI 映射的原始 manifest（保存时用于保留后端专有字段） */
+  async getRaw(personaId: string): Promise<Record<string, unknown>> {
+    const { data } = await getApiClient().get(`/api/persona/${personaId}`);
+    return data as Record<string, unknown>;
+  },
+
   /** Create a new persona */
   async create(persona: Partial<Persona>) {
     const { data } = await getApiClient().post('/api/persona/create', persona);
     return data;
   },
 
-  /** Update a persona */
-  async update(personaId: string, updates: Partial<Persona>) {
+  /** Update a persona（P0-05: updates 为 buildUpdatePayload 产出的合并负载） */
+  async update(personaId: string, updates: Record<string, unknown>) {
     const { data } = await getApiClient().put(`/api/persona/${personaId}`, updates);
     return data;
   },

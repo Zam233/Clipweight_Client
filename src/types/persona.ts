@@ -153,6 +153,95 @@ export function personaFromBackend(raw: Record<string, unknown>): Persona {
   };
 }
 
+/**
+ * P0-05：构造「保留后端专有字段」的保存负载。
+ * PUT /api/persona/{id} 是全量替换语义，而 personaFromBackend 是单向子集映射——
+ * 直接把 UI 模型回传会把前端不认识的字段（identity.class_perspective、
+ * language.allowed_patterns、rhythm.cut_profile、visual.animation_styles、
+ * audio.subtitle_enabled、constraints.forbidden_topics/min_duration_sec、
+ * 多槽位 bgm_slots 等）静默重置为 schema 默认值。
+ * 以 GET 的原始 manifest 为基底，仅覆盖 UI 实际可编辑的映射字段；
+ * UI 值为 undefined 的键不写（JSON 序列化丢弃 → raw 原值保留）。
+ */
+export function buildUpdatePayload(
+  ui: Persona,
+  raw: Record<string, unknown>,
+): Record<string, unknown> {
+  const p = (raw.parameter ?? {}) as Record<string, any>;
+  const identity = (p.identity ?? {}) as Record<string, any>;
+  const language = (p.language ?? {}) as Record<string, any>;
+  const rhythm = (p.rhythm ?? {}) as Record<string, any>;
+  const visual = (p.visual ?? {}) as Record<string, any>;
+  const audio = (p.audio ?? {}) as Record<string, any>;
+  const constraints = (p.constraints ?? {}) as Record<string, any>;
+  const uiP = ui.parameter;
+
+  const nextIdentity: Record<string, unknown> = { ...identity };
+  nextIdentity.persona_name = ui.persona_name;
+  nextIdentity.tone = uiP.identity.tone;
+  nextIdentity.positioning = uiP.identity.positioning;
+  nextIdentity.knowledge_domains = uiP.identity.knowledge_domains;
+
+  const nextLanguage: Record<string, unknown> = { ...language };
+  if (uiP.language.max_sentence_length !== undefined)
+    nextLanguage.max_sentence_len = uiP.language.max_sentence_length;
+  if (uiP.language.academic_density !== undefined)
+    nextLanguage.academic_density = uiP.language.academic_density;
+  if (uiP.language.slang_ratio !== undefined)
+    nextLanguage.slang_ratio = uiP.language.slang_ratio;
+  if (uiP.language.forbidden_patterns !== undefined)
+    nextLanguage.forbidden_patterns = uiP.language.forbidden_patterns;
+
+  const nextRhythm: Record<string, unknown> = { ...rhythm };
+  if (uiP.rhythm.cut_density_tier !== undefined)
+    nextRhythm.cut_density_tier = uiP.rhythm.cut_density_tier;
+  if (uiP.rhythm.base_shot_duration_sec !== undefined)
+    nextRhythm.base_shot_duration_ms = Math.round(uiP.rhythm.base_shot_duration_sec * 1000);
+  if (uiP.rhythm.pause_frequency !== undefined)
+    nextRhythm.pause_frequency = uiP.rhythm.pause_frequency;
+
+  const nextVisual: Record<string, unknown> = { ...visual };
+  const pal = uiP.visual.color_palette;
+  if (pal?.primary !== undefined) nextVisual.primary_color = pal.primary;
+  if (pal?.accent !== undefined) nextVisual.accent_color = pal.accent;
+  if (pal?.background !== undefined) nextVisual.background_color = pal.background;
+  if (uiP.visual.animation_style !== undefined)
+    nextVisual.animation_style = uiP.visual.animation_style;
+  if (uiP.visual.transition_weights !== undefined)
+    nextVisual.transition_weights = uiP.visual.transition_weights;
+
+  const nextAudio: Record<string, unknown> = { ...audio };
+  if (uiP.audio.voice_clone_model_id !== undefined)
+    nextAudio.voice_model = uiP.audio.voice_clone_model_id;
+  if (uiP.audio.loudness_target_lufs !== undefined)
+    nextAudio.target_loudness_lufs = uiP.audio.loudness_target_lufs;
+  // bgm_slots 前端被拍平为一维数组，多槽位结构无法无损还原——不回写，保留 raw 原值
+
+  const nextConstraints: Record<string, unknown> = { ...constraints };
+  if (uiP.constraints.max_duration_sec !== undefined)
+    nextConstraints.max_duration_sec = uiP.constraints.max_duration_sec;
+  if (uiP.constraints.source_citation_required !== undefined)
+    nextConstraints.require_source_citation = uiP.constraints.source_citation_required;
+
+  return {
+    ...raw,
+    persona_id: ui.persona_id,
+    persona_name: ui.persona_name,
+    prompt: ui.prompt,
+    vision_prompt: ui.vision_prompt ?? raw.vision_prompt,
+    parameter: {
+      ...p,
+      persona_id: ui.persona_id,
+      identity: nextIdentity,
+      language: nextLanguage,
+      rhythm: nextRhythm,
+      visual: nextVisual,
+      audio: nextAudio,
+      constraints: nextConstraints,
+    },
+  };
+}
+
 /** Chat Forge state */
 export interface ChatForgeState {
   sessionId: string | null;

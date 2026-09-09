@@ -15,6 +15,8 @@ vi.mock('@/features/keyboard/useGlobalKeybindings', () => ({
 vi.mock('@/features/keyboard/ShortcutCheatSheet', () => ({ ShortcutCheatSheet: () => null }));
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ projectId: 'proj_test_1' }),
+  // P0-02 导航守卫：测试环境不实际拦截路由
+  useBlocker: () => ({ status: 'idle', proceed: vi.fn(), reset: vi.fn() }),
 }));
 vi.mock('@/services/media/mediaManager', () => ({
   mediaManager: { registerTimeline: vi.fn(), clear: vi.fn() },
@@ -175,6 +177,7 @@ function makeInput(textLen: number) {
   return {
     project_id: 'proj_test_1',
     name: '测试项目',
+    persona_id: 'persona_test_1',
     timeline: makeTimelineWithTextBytes(textLen),
   };
 }
@@ -188,7 +191,7 @@ describe('decideFlushPayload (F3 payload-size guard)', () => {
     expect(JSON.stringify(d.payload).length).toBeLessThan(FLUSH_PAYLOAD_LIMIT);
   });
 
-  it('large timeline (>48KB) → kind "metadata", compact payload <48KB with project id and no full tracks', () => {
+  it('large timeline (>48KB) → kind "metadata", compact payload without timeline key (P0-01)', () => {
     const input = makeInput(60 * 1024);
     expect(JSON.stringify(input).length).toBeGreaterThan(FLUSH_PAYLOAD_LIMIT);
     const d = decideFlushPayload(input);
@@ -196,15 +199,14 @@ describe('decideFlushPayload (F3 payload-size guard)', () => {
 
     const payload = d.payload as {
       project_id: string;
-      timeline: { track_count: number; clip_count: number; last_edit_at: string };
+      timeline?: unknown;
     };
     expect(payload.project_id).toBe('proj_test_1');
-    expect(payload.timeline).toBeDefined();
-    expect(payload.timeline.track_count).toBe(1);
-    expect(payload.timeline.clip_count).toBe(1);
-    expect(typeof payload.timeline.last_edit_at).toBe('string');
-    expect((d.payload as { timeline: unknown }).timeline).not.toHaveProperty('tracks');
-    expect((d.payload as { timeline: unknown }).timeline).not.toHaveProperty('width');
+    // P0-01：metadata 档绝不能带 timeline 键——后端 PUT 是整体覆盖语义，
+    // 发残缺 timeline 会顶掉磁盘上的完整时间线
+    expect(payload).not.toHaveProperty('timeline');
+    expect((d.payload as { name?: string }).name).toBe(input.name);
+    expect((d.payload as { persona_id?: string }).persona_id).toBe(input.persona_id);
 
     // 元数据本身必须远小于阈值，可被 keepalive 可靠发送
     expect(JSON.stringify(d.payload).length).toBeLessThan(FLUSH_PAYLOAD_LIMIT);

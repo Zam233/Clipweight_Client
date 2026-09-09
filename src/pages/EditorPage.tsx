@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from '@tanstack/react-router';
+import { useParams, useBlocker } from '@tanstack/react-router';
 import { EditorLayout } from '@/layouts/EditorLayout';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -248,6 +248,22 @@ export function EditorPage() {
     if (saveNonce > 0) void doSave();
   }, [saveNonce, doSave]);
 
+  // P0-02: SPA 导航守卫 —— 返回首页/导出/项目列表等路由离开前，先落盘未保存改动。
+  // （SPA 跳转不触发 pagehide，原先 5s 防抖窗口内的最后一次改动会静默丢失。）
+  const blocker = useBlocker({ shouldBlockFn: () => dirtyRef.current, withResolver: true });
+  useEffect(() => {
+    if (blocker.status !== 'blocked') return;
+    void (async () => {
+      await doSave();
+      const failed = useProjectStore.getState().saveError || dirtyRef.current;
+      if (failed && !window.confirm('当前有未保存的改动，确认仍要离开吗？')) {
+        blocker.reset();
+        return;
+      }
+      blocker.proceed();
+    })();
+  }, [blocker, doSave]);
+
   // Page-hide save flush — best-effort immediate save when leaving
   useEffect(() => {
     const flush = () => {
@@ -268,7 +284,8 @@ export function EditorPage() {
       // 而此处 pagehide 冲刷省略了 agent_state——卸载临界期避免序列化过大的 Agent 状态。
       // 本次修复不做改动，仅保留注释。
       if (decision.kind === 'metadata') {
-        toast('项目较大，正在保存元数据，请稍候关闭', 'info');
+        // P0-01：超限时不发 timeline（宁可不保存也不能写坏），只同步项目级字段
+        toast('项目较大，本次离开仅保存项目信息，时间线未保存。请回到编辑器手动保存（Ctrl+S）', 'info');
       }
       const payload = JSON.stringify(decision.payload);
       try {
