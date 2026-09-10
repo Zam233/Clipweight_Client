@@ -11,6 +11,8 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { toast } from '@/stores/toastStore';
 import { Button, Tooltip } from '@/components/ui';
 import { formatTimecode, uid } from '@/lib/utils';
+import { usePluginSlots } from '@/features/plugins/usePluginSlots';
+import { getApiClient } from '@/services/api';
 import type { Clip } from '@/types/timeline';
 import type { ClipKind } from '@/types/timeline';
 import { createEmptyTimeline } from '@/types/timeline';
@@ -35,6 +37,38 @@ export function extractImportError(err: unknown, actionLabel: string): string {
   if (status === 400) return `${actionLabel} — 格式错误：请检查文件内容后重试`;
   if (status === 422) return `${actionLabel} — 数据校验失败，请检查文件`;
   return `${actionLabel} — 后端不可达`;
+}
+
+/** D-3d：插件贡献的工具栏按钮（payload {icon,label,action}；受控 API 调用，无任意 JS）。 */
+function PluginToolbarButtons() {
+  const items = usePluginSlots('editor.toolbar');
+  if (items.length === 0) return null;
+  return (
+    <>
+      {items.map((c) => {
+        const action = (c.payload as { action?: { endpoint?: string; method?: string; body?: Record<string, unknown> } } | undefined)?.action;
+        if (!action?.endpoint) return null;
+        return (
+          <Button
+            key={c.id}
+            size="sm"
+            variant="outline"
+            title={c.title}
+            onClick={() => {
+              const method = String(action.method ?? 'POST').toUpperCase();
+              const client = getApiClient();
+              const req = method === 'GET'
+                ? client.get(action.endpoint!)
+                : client.request({ url: action.endpoint!, method, data: action.body ?? {} });
+              req.catch(() => toast(`插件操作失败：${c.title}`, 'error'));
+            }}
+          >
+            {c.title}
+          </Button>
+        );
+      })}
+    </>
+  );
 }
 
 export function EditorToolbar() {
@@ -705,6 +739,9 @@ export function EditorToolbar() {
             <Keyboard className="w-4 h-4" />
           </button>
         </Tooltip>
+
+        {/* D-3d：插件工具栏按钮（位于内核按钮之前） */}
+        <PluginToolbarButtons />
 
         {/* Save status indicator */}
         <SaveStatusIndicator />
