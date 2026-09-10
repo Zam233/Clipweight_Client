@@ -612,7 +612,11 @@ export function TimelinePanel() {
         )}
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 block"
+          // P2-24: 时间线画布此前无键盘可达性/语义——补 tabIndex/role/aria
+          tabIndex={0}
+          role="application"
+          aria-label="时间线画布：使用方向键微调选中片段，Delete 删除，Ctrl+Z 撤销；按 ? 查看全部快捷键"
+          className="absolute inset-0 block outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
           style={{ pointerEvents: 'auto' }}
         />
       </div>

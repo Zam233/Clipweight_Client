@@ -473,7 +473,10 @@ export function useGlobalKeybindings() {
         handler: duplicateClips },
       { id: 'select-all', combo: 'ctrl+a', label: '全选片段', category: '编辑',
         handler: selectAll },
+      // P2-18: Escape 加守卫——弹层打开时不抢占（让弹层自己处理关闭），
+      // 仅在有选中内容时吞掉事件（旧实现无 when，全局吞 Escape）
       { id: 'deselect', combo: 'escape', label: '取消选择', category: '编辑',
+        when: () => useSelectionStore.getState().selectedClipIds.length > 0,
         handler: deselectAll },
       { id: 'tool-select', combo: 'v', label: '选择工具 (V)', category: '工具',
         handler: toolSelect },

@@ -107,7 +107,15 @@ export function EditorToolbar() {
 
   // C7: 代理工作流（生成代理 / 切换代理·原片）
   const [proxyBusy, setProxyBusy] = useState(false);
-  const [proxyMode, setProxyMode] = useState<'full' | 'proxy'>('full');
+  // P2-42: 代理态持久化——旧实现每次挂载重置为 full（刷新后与实际素材不符）
+  const [proxyMode, setProxyMode] = useState<'full' | 'proxy'>(() => {
+    try {
+      const v = localStorage.getItem('clipwright_proxy_mode');
+      return v === 'proxy' ? 'proxy' : 'full';
+    } catch {
+      return 'full';
+    }
+  });
   const [proxyNotice, setProxyNotice] = useState<string | null>(null);
 
   const handleGenerateProxy = async () => {
@@ -150,6 +158,7 @@ export function EditorToolbar() {
       const nextTl = result as unknown as ReturnType<typeof createEmptyTimeline>;
       useTimelineStore.getState().setTimeline(nextTl);
       setProxyMode(next);
+      try { localStorage.setItem('clipwright_proxy_mode', next); } catch { /* ignore */ }
       // V6: setTimeline 内部已按 URL 变化全量重注册媒体（timelineStore 旋点），
       // 切换改写的素材路径由此获得新 URL，预览不再指向旧地址
       setProxyNotice(next === 'proxy' ? '已切换到代理素材（低分辨率）' : '已切回原始素材（全分辨率）');

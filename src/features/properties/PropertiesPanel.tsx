@@ -105,9 +105,11 @@ export function PropertiesPanel() {
 
   // Style edits cascade to every clip on the same caption layer (ONE history point);
   // text clips keep per-clip updateClip.
+  // P2-05: 单选时仅改当前片段（可单条覆盖）；多选时保持整轨级联
+  // （批量统一字幕样式的既有工作流零变化）。
   const applyStyle = (updates: Partial<Clip>) => {
     pushHistory();
-    if (trackKind === 'caption' && trackId) {
+    if (trackKind === 'caption' && trackId && selectedClipIds.length > 1) {
       updateTrackClips(trackId, updates);
     } else {
       set(updates);

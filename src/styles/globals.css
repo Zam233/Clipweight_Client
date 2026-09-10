@@ -275,3 +275,14 @@ body {
     var(--cw-primary) 3px,
     transparent 3px);
 }
+
+
+/* P2-24: 尊重系统「减弱动效」偏好——全局压缩动画时长 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
