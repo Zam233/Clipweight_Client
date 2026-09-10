@@ -147,6 +147,9 @@ export function HomePage() {
   const [voices, setVoices] = useState<VoiceRecord[]>([]);
   const [voicePick, setVoicePick] = useState('');
   const [autoDubPref, setAutoDubPref] = useState(true);
+  // P2-04: 踩点剪辑
+  const [cutOnBeat, setCutOnBeatState] = useState(false);
+  const [beatBpm, setBeatBpmState] = useState<number | null>(null);
 
   // 加载可用音色（后端离线时静默为空——下拉不渲染）；回填既有偏好
   useEffect(() => {
@@ -971,6 +974,32 @@ export function HomePage() {
                             <option key={v.id} value={v.voice_id}>{v.voice_name}（{v.provider}）</option>
                           ))}
                         </select>
+                      )}
+
+                      {/* P2-04: 踩点剪辑入口——开启后 EditAgent 按 BPM 卡点切镜 */}
+                      <label className="flex items-center gap-1.5 px-1 text-label-sm text-on-surface-variant cursor-pointer select-none"
+                        title="按音乐节拍卡点剪辑（需填写 BPM；留空则用后端检测值）">
+                        <input
+                          type="checkbox"
+                          checked={cutOnBeat}
+                          onChange={(e) => { setCutOnBeatState(e.target.checked); useProjectStore.getState().setCutOnBeat(e.target.checked); }}
+                          className="accent-primary cursor-pointer"
+                        />
+                        踩点剪辑
+                      </label>
+                      {cutOnBeat && (
+                        <input
+                          type="number" min={40} max={300} step={1}
+                          value={beatBpm ?? ''}
+                          placeholder="BPM"
+                          onChange={(e) => {
+                            const n = Number(e.target.value);
+                            const v = Number.isFinite(n) && n > 0 ? n : null;
+                            setBeatBpmState(v);
+                            useProjectStore.getState().setBeatBpm(v);
+                          }}
+                          className="w-16 px-2 py-1 rounded-cw-xs bg-surface border border-outline-variant/40 text-label-sm text-on-surface"
+                        />
                       )}
 
                       {mode === 'voiceover' && (

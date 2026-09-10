@@ -20,6 +20,8 @@ export interface TimelineDiff {
   isEmpty: boolean;
   /** Human-readable summary counts */
   summary: { added: number; removed: number; modified: number };
+  /** P2-01: 提案时间线本体（mergeTimeline 采纳轨道级/时间线级变更用） */
+  proposedTimeline?: Timeline;
 }
 
 /**
@@ -116,6 +118,8 @@ export function computeTimelineDiff(current: Timeline, proposed: Timeline): Time
       removed: removedClips.length,
       modified: modifiedClips.length,
     },
+    // P2-01: 携带提案本体（浅引用即可，merge 时只读级属性）
+    proposedTimeline: proposed,
   };
 }
 
@@ -131,6 +135,28 @@ export function mergeTimeline(
   removeIds: Set<string>,
 ): Timeline {
   const result: Timeline = structuredClone(current);
+
+  // P2-01: 轨道级/时间线级变更一并采纳——旧实现只处理 clip 增删改，
+  // Agent 的 markers/画幅/帧率与轨道属性（locked/muted/hidden/index）被忽略。
+  // 仅在本次确有采纳内容时应用（acceptIds 或 removeIds 非空）。
+  if (acceptIds.size > 0 || removeIds.size > 0) {
+    const prop = diff.proposedTimeline;
+    if (prop) {
+      if (Array.isArray(prop.markers)) result.markers = structuredClone(prop.markers);
+      if (typeof prop.width === 'number' && prop.width > 0) result.width = prop.width;
+      if (typeof prop.height === 'number' && prop.height > 0) result.height = prop.height;
+      if (typeof prop.fps === 'number' && prop.fps > 0) result.fps = prop.fps;
+      for (const pt of prop.tracks) {
+        const rt = result.tracks.find((t) => t.id === pt.id);
+        if (!rt) continue;
+        if (typeof pt.locked === 'boolean') rt.locked = pt.locked;
+        if (typeof pt.muted === 'boolean') rt.muted = pt.muted;
+        if (typeof pt.hidden === 'boolean') rt.hidden = pt.hidden;
+        if (typeof pt.index === 'number') rt.index = pt.index;
+        if (typeof pt.name === 'string' && pt.name) rt.name = pt.name;
+      }
+    }
+  }
 
   // Apply removals
   if (removeIds.size > 0) {

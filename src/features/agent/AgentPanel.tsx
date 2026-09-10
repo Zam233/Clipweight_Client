@@ -426,7 +426,11 @@ function RequirementsView() {
         st.personaId ?? 'default',
         st.pluginId ?? 'knowledge_longform',
         // P8: dry-run 预览模式 — 只生成粗剪时间线，跳过动画/音频/质检
-        { dry_run: st.dryRun },
+        // P2-04: 踩点剪辑透传（用户显式开关 + BPM；后端 extra_params 用户优先）
+        {
+          dry_run: st.dryRun,
+          ...(st.cutOnBeat && st.beatBpm ? { cut_on_beat: true, bpm: st.beatBpm } : {}),
+        },
         // 批B：携带当前项目——成品时间线自动保存回项目（否则 60s 后丢失）
         st.projectId ?? undefined,
       ) as { pipeline_id?: string };

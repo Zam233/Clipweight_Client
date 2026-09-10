@@ -136,7 +136,11 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
           st.personaId ?? 'default',
           st.pluginId ?? 'knowledge_longform',
           // P8: dry-run 预览模式；后端 /proceed 会补齐超时公式与 owner/预算校验
-          { dry_run: st.dryRun },
+          // P2-04: 踩点剪辑透传（用户开关 + BPM，extra_params 用户优先）
+          {
+            dry_run: st.dryRun,
+            ...(st.cutOnBeat && st.beatBpm ? { cut_on_beat: true, bpm: st.beatBpm } : {}),
+          },
           st.projectId ?? undefined,
         ) as { pipeline_id?: string };
         if (res.pipeline_id) {
