@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from '@tanstack/react-router';
+import { usePluginSlots } from '@/features/plugins/usePluginSlots';
 import { healthApi } from '@/services/api';
 import { cn } from '@/lib/utils';
 import {
@@ -23,6 +24,13 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
     return () => clearInterval(t);
   }, []);
 
+  // D-3a：插件贡献的管理导航项（nav.settings）追加在内核导航之后
+  const pluginNav = usePluginSlots('nav.settings');
+
+  const PLUGIN_NAV_ICONS: Record<string, typeof Puzzle> = {
+    Activity, Wrench, SlidersHorizontal, Puzzle, Sparkles, Type, Film, Captions,
+  };
+
   const NAV = [
     { to: '/settings/models', label: '模型测试', icon: Cpu, code: 'LLM' },
     { to: '/settings/backend-config', label: '后端配置', icon: SlidersHorizontal, code: 'CONF' },
@@ -38,6 +46,16 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
     { to: '/settings/fonts', label: '字体配置', icon: Type, code: 'FONT' },
     { to: '/settings/mg-preview', label: 'MG 预览', icon: Sparkles, code: 'MG' },
     { to: '/pipeline-admin', label: '管线监控', icon: Activity, code: 'PIPE' },
+    // 插件导航项：payload.to 为路径（D-3a 契约 {to,label,icon}）；
+    // icon 走白名单（slots.ts 校验），此处仅按名取已导入图标，未知则回退 Puzzle
+    ...pluginNav
+      .filter((c) => typeof (c.payload as { to?: unknown } | undefined)?.to === 'string')
+      .map((c) => ({
+        to: String((c.payload as { to: string }).to),
+        label: c.title,
+        icon: PLUGIN_NAV_ICONS[c.icon ?? ''] ?? Puzzle,
+        code: 'PLUGIN',
+      })),
   ];
 
   return (
