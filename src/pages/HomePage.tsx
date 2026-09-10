@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useProjectStore } from '@/stores/projectStore';
+import { usePluginSlots } from '@/features/plugins/usePluginSlots';
 import { clearRequirementsDraft } from '@/stores/agentStore';
 import { useBackendHealth } from './useBackendHealth';
 import {
@@ -1367,6 +1368,9 @@ function HomeSidebar({ activeTab, onTab, credit, user, onTopup, estimate }: {
   const authToken = useAuthStore((s) => s.accessToken);
   const authLogout = useAuthStore((s) => s.logout);
 
+  // D-3a：插件主导航项
+  const pluginNav = usePluginSlots('nav.primary');
+
   const NAV: { id: HomeTab; label: string; icon: typeof Home }[] = [
     { id: 'home', label: '首页', icon: Home },
     { id: 'types', label: '类型', icon: Shapes },
@@ -1446,6 +1450,23 @@ function HomeSidebar({ activeTab, onTab, credit, user, onTopup, estimate }: {
             {label}
           </button>
         ))}
+
+        {/* D-3a：插件贡献的主导航项（payload.to 路径跳转；无贡献零渲染） */}
+        {pluginNav.map((c) => {
+          const to = String((c.payload as { to?: unknown } | undefined)?.to ?? '');
+          if (!to) return null;
+          return (
+            <button
+              key={c.id}
+              onClick={() => navigate({ to })}
+              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-cw-sm text-label-sm font-medium
+                text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-all duration-short3 cursor-pointer"
+            >
+              <Puzzle className="w-4 h-4" />
+              {c.title}
+            </button>
+          );
+        })}
       </nav>
 
       {/* 底部：账号操作 + 其他入口 */}

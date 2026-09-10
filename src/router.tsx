@@ -25,6 +25,7 @@ const PersonaPage = lazyPage(() => import('./pages/PersonaPage'), 'PersonaPage')
 const PersonaDetailPage = lazyPage(() => import('./pages/PersonaDetailPage'), 'PersonaDetailPage');
 const PersonaForgePage = lazyPage(() => import('./pages/PersonaForgePage'), 'PersonaForgePage');
 const HelpPage = lazyPage(() => import('./pages/HelpPage'), 'HelpPage');
+const PluginPage = lazyPage(() => import('./pages/PluginPage'), 'PluginPage');
 const ModelsPage = lazyPage(() => import('./pages/admin/ModelsPage'), 'ModelsPage');
 const ToolsPage = lazyPage(() => import('./pages/admin/ToolsPage'), 'ToolsPage');
 const PluginsPage = lazyPage(() => import('./pages/admin/PluginsPage'), 'PluginsPage');
@@ -172,6 +173,14 @@ const helpRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/help',
   component: HelpPage,
+  errorComponent: RouteErrorFallback,
+});
+
+// D-3b：插件页面统一壳（/plugin/$pageId；贡献未提供时壳内给出提示）
+const pluginPageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/plugin/$pageId',
+  component: PluginPage,
   errorComponent: RouteErrorFallback,
 });
 
@@ -325,6 +334,7 @@ const routeTree = rootRoute.addChildren([
   personaDetailRoute,
   personaForgeRoute,
   helpRoute,
+  pluginPageRoute,
   modelsRoute,
   backendConfigRoute,
   toolsRoute,

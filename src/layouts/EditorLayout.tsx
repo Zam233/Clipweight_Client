@@ -59,6 +59,8 @@ export function EditorLayout() {
   const mobilePanel = useWorkspaceStore((s) => s.mobilePanel);
   // D-3c：编辑区右栏插件面板（无贡献时整列不渲染，零布局影响）
   const rightPanelContribs = usePluginSlots('editor.right-panel');
+  const leftPanelContribs = usePluginSlots('editor.left-panel');
+  const bottomPanelContribs = usePluginSlots('editor.bottom-panel');
   const setMobilePanel = useWorkspaceStore((s) => s.setMobilePanel);
   const reviewMode = useAgentStore((s) => s.reviewMode);
   const setReviewMode = useAgentStore((s) => s.setReviewMode);
@@ -199,6 +201,18 @@ export function EditorLayout() {
           </>
         )}
 
+        {/* D-3c：插件左栏面板（无贡献时整列不渲染） */}
+        {leftPanelContribs.length > 0 && isDesktop && (
+          <div
+            className="h-full overflow-hidden shrink-0 border-r border-outline-variant/20"
+            style={{ width: panelWidths.assets }}
+          >
+            <div className="h-full overflow-y-auto p-3 space-y-3">
+              <Slot name="editor.left-panel" context={{ hasTimeline: true }} />
+            </div>
+          </div>
+        )}
+
         {/* Center: Preview + Timeline */}
         <div className="flex flex-col flex-1 overflow-hidden min-w-0">
           {/* Preview */}
@@ -212,6 +226,13 @@ export function EditorLayout() {
             onMouseDown={(e) => handleDividerMouseDown('timeline', e)}
             onPointerDown={(e) => handleDividerPointerDown('timeline', e)}
           />
+
+          {/* D-3c：插件下栏（时间线上方的横向条；无贡献零渲染） */}
+          {bottomPanelContribs.length > 0 && isDesktop && (
+            <div className="shrink-0 max-h-[200px] overflow-y-auto border-t border-outline-variant/20 px-3 py-2">
+              <Slot name="editor.bottom-panel" context={{ hasTimeline: true }} />
+            </div>
+          )}
 
           {/* Timeline */}
           <div

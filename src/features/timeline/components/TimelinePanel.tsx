@@ -15,18 +15,29 @@ import { HEADER_W } from '../engine/types';
 import {
   Magnet, Plus, ZoomIn, ZoomOut, Maximize2, Trash2, Scissors, ChevronsLeft,
   Layers, Lock, LockOpen, Volume2, VolumeX, ArrowUp, ArrowDown, X, Flag, FlagOff,
-  Grid3x3, Eye, EyeOff, Settings, History as HistoryIcon, RotateCcw,
-} from 'lucide-react';
+  Grid3x3, Eye, EyeOff, Settings, History as HistoryIcon, RotateCcw, Zap } from 'lucide-react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { versionApi } from '@/services/api/project';
 import type { TimelineVersionEntry } from '@/services/api/project';
 import { mediaManager } from '@/services/media/mediaManager';
 import { toast } from '@/stores/toastStore';
+import { usePluginSlots } from '@/features/plugins/usePluginSlots';
+import { getApiClient } from '@/services/api';
 
 /**
  * TimelinePanel — hosts the Canvas timeline engine plus transport/track controls.
  */
+/** D-3：插件槽位动作执行器（受控 API 调用，无任意 JS；失败 toast）。 */
+function runSlotAction(label: string, action: { endpoint: string; method?: string; body?: Record<string, unknown> }) {
+  const method = String(action.method ?? 'POST').toUpperCase();
+  const client = getApiClient();
+  const req = method === 'GET'
+    ? client.get(action.endpoint)
+    : client.request({ url: action.endpoint, method, data: action.body ?? {} });
+  req.catch(() => toast(`插件操作失败：${label}`, 'error'));
+}
+
 export function TimelinePanel() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<TimelineEngine | null>(null);
@@ -296,7 +307,22 @@ export function TimelinePanel() {
   };
 
   // 轮 89（批次 10）：右键菜单项（复用工具栏既有动作）
+  // D-3e/f：插件时间轴工具与右键菜单项（受控 API 调用）
+  const pluginTools = usePluginSlots('timeline.tool');
+  const pluginMenuItems = usePluginSlots('timeline.context-menu');
+
   const buildContextMenuItems = (): TimelineContextMenuItem[] => [
+    ...pluginMenuItems.map((c) => {
+      const action = (c.payload as { action?: { endpoint?: string; method?: string; body?: Record<string, unknown> } } | undefined)?.action;
+      const shortcut = (c.payload as { shortcut?: string } | undefined)?.shortcut;
+      return {
+        label: c.title,
+        shortcut,
+        danger: Boolean((c.payload as { danger?: boolean } | undefined)?.danger),
+        disabled: !action?.endpoint,
+        onSelect: () => { if (action?.endpoint) runSlotAction(c.title, { ...action, endpoint: action.endpoint }); },
+      } as TimelineContextMenuItem;
+    }),
     {
       label: '在播放头处切分',
       shortcut: 'S',
@@ -354,6 +380,21 @@ export function TimelinePanel() {
               <Scissors className="w-3.5 h-3.5" />
             </button>
           </Tooltip>
+          {/* D-3e：插件时间轴工具（受控 API 调用，无任意 JS） */}
+          {pluginTools.map((c) => {
+            const action = (c.payload as { action?: { endpoint?: string; method?: string; body?: Record<string, unknown> } } | undefined)?.action;
+            if (!action?.endpoint) return null;
+            return (
+              <Tooltip key={c.id} content={c.title}>
+                <button
+                  onClick={() => runSlotAction(c.title, { ...action, endpoint: action.endpoint! })}
+                  className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                </button>
+              </Tooltip>
+            );
+          })}
           <Tooltip content="范围选择 (R)">
             <button
               onClick={() => setToolMode('range')}
