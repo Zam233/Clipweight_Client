@@ -253,10 +253,25 @@ export function ProjectsPage() {
 
   const handleCreateFolder = () => {
     const name = newFolderName.trim();
-    if (name) {
-      setSelectedFolder(name);
-      setNewFolderName('');
-      setNewFolderPrompt(false);
+    if (!name) return;
+    // P2-27: 文件夹由项目归属派生（后端无独立建夹端点）——创建后明确
+    // 告知归入方式，避免"新建了却找不到"（旧实现只切本地过滤视图、零落库）
+    setSelectedFolder(name);
+    setNewFolderName('');
+    setNewFolderPrompt(false);
+    const firstUnfiled = projects.find((p) => (p.folder ?? '') !== name);
+    if (firstUnfiled) {
+      void (async () => {
+        try {
+          await projectApi.setFolder(firstUnfiled.id, name);
+          await loadProjects();
+          toast(`文件夹「${name}」已创建（已将「${firstUnfiled.name}」归入；可继续拖入其它项目）`, 'success');
+        } catch {
+          toast(`文件夹「${name}」已选中——将项目拖入后即长期存在`, 'info');
+        }
+      })();
+    } else {
+      toast(`文件夹「${name}」已选中——将项目拖入后即长期存在`, 'info');
     }
   };
 

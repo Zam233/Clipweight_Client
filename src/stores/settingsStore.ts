@@ -80,6 +80,10 @@ function loadConnectionPrefs() {
 }
 
 const prefs = loadEditorPrefs();
+// P2-02: 三个死设置接线——读取端补齐默认帧率/分辨率/自动保存偏好
+const rawFps = (prefs as Record<string, unknown>).defaultFps;
+const rawRes = (prefs as Record<string, unknown>).defaultResolution as { width?: number; height?: number } | undefined;
+const rawAutoSave = (prefs as Record<string, unknown>).autoSave;
 const connPrefs = loadConnectionPrefs();
 // 轮 89：演示回退开关持久化在 editorPrefs
 const rawAllowDemoFallback = loadPref<Record<string, unknown>>('editorPrefs', {}).allowDemoFallback;
@@ -91,7 +95,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   theme: prefs.theme,
   language: 'zh',
   authToken: null,
-  autoSave: true,
+  autoSave: typeof rawAutoSave === 'boolean' ? rawAutoSave : true,
   autoSaveIntervalSec: 30,
   maxUndoHistory: 200,
   snapEnabled: prefs.snapEnabled,
@@ -100,8 +104,11 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   snapGridSec: prefs.snapGridSec,
   cheatSheetOpen: false,
   showFramesInRuler: prefs.showFramesInRuler,
-  defaultFps: 30,
-  defaultResolution: { width: 1920, height: 1080 },
+  defaultFps: typeof rawFps === 'number' && rawFps > 0 ? rawFps : 30,
+  defaultResolution: {
+    width: typeof rawRes?.width === 'number' ? rawRes.width : 1920,
+    height: typeof rawRes?.height === 'number' ? rawRes.height : 1080,
+  },
   // 轮 89：演示回退默认关闭——生产环境后端不可达时应显示错误而非假数据
   allowDemoFallback: typeof rawAllowDemoFallback === 'boolean' ? rawAllowDemoFallback : false,
 
@@ -115,15 +122,15 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   setLanguage: (lang) => set({ language: lang }),
   // token 仅驻留内存，不持久化（审计 P0 修复）
   setAuthToken: (token) => { set({ authToken: token }); },
-  setAutoSave: (enabled) => set({ autoSave: enabled }),
+  setAutoSave: (enabled) => { set({ autoSave: enabled }); persistEditorPrefs(); },
   setSnapEnabled: (enabled) => { set({ snapEnabled: enabled }); persistEditorPrefs(); },
   setSnapThreshold: (px) => { set({ snapThresholdPx: px }); persistEditorPrefs(); },
   setSnapToGrid: (enabled) => { set({ snapToGrid: enabled }); persistEditorPrefs(); },
   setSnapGridSec: (sec) => { set({ snapGridSec: sec }); persistEditorPrefs(); },
   setCheatSheetOpen: (open) => set({ cheatSheetOpen: open }),
   setShowFramesInRuler: (v) => { set({ showFramesInRuler: v }); persistEditorPrefs(); },
-  setDefaultFps: (fps) => set({ defaultFps: fps }),
-  setDefaultResolution: (res) => set({ defaultResolution: res }),
+  setDefaultFps: (fps) => { set({ defaultFps: fps }); persistEditorPrefs(); },
+  setDefaultResolution: (res) => { set({ defaultResolution: res }); persistEditorPrefs(); },
   setAllowDemoFallback: (v) => { set({ allowDemoFallback: v }); persistEditorPrefs(); },
 }));
 
@@ -137,6 +144,10 @@ function persistEditorPrefs() {
     showFramesInRuler: s.showFramesInRuler,
     theme: s.theme,
     allowDemoFallback: s.allowDemoFallback,
+    // P2-02: 默认帧率/分辨率/自动保存持久化（原死设置）
+    defaultFps: s.defaultFps,
+    defaultResolution: s.defaultResolution,
+    autoSave: s.autoSave,
   });
 }
 

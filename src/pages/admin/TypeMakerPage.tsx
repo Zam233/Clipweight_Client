@@ -245,7 +245,10 @@ function TypeCard({
           </span>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-short3">
             <IconBtn title="预览" onClick={onPreview}><Eye className="w-3.5 h-3.5" /></IconBtn>
-            <IconBtn title="编辑" onClick={onEdit}><Pencil className="w-3.5 h-3.5" /></IconBtn>
+            {/* P2-26: 内置类型不可编辑（后端 404）——隐藏编辑入口，改由「复制」派生 */}
+            {!type.builtin && (
+              <IconBtn title="编辑" onClick={onEdit}><Pencil className="w-3.5 h-3.5" /></IconBtn>
+            )}
             <IconBtn title="复制" onClick={onDuplicate}><Copy className="w-3.5 h-3.5" /></IconBtn>
             {!type.builtin && (
               <IconBtn title="删除" onClick={onRemove} danger><Trash2 className="w-3.5 h-3.5" /></IconBtn>

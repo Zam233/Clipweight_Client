@@ -129,9 +129,18 @@ export function EditorPage() {
         useProjectStore.getState().setProjectName(project.name);
         if (project.persona_id) useProjectStore.getState().setPersonaId(project.persona_id);
         if (project.plugin_id) useProjectStore.getState().setPluginId(project.plugin_id);
-        useTimelineStore.getState().setTimeline(project.timeline ?? createEmptyTimeline());
+        // P2-02: 空时间线应用设置中的默认帧率/分辨率（原硬编 1920x1080@30）
+        const _emptyTl = () => {
+          const st = useSettingsStore.getState();
+          const tl = createEmptyTimeline();
+          tl.fps = st.defaultFps;
+          tl.width = st.defaultResolution.width;
+          tl.height = st.defaultResolution.height;
+          return tl;
+        };
+        useTimelineStore.getState().setTimeline(project.timeline ?? _emptyTl());
         // 注册项目时间线中的真实媒体（video/audio/image），供预览真实渲染
-        mediaManager.registerTimeline(project.timeline ?? createEmptyTimeline());
+        mediaManager.registerTimeline(project.timeline ?? _emptyTl());
         // Restore requirements data so AgentPanel auto-start can consume it
         if (pendingTopic) {
           const pending = pendingReqRef.current!;
@@ -239,6 +248,8 @@ export function EditorPage() {
     const unsub = useTimelineStore.subscribe((state, prev) => {
       if (state.timeline === prev.timeline) return;
       dirtyRef.current = true;
+      // P2-02: 自动保存开关（设置页可关；关闭时仅依赖手动保存/离开冲刷）
+      if (!useSettingsStore.getState().autoSave) return;
       const st = useProjectStore.getState();
       if (!st.projectId) return;
       if (serverSaveTimer.current) clearTimeout(serverSaveTimer.current);

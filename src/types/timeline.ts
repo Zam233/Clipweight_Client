@@ -136,6 +136,8 @@ export interface Track {
   muted: boolean;
   /** M7: 隐藏轨道（时间轴与预览均跳过渲染） */
   hidden?: boolean;
+  /** P2-03: 轨道级元数据（后端 sfx 标记等） */
+  metadata?: Record<string, unknown>;
 }
 
 /** Complete timeline — unified format for Agent output and editor */
@@ -148,6 +150,8 @@ export interface Timeline {
   tracks: Track[];
   /** M8: 时间轴标记（持久化 + 命名） */
   markers?: TimelineMarker[];
+  /** P2-03: 时间线级元数据（后端消费：loudnorm 响度开关 / soft_subtitle 等） */
+  metadata?: Record<string, unknown>;
 }
 
 /** M8: 时间轴标记 */

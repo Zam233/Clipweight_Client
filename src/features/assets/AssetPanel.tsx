@@ -107,19 +107,26 @@ export function AssetPanel() {
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setLoading(true);
-    try {
-      for (const file of Array.from(files)) {
+    // P2-22: 逐文件独立失败域——旧实现整批一个 try，第 N 个失败会把已成功
+    // 上传的文件再降级成一份本地演示素材（重复素材 + 假数据混入）
+    const fallbackFiles: File[] = [];
+    for (const file of Array.from(files)) {
+      try {
         const pid = useProjectStore.getState().projectId;
         const res = await assetApi.upload(file, setUploadProgress, pid ?? undefined);
         // Register uploaded file with MediaManager for local preview/thumbnails
         const assetId = res.id || res.asset_id || uid('asset');
         mediaManager.registerFile(assetId, file);
+      } catch {
+        fallbackFiles.push(file);
       }
+    }
+    try {
       await loadAssets();
-    } catch {
-      // W5: 离线/失败 → 本地演示素材（明确标记为演示数据，不静默伪装成后端素材）
+    } catch { /* 列表刷新失败不影响已上传 */ }
+    if (fallbackFiles.length > 0) {
       setDemoMode(true);
-      const newAssets: Asset[] = Array.from(files).map((f) => {
+      const newAssets: Asset[] = fallbackFiles.map((f) => {
         const id = uid('asset');
         const kind = normalizeClipKind(f.type.startsWith('video') ? 'video' : f.type.startsWith('audio') ? 'audio' : 'image') as Asset['kind'];
         // Register real media so preview/thumbnails/waveforms work
@@ -134,11 +141,10 @@ export function AssetPanel() {
         };
       });
       setAssets([...newAssets, ...useAssetStore.getState().assets]);
-      toast('后端不可达 — 已添加本地演示素材（不持久化）', 'info');
-    } finally {
-      setLoading(false);
-      setUploadProgress(null);
+      toast(`${fallbackFiles.length} 个文件上传失败 — 已添加本地演示素材（不持久化）`, 'info');
     }
+    setLoading(false);
+    setUploadProgress(null);
   };
 
   const addToTimeline = (asset: Asset, opts?: { ripple?: boolean }) => {
