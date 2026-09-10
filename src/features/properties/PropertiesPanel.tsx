@@ -14,6 +14,7 @@ import {
 import { animationApi, personaApi } from '@/services/api';
 import { shouldPush } from './historyCoalesce';
 import { sectionsForKind } from './sectionsForKind';
+import { Slot } from '@/features/plugins/Slot';
 import { useProjectStore } from '@/stores/projectStore';
 import {
   extractCopyableAttributes, filterFieldsForKind,
@@ -526,6 +527,17 @@ export function PropertiesPanel() {
 
             {/* Keyframes */}
             <KeyframeEditor clip={clip} />
+
+            {/* D-3g：插件贡献的属性分区（payload.kinds 按片段类型过滤） */}
+            <Slot
+              name="props.section"
+              context={{ clipKind: trackKind, hasSelection: true }}
+              filter={(c) => {
+                const kinds = (c.payload as { kinds?: unknown } | undefined)?.kinds;
+                if (!Array.isArray(kinds) || kinds.length === 0) return true;
+                return kinds.map(String).includes(String(trackKind));
+              }}
+            />
           </div>
         )}
       </div>

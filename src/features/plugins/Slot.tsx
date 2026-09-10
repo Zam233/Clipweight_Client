@@ -17,11 +17,15 @@ interface SlotProps {
   fallback?: ReactNode;
   /** 面板类贡献的自定义渲染器（D-3 逐点接入）；缺省用 PluginLayoutRenderer。 */
   renderLayout?: (layout: NonNullable<ReturnType<typeof usePluginSlots>[number]['layout']>, title: string) => ReactNode;
+  /** D-3g 等按宿主上下文过滤（如 props.section 的 payload.kinds）；缺省全通过。 */
+  filter?: (contribution: import('./slots').SlotContribution) => boolean;
 }
 
-export function Slot({ name, context = {}, fallback = null, renderLayout }: SlotProps) {
+export function Slot({ name, context = {}, fallback = null, renderLayout, filter }: SlotProps) {
   const items = usePluginSlots(name);
-  const visible = items.filter((c) => evalVisibleWhen(c.visibleWhen, context));
+  const visible = items
+    .filter((c) => (filter ? filter(c) : true))
+    .filter((c) => evalVisibleWhen(c.visibleWhen, context));
   if (visible.length === 0) return <>{fallback}</>;
 
   return (

@@ -15,6 +15,7 @@ import { projectApi, requirementsApi, getApiClient } from '@/services/api';
 import { session } from '@/services/api/session';
 import { mediaManager } from '@/services/media/mediaManager';
 import { useGlobalKeybindings } from '@/features/keyboard/useGlobalKeybindings';
+import { usePluginShortcuts } from '@/features/plugins/usePluginShortcuts';
 import { keybindingEngine } from '@/features/keyboard/KeybindingEngine';
 import { ShortcutCheatSheet } from '@/features/keyboard/ShortcutCheatSheet';
 import { useRequirementsAutoStart } from '@/features/agent/useRequirementsAutoStart';
@@ -33,6 +34,8 @@ export function EditorPage() {
   // P2-38: 供 agentStore 草稿归属校验读取当前项目 id
   (globalThis as { __cw_getProjectId?: () => string }).__cw_getProjectId = () => projectId;
   const { cheatSheetOpen, setCheatSheetOpen } = useGlobalKeybindings();
+  // D-3j：插件贡献的快捷键（挂载注册/卸载注销）
+  usePluginShortcuts();
   // P2-19: 快捷键速查表打开时视为模态——单键快捷键不触发
   useEffect(() => {
     keybindingEngine.setModalOpen(cheatSheetOpen);
