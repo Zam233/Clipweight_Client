@@ -945,3 +945,39 @@ def _construct_client(provider: str, api_key, base_url, model: str,
 - **M2 范围略增**：除原先的「门面 + 双轨」外，还要把 MaterialSource / StyleInterpreter 纳入门面管辖，并给 StyleInterpreter 补注销路径（13.4 缺陷 1）。
 - **M4 增加 B-1a**：先合并两处客户端构建并跑行为快照（13.3 修正 3），再协议化。
 - 总估时不变（约 10.5 周单人 / 6.5 周双人并行）——新增内容可用「A-1 复用影子表」省下的时间抵消。
+
+---
+
+## 14. 执行进度（滚动更新）
+
+> 开工日期：2026-09-10（承接审计计划收官后）。每批完成后追加记录。
+
+### M1 · 契约冻结 —— ✅ 完成
+
+- **后端**：贡献契约（Contribution 值对象 + 14 类 kind + ContributionRegistry 门面，含声明白名单）与 Provider 四协议（LLM/TTS/STT/RendererBackend，含 `cancel_token`）已冻结；契约测试 13 条。
+- **前端**：Slot 契约（13 个 SlotName + 图标白名单 + `visibleWhen` 受限求值器，无 eval）已冻结；契约测试 5 条。
+
+### M2 · 门面落地 + 双轨 —— ✅ 完成（加载器零改动方案）
+
+- **A-1**：分发适配器把 8 类 A 收敛 kind 转调现有注册表；B/D 类 kind 为 facade-only（门面即其注册表，消费方在各自里程碑解析）。转调往返测试 3 条。
+- **A-2/A-4**：`BasePlugin` 双轨桥接——`contributions()` 非空走门面注册（短路 initialize），为空走旧轨 + 一次性迁移提示；shutdown 尾部门面回收，覆盖原 teardown 清单遗漏的 MaterialSource / StyleInterpreter（§13.4 缺陷 1）。**加载器文件受外部安全扫描器阻断，桥接层承载 A-4 等价语义——与原方案的唯一偏离，已在代码注释说明。** 双轨测试 3 条。
+- **A-3**：manifest 增 `api_version` / `contributions` / `override_builtin`；未声明 id 注册被拒并进错误通道。
+- **A-6**：`GET /api/plugin/contributions?kind=&slot=&owner=`（D-1 的关键数据源）。
+- **§13.4 缺陷 1**：StyleInterpreter 补 owner 归属 + `unregister_plugin`（单槽语义显式化，不同 owner 第二次注册被拒）。
+- ⏸ **遗留**：`sys.path` 收敛仍待人工（加载器文件级阻断未解除，与审计 P1-14 同源）。
+- 回归：后端全量 **1584 passed**。
+
+### M6 基础（D-1 数据面 + D-2 渲染壳）—— ◐ 部分完成
+
+- **D-1 端点** ✅（A-6 已交付）；`/ui` 旧格式兼容层 ⏸ 待做。
+- **D-2** ✅：`usePluginSlots`（30s 缓存/在途去重/启停失效/非法 slot 丢弃）+ `Slot` 通用壳（visibleWhen 过滤 + 复用既有 PluginLayoutRenderer）；测试 4 条。
+- **D-3 逐点迁移** ⏸（10 个宿主接入点）。
+- 回归：前端 **450 passed** + tsc 0 + build。
+
+### 待办队列（下一批）
+
+1. **M3** 内置贡献声明式注册（44 Tool / 4 Skill / 7 Agent / 4 Category 换注册入口 + 条目数断言）
+2. **M4** B-1a 客户端构建合并（`services/llm.py` 两处 → 单一构造点）+ 行为快照 → provider 协议化
+3. **M5** TTS/STT/RendererBackend（`_get_provider` 换门面解析；两个渲染 backend adapter + 取消语义）
+4. **M7** D-3 逐点迁移（建议从 `settings.section` / `editor.right-panel` 起步）
+5. **人工项**：加载器的 sys.path 收敛
