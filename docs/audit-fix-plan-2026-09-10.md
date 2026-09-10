@@ -843,6 +843,23 @@ P2-06 堆叠方向与 ASS 同向（向上）｜ P2-09 API 地址哨兵语义 ｜
 | 待验证 ✅ | 「最近编辑」排序证实属实→时间戳降序；附件 accept 证实属实→补齐图片/.srt；「结构 Agent 无校验」部分不成立（`_validate_scenes` 已过滤，无数量上限留产品决策） |
 | 回归 | 后端子集 edl/error_bus/plugin/skill 110 passed；前端 440 passed / tsc 0 / build ✅ |
 
+### 批次 6 终批（后端 `012dd13`，前端 `1fcf18b`）
+
+| 项 | 摘要 |
+|---|---|
+| P2-35 ✅ | 共享动画轨窗口冲突去重（logic/MG/LLM-MG 三处 append 前检查） |
+| P3-11 ✅ | dry-run 走 `_merge_agent_result`（控制键排除、timeline 总线优先、回退链保留） |
+| P3-12 ✅ | `_build_input` 异常归因到当前 agent |
+| P3-13 ✅ | 幂等统一：`services/idempotency.py` 共享存储（run-async 与 proceed 共键空间） |
+| P3-15 ✅ | persona `visual.transition_weights` 接线（原死键） |
+| P3-03 ✅ | 乱码修复：agent-pipeline-audit.md 逆链还原（~94%）；Design-Plan 5 行局行还原 |
+| P3-06 ◐ | HomePage 6 处静默 catch 加 console.warn（抽样；同类 50+ 处余量在剩余清单） |
+| P2-38 ✅ | 需求草稿按项目归属校验（跨项目泄漏修复） |
+| P2-43 ✅ | JSON 导入校验 tracks + 片段统计确认框 |
+| P2-45 ✅ | 窄屏只读停用编辑类快捷键（引擎只读门） |
+| P2-19 ◐ | 速查表模态门接入（引擎 modalDepth 就绪；其余弹层按需接入） |
+| 回归 | 后端 1565 passed / 0 失败；前端 440 passed / tsc 0 / build ✅ |
+
 ### 剩余清单
 
 - **待人工（工具阻断）**：加载器文件的 sys.path 收敛（P1-14）、依赖启用状态校验（P2-54）——扫描器对该文件误报拦截一切写入
