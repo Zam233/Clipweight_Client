@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from '@tanstack/react-router';
+import { Slot } from '@/features/plugins/Slot';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { healthApi, assetApi, resetApiClient } from '@/services/api';
@@ -86,6 +87,8 @@ export function SettingsPage() {
   return (
     <StandardLayout title="全局设置">
       <div className="max-w-2xl mx-auto space-y-6">
+        {/* D-3i: 插件贡献的设置分区（含旧 ui.json 经后端兼容层包装的 legacy 项） */}
+        <Slot name="settings.section" />
         {/* API connection */}
         <Card icon={<Server className="w-4 h-4" />} title="后端连接">
           <Field label="API 地址">
