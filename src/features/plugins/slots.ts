@@ -79,6 +79,8 @@ export interface SlotContribution {
   slot: SlotName;
   id: string;
   title: string;
+  /** 贡献类型（后端 /contributions 返回；ui_slot / export_preset / …） */
+  kind?: string;
   /** 默认 100；内核元素用 <100（单一排序来源）。 */
   order?: number;
   /** lucide 图标名，白名单校验。 */

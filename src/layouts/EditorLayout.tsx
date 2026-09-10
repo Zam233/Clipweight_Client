@@ -4,6 +4,8 @@ import { cn } from '@/lib/utils';
 import { Tooltip } from '@/components/ui';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { Slot } from '@/features/plugins/Slot';
+import { usePluginSlots } from '@/features/plugins/usePluginSlots';
 import { keybindingEngine } from '@/features/keyboard/KeybindingEngine';
 import { AssetPanel } from '@/features/assets/AssetPanel';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
@@ -55,6 +57,8 @@ export function EditorLayout() {
     return () => keybindingEngine.setReadOnly(false);
   }, [isNarrow]);
   const mobilePanel = useWorkspaceStore((s) => s.mobilePanel);
+  // D-3c：编辑区右栏插件面板（无贡献时整列不渲染，零布局影响）
+  const rightPanelContribs = usePluginSlots('editor.right-panel');
   const setMobilePanel = useWorkspaceStore((s) => s.setMobilePanel);
   const reviewMode = useAgentStore((s) => s.reviewMode);
   const setReviewMode = useAgentStore((s) => s.setReviewMode);
@@ -242,6 +246,20 @@ export function EditorLayout() {
               style={{ width: panelWidths.properties }}
             >
               <PropertiesPanel />
+            </div>
+          </>
+        )}
+
+        {rightPanelContribs.length > 0 && isDesktop && (
+          <>
+            <div className="panel-divider shrink-0" />
+            <div
+              className="h-full overflow-hidden shrink-0 flex flex-col"
+              style={{ width: panelWidths.agent }}
+            >
+              <div className="h-full overflow-y-auto p-3 space-y-3">
+                <Slot name="editor.right-panel" context={{ hasTimeline: true }} />
+              </div>
             </div>
           </>
         )}
