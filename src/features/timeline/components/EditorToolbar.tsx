@@ -391,7 +391,15 @@ export function EditorToolbar() {
       try {
         const text = await file.text();
         const data = JSON.parse(text);
-        if (!data.tracks || !Array.isArray(data.tracks)) return;
+        // P2-43: 校验必需字段并确认后替换——旧实现静默整体替换（坏文件
+        // 也能覆盖当前时间线，且无任何提示）
+        if (!data || typeof data !== 'object' || !Array.isArray(data.tracks)) {
+          toast('JSON 导入失败 — 缺少 tracks 数组（不是 ClipWright 时间线文件？）', 'error');
+          return;
+        }
+        const clipCount = data.tracks.reduce(
+          (n: number, t: { clips?: unknown[] }) => n + (Array.isArray(t?.clips) ? t.clips.length : 0), 0);
+        if (!window.confirm(`将用导入文件替换当前时间线（${data.tracks.length} 轨 / ${clipCount} 片段）？此操作可撤销。`)) return;
         const store = useTimelineStore.getState();
         useHistoryStore.getState().pushState(store.timeline, 'import-json');
         store.setTimeline(data);

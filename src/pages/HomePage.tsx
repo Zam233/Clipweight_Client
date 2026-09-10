@@ -156,7 +156,10 @@ export function HomePage() {
       const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
       if (prefs.voiceId) setVoicePick(String(prefs.voiceId));
       if (typeof prefs.autoDub === 'boolean') setAutoDubPref(prefs.autoDub);
-    } catch { /* ignore */ }
+    } catch (e) {
+      // P3-06: 留痕（本地偏好读取失败不影响主流程）
+      console.warn('[HomePage] 本地偏好读取失败:', e);
+    }
     return () => { alive = false; };
   }, []);
   const [audio, setAudio] = useState<DubAudio | null>(null);
@@ -189,7 +192,10 @@ export function HomePage() {
       try {
         const res = await pipelineApi.predictScript(script.trim());
         if (res && typeof res === 'object') setPrediction(res as typeof prediction);
-      } catch { /* 静默失败 */ }
+      } catch (e) {
+        // P3-06: 留痕
+        console.warn('[HomePage] 操作失败:', e);
+      }
     }, 800);
     return () => clearTimeout(timer);
   }, [script, backend]);
@@ -393,7 +399,10 @@ export function HomePage() {
       const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
       if (prefs.voiceId) st.setVoiceId(prefs.voiceId);
       if (typeof prefs.autoDub === 'boolean') st.setAutoDub(prefs.autoDub);
-    } catch { /* ignore */ }
+    } catch (e) {
+      // P3-06: 留痕（本地偏好读取失败不影响主流程）
+      console.warn('[HomePage] 本地偏好读取失败:', e);
+    }
 
     // Create project on backend
     // 若健康检查尚未完成（'checking'），先显式探测一次，避免误判为离线
@@ -495,7 +504,10 @@ export function HomePage() {
           thumbnail: pr.has_thumbnail ? projectApi.getThumbnailUrl(pr.id, pr.updated_at) : undefined,
         })));
       }
-    } catch { /* offline */ }
+    } catch (e) {
+      // P3-06: 离线兜底；留痕便于诊断
+      console.warn('[HomePage] 离线兜底:', e);
+    }
   };
 
   const handleDuplicateProject = async (project: ProjectOpt) => {
@@ -946,7 +958,10 @@ export function HomePage() {
                             st.setAutoDub(autoDubPref);
                             try {
                               localStorage.setItem('clipwright_voice_prefs', JSON.stringify({ voiceId: e.target.value || null, autoDub: autoDubPref }));
-                            } catch { /* ignore */ }
+                            } catch (e) {
+      // P3-06: 留痕（本地偏好读取失败不影响主流程）
+      console.warn('[HomePage] 本地偏好读取失败:', e);
+    }
                           }}
                           className="px-2 py-1.5 rounded-cw-xs bg-surface border border-outline-variant/40 text-label-sm text-on-surface cursor-pointer"
                           title="选择克隆音色（可在「语音克隆」页制作）"
@@ -970,7 +985,10 @@ export function HomePage() {
                               try {
                                 const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
                                 localStorage.setItem('clipwright_voice_prefs', JSON.stringify({ voiceId: prefs.voiceId ?? null, autoDub: e.target.checked }));
-                              } catch { /* ignore */ }
+                              } catch (e) {
+      // P3-06: 留痕（本地偏好读取失败不影响主流程）
+      console.warn('[HomePage] 本地偏好读取失败:', e);
+    }
                             }}
                             className="accent-primary cursor-pointer"
                           />

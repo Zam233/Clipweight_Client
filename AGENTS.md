@@ -11,6 +11,7 @@
 | 开发指南 | [docs/development.md](docs/development.md) |
 | 修复与功能补全计划 | [docs/fix-and-feature-plan.md](docs/fix-and-feature-plan.md)（§10 执行进度） |
 | **全量缺陷审计与派工计划（2026-09-10）** | [docs/audit-fix-plan-2026-09-10.md](docs/audit-fix-plan-2026-09-10.md)（P0×5 / P1×37 / P2×54 / P3×15 + 待验证×11，含证据与验收标准） |
+| **插件化开发方案（2026-09-10）** | [docs/pluginization-plan-2026-09-10.md](docs/pluginization-plan-2026-09-10.md)（统一贡献契约 + Provider 化 + 前端 Slot 化，含契约骨架与里程碑） |
 | 前后端对账 | [docs/frontend-backend-parity.md](docs/frontend-backend-parity.md) |
 | 项目上下文 | [CLAUDE.md](CLAUDE.md) |
 

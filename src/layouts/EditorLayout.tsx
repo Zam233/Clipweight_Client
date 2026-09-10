@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { Tooltip } from '@/components/ui';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { keybindingEngine } from '@/features/keyboard/KeybindingEngine';
 import { AssetPanel } from '@/features/assets/AssetPanel';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { TimelinePanel } from '@/features/timeline/components/TimelinePanel';
@@ -48,6 +49,11 @@ export function EditorLayout() {
   const isWide = useMediaQuery('(min-width: 1280px)');
   // <768 只读（设计规范排除移动端剪辑）：时间线覆盖提示层，阻断编辑手势
   const isNarrow = !useMediaQuery('(min-width: 768px)');
+  // P2-45: 窄屏「只读」此前只挡鼠标（覆盖层）——同步停用编辑类快捷键
+  useEffect(() => {
+    keybindingEngine.setReadOnly(isNarrow);
+    return () => keybindingEngine.setReadOnly(false);
+  }, [isNarrow]);
   const mobilePanel = useWorkspaceStore((s) => s.mobilePanel);
   const setMobilePanel = useWorkspaceStore((s) => s.setMobilePanel);
   const reviewMode = useAgentStore((s) => s.reviewMode);

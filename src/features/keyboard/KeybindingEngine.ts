@@ -59,6 +59,18 @@ function isInteractiveControl(e: KeyboardEvent): boolean {
 export class KeybindingEngine {
   private bindings: KeyBinding[] = [];
   private attached = false;
+  /** P2-45: 只读模式（<768px 窄屏）——编辑类快捷键整体停用 */
+  private readOnly = false;
+  /** P2-19: 模态打开计数——弹层存在时单键快捷键不触发 */
+  private modalDepth = 0;
+
+  setReadOnly(flag: boolean): void {
+    this.readOnly = flag;
+  }
+
+  setModalOpen(open: boolean): void {
+    this.modalDepth = Math.max(0, this.modalDepth + (open ? 1 : -1));
+  }
 
   register(binding: KeyBinding): () => void {
     this.bindings.push(binding);
@@ -88,6 +100,10 @@ export class KeybindingEngine {
     // Don't hijack typing in form fields (unless combo uses a modifier)
     const combo = this.match(e);
     if (!combo) return;
+    // P2-45: 只读模式仅放行带修饰键的安全组合（复制等），编辑动作停用
+    if (this.readOnly && !(e.ctrlKey || e.metaKey)) return;
+    // P2-19: 模态打开时单键快捷键不触发（与其交互冲突）
+    if (this.modalDepth > 0 && !(e.ctrlKey || e.metaKey || e.altKey)) return;
     const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
     if (isTypingTarget(e) && !hasModifier) return;
     // In text inputs, let native browser shortcuts (cut/copy/paste/undo/redo/save) pass through
