@@ -21,6 +21,7 @@ export function collectSnapTargets(
   excludeClipIds: Set<string>,
   playheadSec: number,
   markers: Marker[],
+  gridRange?: { start: number; end: number },
 ): number[] {
   const targets = new Set<number>();
   targets.add(0);
@@ -29,12 +30,15 @@ export function collectSnapTargets(
 
   const settings = useSettingsStore.getState();
   if (settings.snapToGrid && settings.snapGridSec > 0) {
-    const dur = tracks.reduce((m, tr) => {
-      for (const c of tr.clips) m = Math.max(m, c.start_sec + c.duration_sec);
-      return m;
-    }, 0);
-    for (let t = settings.snapGridSec; t <= Math.max(dur, 60); t += settings.snapGridSec) {
-      targets.add(t);
+    const step = settings.snapGridSec;
+    // P2-07: 网格目标只生成视口附近（默认再放宽一个视口宽）——旧实现从 0
+    // 循环到全时长，1 小时时间线 + 0.05s 网格每次指针移动需 7 万次迭代
+    const start = Math.max(0, gridRange?.start ?? 0);
+    const end = Math.max(gridRange?.end ?? 60, start + step);
+    const firstIdx = Math.floor(start / step);
+    const lastIdx = Math.ceil(end / step);
+    for (let i = firstIdx; i <= lastIdx; i++) {
+      targets.add(+(i * step).toFixed(6));
     }
   }
 

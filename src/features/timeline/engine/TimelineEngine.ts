@@ -499,6 +499,7 @@ export class TimelineEngine {
           tl.tracks, ids,
           usePreviewStore.getState().currentTimeSec,
           this.markers,
+          this.visibleTimeRangePad(L),
         );
         // Candidate edges = min start and max end of dragged clips
         let minStart = Infinity, maxEnd = -Infinity;
@@ -726,6 +727,7 @@ export class TimelineEngine {
         new Set([orig.id]),
         usePreviewStore.getState().currentTimeSec,
         this.markers,
+        this.visibleTimeRangePad(L),
       );
       const snapped = applySnap([t], 0, targets, L, settings.snapThresholdPx);
       if (snapped.snapX !== null) {
@@ -774,6 +776,15 @@ export class TimelineEngine {
       .filter((o) => o.id !== orig.id && o.start_sec >= orig.start_sec + 0.1)
       .reduce((m, o) => Math.min(m, o.start_sec), Infinity);
     return { prevEnd, nextStart };
+  }
+
+  /** P2-07: 视口时间范围（左右各放宽一个视口宽，拖动靠近边缘时吸附稳定）。 */
+  private visibleTimeRangePad(L: Parameters<typeof timeToX>[1]): { start: number; end: number } {
+    const w = this.canvas.clientWidth || this.canvas.width || 1200;
+    const left = xToTime(0, L);
+    const right = xToTime(w, L);
+    const pad = Math.max(1, right - left);
+    return { start: Math.max(0, left - pad), end: right + pad };
   }
 
   private lastMouse = { x: 0, y: 0 };

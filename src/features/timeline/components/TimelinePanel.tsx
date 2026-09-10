@@ -566,7 +566,12 @@ export function TimelinePanel() {
         }}
         onDragOver={(e) => {
           const types = e.dataTransfer.types;
-          if (types.includes('application/x-clipwright-asset') || types.includes('text/plain')) {
+          // P2-21: 接受操作系统文件拖入（旧实现只认内部拖拽）
+          if (
+            types.includes('Files') ||
+            types.includes('application/x-clipwright-asset') ||
+            types.includes('text/plain')
+          ) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
             setDropActive(true);
@@ -575,6 +580,39 @@ export function TimelinePanel() {
         onDragLeave={() => setDropActive(false)}
         onDrop={(e) => {
           setDropActive(false);
+          // P2-21: OS 文件拖入 → 上传 → 入轨（失败逐文件提示）
+          const files = Array.from(e.dataTransfer.files ?? []);
+          if (files.length > 0) {
+            e.preventDefault();
+            void (async () => {
+              const pid = useProjectStore.getState().projectId;
+              for (const file of files) {
+                try {
+                  const { assetApi } = await import('@/services/api');
+                  const res = await assetApi.upload(file, () => {}, pid ?? undefined);
+                  const assetId = res.id || res.asset_id || `asset_${Date.now().toString(36)}`;
+                  mediaManager.registerFile(assetId, file);
+                  const kind: ClipKind = file.type.startsWith('video')
+                    ? 'video'
+                    : file.type.startsWith('audio')
+                      ? 'audio'
+                      : 'image';
+                  const rect = containerRef.current?.getBoundingClientRect();
+                  if (rect && engineRef.current) {
+                    engineRef.current.dropAssetAt(e.clientX - rect.left, e.clientY - rect.top, {
+                      id: assetId,
+                      kind,
+                      filename: file.name,
+                      duration: res.duration_sec && res.duration_sec > 0 ? res.duration_sec : 5,
+                    });
+                  }
+                } catch {
+                  toast(`「${file.name}」上传失败（后端不可达或格式不支持）`, 'error');
+                }
+              }
+            })();
+            return;
+          }
           const raw = e.dataTransfer.getData('application/x-clipwright-asset') || e.dataTransfer.getData('text/plain');
           if (!raw || !engineRef.current || !containerRef.current) return;
           e.preventDefault();
