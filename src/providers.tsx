@@ -1,20 +1,10 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+/**
+ * P3-07: 移除 @tanstack/react-query 的 Provider 包装——全站取数手写
+ * （axios 封装 + zustand），QueryClient 从未被任何 useQuery/useMutation
+ * 消费，属死依赖（已从 package.json 一并移除）。
+ */
 import type { ReactNode } from 'react';
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false,
-      staleTime: 30_000,
-    },
-  },
-});
-
 export function Providers({ children }: { children: ReactNode }) {
-  return (
-    <QueryClientProvider client={queryClient}>
-      {children}
-    </QueryClientProvider>
-  );
+  return <>{children}</>;
 }

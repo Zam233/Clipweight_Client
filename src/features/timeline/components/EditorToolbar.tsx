@@ -362,7 +362,10 @@ export function EditorToolbar() {
         title: c.metadata?.title as string ?? c.asset_id,
       })),
     );
-    if (clips.length === 0) return;
+    if (clips.length === 0) {
+      toast('时间线为空，没有可导出的片段', 'info'); // 待验证项修复：静默→提示
+      return;
+    }
     try {
       const { edlApi } = await import('@/services/api/edl');
       const result = await edlApi.exportEDL(clips, store.timeline.fps);
@@ -427,7 +430,11 @@ export function EditorToolbar() {
       .filter((c) => c.kind === 'caption' && c.text?.trim())
       .sort((a, b) => a.start_sec - b.start_sec);
 
-    if (captions.length === 0) return;
+    // 待验证项证实并修复：空字幕导出静默无反应——给出明确提示
+    if (captions.length === 0) {
+      toast('没有可导出的字幕（字幕轨为空）', 'info');
+      return;
+    }
 
     let srt = '';
     captions.forEach((c, i) => {

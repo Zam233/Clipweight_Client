@@ -305,7 +305,6 @@ const DRAFT_KEY = 'clipwright_requirements_draft';
 function _currentProjectId(): string {
   try {
     // 动态读取避免 store 间静态循环依赖
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = (globalThis as { __cw_getProjectId?: () => string }).__cw_getProjectId;
     return mod ? mod() : '';
   } catch {
