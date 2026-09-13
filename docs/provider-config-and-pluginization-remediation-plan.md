@@ -170,7 +170,7 @@
 
 | 项 | 命令 | 结果 |
 |---|---|---|
-| 后端全量 | `python -m pytest tests -q` | **1714 passed**, 1 skipped, 1 xfailed |
+| 后端全量 | `python -m pytest tests -q` | **1716 passed**, 1 skipped, 1 xfailed |
 | 后端导入 | `python -c "import clipwright.main"` | 通过 |
 | 前端类型 | `npx tsc --noEmit` | 无错误 |
 | 前端单测 | `npx vitest run` | **496 passed**（69 文件） |
@@ -193,7 +193,7 @@
 
 ### 6.5 三类清单勾选（§2）
 
-**D1–D5**：D1 ✅（B1）；D3 ✅（style_interpreter 的 owner 冲突改为写错误通道而不阻断加载——沿用已有实现语义）；D2 ❌ 未做，与 P1 同因（见 §6.6）；D4 ✅（`plugin_info()` 双轨形态在 P10 文档中明确为新契约 `contributions` 口径）；D5 ✅（`/ui` 保留兼容层，前端统一走 Slot）。
+**D1–D5**：D1 ✅（B1 预览回归修复）；D2 ❌ 未做，与 P1 同因（见 §6.6）；D3 ✅（style_interpreter 的 owner 冲突写错误通道而不阻断加载——沿用既有语义）；D4 ✅（`plugin_info()` 两轨形态统一为 `{id, contributions, tools, skills, agents}`，后端 `a85c1cb` + 测试 2 条）；D5 ✅（`/ui` 保留兼容层，前端统一走 Slot 渲染器）。
 
 **B1–B16**：B1 ✅ B2 ✅ B3 ✅ B4 ✅ B5 ✅ B6 ✅ B7 ✅ B8 ✅ B9 ✅ B10 ✅ B11 ✅ B12 ✅ B13 ✅ B14 ✅ B15 ✅（核对后确认 `string` 别名两侧语义一致）B16 ✅。
 
