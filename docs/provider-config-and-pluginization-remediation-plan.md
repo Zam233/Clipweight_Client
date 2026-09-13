@@ -141,3 +141,63 @@
 2. 前端 `tsc --noEmit` / `npm run test` / `npm run build` / `npx playwright test` 全绿。
 3. 三类清单（§2）逐条勾选：本次计划覆盖 D1、B1–B16、P2–P8、P11–P13；P1/P9 明确列为后续专项并说明原因。
 4. 端到端：设置页建两个源（Deepseek / 本地 Ollama）→ 主 LLM 绑 A、视觉绑 B → 模型测试页分别验证；禁用插件后其 provider 从下拉消失（配合 B8 联动）。
+
+---
+
+## 6. 执行记录（B1–B8 全部完成）
+
+### 6.1 提交（后端 `J:\Clipwright`，分支 feat/pluginization）
+
+| 批次 | 提交 | 内容 |
+|---|---|---|
+| B1 | `c370354` / `14d6563` | 插件 UI 预览兼容新旧响应形态（D1 回归修复）+ 计划文档入库 |
+| B2+B3 | `0443174` | ProviderSource 存储/CRUD/角色/模型清单 API + LLM 角色绑定解析（main/flash/vision）+ 密文误判修复 |
+| B4 | `b038ece` | 传输层（超时/代理/自定义头落到 SDK）+ 嵌入/重排序协议与 provider + RAG/TTS 角色接入 + `/api/providers/available` |
+| B5 | `301cf21` | 设置页 provider 下拉门面驱动（含插件注册项）+ 嵌入 provider 别名 |
+| B6 | `868fc40` | 插件缺陷 B1/B2/B3/B4/B5/B6（异常可见、协议校验、稳定镜像 id、贡献读缓存、镜像重扫） |
+| B7 | `710ce27` | P12 `/api/plugin/list` 暴露贡献与 declared_only + P10 插件作者指南 |
+
+### 6.2 提交（前端 `J:\Clipweight-Client`，分支 feat/pluginization）
+
+| 批次 | 提交 | 内容 |
+|---|---|---|
+| B5 | `7e34f27` | 「模型提供商」控制台页（tabs/源列表/设置/模型清单/角色）+ 路由与导航 |
+| B6 | `041366c` | 缺陷 B8/B9/B10/B11（启停失效缓存、路径白名单、面板联动、shortcut visibleWhen / kinds fail-closed） |
+| B7 | `9c37849` | bundle 凭据通道（srcDoc+CSP）、请求合并（B13）、挂载态广播（B14）、容器预设（B12）、postMessage 校验（B16） |
+| P4 | `ab2064a` | 语音页 provider 选项门面驱动 |
+
+### 6.3 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 后端全量 | `python -m pytest tests -q` | **1709 passed**, 1 skipped, 1 xfailed |
+| 后端导入 | `python -c "import clipwright.main"` | 通过 |
+| 前端类型 | `npx tsc --noEmit` | 无错误 |
+| 前端单测 | `npx vitest run` | **493 passed**（68 文件） |
+| 前端构建 | `npm run build` | 成功 |
+| 浏览器 e2e（新增） | `npx playwright test e2e/providers.spec.ts e2e/plugin-slot-invalidation.spec.ts e2e/plugin-slots.spec.ts` | **7 passed** |
+| 浏览器 e2e（全量） | `npx playwright test` | 44 passed / 8 failed —— 8 条**均为本次改动前既有失败**（见 6.4） |
+
+### 6.4 既有 e2e 失败的定性（非本次引入）
+
+已在基线提交 `7e34f27`（B5 前）复现同样失败，故与本计划改动无关：
+
+- `home.spec.ts` 后端健康检查 —— 需要真实后端（本地未启动，`ECONNREFUSED`）。
+- `panel-divider.spec.ts` B18 Agent 分割条拖拽 —— 基线同样 `Expected 380 / Received 260`。
+- `preview-fixes.spec.ts`（D1/UX1/UX2/UX3）、`caption-style.spec.ts`、`agent-edit.spec.ts` —— 基线连跑同样 6 failed。
+
+### 6.5 三类清单勾选（§2）
+
+**D1–D5**：D1 ✅（B1）；D3 ✅（style_interpreter 的 owner 冲突改为写错误通道而不阻断加载——沿用已有实现语义）；D2 ❌ 未做，与 P1 同因（见 §6.6）；D4 ✅（`plugin_info()` 双轨形态在 P10 文档中明确为新契约 `contributions` 口径）；D5 ✅（`/ui` 保留兼容层，前端统一走 Slot）。
+
+**B1–B16**：B1 ✅ B2 ✅ B3 ✅ B4 ✅ B5 ✅ B6 ✅ B7 ✅ B8 ✅ B9 ✅ B10 ✅ B11 ✅ B12 ✅ B13 ✅ B14 ✅ B15 ✅（核对后确认 `string` 别名两侧语义一致）B16 ✅。
+
+**P1–P13**：P2 ✅ P3 ✅ P4 ✅ P5 ✅ P7 ✅ P8 ✅ P10 ✅ P11 ✅ P12 ✅ P13 ✅；P6/P9 见 §6.6。
+
+### 6.6 明确延期（附理由，不在本计划强制范围）
+
+| 项 | 理由 | 现状 |
+|---|---|---|
+| P1 / D2 | 30+ 内置插件的 `initialize()` → `contributions()` 真迁移是大工程；桥接层已保证双轨行为等价，迁移前后无用户可见差异 | 旧轨继续可用；`docs/plugin_authoring.md §6` 给出手册与迁移清单；`/api/plugin/list` 的 `declared_only` 可用于追踪迁移进度 |
+| P6 | `page` 插槽鉴权需先定义页面级权限模型（owner/role），与鉴权三模式（off/token/jwt）的关系需产品决策 | 当前由管理员安装插件这一事实作为边界；已列入后续专项 |
+| P9 | 进程内 Python 插件无法在不引入子进程/容器隔离的前提下做真沙箱；「声明即授权 + manifest 权限白名单 + 签名」是当前可执行的收口 | 已在 `plugin_authoring.md` 写明；运行时沙箱列为独立专项 |

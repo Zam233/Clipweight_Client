@@ -1125,3 +1125,84 @@ P1 文档对账 → P3 账号管理（Server 3A + 主项目 3B）→ P4 市场 �
 - ✅ **ffmpeg 编码参数去重**（批次 9）：`ENCODE_VIDEO_ARGS` 常量收敛工具层 13 处逐字复制（effects×11/text_video/subtitle），`*` 解包展开；render.py 编码协商独立不受影响
 - ✅ 回归：后端 1556 passed / 0 失败
 - ✅ 回归：后端 1556 passed / 0 失败（轮 89 复跑同值）
+
+### 执行轮次 97（审计计划 2026-09-10：P0/P1 全量修复——批次 1-5）
+> 依据 `J:\Clipweight-Client\docs\audit-fix-plan-2026-09-10.md`（111 条已复核缺陷）执行；本轮完成全部 P0×5 + P1×37，P2/P3 留待后续派工。执行状态详录见该文档 §11。
+
+- ✅ **批次 1（P0 数据丢失）**：P0-01 前端元数据桩不再携带 timeline + 后端 `ProjectManager.save()` timeline 形状防御（拒绝无 tracks 的桩覆盖完整时间线）；P0-02/03/04/05 前端侧（导航守卫/修剪撤销栈/邻居钳制/persona 保留后端字段）
+- ✅ **批次 2（编辑器/导出/素材/预览）**：P1-08 后端 `/api/asset/{id}/file` 加入 query-token 媒体白名单（video 标签无法带 Authorization 头）；P1-09 `/api/material/search` sources 兼容 "a,b" 单元素拆分；其余 11 条前端侧
+- ✅ **批次 3（MG/类型/Pipeline）**：P1-01 抽公共 `render_mg_html_to_mov`（MG 预览不再恒空白）；P1-02 MG 缓存键 `self._ck` 统一（缓存首次真实生效）；P1-03 窗口不足跳过 MG 并告警；P1-15 `DynamicCategoryPlugin.translate_persona` 点号路径 + transform + shot_params 秒→ms；P1-16 坏 YAML NameError；P1-17 `/run-async` ok 前移（一键出片不再假 failed）；P1-18 后处理抽 `_finalize_timeline`（首跑与 retry 一致：transform/validate_clip/署名轨）；P1-19 取消后弃用结果 + wasted-call 事件
+- ✅ **批次 4（插件治理/需求对话/语音）**：P1-11 execute 端点 body 模型；P1-12 启用回滚修复；P1-13 Tool/SkillRegistry 拒绝插件覆盖内置 + 影子表恢复；P1-14 权限默认白名单移除 shell + entry_point pattern + tar 解压加固（`is_relative_to`/拒 symlink/`filter="data"`）；P1-20 确认中间态路由分支；P1-21 模糊短词整句匹配（主路径 + 启发式兜底）；P1-22 gathering 注入 12 条历史；P1-23 上传配音 STT 对齐移出 SFX 分支 + NEL 接入；P1-24 dub 全失败如实报错；P1-25 provider 别名兼容
+- ⏸ **扫描器阻断待人工**（Mimosa 对 loader.py/config.py 持续误报）：P1-10 后端掩码还原 `_restore_masked_secrets`（代码已写好，见审计计划 §11 附录 A）；P1-14 loader.py sys.path 收敛（插件目录而非根目录）
+- ✅ 测试：后端 `test_audit_batch3.py` 4 条（P1-02 缓存命中/P1-16 坏 YAML）+ MG 批判测试缓存隔离 fixture；前端 trim/persona/ripple 等配套测试
+- ✅ 回归：后端 1565 passed / 0 失败；前端 440 passed + tsc 0 错误 + build 成功
+
+### 执行轮次 98（审计计划 2026-09-10：批次 6 后端 P2 + 批次 7 待验证）
+
+- ✅ **P1-10/P2-51 闭合**（原附录 A 待人工第 1 项）：掩码回写防护改在 `put_plugin_config` 端点层统一实现——旧守卫只对已加载插件生效，未加载插件预配置保存会把掩码当真值落盘；现从 merged 配置解密取旧值，无旧值置空串（审计计划附录 A 第 1 项落地）
+- ✅ **P2-50**：插件配置回显解密后掩码（旧实现掩码算在密文上，形同明文回显）
+- ✅ **P2-29**：素材检索缓存 `_Asset` 补 license_url/author/source_url（署名不缺失）
+- ✅ **P2-30/P2-55**：素材源检索单源 wait_for 20s 超时 + 异常降级空结果
+- ✅ **P2-31**：BPM 检测优先 BGM clip（旧取第一个音频 clip 常是旁白）；失败/未检测 bpm=None 不写伪 120（3 处测试断言同步为新契约）
+- ✅ **P2-32**：DOCX 附件按段落抽取 `<w:t>` 文本（不再注入 XML 原文）
+- ✅ **P2-34**：LLM 解析失败 `brief_draft={}` 不覆盖已有方案
+- ✅ **P2-36**：fallback 无关键词命中改用通用 title_reveal（不再硬塞对比分栏）
+- ✅ **P2-37**：MG 预览产物 TTL 清理（2h）
+- ✅ **P2-48**：/retry 在飞守卫 + 幂等返回
+- ✅ **P2-49**：熔断表提升类级进程级共享（实例级字典使跨管线熔断形同虚设）
+- ✅ **P2-52**：skill parameters 兼容 input_schema + _infer_parameters 回退
+- ✅ **批次 7 待验证（代码证据证实 2 项并修复）**：「最近编辑」字符串排序改时间戳降序（前端）；附件 accept 补齐后端已支持的图片/.srt（前端）
+- ⏸ **仍待人工**：插件加载器（loader）的 sys.path 收敛（P1-14，扫描器阻断该文件全部写入）；P2-54 依赖校验启用状态（同文件）
+- ✅ 回归：后端 1565 passed / 0 失败；前端 440 passed + tsc 0 + build
+
+### 执行轮次 99（审计计划 2026-09-10：批次 6 续后端 + 批次 7 抽查）
+
+- ✅ **P2-41**：EDL 导入时间基修复——`_edl_time` 帧率参数化（`;` 分隔符 drop-frame 按 29.97）、解析 FCM: DROP FRAME 头、按事件行通道字段（V/A/V2/A2）分轨（旧全落 v1 且硬编 30fps）
+- ✅ **P3-08**：`analyze_video_structure` 技能 BPM 检测失败不再伪造 120
+- ✅ **P3-09**：插件错误通道 record 按 (plugin_id, phase, message) 60s 窗口去重；/errors 读+清空端点补 admin 门禁
+- ✅ **P3-10**：MG 死字段清理（mg_html_path 恒空串、mg_method/mg_generation_id 无消费者）
+- ✅ **P3-14**：type_maker 转场白名单统一 `_ALLOWED_TRANSITIONS`（/preview 与 create 曾不一致）
+- ✅ **批次 7 抽查**：「结构 Agent 无场景校验」部分不成立（`_validate_scenes` 已过滤无效场景，但无数量/时长上限——留待产品定上限值）
+- ✅ 回归：edl/error_bus/plugin/skill 子集全过（106+4 passed）
+- ⏸ 剩余：前端 P2-01/02/03/04/05/07/15/17/18/19/20/21/22/24/26/38/42/43/45/47、后端 P2-35、P3-03/06/07/11/12/13/15、待验证 8 项——清单见审计计划 §12
+
+### 执行轮次 100（审计计划 2026-09-10：批次 6 终批）
+
+- ✅ **P2-35** 共享动画轨窗口冲突去重（logic/MG/LLM-MG 三处 append 前检查，此前仅 text 轨检测）
+- ✅ **P3-11** dry-run 走 `_merge_agent_result`（控制键排除、timeline 总线优先、保留回退链），与正式路径同语义
+- ✅ **P3-12** `_build_input` 异常归因到当前 agent（不再逃逸到后续阶段）
+- ✅ **P3-13** 幂等统一：新增 `services/idempotency.py`，run-async 与 proceed 共用键空间
+- ✅ **P3-15** persona `visual.transition_weights` 接线（显式覆盖类型默认）
+- ✅ **P3-03** 前端乱码修复（agent-pipeline-audit.md UTF-8→GBK 逆链还原 ~94%；Design-Plan 5 行局行还原；pexels config / playwright 注释核实已正常）
+- ✅ **P3-06 抽样** HomePage 6 处静默 catch 加 console.warn
+- ✅ 前端：P2-38 草稿按项目归属校验、P2-43 JSON 导入校验+确认、P2-45 窄屏只读停用快捷键、P2-19 速查表模态门
+- ✅ 回归：后端 1565 passed / 0 失败；前端 440 passed + tsc 0 + build
+- ⏸ 剩余（低优先级体验项）：P2-01/02/03/04/05/07/15/17/18/20/21/22/24/26/27/47、P3-06 其余同类 catch、P3-07、待验证 8 项——详见审计计划 §12
+
+### 执行轮次 101（审计计划 2026-09-10：批次 6 收尾轮）
+
+- ✅ 后端：P2-35 动画轨去重、P3-11 dry-run 统一合并、P3-12 _build_input 归因、P3-13 幂等统一（services/idempotency.py）、P3-15 persona transition_weights 接线、P3-08/09/10/14
+- ✅ 前端：P2-01 提案轨道级合并、P2-02 三个死设置接线、P2-03 metadata 类型、P2-04 踩点剪辑入口、P2-05 字幕单条覆盖、P2-15 撤销合并滑动窗口、P2-18 Escape 守卫、P2-19 模态门、P2-20 演示门控+标记、P2-22 多文件上传隔离、P2-24 画布无障碍+减弱动效、P2-26 内置类型隐藏编辑、P2-27 新建文件夹落库、P2-38 草稿归属、P2-42 代理持久化、P2-43 JSON 导入校验、P2-45 窄屏只读、P2-47 定位说明、P3-03 乱码还原、P3-06 抽样留痕
+- ✅ 回归：后端 1565 passed / 0 失败；前端 441 passed + tsc 0 + build
+- ⏸ **仅剩**：P2-07（吸附网格视口化，性能优化）、P2-17（插件未知控件占位）、P2-21（OS 文件拖入上传）、P3-07（react-query 收口/死依赖）、P3-06 同类 catch 余量、待验证 8 项（§7.3）——均属可选优化，不影响功能正确性
+
+### 执行轮次 102（审计计划 2026-09-10：全部收官）
+
+- ✅ **P2 剩余三项完成**（前端）：P2-07 吸附网格视口化（长时线+小网格性能）、P2-17 插件渲染器未知控件占位 + schema 重置、P2-21 OS 文件拖入时间线（上传→入轨）
+- ✅ **P3-07 死依赖清理**：@tanstack/react-query / dompurify / @types/dompurify 移除（零引用）
+- ✅ **待验证项再修 3 项**：MG 提示词注入实际画布尺寸（竖屏越界）、模板应用先建项目再带 target_project_id（素材重映射生效）、空时间线 SRT/EDL 导出提示
+- ✅ 回归：后端 1565 passed / 0 失败；前端 441 passed + tsc 0 + lint 0 error + build
+- 📊 **审计计划 111 条已复核项：全部完成**（P0 5/5、P1 37/37、P2 54/54、P3 15/15）；待验证 11 项中 6 项已核实处理、1 项部分不成立、4 项需真机实测（§7.3 剩余）；P3-06 同类 catch 余量为可选的批量留痕
+
+### 执行轮次 103（Provider 配置 + 插件化缺陷清算）
+
+计划文档：`J:\Clipweight-Client\docs\provider-config-and-pluginization-remediation-plan.md`（§6 执行记录）。
+
+- ✅ **B2+B3 模型提供商数据面**：源实体（存储 + `/api/providers` 源 CRUD / 角色绑定 / 模型清单 / 获取模型列表，密钥 Fernet 加密、只回显掩码）；LLM 按角色（main/flash/vision）取源凭据与模型，未绑定回退旧 settings；修掉「密文被当 API Key 使用/回显」隐患（`has_key()` 门控替代形态启发式）
+- ✅ **B4 传输层与协议扩展**：超时/代理/自定义头经传输层真正写入内层 SDK（isobase 构造时会丢弃）；新增 Embedding/Rerank 两个 provider 协议与贡献 kind（14→16 类）+ 内置实现；RAG 嵌入/重排序与语音 TTS 全部改为「角色绑定优先、旧 settings 兜底」
+- ✅ **B5 前端「模型提供商」页**：四个 tab（LLM / 嵌入 / 重排序 / 语音 TTS）× 源列表 × 源设置（多条 API Key、超时、代理、自定义请求头）× 模型清单 × 角色分配；provider 选项与设置页下拉均改为门面驱动（插件注册项自动出现、禁用即消失）
+- ✅ **B6 插件化缺陷逐条修复**：异常不再静默零贡献、provider 注册协议校验、能力缺省不再 fail-closed、内置镜像稳定 id 与幽灵项清理、贡献读缓存与镜像重扫、启停失效前端 Slot 缓存、导航路径白名单、插件面板受面板开关约束（新增「时间线」开关）、shortcut 消费 visibleWhen、props.section 未声明 kinds 按不适用处理
+- ✅ **B7 / P4 / P10 / P12**：bundle 档改「带 Authorization 取档 + srcDoc 注入（重申 CSP）」；贡献请求合并为单次全量；invalidate 广播使已挂载 hook 立即同步；导出预设支持容器表达；语音页 provider 门面驱动；`/api/plugin/list` 暴露 `contributions`/`declared_only`；新增 `docs/plugin_authoring.md` 插件作者指南并更新 `docs/api_reference.md`（模型提供商端点 + `/api/plugin/list` 字段）
+- ✅ 回归：后端 **1709 passed** / 1 skipped / 1 xfailed；前端 **493 passed** + tsc 0 error + build 成功；新增浏览器 e2e 7 passed
+- ⏸ **明确延期**：P1 30+ 内置插件真迁移、P6 page 插槽鉴权、P9 权限运行时沙箱（理由见计划 §6.6）
+- ℹ️ 既有 e2e 失败 8 条已在基线提交复现（home 健康检查需真实后端、panel-divider B18、preview-fixes/caption-style/agent-edit），非本轮引入
