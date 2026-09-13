@@ -6,7 +6,8 @@ import { ProvidersPage } from './ProvidersPage';
 const { mocks } = vi.hoisted(() => ({
   mocks: {
     list: vi.fn(), available: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn(),
-    setRole: vi.fn(), setModels: vi.fn(), upsertModel: vi.fn(), deleteModel: vi.fn(), fetchModels: vi.fn(),
+    setRole: vi.fn(), setModels: vi.fn(), upsertModel: vi.fn(), deleteModel: vi.fn(),
+    fetchModels: vi.fn(), testSource: vi.fn(),
   },
 }));
 
@@ -22,6 +23,7 @@ vi.mock('@/services/api/providers', async (importOriginal) => {
       list: mocks.list, available: mocks.available, create: mocks.create, update: mocks.update,
       remove: mocks.remove, setRole: mocks.setRole, setModels: mocks.setModels,
       upsertModel: mocks.upsertModel, deleteModel: mocks.deleteModel, fetchModels: mocks.fetchModels,
+      testSource: mocks.testSource,
     },
   };
 });
@@ -208,5 +210,54 @@ describe('ProvidersPage（模型提供商）', () => {
     mocks.list.mockRejectedValue(new Error('后端离线'));
     render(<ProvidersPage />);
     expect(await screen.findByText('后端离线')).toBeTruthy();
+  });
+});
+
+// ── P1/P5 评审修复：模型可选 / 源级测试 / 优先级提示 / 多密钥文案 ──────────
+describe('ProvidersPage 角色模型选择与源测试', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockApi({ main: { source_id: 'src_a', model: 'deepseek-chat' } });
+  });
+
+  it('角色行提供模型下拉（不再只能自动取第一个）', async () => {
+    render(<ProvidersPage />);
+    fireEvent.click(await screen.findByTestId('source-src_a'));
+    const modelSelect = screen.getByTestId('role-model-main') as HTMLSelectElement;
+    const options = Array.from(modelSelect.options).map((o) => o.value);
+    // src_a 有两个模型，其中 deepseek-reasoner 已停用 → 只列启用中的
+    expect(options).toEqual(['', 'deepseek-chat']);
+    expect(modelSelect.value).toBe('deepseek-chat');
+  });
+
+  it('切换模型 → 以指定模型调用 setRole', async () => {
+    mocks.setRole.mockResolvedValue({});
+    render(<ProvidersPage />);
+    fireEvent.click(await screen.findByTestId('source-src_a'));
+    fireEvent.change(screen.getByTestId('role-model-main'), { target: { value: 'deepseek-chat' } });
+    await waitFor(() => expect(mocks.setRole).toHaveBeenCalledWith('main', 'src_a', 'deepseek-chat'));
+  });
+
+  it('「测试连接」调 testSource 并展示结果', async () => {
+    mocks.testSource.mockResolvedValue({ ok: true, latencyMs: 42, detail: '连通正常，列出 3 个模型' });
+    render(<ProvidersPage />);
+    fireEvent.click(await screen.findByTestId('source-src_a'));
+    fireEvent.click(screen.getByTestId('test-source'));
+    expect(await screen.findByText(/测试通过（42ms）/)).toBeTruthy();
+  });
+
+  it('测试未通过时给可读原因', async () => {
+    mocks.testSource.mockResolvedValue({ ok: false, detail: '未取到模型列表：可能是鉴权失败' });
+    render(<ProvidersPage />);
+    fireEvent.click(await screen.findByTestId('source-src_a'));
+    fireEvent.click(screen.getByTestId('test-source'));
+    expect(await screen.findByText(/测试未通过：未取到模型列表/)).toBeTruthy();
+  });
+
+  it('页面说明「角色绑定优先于后端配置」与多密钥语义', async () => {
+    render(<ProvidersPage />);
+    fireEvent.click(await screen.findByTestId('source-src_a'));
+    expect(screen.getByText(/覆盖/)).toBeTruthy();
+    expect(screen.getByText(/第一条为当前使用/)).toBeTruthy();
   });
 });

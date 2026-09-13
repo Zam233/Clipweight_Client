@@ -397,6 +397,10 @@ function CloneDialog({ onClose }: { onClose: () => void }) {
               {provider === 'minimax' ? '需要公网 URL + 试听文案，后端自动处理上传' : '需要公网 URL，后端自动处理上传'}
             </p>
           )}
+          {/* C2：说明与「模型提供商 → 语音 TTS」角色绑定的关系 */}
+          <p className="text-caption text-on-surface-variant/70 mt-1">
+            若已在「设置 → 模型提供商 → 语音 TTS」绑定源，源的凭据（密钥/代理/超时）优先于此处选择。
+          </p>
         </div>
 
         {error && cloneStep === 'error' && (

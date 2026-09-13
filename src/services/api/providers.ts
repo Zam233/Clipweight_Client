@@ -166,6 +166,16 @@ export const providersApi = {
       note: typeof data?.note === 'string' ? data.note : undefined,
     };
   },
+
+  /** B3：探测某个源（不改动角色绑定）。失败也返回 200，按 ok 展示。 */
+  async testSource(id: string): Promise<{ ok: boolean; latencyMs?: number; detail: string }> {
+    const { data } = await getApiClient().post(`/api/providers/${id}/test`);
+    return {
+      ok: Boolean(data?.ok),
+      latencyMs: typeof data?.latency_ms === 'number' ? data.latency_ms : undefined,
+      detail: typeof data?.detail === 'string' ? data.detail : '',
+    };
+  },
 };
 
 /** 表单 → 请求体：掩码条目原样回传（后端按「含 **** = 保留旧值」处理） */

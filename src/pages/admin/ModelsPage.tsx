@@ -101,7 +101,14 @@ export function ModelsPage() {
 function summarize(data: unknown): string {
   if (data && typeof data === 'object') {
     const d = data as Record<string, unknown>;
-    if (typeof d.model === 'string') return `model=${d.model}`;
+    // P5：后端现在会告知「生效来源」——角色绑定 or settings 兜底，避免误读
+    const via = d.effective === 'provider_source'
+      ? `源=${String(d.source ?? '') || '已绑定'}`
+      : (d.effective === 'settings' ? 'settings' : '');
+    if (typeof d.model === 'string') {
+      return [`model=${d.model}`, d.provider ? `provider=${d.provider}` : '', via]
+        .filter(Boolean).join(' · ');
+    }
     if (typeof d.status === 'string') return `status=${d.status}`;
   }
   return 'ok';

@@ -8,7 +8,7 @@ import {
   type ProviderSource, type RoleBindings,
 } from '@/services/api/providers';
 import {
-  Plus, Trash2, RefreshCw, Loader2, Save, KeyRound, Star, StarOff, Pencil, Check, X,
+  Plus, Trash2, RefreshCw, Loader2, Save, KeyRound, Star, StarOff, Pencil, Check, X, Activity,
 } from 'lucide-react';
 
 const TABS: { kind: ProviderKind; label: string; hint: string }[] = [
@@ -229,20 +229,37 @@ export function ProvidersPage() {
     }
   };
 
-  const bindRole = async (role: ProviderRole, sourceId: string) => {
+  const bindRole = async (role: ProviderRole, sourceId: string, model?: string) => {
     setBusy(`role-${role}`);
     setError('');
     try {
       const src = sources.find((s) => s.id === sourceId);
       const enabled = (src?.models ?? []).filter((m) => m.enabled ?? true);
-      const model = enabled[0]?.id ?? '';
-      await providersApi.setRole(role, sourceId, model);
+      // B2：模型可选——不传时退回该源第一个启用模型（此前无选择入口）
+      const chosen = model ?? enabled[0]?.id ?? '';
+      await providersApi.setRole(role, sourceId, chosen);
       setNotice(sourceId
-        ? `${ROLE_LABELS[role]} → ${src?.name ?? sourceId}（模型 ${model || '未指定'}）`
+        ? `${ROLE_LABELS[role]} → ${src?.name ?? sourceId}（模型 ${chosen || '未指定'}）`
         : `${ROLE_LABELS[role]} 已解绑`);
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : '角色绑定失败');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const testSource = async () => {
+    if (!selectedId) { setError('请先保存源，再测试'); return; }
+    setBusy('test');
+    setError('');
+    try {
+      const result = await providersApi.testSource(selectedId);
+      setNotice(result.ok
+        ? `测试通过（${result.latencyMs ?? '-'}ms）：${result.detail}`
+        : `测试未通过：${result.detail}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '测试失败');
     } finally {
       setBusy('');
     }
@@ -369,7 +386,9 @@ export function ProvidersPage() {
             {/* API Key：可多条 */}
             <div className="mt-3">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="font-mono text-label-sm text-on-surface-variant">API Key（可多条，轮询/备用）</span>
+                <span className="font-mono text-label-sm text-on-surface-variant">
+                API Key（第一条为当前使用；其余作为备用保存，便于手动切换）
+              </span>
                 <Button size="sm" variant="ghost"
                   onClick={() => setForm((f) => ({ ...f, keys: [...f.keys, ''] }))}>
                   <Plus className="w-3.5 h-3.5" /> 添加密钥
@@ -423,9 +442,16 @@ export function ProvidersPage() {
                 保存
               </Button>
               {selectedId && (
-                <Button size="sm" variant="destructive" onClick={() => void removeSource()} disabled={busy === 'remove'}>
-                  <Trash2 className="w-3.5 h-3.5" /> 删除源
-                </Button>
+                <>
+                  <Button size="sm" variant="outline" onClick={() => void testSource()}
+                    disabled={busy === 'test'} data-testid="test-source">
+                    {busy === 'test' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+                    测试连接
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={() => void removeSource()} disabled={busy === 'remove'}>
+                    <Trash2 className="w-3.5 h-3.5" /> 删除源
+                  </Button>
+                </>
               )}
             </div>
           </section>
@@ -503,27 +529,48 @@ export function ProvidersPage() {
             <h3 className="text-body-sm font-semibold text-on-surface mb-1">角色分配</h3>
             <p className="text-caption text-on-surface-variant mb-3">
               角色由工程文件引用；这里把「角色 → 源 + 模型」绑定好即可（源换密钥不影响工程）。
+              <span className="text-on-surface-variant/70">
+                {' '}绑定后的角色会**覆盖**「后端配置」页里同名的 provider / 密钥 / 模型字段。
+              </span>
             </p>
             <div className="space-y-2" data-testid="role-bindings">
-              {kindRoles.map((role) => (
-                <div key={role} className="flex items-center gap-3">
-                  <span className="w-[110px] shrink-0 font-mono text-label-sm text-on-surface">
-                    {ROLE_LABELS[role]}
-                  </span>
-                  <select value={roles[role]?.source_id ?? ''} data-testid={`role-${role}`}
-                    onChange={(e) => void bindRole(role, e.target.value)}
-                    disabled={busy === `role-${role}`}
-                    className={cn(INPUT, 'max-w-[280px]')}>
-                    <option value="">（未绑定）</option>
-                    {kindSources.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </select>
-                  <span className="font-mono text-caption text-on-surface-variant truncate">
-                    {roles[role]?.model ? `model=${roles[role]?.model}` : ''}
-                  </span>
-                </div>
-              ))}
+              {kindRoles.map((role) => {
+                const boundSource = sources.find((s) => s.id === roles[role]?.source_id);
+                const modelOptions = (boundSource?.models ?? []).filter((m) => m.enabled ?? true);
+                return (
+                  <div key={role} className="flex items-center gap-3">
+                    <span className="w-[110px] shrink-0 font-mono text-label-sm text-on-surface">
+                      {ROLE_LABELS[role]}
+                    </span>
+                    <select value={roles[role]?.source_id ?? ''} data-testid={`role-${role}`}
+                      onChange={(e) => void bindRole(role, e.target.value, '')}
+                      disabled={busy === `role-${role}`}
+                      className={cn(INPUT, 'max-w-[240px]')}>
+                      <option value="">（未绑定）</option>
+                      {kindSources.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                    {/* B2：模型可选（多模型源要分别给 main/flash/vision 指定） */}
+                    <select
+                      value={roles[role]?.model ?? ''}
+                      data-testid={`role-model-${role}`}
+                      disabled={!roles[role]?.source_id || busy === `role-${role}`}
+                      onChange={(e) => void bindRole(role, roles[role]?.source_id ?? '', e.target.value)}
+                      className={cn(INPUT, 'max-w-[220px]')}
+                      title="该角色使用的模型（取源内已启用的模型）"
+                    >
+                      <option value="">（用第一个启用模型）</option>
+                      {modelOptions.map((m) => (
+                        <option key={m.id} value={m.id}>{m.id}</option>
+                      ))}
+                    </select>
+                    {boundSource && modelOptions.length === 0 && (
+                      <span className="text-caption text-error shrink-0">该源没有启用中的模型</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </section>
         </div>
