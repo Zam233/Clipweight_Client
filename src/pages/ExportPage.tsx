@@ -10,20 +10,14 @@ import { createEmptyTimeline } from '@/types/timeline';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge } from '@/components/ui';
 import { uid, formatTimecode } from '@/lib/utils';
+import { resolveContainerExt, type ExportPresetDef } from './exportPreset';
 import type { ExportSettings, RenderProgress } from '@/types/api';
 import {
   Download, Clapperboard, Gauge, Cpu, Film, Loader2, CheckCircle2,
   XCircle, ArrowLeft, HardDrive, Zap, RotateCcw, Wand2,
 } from 'lucide-react';
 
-interface PresetDef {
-  /** B12：容器扩展名（插件预设/后端预设可显式声明，缺省按编码推断） */
-  container?: string;
-  name: string;
-  width: number;
-  height: number;
-  fps: number;
-  bitrate: string;
+interface PresetDef extends ExportPresetDef {
   icon: string;
 }
 
@@ -225,14 +219,7 @@ export function ExportPage() {
     // 批C：容器扩展名跟随预设（ProRes=MOV——MP4 容器装不下 prores 编码），
     // 并加时间戳避免同名任务互相覆盖
     const presetDef = presets[presetId];
-    // B12：容器优先取预设声明（插件 export_preset 的 payload.container/ext），
-    // 其次按编码推断（ProRes 装不进 MP4），最后默认 mp4
-    const declaredContainer = String(
-      presetDef?.container ?? (presetDef as { ext?: string } | undefined)?.ext ?? '',
-    ).replace(/^\./, '').toLowerCase();
-    const ext = /^[a-z0-9]{2,5}$/.test(declaredContainer)
-      ? declaredContainer
-      : (presetId === 'prores422hq' ? 'mov' : 'mp4');
+    const ext = resolveContainerExt(presetId, presetDef);
     const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
     const filename = `${safeName}_${settings.width}x${settings.height}_${stamp}.${ext}`;
     const item: QueueItem = {

@@ -165,15 +165,17 @@
 | B6 | `041366c` | 缺陷 B8/B9/B10/B11（启停失效缓存、路径白名单、面板联动、shortcut visibleWhen / kinds fail-closed） |
 | B7 | `9c37849` | bundle 凭据通道（srcDoc+CSP）、请求合并（B13）、挂载态广播（B14）、容器预设（B12）、postMessage 校验（B16） |
 | P4 | `ab2064a` | 语音页 provider 选项门面驱动 |
+| B8 复核 | `ee9a6b2` | **D3 真修**（StyleInterpreter 多注册）+ B2 `build_client` 可读守卫 |
+| B8 复核 | `ee9a6b2` 后续 | B5 缓存失效扩展到 uninstall/配置重载；B12 抽出 `resolveContainerExt` + 测试 |
 
 ### 6.3 验证结果
 
 | 项 | 命令 | 结果 |
 |---|---|---|
-| 后端全量 | `python -m pytest tests -q` | **1716 passed**, 1 skipped, 1 xfailed |
+| 后端全量 | `python -m pytest tests -q` | **1724 passed**, 1 skipped, 1 xfailed |
 | 后端导入 | `python -c "import clipwright.main"` | 通过 |
 | 前端类型 | `npx tsc --noEmit` | 无错误 |
-| 前端单测 | `npx vitest run` | **496 passed**（69 文件） |
+| 前端单测 | `npx vitest run` | **501 passed**（70 文件） |
 | 前端 lint | `npx eslint src e2e` | 0 error（136 warning，均为既有风格告警） |
 | 前端构建 | `npm run build` | 成功 |
 | 端到端验收（API 级） | `pytest tests/clipwright/test_provider_acceptance.py` | **5 passed**（建源→多条密钥→模型清单→角色绑定→运行时凭据→插件 provider 联动） |
@@ -193,11 +195,16 @@
 
 ### 6.5 三类清单勾选（§2）
 
-**D1–D5**：D1 ✅（B1 预览回归修复）；D2 ❌ 未做，与 P1 同因（见 §6.6）；D3 ✅（style_interpreter 的 owner 冲突写错误通道而不阻断加载——沿用既有语义）；D4 ✅（`plugin_info()` 两轨形态统一为 `{id, contributions, tools, skills, agents}`，后端 `a85c1cb` + 测试 2 条）；D5 ✅（`/ui` 保留兼容层，前端统一走 Slot 渲染器）。
+> 本节在 2026-09-13 做了一次**对着代码的复核**（不只依赖上一轮结论）：发现 D3 原被误标 ✅
+> 而实际未修（`StyleInterpreter.register_plugin` 仍对不同 owner 抛 ValueError），已真修并补测
+> （后端 `ee9a6b2`）；B2 的 `build_client` 兜底、B5 的卸载/重载缓存失效也是本轮复核补上的。
+> **结论：清单里仍有 3 项未完成 —— D2/P1（同一件事）、P6、P9**，见 §6.6。
 
-**B1–B16**：B1 ✅ B2 ✅ B3 ✅ B4 ✅ B5 ✅ B6 ✅ B7 ✅ B8 ✅ B9 ✅ B10 ✅ B11 ✅ B12 ✅ B13 ✅ B14 ✅ B15 ✅（核对后确认 `string` 别名两侧语义一致）B16 ✅。
+**D1–D5**：D1 ✅（预览同时读 `ui.widgets` 与 `ui.slots[].layout.widgets`）；D2 ❌ 未做，与 P1 同因（见 §6.6）；D3 ✅（**本轮真修**：`StyleInterpreter` 由「单槽 + 第二个 owner 抛错」改为每 owner 一槽位的多注册表，按 `meta.priority` 选活跃项、`unregister_plugin` 只回收自己并改选、`_plugin/_owner` 保留为活跃项兼容视图；dispatch 透传 priority，内置镜像只镜像无归属槽位。测试 `test_style_interpreter_multi.py` 8 条，含「两个插件各带 style_interpreter 都加载成功」）；D4 ✅（`plugin_info()` 两轨形态统一为 `{id, contributions, tools, skills, agents}`，后端 `a85c1cb` + 测试 2 条）；D5 ✅（**渲染器已统一**：管理页预览与运行时 Slot 都走同一个 `PluginLayoutRenderer`；`/ui` 仅作为管理页预览的数据源保留——插件被禁用时也要能预览其声明面，故数据源保留是刻意的，不是两套渲染系统）。
 
-**P1–P13**：P2 ✅ P3 ✅ P4 ✅ P5 ✅ P7 ✅ P8 ✅ P10 ✅ P11 ✅ P12 ✅ P13 ✅；P6/P9 见 §6.6。
+**B1–B16**：B1 ✅（异常写错误通道并抛出；`load_all` 逐插件隔离，单个插件失败不影响其它）B2 ✅（注册时协议校验 + 运行时安全访问器；本轮补 `build_client` 缺失的可读错误）B3 ✅（能力缺省给最小能力 + 一次性告警）B4 ✅ B5 ✅（扫盘/ui.json/镜像三层缓存；enable/disable/uninstall/配置 PUT·DELETE 共 5 处失效点）B6 ✅ B7 ✅ B8 ✅ B9 ✅ B10 ✅ B11 ✅ B12 ✅（抽出 `resolveContainerExt` 并补 5 条测试，含非法声明的安全负例）B13 ✅ B14 ✅ B15 ✅（核对两个组件：`string` 在两侧都是单行文本输入）B16 ✅。
+
+**P1–P13**：P2 ✅ P3 ✅ P4 ✅ P5 ✅ P7 ✅ P8 ✅ P10 ✅ P11 ✅ P12 ✅ P13 ✅（验收用例证明 timeout/proxy/headers 真正进入客户端构造）；**P1 ❌（=D2）、P6 ❌、P9 ❌**，见 §6.6。
 
 ### 6.6 明确延期（附理由，不在本计划强制范围）
 
