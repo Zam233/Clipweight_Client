@@ -40,9 +40,9 @@ export interface UITextarea extends UIWidgetBase {
   defaultValue?: string;
 }
 
-/** M11: 单行文本输入 */
+/** M11: 单行文本输入（'string' 为后端配置控件惯用名的别名，见 PluginLayoutRenderer） */
 export interface UIInput extends UIWidgetBase {
-  type: 'input';
+  type: 'input' | 'string';
   label?: string;
   placeholder?: string;
   key: string;

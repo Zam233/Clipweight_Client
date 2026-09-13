@@ -145,6 +145,8 @@ export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
             );
           }
 
+          // 别名：后端配置控件与插件 schema 常用 'string' 表示单行文本输入
+          case 'string':
           case 'input': {
             const val = (getValue(widget.key) as string) ?? widget.defaultValue ?? '';
             const inputId = `plui-${widget.key}-input`;
