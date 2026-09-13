@@ -2,6 +2,15 @@ import { getApiClient } from './client';
 import { apiBase } from './sse';
 import type { Project, ProjectSummary, ProjectSaveRequest, HealthResponse, AnimationDef } from '@/types/api';
 
+/** 插件 UI 定义（兼容新旧两种响应形态，见 getUI 注释）。 */
+export interface PluginUIDefinition {
+  title?: string;
+  widgets?: unknown[];
+  api_version?: string;
+  legacy?: boolean;
+  slots?: Array<{ slot: string; id: string; title?: string; layout?: { title?: string; widgets?: unknown[] } }>;
+}
+
 export const projectApi = {
   /** Create a new project (backend assigns id) */
   async create(request: ProjectSaveRequest) {
@@ -245,10 +254,15 @@ export const pluginApi = {
     return data;
   },
 
-  /** 获取插件的 UI 布局定义 (ui.json) */
-  async getUI(pluginId: string) {
+  /** 获取插件的 UI 布局定义 (ui.json)
+   *
+   * D-1 后响应有两种形态（同一端点）：旧格式文件被包装为
+   * `{title, widgets, api_version, legacy, slots}`；新格式文件原样返回
+   * `{api_version, slots:[{layout:{widgets}}]}`。消费方需两者都接受。
+   */
+  async getUI(pluginId: string): Promise<PluginUIDefinition | null> {
     const { data } = await getApiClient().get(`/api/plugin/${pluginId}/ui`);
-    return data as { title?: string; widgets: unknown[] } | null;
+    return (data ?? null) as PluginUIDefinition | null;
   },
 };
 

@@ -69,8 +69,15 @@ export function PluginsPage() {
     setPreviewLoading(true);
     try {
       const ui = await pluginApi.getUI(p.id);
-      if (ui && ui.widgets && ui.widgets.length > 0) setPreviewLayout(ui as UILayout);
-      else setPreviewError('该插件未定义 UI（ui.json 缺失或为空）');
+      // 兼容两种响应形态：旧格式顶层 widgets；新格式 slots[].layout.widgets
+      const legacyWidgets = Array.isArray(ui?.widgets) ? ui!.widgets : [];
+      const slotWidgets = ui?.slots?.flatMap((s) => s.layout?.widgets ?? []) ?? [];
+      const widgets = legacyWidgets.length > 0 ? legacyWidgets : slotWidgets;
+      if (widgets.length > 0) {
+        setPreviewLayout({ title: ui?.title ?? ui?.slots?.[0]?.title ?? '插件 UI', widgets } as UILayout);
+      } else {
+        setPreviewError('该插件未定义 UI（ui.json 缺失或为空）');
+      }
     } catch (e: unknown) {
       setPreviewError(e instanceof Error ? e.message : '读取插件 UI 失败');
     } finally {
