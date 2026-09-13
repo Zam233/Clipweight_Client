@@ -6,6 +6,7 @@
  */
 import type { ReactNode } from 'react';
 import { PluginLayoutRenderer } from './PluginLayoutRenderer';
+import { PluginBundleFrame } from './PluginBundleFrame';
 import { evalVisibleWhen, type SlotName, type SlotVisibilityContext } from './slots';
 import { usePluginSlots } from './usePluginSlots';
 
@@ -31,6 +32,16 @@ export function Slot({ name, context = {}, fallback = null, renderLayout, filter
   return (
     <>
       {visible.map((c) => {
+        // M8：受信任 bundle 档——贡献带 payload.bundle 标记时由 iframe 沙箱承载
+        // （可用性由后端 /bundle 门禁决定：未开启或缺签名即 403 空白）
+        if ((c.payload as { bundle?: unknown } | undefined)?.bundle === true) {
+          return (
+            <div key={c.id} className="space-y-1">
+              <div className="text-label-sm text-on-surface-variant">{c.title}</div>
+              <PluginBundleFrame pluginId={c.id} title={c.title} />
+            </div>
+          );
+        }
         if (c.layout) {
           if (renderLayout) return <div key={c.id}>{renderLayout(c.layout, c.title)}</div>;
           return (
