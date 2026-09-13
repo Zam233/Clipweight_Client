@@ -30,6 +30,49 @@ vi.mock('@tanstack/react-router', () => ({
 
 afterEach(() => cleanup());
 
+describe('PluginsPage 贡献可见性（B2/C1）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.discover.mockResolvedValue([]);
+    mocks.errors.mockResolvedValue([]);
+  });
+
+  it('展示已注册贡献计数，并在 hover 标题里列出 kind:id', async () => {
+    mocks.list.mockResolvedValue([{
+      manifest: { id: 'plug_c', name: 'C', kind: 'capability', version: '1.0.0' },
+      enabled: true,
+      contributions: [{ kind: 'tool', id: 'c_tool' }, { kind: 'ui_slot', id: 'c_panel' }],
+    }]);
+    render(<PluginsPage />);
+    expect(await screen.findByText('2 贡献')).toBeTruthy();
+  });
+
+  it('声明未注册（缺配置）→ 显示「N 项未生效」并带可读提示', async () => {
+    mocks.list.mockResolvedValue([{
+      manifest: { id: 'plug_d', name: 'D', kind: 'material_source', version: '1.0.0' },
+      enabled: true,
+      contributions: [],
+      declared_only: ['material_source:pexels'],
+    }]);
+    render(<PluginsPage />);
+    const badge = await screen.findByTestId('declared-only-plug_d');
+    expect(badge.textContent).toContain('1 项未生效');
+    expect(badge.getAttribute('title')).toContain('material_source:pexels');
+  });
+
+  it('未加载的插件不显示「未生效」告警（避免噪音）', async () => {
+    mocks.list.mockResolvedValue([{
+      manifest: { id: 'plug_e', name: 'E', kind: 'capability', version: '1.0.0' },
+      enabled: false,
+      contributions: [],
+      declared_only: ['tool:e_tool'],
+    }]);
+    render(<PluginsPage />);
+    await waitFor(() => expect(screen.getByText('plug_e')).toBeTruthy());
+    expect(screen.queryByTestId('declared-only-plug_e')).toBeNull();
+  });
+});
+
 const loadedPlugin = {
   manifest: { id: 'plug_a', name: '插件A', kind: 'capability', version: '1.0.0' },
   enabled: true,

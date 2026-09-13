@@ -20,6 +20,10 @@ interface PluginItem {
   loaded: boolean;
   has_ui?: boolean;
   agents?: string[];
+  /** B2：已注册贡献（kind/id） */
+  contributions?: Array<{ kind: string; id: string }>;
+  /** B2：manifest 声明了但运行时没注册（如缺 API Key） */
+  declaredOnly?: string[];
 }
 
 export function PluginsPage() {
@@ -274,6 +278,21 @@ export function PluginsPage() {
                       {p.agents.length} agent{p.agents.length > 1 ? 's' : ''}
                     </span>
                   )}
+                  {/* B2：贡献计数 + 零贡献/声明未注册告警（P12 后端字段落地到界面） */}
+                  {typeof p.contributions?.length === 'number' && (
+                    <span className="font-mono text-caption text-on-surface-variant/70 shrink-0"
+                      title={p.contributions.map((c) => `${c.kind}:${c.id}`).join('\n')}>
+                      {p.contributions.length} 贡献
+                    </span>
+                  )}
+                  {p.loaded && p.declaredOnly && p.declaredOnly.length > 0 && (
+                    <span className="font-mono text-caption text-error shrink-0 flex items-center gap-1"
+                      data-testid={`declared-only-${p.id}`}
+                      title={`声明了但未注册（通常是缺少配置/密钥）：\n${p.declaredOnly.join('\n')}`}>
+                      <AlertTriangle className="w-3 h-3" />
+                      {p.declaredOnly.length} 项未生效
+                    </span>
+                  )}
                 </div>
                 {p.description && <p className="text-caption text-on-surface-variant truncate mt-0.5">{p.description}</p>}
               </div>
@@ -453,6 +472,16 @@ function normalize(data: unknown): PluginItem[] {
         kind: m.kind ? String(m.kind) : undefined,
         loaded: Boolean(o.enabled ?? o.loaded ?? true),
         agents: Array.isArray(o.agents) ? o.agents.map(String) : undefined,
+        // B2：已注册贡献与「声明未注册」——让「已加载但零能力」可见
+        contributions: Array.isArray(o.contributions)
+          ? (o.contributions as Array<Record<string, unknown>>).map((c) => ({
+            kind: String(c.kind ?? ''),
+            id: String(c.id ?? ''),
+          }))
+          : undefined,
+        declaredOnly: Array.isArray(o.declared_only)
+          ? (o.declared_only as unknown[]).map(String)
+          : undefined,
       };
     });
   }
