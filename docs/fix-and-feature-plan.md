@@ -1235,6 +1235,8 @@ P1 文档对账 → P3 账号管理（Server 3A + 主项目 3B）→ P4 市场 �
 - ✅ **续批：门禁健壮性**——`_lint_gated` 先查 CLI 可用性（进程级缓存探针，不在时不做无谓 npx 调用），并支持 `CLIPWRIGHT_HF_LINT_GATE=0` 逃生阀
 - ✅ **续批：合规基线**——新建 `THIRD_PARTY_NOTICES.md`（两仓库），登记运行时依赖许可、方法论来源（MIT/Apache-2.0 标注）、商标声明与「将来内联第三方代码」的登记模板
 - ✅ **续批回归**：后端 **1830 passed** / 1 skipped / 1 xfailed（视觉自评 + check 门禁共 13 条新测试）
+- ⏸ **当时未做（后续轮次已补）**：`hyperframes check` 进生成期（已补 ✅ P1-2）、`--variables` 参数化（已补 ✅ P1-5）、registry/skills 蒸馏 few-shot 库（已补 ✅ P2-1）、前端 `<hyperframes-player>` 预览（已补 ✅ P2-3 自研等价方案）、`@hyperframes/producer` 常驻 backend（仍 ⏸，见采纳报告 §6 修正）
+- 📌 **许可合规**：本轮未复制任何第三方代码；hyperframes 仅以外部 CLI 调用（Apache-2.0），提示词规则为方法论提炼并已标注来源
 
 ### 执行轮次 105（2026-09-13：V1 渲染正确性硬规则——字幕最后合成 + 切点 30ms 淡化）
 
@@ -1310,5 +1312,53 @@ P1 文档对账 → P3 账号管理（Server 3A + 主项目 3B）→ P4 市场 �
 - ✅ **测试**：新增 `tests/clipwright/test_mg_variables.py` **13 条**（声明形状/类型推断/default 取值/属性 JSON 安全、文本与颜色绑定、混合文案仍内联、空值不泄漏占位符、图片 var-src 兜底、全模板零残留、`--variables`/`--strict-variables` 命令行接线、None→空串）；同步更新 4 处钉住旧内联写法的断言（`test_mg_placeholder_fill` / `test_mg_renderer` / `test_mg_background_transparency`，改为同时接受 `var(--k, 值)` 形式）
 - ✅ **差分验收**：新增 `scripts/verify_mg_variables.py` → **VERIFY PASS**：不传变量渲染可见 2.394%（兜底生效）／`--variables '{"text":""}'` 可见 **0.000%**（证明变量真驱动文本）／换更长文案可见 6.662%；lint 0 error
 - ✅ **回归**：后端全量 **1899 passed** / 1 skipped / 1 xfailed（仅剩 2 条既有 plugin 子进程编码问题）
-- ⏸ **本轮未做（有意）**：`hyperframes check` 进生成期（每 MG 多起一次 Chrome）、`snapshot` 视觉自评（需视觉模型 Key）、`--variables/--batch` 参数化（需重构占位符链路）、registry/skills 蒸馏成 few-shot 库、`@hyperframes/producer` 常驻 sidecar、前端 `<hyperframes-player>` 预览——理由与优先级见采纳报告 §3.4
-- 📌 **许可合规**：本轮未复制任何第三方代码；hyperframes 仅以外部 CLI 调用（Apache-2.0），提示词规则为方法论提炼并已标注来源。`THIRD_PARTY_NOTICES.md` 仍待建（采纳报告 §2.3 已给模板）
+
+### 执行轮次 111（2026-09-13：#9 成片时长校验 + #10 HyperFrames 稳定性参数 + 转场失效修复）
+
+按采纳报告 §6 建议顺序开工的第 1、2 项，**并在过程中撞出一个长期存在的转场 bug**：
+
+- ✅ **#9 成片时长校验（V1 规则 5 / video-use self-eval 的 ffprobe 校验）**：新增
+  `expected_output_duration()`（= 时间线时长 − 转场累计侵蚀，仅当真正走 xfade 才扣减）与
+  `duration_deviation()`（容差 max(0.3s, 预期×1%)）；超容差记 warning + 日志，
+  `CLIPWRIGHT_STRICT_DURATION=1` 时直接判失败（CI 验收）。旧实现拿原始 duration_sec 比对，
+  有转场的片子必然误报，故此前只是"弱提示"
+- 🔍 **时长校验上线即抓到一个真 bug：Phase 3.2 并行 xfade 的产物名未格式化**
+  （`_xfade_pair` 直接用 `self._work_dir / "xr1_xxx.{ext}"`，而 `_run_concat` 会
+  `.format(ext=…)`）→ 文件扩展名是字面量 `{ext}` → ffmpeg 报 Error initializing the muxer
+  → **每次都被静默降级为硬切拼接，转场从未进入成片**；更糟的是转场漂移校正
+  （`_r1_seg_shifts`）仍按"会被缩短"把字幕/音频/MG 前移 → 转场越多、A/V 与字幕偏移越大。
+  修复：`_xfade_pair` 先格式化 `{ext}`。实测同一条 3×5s + 2×0.5s 转场的时间线：
+  成片时长 **15.0s → 14.0s**（= 预期值），e2e 冒烟 duration=14.00s 且不再触发时长告警
+- ✅ **#10 HyperFrames 稳定性/Windows 专项参数**：新增 `_extra_render_flags()`（统一注入两处渲染命令）：
+  `CLIPWRIGHT_HF_FRAMES_CACHE_DIR` → `--frames-cache-dir`（抽帧缓存移出系统盘，避免 Windows C: 写满）；
+  `CLIPWRIGHT_HF_BROWSER_TIMEOUT` / `_PROTOCOL_TIMEOUT` / `_PLAYER_READY_TIMEOUT` → 三类超时；
+  `CLIPWRIGHT_HF_LOW_MEMORY=1` → `--low-memory-mode`；`CLIPWRIGHT_HF_BROWSER_GPU` → `--browser-gpu`/`--no-browser-gpu`。
+  缺省一个 flag 都不加（行为零变化）
+- ✅ **测试**：新增 `tests/clipwright/test_render_duration_and_flags.py`（15 条：预期时长/转场侵蚀/
+  硬切不扣减/容差边界/垃圾输入、环境变量 flag 开关与命令注入）+
+  `tests/clipwright/test_render_xfade_path.py`（3 条**真实 ffmpeg**：产物名格式化 + xfade 时长
+  = 两段之和 − 转场、非法转场名安全回退、整条时间线成片时长 ≈ 预期且无告警）
+- ✅ **回归**：e2e 冒烟 SMOKE PASS（duration 14.00s / fallback=0）
+### 执行轮次 112（2026-09-13：#4 渲染后自评闭环——切点复核图 + 视觉打分 hook）
+
+按建议顺序第 3 项开工，先落「取证层」（timeline_view 等价物）；QualityAgent 的语义化重做路由留到下一轮：
+
+- ✅ **新增 `services/timeline_view.py`**：`cut_times_from_segments()` 从片段边界推导切点
+  （跳过 0 点、容忍脏数据）；`build_cut_sheet()` 对单个切点抽前/中/后三帧（±0.35s）横向拼图 +
+  时间与序号标注；`build_review_sheets()` 批量生成（默认上限 12 张）。纯 ffmpeg + Pillow，零新增依赖
+- ✅ **渲染后 hook**：`RenderService._post_render_review()` 在成片落地后调用，
+  开关 `CLIPWRIGHT_POST_RENDER_REVIEW=1`（或 `settings.render_review`），产物目录
+  `CLIPWRIGHT_REVIEW_DIR`；复核图路径与视觉评分写进 `RenderResult.warnings` + ffmpeg_log；
+  视觉打分复用 `MGVisualEvaluator`（同 `enable_visual_llm` 门控）。**默认关闭**，
+  任何失败只记日志、绝不改变渲染结果
+- ✅ **实测**：e2e 冒烟加 `CLIPWRIGHT_POST_RENDER_REVIEW=1` → SMOKE PASS，
+  在 5.00s / 10.00s 两个切点各产出 1 张复核图（1302×286 = 3 帧横向拼图），
+  产物落在 `_cache/render_review`（`_cache/` 已 gitignore）
+- ✅ **测试**：新增 `tests/clipwright/test_render_post_review.py` **12 条**（切点推导含脏数据、
+  拼图三帧结构、批量上限、缺视频/无切点空操作、hook 门控、失败吞掉不影响成片）
+- ⏸ **本轮未做（V4 剩余）**：切点问题按类型路由回 `redo_agent`（edit/animation/audio）；
+  QualityAgent 侧接线；`--edl` 全片总览视图；把视觉评分纳入管线熔断
+- ✅ **回归**：后端全量 **1929 passed** / 1 skipped / 1 xfailed（仍仅 2 条既有 plugin 编码问题）
+- 📌 **过程教训**：用 `Get-Content | Set-Content -Encoding UTF8` 往返改写文档，把
+  `docs/fix-and-feature-plan.md` 写成了双重编码（中文全乱），已 `git checkout HEAD --` 恢复并改用
+  edit 工具重做。**含中文的文档与源码一律用 edit 工具改，不要走 PowerShell 读写往返。**
