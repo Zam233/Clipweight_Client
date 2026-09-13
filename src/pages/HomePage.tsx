@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useProjectStore } from '@/stores/projectStore';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
+import { safePluginPath } from '@/features/plugins/slots';
 import { clearRequirementsDraft } from '@/stores/agentStore';
 import { useBackendHealth } from './useBackendHealth';
 import {
@@ -1453,7 +1454,8 @@ function HomeSidebar({ activeTab, onTab, credit, user, onTopup, estimate }: {
 
         {/* D-3a：插件贡献的主导航项（payload.to 路径跳转；无贡献零渲染） */}
         {pluginNav.map((c) => {
-          const to = String((c.payload as { to?: unknown } | undefined)?.to ?? '');
+          // B9：路径白名单校验，非法值不渲染（避免 navigate 把用户送进错误页）
+          const to = safePluginPath((c.payload as { to?: unknown } | undefined)?.to);
           if (!to) return null;
           return (
             <button

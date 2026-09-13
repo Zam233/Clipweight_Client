@@ -9,6 +9,10 @@ import { useEffect } from 'react';
 import { keybindingEngine } from '@/features/keyboard/KeybindingEngine';
 import { getApiClient } from '@/services/api';
 import { toast } from '@/stores/toastStore';
+import { usePreviewStore } from '@/stores/previewStore';
+import { useSelectionStore } from '@/stores/selectionStore';
+import { useTimelineStore } from '@/stores/timelineStore';
+import { evalVisibleWhen } from './slots';
 import { usePluginSlots } from './usePluginSlots';
 
 interface ShortcutPayload {
@@ -24,6 +28,10 @@ interface ShortcutPayload {
 export function usePluginShortcuts(): void {
   // shortcut 是 ui_slot 的 slot 名（D-0 名单），非独立贡献类型
   const items = usePluginSlots('shortcut');
+  // B11：shortcut 也要消费 visibleWhen —— 上下文与其它 slot 同源（只读宿主状态）
+  const playing = usePreviewStore((s) => s.isPlaying);
+  const hasSelection = useSelectionStore((s) => s.selectedClipIds.length > 0);
+  const hasTimeline = useTimelineStore((s) => (s.timeline?.tracks?.length ?? 0) > 0);
 
   useEffect(() => {
     const disposers: Array<() => void> = [];
@@ -31,6 +39,8 @@ export function usePluginShortcuts(): void {
       const p = (c.payload ?? {}) as ShortcutPayload;
       const endpoint = p.action?.endpoint;
       if (!p.combo || !endpoint) continue;
+      // 受限表达式求值（无 eval）；解析失败即视为不可见
+      if (!evalVisibleWhen(c.visibleWhen, { playing, hasSelection, hasTimeline })) continue;
       const method = String(p.action?.method ?? 'POST').toUpperCase();
       const body = p.action?.body ?? {};
       disposers.push(keybindingEngine.register({
@@ -49,5 +59,5 @@ export function usePluginShortcuts(): void {
     }
     // 卸载或贡献变化时注销全部（防插件禁用后快捷键残留）
     return () => disposers.forEach((d) => d());
-  }, [items]);
+  }, [items, playing, hasSelection, hasTimeline]);
 }

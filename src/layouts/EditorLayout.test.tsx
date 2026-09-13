@@ -7,7 +7,7 @@ const { mocks } = vi.hoisted(() => ({
   mocks: {
     setPanelWidth: vi.fn(),
     setTimelineHeight: vi.fn(),
-    panels: { assets: true, properties: true, agent: true },
+    panels: { assets: true, properties: true, agent: true, timeline: true },
     panelWidths: { assets: 260, properties: 320, agent: 300 },
     timelineHeight: 260,
     mobilePanel: null as string | null,

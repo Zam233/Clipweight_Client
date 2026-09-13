@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import type { PluginConfigField, PluginConfigResponse } from '@/types/api';
 import { Puzzle, Power, Loader2, RefreshCw, Zap, Settings, X, Save, Trash2, Eye, Box, AlertTriangle } from 'lucide-react';
 import { PluginLayoutRenderer } from '@/features/plugins';
+import { invalidatePluginSlots } from '@/features/plugins/usePluginSlots';
 import type { UILayout } from '@/features/plugins/types';
 
 interface PluginItem {
@@ -122,6 +123,9 @@ export function PluginsPage() {
         // 旧实现吞错后无条件翻转开关，用户看到假 ACTIVE
         setPlugins((ps) => ps.map((x) => (x.id === p.id ? { ...x, loaded: true } : x)));
       }
+      // B8：插件启停必须失效前端 Slot 缓存，否则已挂载的宿主 Slot 仍显示
+      // 旧贡献（G7「禁用后 UI 同步消失」此前只在测试里成立）
+      invalidatePluginSlots();
     } catch (e) {
       const anyE = e as { response?: { data?: { detail?: string } }; code?: string };
       const isNetwork = anyE?.code === 'ERR_NETWORK' || anyE?.code === 'ECONNABORTED';

@@ -93,10 +93,12 @@ export function EditorToolbar() {
   const mobilePanel = useWorkspaceStore((s) => s.mobilePanel);
   const setMobilePanel = useWorkspaceStore((s) => s.setMobilePanel);
   const isDesktop = useMediaQuery('(min-width: 1024px)');
-  const panelActive = (p: 'assets' | 'properties' | 'agent') =>
+  // B10：timeline 也是可切换面板（插件下栏随之显隐）
+  const panelActive = (p: 'assets' | 'properties' | 'agent' | 'timeline') =>
     isDesktop ? panels[p] : mobilePanel === p;
-  const handlePanelToggle = (p: 'assets' | 'properties' | 'agent') => {
-    if (isDesktop) togglePanel(p);
+  const handlePanelToggle = (p: 'assets' | 'properties' | 'agent' | 'timeline') => {
+    // 时间线没有抽屉形态：窄屏下也直接切可见性开关
+    if (isDesktop || p === 'timeline') togglePanel(p);
     else setMobilePanel(mobilePanel === p ? null : p);
   };
 
@@ -722,6 +724,12 @@ export function EditorToolbar() {
           <button onClick={() => handlePanelToggle('agent')}
             className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panelActive('agent') ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
             <Bot className="w-4 h-4" />
+          </button>
+        </Tooltip>
+        <Tooltip side="bottom" content="时间线 / 插件下栏">
+          <button onClick={() => handlePanelToggle('timeline')}
+            className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panelActive('timeline') ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
+            <Film className="w-4 h-4" />
           </button>
         </Tooltip>
         <Tooltip side="bottom" content="属性面板">

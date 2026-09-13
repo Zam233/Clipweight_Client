@@ -40,6 +40,17 @@ function pushHistoryCoalesced(clipId: string, label: string) {
 /**
  * PropertiesPanel — inspects and edits the selected clip's attributes.
  */
+/** B11：未声明 payload.kinds 的 props.section 贡献只提示一次，避免刷屏。 */
+const _warnedPropKinds = new Set<string>();
+function warnUndeclaredPropKinds(id: string): void {
+  if (_warnedPropKinds.has(id)) return;
+  _warnedPropKinds.add(id);
+  console.warn(
+    `[plugin] props.section 贡献 ${id} 未声明 payload.kinds —— 已按「不适用」处理；`
+    + '请在贡献声明里补 kinds（如 ["video"]）。',
+  );
+}
+
 export function PropertiesPanel() {
   const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
   const timeline = useTimelineStore((s) => s.timeline);
@@ -528,13 +539,19 @@ export function PropertiesPanel() {
             {/* Keyframes */}
             <KeyframeEditor clip={clip} />
 
-            {/* D-3g：插件贡献的属性分区（payload.kinds 按片段类型过滤） */}
+            {/* D-3g：插件贡献的属性分区（payload.kinds 按片段类型过滤）
+                B11：未声明 kinds 视为「不适用任何类型」（fail-closed）——
+                否则插件的属性分区会出现在所有片段上，用户以为功能串味。
+                插件作者应声明 payload.kinds，例如 ["video"] / ["audio","subtitle"]。 */}
             <Slot
               name="props.section"
               context={{ clipKind: trackKind, hasSelection: true }}
               filter={(c) => {
                 const kinds = (c.payload as { kinds?: unknown } | undefined)?.kinds;
-                if (!Array.isArray(kinds) || kinds.length === 0) return true;
+                if (!Array.isArray(kinds) || kinds.length === 0) {
+                  warnUndeclaredPropKinds(c.id);
+                  return false;
+                }
                 return kinds.map(String).includes(String(trackKind));
               }}
             />

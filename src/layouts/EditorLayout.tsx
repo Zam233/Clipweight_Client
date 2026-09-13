@@ -58,6 +58,8 @@ export function EditorLayout() {
   }, [isNarrow]);
   const mobilePanel = useWorkspaceStore((s) => s.mobilePanel);
   // D-3c：编辑区右栏插件面板（无贡献时整列不渲染，零布局影响）
+  // B10：缺失该键（旧持久化数据/外部注入）按可见处理——与 store 加载约定一致
+  const timelineVisible = panels.timeline !== false;
   const rightPanelContribs = usePluginSlots('editor.right-panel');
   const leftPanelContribs = usePluginSlots('editor.left-panel');
   const bottomPanelContribs = usePluginSlots('editor.bottom-panel');
@@ -201,8 +203,9 @@ export function EditorLayout() {
           </>
         )}
 
-        {/* D-3c：插件左栏面板（无贡献时整列不渲染） */}
-        {leftPanelContribs.length > 0 && isDesktop && (
+        {/* D-3c：插件左栏面板（无贡献时整列不渲染）
+            B10：必须同时受「素材面板」开关约束——关掉面板后插件列不能残留 */}
+        {leftPanelContribs.length > 0 && panels.assets && isDesktop && (
           <div
             className="h-full overflow-hidden shrink-0 border-r border-outline-variant/20"
             style={{ width: panelWidths.assets }}
@@ -221,37 +224,42 @@ export function EditorLayout() {
           </div>
 
           {/* Timeline divider */}
-          <div
-            className={cn('panel-divider-h shrink-0', dragging === 'timeline' && 'bg-primary')}
-            onMouseDown={(e) => handleDividerMouseDown('timeline', e)}
-            onPointerDown={(e) => handleDividerPointerDown('timeline', e)}
-          />
+          {timelineVisible && (
+            <div
+              className={cn('panel-divider-h shrink-0', dragging === 'timeline' && 'bg-primary')}
+              onMouseDown={(e) => handleDividerMouseDown('timeline', e)}
+              onPointerDown={(e) => handleDividerPointerDown('timeline', e)}
+            />
+          )}
 
-          {/* D-3c：插件下栏（时间线上方的横向条；无贡献零渲染） */}
-          {bottomPanelContribs.length > 0 && isDesktop && (
+          {/* D-3c：插件下栏（时间线上方的横向条；无贡献零渲染）
+              B10：下栏属于时间线区域，随时间线一起在窄屏折叠 */}
+          {bottomPanelContribs.length > 0 && timelineVisible && isDesktop && (
             <div className="shrink-0 max-h-[200px] overflow-y-auto border-t border-outline-variant/20 px-3 py-2">
               <Slot name="editor.bottom-panel" context={{ hasTimeline: true }} />
             </div>
           )}
 
-          {/* Timeline */}
-          <div
-            className="shrink-0 overflow-hidden relative"
-            style={{ height: timelineHeight }}
-          >
-            <TimelinePanel />
-            {isNarrow && (
-              <div
-                role="note"
-                aria-label="时间线只读提示"
-                className="absolute inset-0 z-10 bg-surface/70 flex items-center justify-center px-4 text-center"
-              >
-                <span className="text-label-sm text-on-surface-variant">
-                  窗口宽度不足 768px，时间线为只读预览。<br />请加宽窗口后再进行剪辑。
-                </span>
-              </div>
-            )}
-          </div>
+          {/* Timeline（B10：受「时间线」面板开关控制；插件下栏随之一并折叠） */}
+          {timelineVisible && (
+            <div
+              className="shrink-0 overflow-hidden relative"
+              style={{ height: timelineHeight }}
+            >
+              <TimelinePanel />
+              {isNarrow && (
+                <div
+                  role="note"
+                  aria-label="时间线只读提示"
+                  className="absolute inset-0 z-10 bg-surface/70 flex items-center justify-center px-4 text-center"
+                >
+                  <span className="text-label-sm text-on-surface-variant">
+                    窗口宽度不足 768px，时间线为只读预览。<br />请加宽窗口后再进行剪辑。
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Right: Properties + Agent */}

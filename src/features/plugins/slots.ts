@@ -158,3 +158,19 @@ export function sanitizeIContribution(c: SlotContribution): SlotContribution {
     icon: c.icon && SLOT_ICON_WHITELIST.includes(c.icon) ? c.icon : undefined,
   };
 }
+
+/**
+ * B9：插件导航路径校验 —— 只接受站内绝对路径。
+ *
+ * 插件贡献的 `payload.to` 会直接进 `navigate({to})`；非法值（外链、裸 key、
+ * `..` 穿越、协议相对 `//host`）会让路由进错误页。白名单校验：
+ * 单个 `/` 开头、仅字母数字与 `-_.~/$`、不含 `..` 片段。
+ */
+export function safePluginPath(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const to = value.trim();
+  if (!to.startsWith('/') || to.startsWith('//')) return null;
+  if (!/^\/[A-Za-z0-9\-_./$]*$/.test(to)) return null;
+  if (to.split('/').includes('..')) return null;
+  return to.length > 1 && to.endsWith('/') ? to.slice(0, -1) : to;
+}
