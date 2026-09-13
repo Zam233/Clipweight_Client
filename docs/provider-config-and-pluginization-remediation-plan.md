@@ -204,7 +204,29 @@
 
 **B1–B16**：B1 ✅（异常写错误通道并抛出；`load_all` 逐插件隔离，单个插件失败不影响其它）B2 ✅（注册时协议校验 + 运行时安全访问器；本轮补 `build_client` 缺失的可读错误）B3 ✅（能力缺省给最小能力 + 一次性告警）B4 ✅ B5 ✅（扫盘/ui.json/镜像三层缓存；enable/disable/uninstall/配置 PUT·DELETE 共 5 处失效点）B6 ✅ B7 ✅ B8 ✅ B9 ✅ B10 ✅ B11 ✅ B12 ✅（抽出 `resolveContainerExt` 并补 5 条测试，含非法声明的安全负例）B13 ✅ B14 ✅ B15 ✅（核对两个组件：`string` 在两侧都是单行文本输入）B16 ✅。
 
-**P1–P13**：P2 ✅ P3 ✅ P4 ✅ P5 ✅ P7 ✅ P8 ✅ P10 ✅ P11 ✅ P12 ✅ P13 ✅（验收用例证明 timeout/proxy/headers 真正进入客户端构造）；**P1 ❌（=D2）、P6 ❌、P9 ❌**，见 §6.6。
+**P1–P13**：P2 ✅ P3 ✅ P4 ✅ P5 ✅ P7 ✅ P8 ✅ P10 ✅ P11 ✅ P12 ✅ P13 ✅（验收用例证明 timeout/proxy/headers 真正进入客户端构造）。
+
+**P9 ✅（子进程沙箱）**：新增 `clipwright/plugins/runtime/`（协议/worker/权限强制/host/代理），
+manifest 加 `runtime: inprocess|subprocess`。关键属性有测试证明：宿主进程里没有插件模块
+（`sys.modules` 检查）、越权写盘在 worker 内被审计钩子拒绝、超时/崩溃给可读错误而非空结果、
+卸载先停 worker。同时把 7 个异步调用点切到 `execute_async`（子进程 hook 不阻塞事件循环）。
+后端子进程 e2e 14 条 + 单测 15 条 + 钩子异步 8 条。
+
+**P1/D2 🔶 部分完成（20/29）**：已迁移 news/gaming/tutorial/shortform_category、coverr_material、
+platform_export、example_caption_plugin、pexels/pixabay/unsplash/gif_sticker/bgm_library、
+whisper_stt、subtitle_translate、voice_ext、my_material_lib、cloud_render、subagent_demo、
+custom_style、lut_presets。每个都补了 `plugin.yaml` 的 `api_version: "2"` + 声明，
+并用 `scripts/plugin_contribution_snapshot.py` 做迁移前后逐项 diff（**32 插件 0 差异**）。
+顺带补了契约缺口：动画类插件注册的 `AnimationRegistry` 原本没有对应 kind，新增
+`ContributionKind.ANIMATION`（现 17 类）后才可迁移。
+**剩余 10 个**（机制已验证，纯体力活）：ai_image_gen / ai_music_gen / ai_video_gen
+（工具+素材源，shutdown 里仍直接调注册表）、mg_animations / my_animations /
+kinetic_typography / lottie_animations / logic_animations（动画定义）、
+text_animations / diagram_style（**模块级注册**，需把 import 期注册搬进 `contributions()`）。
+
+**P6 ❌ 待决策**：`page` 插槽鉴权需要先定「插件页默认谁能看」——不经确认我不会改默认行为
+（现有插件页对全部登录用户开放）。可选项：默认仅管理员 + `payload.public: true` 例外
+（fail-closed），或维持现状 + 增加 `payload.admin_only` 声明位。
 
 ### 6.6 明确延期（附理由，不在本计划强制范围）
 
