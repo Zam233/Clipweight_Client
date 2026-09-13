@@ -9,7 +9,7 @@ import { useEffect } from 'react';
 import { keybindingEngine } from '@/features/keyboard/KeybindingEngine';
 import { getApiClient } from '@/services/api';
 import { toast } from '@/stores/toastStore';
-import { usePluginContributions } from './usePluginSlots';
+import { usePluginSlots } from './usePluginSlots';
 
 interface ShortcutPayload {
   combo?: string;
@@ -22,7 +22,8 @@ interface ShortcutPayload {
 }
 
 export function usePluginShortcuts(): void {
-  const items = usePluginContributions('shortcut');
+  // shortcut 是 ui_slot 的 slot 名（D-0 名单），非独立贡献类型
+  const items = usePluginSlots('shortcut');
 
   useEffect(() => {
     const disposers: Array<() => void> = [];
