@@ -27,6 +27,7 @@ const PersonaForgePage = lazyPage(() => import('./pages/PersonaForgePage'), 'Per
 const HelpPage = lazyPage(() => import('./pages/HelpPage'), 'HelpPage');
 const PluginPage = lazyPage(() => import('./pages/PluginPage'), 'PluginPage');
 const ModelsPage = lazyPage(() => import('./pages/admin/ModelsPage'), 'ModelsPage');
+const ProvidersPage = lazyPage(() => import('./pages/admin/ProvidersPage'), 'ProvidersPage');
 const ToolsPage = lazyPage(() => import('./pages/admin/ToolsPage'), 'ToolsPage');
 const PluginsPage = lazyPage(() => import('./pages/admin/PluginsPage'), 'PluginsPage');
 const TypeMakerPage = lazyPage(() => import('./pages/admin/TypeMakerPage'), 'TypeMakerPage');
@@ -192,6 +193,14 @@ const modelsRoute = createRoute({
   errorComponent: RouteErrorFallback,
 });
 
+const providersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/providers',
+  beforeLoad: requireAdmin,
+  component: ProvidersPage,
+  errorComponent: RouteErrorFallback,
+});
+
 const backendConfigRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/backend-config',
@@ -336,6 +345,7 @@ const routeTree = rootRoute.addChildren([
   helpRoute,
   pluginPageRoute,
   modelsRoute,
+  providersRoute,
   backendConfigRoute,
   toolsRoute,
   pluginsRoute,

@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import {
   ArrowLeft, Cpu, Wrench, Puzzle, Shapes, LayoutTemplate, Webhook,
   Type, Activity, Terminal, GraduationCap, Clapperboard, Captions, Film, Sparkles, SlidersHorizontal,
+  Layers,
 } from 'lucide-react';
 
 /**
@@ -32,6 +33,7 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
   };
 
   const NAV = [
+    { to: '/settings/providers', label: '模型提供商', icon: Layers, code: 'PROV' },
     { to: '/settings/models', label: '模型测试', icon: Cpu, code: 'LLM' },
     { to: '/settings/backend-config', label: '后端配置', icon: SlidersHorizontal, code: 'CONF' },
     { to: '/settings/tools', label: '工具与技能', icon: Wrench, code: 'TOOL' },
