@@ -2,8 +2,8 @@
 /**
  * D-2 测试：usePluginSlots 的解析/过滤/排序/缓存失效 + Slot 可见性过滤。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, cleanup } from '@testing-library/react';
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -25,6 +25,10 @@ import {
   usePluginSlots,
 } from './usePluginSlots';
 import { Slot } from './Slot';
+
+afterEach(() => {
+  cleanup(); // 显式清理 DOM，避免跨用例残留组件订阅广播
+});
 
 beforeEach(() => {
   mocks.get.mockReset();
@@ -61,6 +65,57 @@ describe('usePluginSlots (D-2)', () => {
     mocks.get.mockRejectedValue(new Error('offline'));
     const items = await fetchSlotContributions('nav.primary');
     expect(items).toEqual([]);
+  });
+});
+
+describe('B13/B14：请求合并与挂载态同步', () => {
+  it('B13：多个 slot 只发一次全量请求', async () => {
+    mocks.get.mockResolvedValue({
+      data: {
+        contributions: [
+          { kind: 'ui_slot', id: 'r', title: 'R', slot: 'editor.right-panel', layout: { title: 'R' } },
+          { kind: 'ui_slot', id: 'l', title: 'L', slot: 'editor.left-panel', layout: { title: 'L' } },
+          { kind: 'export_preset', id: 'p', title: 'P', payload: { width: 1080, height: 1920 } },
+        ],
+      },
+    });
+    invalidatePluginSlots();
+    const right = await fetchSlotContributions('editor.right-panel');
+    const left = await fetchSlotContributions('editor.left-panel');
+    expect(right.map((c) => c.id)).toEqual(['r']);
+    expect(left.map((c) => c.id)).toEqual(['l']);
+    expect(mocks.get).toHaveBeenCalledTimes(1); // 一次全量，本地过滤
+    expect(mocks.get).toHaveBeenCalledWith('/api/plugin/contributions');
+  });
+
+  it('B14：挂载中的 hook 收到失效广播后立即刷新（无需重挂载）', async () => {
+    mocks.get.mockResolvedValue({
+      data: {
+        contributions: [
+          { kind: 'ui_slot', id: 'x', title: '旧贡献', slot: 'settings.section', layout: { title: '旧贡献' } },
+        ],
+      },
+    });
+    invalidatePluginSlots();
+    render(<Slot name="settings.section" />);
+    expect(await screen.findByTestId('plugin-layout')).toBeTruthy();
+
+    // 后端贡献变化（插件被禁用）→ 广播
+    mocks.get.mockResolvedValue({ data: { contributions: [] } });
+    invalidatePluginSlots();
+
+    await waitFor(() => expect(screen.queryByTestId('plugin-layout')).toBeNull());
+  });
+
+  it('B14：卸载后不再接收广播（无 setState 警告/泄漏）', async () => {
+    mocks.get.mockResolvedValue({ data: { contributions: [] } });
+    const { unmount } = render(<Slot name="settings.section" />);
+    await waitFor(() => expect(mocks.get).toHaveBeenCalled());
+    unmount();
+    const callsBefore = mocks.get.mock.calls.length;
+    invalidatePluginSlots();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mocks.get.mock.calls.length).toBe(callsBefore);
   });
 });
 

@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 
 interface PresetDef {
+  /** B12：容器扩展名（插件预设/后端预设可显式声明，缺省按编码推断） */
+  container?: string;
   name: string;
   width: number;
   height: number;
@@ -183,6 +185,8 @@ export function ExportPage() {
         height: payload.height,
         fps: payload.fps ?? 30,
         bitrate: payload.bitrate ?? '6M',
+        // B12：插件预设可声明容器（payload.container / payload.ext）
+        ...(payload.container ? { container: String(payload.container) } : {}),
       };
     }
     if (!apiPresets || Object.keys(apiPresets).length === 0) return withPlugins;
@@ -221,7 +225,14 @@ export function ExportPage() {
     // 批C：容器扩展名跟随预设（ProRes=MOV——MP4 容器装不下 prores 编码），
     // 并加时间戳避免同名任务互相覆盖
     const presetDef = presets[presetId];
-    const ext = presetId === 'prores422hq' ? 'mov' : 'mp4';
+    // B12：容器优先取预设声明（插件 export_preset 的 payload.container/ext），
+    // 其次按编码推断（ProRes 装不进 MP4），最后默认 mp4
+    const declaredContainer = String(
+      presetDef?.container ?? (presetDef as { ext?: string } | undefined)?.ext ?? '',
+    ).replace(/^\./, '').toLowerCase();
+    const ext = /^[a-z0-9]{2,5}$/.test(declaredContainer)
+      ? declaredContainer
+      : (presetId === 'prores422hq' ? 'mov' : 'mp4');
     const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
     const filename = `${safeName}_${settings.width}x${settings.height}_${stamp}.${ext}`;
     const item: QueueItem = {
