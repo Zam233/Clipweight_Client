@@ -170,13 +170,18 @@
 
 | 项 | 命令 | 结果 |
 |---|---|---|
-| 后端全量 | `python -m pytest tests -q` | **1709 passed**, 1 skipped, 1 xfailed |
+| 后端全量 | `python -m pytest tests -q` | **1714 passed**, 1 skipped, 1 xfailed |
 | 后端导入 | `python -c "import clipwright.main"` | 通过 |
 | 前端类型 | `npx tsc --noEmit` | 无错误 |
-| 前端单测 | `npx vitest run` | **493 passed**（68 文件） |
+| 前端单测 | `npx vitest run` | **496 passed**（69 文件） |
+| 前端 lint | `npx eslint src e2e` | 0 error（136 warning，均为既有风格告警） |
 | 前端构建 | `npm run build` | 成功 |
+| 端到端验收（API 级） | `pytest tests/clipwright/test_provider_acceptance.py` | **5 passed**（建源→多条密钥→模型清单→角色绑定→运行时凭据→插件 provider 联动） |
 | 浏览器 e2e（新增） | `npx playwright test e2e/providers.spec.ts e2e/plugin-slot-invalidation.spec.ts e2e/plugin-slots.spec.ts` | **7 passed** |
 | 浏览器 e2e（全量） | `npx playwright test` | 44 passed / 8 failed —— 8 条**均为本次改动前既有失败**（见 6.4） |
+
+> 说明：真机联调（用真实 Deepseek/Ollama 密钥跑通「模型测试」页）需真实凭据与网络，
+> 不在本仓库自动化范围；API 级验收已用打桩 provider 覆盖到「凭据与传输参数真正进入客户端构造」这一层。
 
 ### 6.4 既有 e2e 失败的定性（非本次引入）
 
