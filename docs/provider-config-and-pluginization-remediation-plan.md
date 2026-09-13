@@ -172,13 +172,13 @@
 
 | 项 | 命令 | 结果 |
 |---|---|---|
-| 后端全量 | `python -m pytest tests -q` | **1724 passed**, 1 skipped, 1 xfailed |
+| 后端全量 | `python -m pytest tests -q` | **1783 passed**, 1 skipped, 1 xfailed |
 | 后端导入 | `python -c "import clipwright.main"` | 通过 |
 | 前端类型 | `npx tsc --noEmit` | 无错误 |
-| 前端单测 | `npx vitest run` | **501 passed**（70 文件） |
+| 前端单测 | `npx vitest run` | **510 passed**（71 文件） |
 | 前端 lint | `npx eslint src e2e` | 0 error（136 warning，均为既有风格告警） |
 | 前端构建 | `npm run build` | 成功 |
-| 端到端验收（API 级） | `pytest tests/clipwright/test_provider_acceptance.py` | **5 passed**（建源→多条密钥→模型清单→角色绑定→运行时凭据→插件 provider 联动） |
+| 端到端验收（API 级） | 提供方配置 5 + 插件审查修复 17 | **22 passed**（建源→多条密钥→模型清单→角色绑定→运行时凭据→插件 provider 联动） |
 | 浏览器 e2e（新增） | `npx playwright test e2e/providers.spec.ts e2e/plugin-slot-invalidation.spec.ts e2e/plugin-slots.spec.ts` | **7 passed** |
 | 浏览器 e2e（全量） | `npx playwright test` | 44 passed / 8 failed —— 8 条**均为本次改动前既有失败**（见 6.4） |
 
@@ -212,23 +212,46 @@ manifest 加 `runtime: inprocess|subprocess`。关键属性有测试证明：宿
 卸载先停 worker。同时把 7 个异步调用点切到 `execute_async`（子进程 hook 不阻塞事件循环）。
 后端子进程 e2e 14 条 + 单测 15 条 + 钩子异步 8 条。
 
-**P1/D2 🔶 部分完成（20/29）**：已迁移 news/gaming/tutorial/shortform_category、coverr_material、
+**P1/D2 ✅ 完成（32/32，含子进程示例）**：已迁移 news/gaming/tutorial/shortform_category、coverr_material、
 platform_export、example_caption_plugin、pexels/pixabay/unsplash/gif_sticker/bgm_library、
 whisper_stt、subtitle_translate、voice_ext、my_material_lib、cloud_render、subagent_demo、
 custom_style、lut_presets。每个都补了 `plugin.yaml` 的 `api_version: "2"` + 声明，
 并用 `scripts/plugin_contribution_snapshot.py` 做迁移前后逐项 diff（**32 插件 0 差异**）。
 顺带补了契约缺口：动画类插件注册的 `AnimationRegistry` 原本没有对应 kind，新增
 `ContributionKind.ANIMATION`（现 17 类）后才可迁移。
-**剩余 10 个**（机制已验证，纯体力活）：ai_image_gen / ai_music_gen / ai_video_gen
-（工具+素材源，shutdown 里仍直接调注册表）、mg_animations / my_animations /
-kinetic_typography / lottie_animations / logic_animations（动画定义）、
-text_animations / diagram_style（**模块级注册**，需把 import 期注册搬进 `contributions()`）。
+**剩余 0 个**：本轮已全部迁移（含 `text_animations` 的 25 个工具、`mg_animations`/`lottie_animations`/`logic_animations`/`diagram_style` 的钩子、`my_animations`/`kinetic_typography` 的动画定义），详见 §6.7。
 
 **P6 ✅（按确认的策略实现）**：产品确认「插件页默认**所有登录用户**可访问」，默认行为不变，
 改为新增**声明式**限制：贡献 meta 里 `admin_only: true` 的条目，后端 contributions 端点
 直接不投递给非管理员（非管理员拿不到定义，比前端隐藏可靠），插件页壳再按本地角色二次拦截
 并给出可读提示。`off`/`token` 模式无用户身份，按仓库既有语义视为管理员（与
 `_require_admin` 一致）。后端 5 条 + 前端 6 条用例覆盖。
+
+### 6.7 插件审查修复（第二轮，2026-09-13）
+
+对 32 个内置插件做了一次体检（工具 `scripts/plugin_health_report.py`，逐插件加载并核对
+声明/注册/权限/结构），查出 10 项问题并**全部修复**：
+
+| # | 问题 | 修复 |
+|---|---|---|
+| A1 | 子进程插件与 loader 契约不匹配（load 返回 None → `/load` 404、安装服务回滚**删插件**、`get()` 恒 None → 卸载 404、load 不幂等多起 worker、reload 配置不生效、卸载后门面账本残留） | 新增 `SubprocessPluginHandle`；load 幂等；teardown 补门面/动画/解释器/素材源回收 |
+| A2 | 类发现按字母序取到**导入的基类** → `text_animations` 25 个工具全丢（`mg_animations` 2 钩子、`logic_animations` 1 钩子同因） | 只接受属于本插件的类（`__module__` 归属判定）+ 关键模块补 `__all__` |
+| A3 | 6 个素材源插件 `shutdown()` 里 `asyncio.create_task` 永不 await → httpx 连接泄漏 | `material.base.close_source_sync()`（同步安全关闭），6 插件改用 |
+| A4 | 旧轨动画/素材源/风格解释器卸载后能力残留（实测动画残留 2 个） | teardown 按归属回收三类注册物 |
+| B1 | 子进程档可无声明加载（「声明即授权」被绕过） | 强制 `contributions` 声明，否则拒载；`_register_declarations` 建白名单 |
+| B2/C1 | `/api/plugin/list` 的 `contributions`/`declared_only` 前端零消费 → 「已加载但零能力」不可见 | 管理页显示贡献计数 + 「N 项未生效」红标（hover 列出 id）；未加载不告警 |
+| B3/B5 | 剩余 7 个插件仍在旧轨 + 入口文件错位 | 全部迁移（32/32 新契约）+ 补 `__all__` |
+| B4 | 迁移时丢掉了「缺配置」提示 → 静默零能力 | 7 个插件用 `logger.info` 说明原因 |
+| C2 | 子进程插件改配置不生效且无提示 | 随 A1 修复（reload 生效） |
+| C3 | 两个风格解释器同优先级 → 装第二个没反应且无从判断 | priority 可由插件配置覆盖（custom_style 100 / lut_presets 90）；`/api/plugin/health` 暴露活跃 owner 与候选项 |
+| C4 | `gif_sticker` 源码内置 Giphy 公开 beta key（共享限流凭据） | 改为显式 opt-in（`GIPHY_PUBLIC_BETA_KEY=1`），默认要求自配 key 并给出提示 |
+| C5 | 默认禁用的示例插件仍显示「已加载」 | 由 B2/C1 的可见性 + B4 的原因日志覆盖 |
+
+**附带修复**：工具影子表——同源重复注册不再压影子（此前多 loader 实例加载后卸载，
+陈旧代理会被 P1-13 的恢复逻辑复活成可用工具）；按插件批量注销补上「恢复被覆盖实现」。
+
+**最终体检**：32 插件全部可加载、无结构/归属问题；7 项 `declared_only` 全部是
+「未配置密钥」的预期状态（有日志原因 + 界面红标）。
 
 ### 6.6 明确延期（附理由，不在本计划强制范围）
 
