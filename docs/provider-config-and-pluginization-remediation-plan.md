@@ -224,9 +224,11 @@ custom_style、lut_presets。每个都补了 `plugin.yaml` 的 `api_version: "2"
 kinetic_typography / lottie_animations / logic_animations（动画定义）、
 text_animations / diagram_style（**模块级注册**，需把 import 期注册搬进 `contributions()`）。
 
-**P6 ❌ 待决策**：`page` 插槽鉴权需要先定「插件页默认谁能看」——不经确认我不会改默认行为
-（现有插件页对全部登录用户开放）。可选项：默认仅管理员 + `payload.public: true` 例外
-（fail-closed），或维持现状 + 增加 `payload.admin_only` 声明位。
+**P6 ✅（按确认的策略实现）**：产品确认「插件页默认**所有登录用户**可访问」，默认行为不变，
+改为新增**声明式**限制：贡献 meta 里 `admin_only: true` 的条目，后端 contributions 端点
+直接不投递给非管理员（非管理员拿不到定义，比前端隐藏可靠），插件页壳再按本地角色二次拦截
+并给出可读提示。`off`/`token` 模式无用户身份，按仓库既有语义视为管理员（与
+`_require_admin` 一致）。后端 5 条 + 前端 6 条用例覆盖。
 
 ### 6.6 明确延期（附理由，不在本计划强制范围）
 
