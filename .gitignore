@@ -65,7 +65,6 @@ e2e/artifacts/
 vite-out.log
 vite-err.log
 
-# 运行时字体缓存（勿提交）
 _fonts/
 
 # Runtime dirs (monorepo)
@@ -78,7 +77,6 @@ PluginData/
 .ruff_cache/
 
 
-# ����/���ز���
 verify-*.cjs
 debug-*.cjs
 .dsh-vision-toolkit/
@@ -88,11 +86,9 @@ web_search_tool.py
 stage.md
 .opencode/
 
-# 个人文件（勿提交）
 简历*.md
 简历修改方案*.md
 
-# P3-04: 调试/运行产物不入库
 e2e-*.png
 e2e-*.json
 e2e-*.md
@@ -100,3 +96,7 @@ e2e-*.ts
 e2e-*.log
 stage.md
 uvicorn-*.log
+
+# external repo research clones (opencut/video-use/hyperframes); not tracked
+_research/
+

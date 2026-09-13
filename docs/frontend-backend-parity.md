@@ -9,7 +9,7 @@
 
 ## 0. 结论摘要（TL;DR）
 
-- 后端真实路由 **225 条**，分布 33 个 APIRouter（`J:\Clipwright\clipwright\api\*.py`）。
+- 后端真实路由 **236 条**（轮 80 对账：含 settings 3 条；实际以 `clipwright/api/*.py` 路由装饰器为准），分布 34 个 APIRouter（`J:\Clipwright\clipwright\api\*.py`）。
 - 前端 API 客户端 **20 个模块 + 180+ 个函数**（`src/services/api/*.ts`，排除 `client.ts`/`index.ts`/测试文件）。
 - 三类差距（无客户端 / 死坏调用 / 形状漂移）**已全部修复**，并补齐 4 个新管理页 + 7 处现有页面接线。
 - `/metrics`、独立 worker 服务、`/ws` WebSocket 为**明确范围外**：`WsClient.ts` 已删除，实时链路为 SSE-only。
@@ -25,7 +25,7 @@
 
 | 前缀 | 文件 | 数量 | 路由 |
 |---|---|---|---|
-| `/api/animation` | animation.py | 4 | GET `/list` · GET `/onscreen` · GET `/transitions` · GET `/get/{animation_id}` |
+| `/api/animation` | animation.py | 9 | GET `/list` · GET `/onscreen` · GET `/transitions` · GET `/get/{animation_id}` · GET `/mg/list` · GET `/mg/generations` · GET `/mg/generations/{generation_id}` · POST `/mg/html` · POST `/preview` |
 | `/api/asset` | asset.py | 12 | POST `/upload` · GET `/list` · GET `/by-path` · GET `/{asset_id}` · GET `/{asset_id}/file` · GET `/{asset_id}/thumbnail` · DELETE `/{asset_id}` · POST `/import-path` · POST `/import-url` · POST `/governance/patrol` · POST `/governance/violations` · GET `/governance/summary` |
 | `/api/persona/forge/chat` | chat_forge.py | 5 | POST `/start` · POST `/message` · POST `/knowledge` · POST `/commit` · GET `/state/{session_id}` |
 | `/api/edl` | edl.py | 4 | POST `/import/edl` · POST `/import/fcpxml` · POST `/export/edl` · POST `/export/fcpxml` |
@@ -127,7 +127,7 @@ export { marketApi } from './market';
 
 | 后端前缀 | 覆盖方式 |
 |---|---|
-| `/api/animation` | `animationApi.list/onscreen/transitions/get`（project.ts） |
+| `/api/animation` | `animationApi.list/onscreen/transitions/get` + `mgList/mgGenerations/mgGeneration/mgHtml/preview`（project.ts，MgPreviewPage） |
 | `/api/asset` | `assetApi.list/upload/importPath/importUrl/…` + `assetApi.patrol/violations/summary`（governance） |
 | `/api/edl` | `edlApi.importEDL/importFCPXML/exportEDL/exportFCPXML` |
 | `/api/fonts` | `fontApi.list/getDefault/resolve/clearCache` |
