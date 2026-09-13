@@ -303,6 +303,12 @@ export const animationApi = {
     return data;
   },
 
+  /** P2-3: MG HTML 即时预览——只取合成 HTML，不渲染（前端 iframe 内 seek 驱动） */
+  async mgHtml(body: { animation_id?: string; mg_json?: unknown; params?: Record<string, string>; width?: number; height?: number; fps?: number }) {
+    const { data } = await getApiClient().post<MgHtmlPreviewResult>('/api/animation/mg/html', body, { timeout: 30_000 });
+    return data;
+  },
+
   /** M6: 列出最近 MG 生成记录（generation_id 摘要，新→旧） */
   async mgGenerations(limit = 24) {
     const { data } = await getApiClient().get<MgGenerationInfo[]>('/api/animation/mg/generations', { params: { limit } });
@@ -346,6 +352,16 @@ export interface MgPreviewResult {
   width: number;
   height: number;
   fps: number;
+}
+
+/** P2-3: HTML 即时预览响应（不渲染，前端 iframe 内用 __timelines.seek 驱动） */
+export interface MgHtmlPreviewResult {
+  html: string;
+  duration_sec: number;
+  width: number;
+  height: number;
+  fps: number;
+  animation_id: string;
 }
 
 export const skillApi = {
