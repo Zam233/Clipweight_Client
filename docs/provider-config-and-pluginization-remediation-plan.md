@@ -172,10 +172,10 @@
 
 | 项 | 命令 | 结果 |
 |---|---|---|
-| 后端全量 | `python -m pytest tests -q` | **1783 passed**, 1 skipped, 1 xfailed |
+| 后端全量 | `python -m pytest tests -q` | **1797 passed**, 1 skipped, 1 xfailed |
 | 后端导入 | `python -c "import clipwright.main"` | 通过 |
 | 前端类型 | `npx tsc --noEmit` | 无错误 |
-| 前端单测 | `npx vitest run` | **510 passed**（71 文件） |
+| 前端单测 | `npx vitest run` | **515 passed**（71 文件） |
 | 前端 lint | `npx eslint src e2e` | 0 error（136 warning，均为既有风格告警） |
 | 前端构建 | `npm run build` | 成功 |
 | 端到端验收（API 级） | 提供方配置 5 + 插件审查修复 17 | **22 passed**（建源→多条密钥→模型清单→角色绑定→运行时凭据→插件 provider 联动） |
@@ -252,6 +252,28 @@ custom_style、lut_presets。每个都补了 `plugin.yaml` 的 `api_version: "2"
 
 **最终体检**：32 插件全部可加载、无结构/归属问题；7 项 `declared_only` 全部是
 「未配置密钥」的预期状态（有日志原因 + 界面红标）。
+
+### 6.8 Provider 改动评审修复（第三轮，2026-09-13）
+
+对 B2–B5 的 Provider 改动与前端匹配度做了一轮评审，查出 5 个 bug + 4 项欠缺 + 4 项一致性问题，
+**全部修复**（后端 `91395e5`，前端 `011ecae`）：
+
+| # | 问题 | 修复 |
+|---|---|---|
+| P1 | **存量插件 LLM provider 每次调用都 TypeError**：构造点无条件传 `timeout_sec/proxy/headers`，而 B4 之前的 provider 签名没有这三个参数（实测未配传输参数也崩） | 按 `build_client` 签名过滤 + 配了非默认值时一次性告警 |
+| P2 | 角色↔源类型无校验（TTS 源可绑到 main/flash/vision），运行期才报「未安装 LLM provider」；绑定后可改 kind 造成错配 | 新增 `ROLE_EXPECTED_KINDS` 绑定前校验；已绑定源禁止改类型 |
+| P3 | 绑定后停用模型仍生效（绑定时的校验形同虚设） | 模型停用/删除 → 自动解绑引用它的角色，回传 `unbound_roles` |
+| P4 | `/api/test/embed` 改写全局 settings（进程级副作用），且其 provider 参数在有绑定时被静默忽略 | 改为按需构造一次性 embedder；被忽略时在响应里说明 |
+| P5 | 模型测试面显示"假配置"（只读 settings，与真实生效的角色绑定不一致） | 统一走 `resolve(role)`，响应加 `effective`/`source`；前端测试卡展示生效来源 |
+| B3 | 没有源级测试入口 | 新增 `POST /api/providers/{id}/test` + 前端「测试连接」按钮 |
+| B2 | 前端角色分配**不能选模型**（自动取第一个启用模型） | 角色行加模型下拉（只列启用中的模型），空源给红字提示 |
+| B4 | `ensure_migrated()` 未接线，老用户升级后新页面空白 | 接入启动流程（幂等，未配凭据则跳过） |
+| B5 | 本地/自建 provider 的拉取提示语误导 | 区分「不支持自动拉取」与「未取到（查密钥/地址）」 |
+| B1 | UI 声称多密钥"轮询/备用"但后端只用第一条 | 文案改为「第一条为当前使用；其余备用保存」（不做空头承诺） |
+| C1 | 双配置源无优先级提示（角色绑定静默覆盖后端配置页） | 后端 17 个字段描述补「绑定后以绑定为准」；前端角色区加说明 |
+| C2 | 语音页与 TTS 角色绑定的关系不明 | 语音页加说明 |
+
+测试：后端 `test_provider_review_fixes.py`(14)、前端 providers 页 +5、e2e +2（模型下拉/测试连接）。
 
 ### 6.6 明确延期（附理由，不在本计划强制范围）
 

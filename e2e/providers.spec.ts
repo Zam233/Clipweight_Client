@@ -117,4 +117,29 @@ test.describe('模型提供商页（B5）', () => {
     await page.getByRole('button', { name: /获取模型列表/ }).click();
     await expect(page.getByText('获取失败：连接超时')).toBeVisible();
   });
+
+  test('B2：角色模型下拉只列启用中的模型，且可按角色指定', async ({ page }) => {
+    await mockApis(page);
+    await page.goto('/settings/providers');
+    await page.getByTestId('source-src_deepseek').click();
+
+    const modelSelect = page.getByTestId('role-model-main');
+    await expect(modelSelect).toBeVisible();
+    const options = await modelSelect.locator('option').allTextContents();
+    // src_deepseek 的 reasoner 是停用态，不应出现
+    expect(options.join(',')).toContain('deepseek-chat');
+    expect(options.join(',')).not.toContain('deepseek-reasoner');
+    await expect(modelSelect).toHaveValue('deepseek-chat');
+  });
+
+  test('B3：「测试连接」按钮展示探测结果', async ({ page }) => {
+    await mockApis(page);
+    await page.route(/https?:\/\/[^/]+\/api\/providers\/[^/]+\/test$/, (route) =>
+      route.fulfill({ json: { ok: true, latency_ms: 37, detail: '连通正常，列出 3 个模型' } }),
+    );
+    await page.goto('/settings/providers');
+    await page.getByTestId('source-src_deepseek').click();
+    await page.getByTestId('test-source').click();
+    await expect(page.getByText(/测试通过（37ms）/)).toBeVisible();
+  });
 });
