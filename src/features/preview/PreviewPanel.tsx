@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useHistoryStore } from '@/stores/historyStore';
+import { useSelectionStore } from '@/stores/selectionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { TRACK_COLORS } from '@/types/timeline';
 import type { Clip, Timeline, Track } from '@/types/timeline';
@@ -19,6 +20,11 @@ import { applyMasterVolume } from './volume';
 import { contentKey, getPreviewLayerCache, quantize, type Layer2DContext } from './layerCache';
 import { createFramePerf, previewPerf, type FramePerf } from './perf';
 import { PreviewPerfOverlay } from './PreviewPerfOverlay';
+import {
+  applyTransformDrag, hitTestTransform, snapTransform, transformHandleLayout,
+  type DragContext, type SnapGuide, type Transform2D as HandleTransform,
+} from './transformHandles';
+import { fidelityBadges } from './previewFidelity';
 
 /**
  * PreviewPanel — Canvas compositor that renders the timeline at the playhead.
@@ -48,10 +54,18 @@ export function PreviewPanel() {
   const volume = usePreviewStore((s) => s.volume);
   const setVolume = usePreviewStore((s) => s.setVolume);
   const showPerfPanel = useSettingsStore((s) => s.showPerfPanel);
+  const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
 
   // C1: 画布双击编辑文字 — 命中 text/caption 片段时打开内联编辑
   const [editingText, setEditingText] = useState<{ clipId: string; text: string; x: number; y: number } | null>(null);
   const editTextRef = useRef<HTMLTextAreaElement>(null);
+  // O-变换手柄：拖拽会话 + 吸附参考线（参考线在画布上叠加绘制）
+  const transformDragRef = useRef<{ ctx: DragContext; clipId: string } | null>(null);
+  const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
+  /** 参考线的绘制循环可见副本（draw 闭包读 ref，避免闭包过期） */
+  const guidesRef = useRef<SnapGuide[]>([]);
+  /** 参考线变化会让绘制循环重绘（清空参考线时时间线并未变化） */
+  const guidesEpochRef = useRef(0);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -212,16 +226,103 @@ export function PreviewPanel() {
 
   // Canvas pointer scrub: drag horizontally to seek the playhead, click to toggle play.
   // 画布指针刷洗：水平拖拽移动播放头，单击切换播放/暂停。
+  //
+  // O-变换手柄：若按下的位置命中选中片段的手柄/本体，则进入**变换拖拽**（不平移播放头）。
+  const transformTargetClip = useCallback((): { clip: Clip; frame: FrameRect; dpr: number } | null => {
+    const wrap = wrapRef.current;
+    if (!wrap) return null;
+    const id = selectedClipIds[0];
+    if (!id) return null;
+    const tl = useTimelineStore.getState().timeline;
+    const pst = usePreviewStore.getState();
+    if (pst.isPlaying) return null; // 播放中不显示手柄（避免抖动手柄与误拖）
+    const t = pst.currentTimeSec;
+    for (const track of tl.tracks) {
+      if (track.hidden) continue;
+      for (const clip of track.clips) {
+        if (clip.id !== id) continue;
+        if (clip.kind !== 'video' && clip.kind !== 'image') return null;
+        if (t < clip.start_sec || t >= clip.start_sec + clip.duration_sec) return null;
+        const rect = wrap.getBoundingClientRect();
+        const frame = computePreviewFrameRect(rect.width, rect.height, tl.width, tl.height, pst.zoomLevel);
+        return { clip, frame, dpr: window.devicePixelRatio || 1 };
+      }
+    }
+    return null;
+  }, [selectedClipIds]);
+
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture unavailable */ }
+
+    // 先判手柄：命中则进入变换拖拽，不再刷洗播放头
+    const target = transformTargetClip();
+    if (target) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      const tf = getClipTransform(target.clip);
+      const layout = transformHandleLayout(target.frame, tf);
+      const hit = hitTestTransform(px, py, layout);
+      if (hit) {
+        useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'transform');
+        transformDragRef.current = {
+          clipId: target.clip.id,
+          ctx: {
+            kind: hit.kind,
+            anchor: hit.anchor,
+            startPointer: [px, py],
+            startTransform: tf,
+            frame: target.frame,
+            shiftKey: e.shiftKey,
+          },
+        };
+        return;
+      }
+    }
+
     const s = scrubRef.current;
     s.startX = e.clientX;
     s.startY = e.clientY;
     s.dragging = false;
+  }, [transformTargetClip]);
+
+  /** 更新吸附参考线：state（UI 用）+ ref（绘制循环用）+ epoch（触发重绘） */
+  const setGuides = useCallback((list: SnapGuide[]) => {
+    guidesRef.current = list;
+    guidesEpochRef.current += 1;
+    setSnapGuides(list);
   }, []);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    // O-变换手柄：拖拽中实时写回 metadata.transform 并更新吸附参考线
+    const drag = transformDragRef.current;
+    if (drag) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      const outcome = applyTransformDrag(
+        { ...drag.ctx, shiftKey: e.shiftKey }, px, py,
+      );
+      const store = useTimelineStore.getState();
+      const clip = store.getClip(drag.clipId);
+      if (clip) {
+        store.updateClip(drag.clipId, {
+          metadata: {
+            ...(clip.metadata ?? {}),
+            transform: {
+              x: Number(outcome.transform.x.toFixed(5)),
+              y: Number(outcome.transform.y.toFixed(5)),
+              scale: Number(outcome.transform.scale.toFixed(5)),
+              rotation: Number(outcome.transform.rotation.toFixed(3)),
+            },
+          },
+        });
+      }
+      setGuides(outcome.guides);
+      return;
+    }
+
     const s = scrubRef.current;
     const d = Math.abs(e.clientX - s.startX) + Math.abs(e.clientY - s.startY);
     if (d > 5) {
@@ -245,6 +346,14 @@ export function PreviewPanel() {
   }, []);
 
   const handlePointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (transformDragRef.current) {
+      transformDragRef.current = null;
+      setGuides([]);
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+        try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+      }
+      return;
+    }
     const s = scrubRef.current;
     if (s.raf !== 0) {
       cancelAnimationFrame(s.raf);
@@ -264,6 +373,8 @@ export function PreviewPanel() {
   }, []);
 
   const handlePointerCancel = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    transformDragRef.current = null;
+    setGuides([]);
     const s = scrubRef.current;
     if (s.raf !== 0) {
       cancelAnimationFrame(s.raf);
@@ -294,7 +405,7 @@ export function PreviewPanel() {
     let raf = 0;
     let lastW = 0;
     let lastH = 0;
-    const last = { t: -1, tl: null as unknown, safe: false, zoom: -1, mv: -1 };
+    const last = { t: -1, tl: null as unknown, safe: false, zoom: -1, mv: -1, guides: -1 };
 
     // Re-render when media state changes (e.g. an asset errors while loading) —
     // otherwise the failed clip would stay a silent black frame until the playhead moves.
@@ -380,6 +491,10 @@ export function PreviewPanel() {
       ctx.lineWidth = 1;
       ctx.strokeRect(fx + 0.5, fy + 0.5, fw - 1, fh - 1);
 
+      // O-变换手柄 + 吸附参考线（选中 video/image 片段且未播放时显示）
+      drawTransformOverlay(ctx, tl, t, { fx, fy, fw, fh },
+        useSelectionStore.getState().selectedClipIds, guidesRef.current);
+
       // O6: 采样一帧（含缓存命中率）；store 推送由 PerfTracker 内部节流
       previewPerf.record(perf);
     };
@@ -390,12 +505,15 @@ export function PreviewPanel() {
       const t = pst.currentTimeSec;
       const safe = pst.showSafeArea;
       const zoom = pst.zoomLevel;
-      if (t !== last.t || tl !== last.tl || safe !== last.safe || zoom !== last.zoom || mediaVersion !== last.mv) {
+      const guidesEpoch = guidesEpochRef.current;
+      if (t !== last.t || tl !== last.tl || safe !== last.safe || zoom !== last.zoom
+          || mediaVersion !== last.mv || guidesEpoch !== last.guides) {
         last.t = t;
         last.tl = tl;
         last.safe = safe;
         last.zoom = zoom;
         last.mv = mediaVersion;
+        last.guides = guidesEpoch;
         draw();
       }
       raf = requestAnimationFrame(loop);
@@ -570,6 +688,8 @@ export function PreviewPanel() {
         )}
         {/* O6: 性能诊断浮层（拖动播放头时看耗时与缓存命中率） */}
         <PreviewPerfOverlay />
+        {/* O-特效预览还原度：把"预览与导出的差异"显式标出来（LUT 仅渲染后可见、星形蒙版导出不支持） */}
+        <FidelityBadges />
         {/* Centered play/pause overlay — visible when paused or on hover */}
         <button
           aria-label={isPlaying ? '暂停' : '播放'}
@@ -1064,6 +1184,134 @@ function isCacheableTrack(track: Track): boolean {
     || track.kind === 'text' || track.kind === 'caption' || track.kind === 'shape';
 }
 
+/**
+ * 绘制变换手柄与吸附参考线（O-变换手柄）。
+ *
+ * 只在"选中了 video/image 片段、且播放头落在该片段内、预览未播放"时显示——
+ * 播放中画手柄会跟着抖，也容易误拖。
+ */
+function drawTransformOverlay(
+  ctx: CanvasRenderingContext2D,
+  timeline: Timeline,
+  t: number,
+  frame: FrameRect,
+  selectedClipIds: string[],
+  guides: SnapGuide[],
+) {
+  const id = selectedClipIds[0];
+  if (!id) return;
+  let target: Clip | null = null;
+  for (const track of timeline.tracks) {
+    if (track.hidden) continue;
+    for (const clip of track.clips) {
+      if (clip.id !== id) continue;
+      if (clip.kind !== 'video' && clip.kind !== 'image') return;
+      if (t < clip.start_sec || t >= clip.start_sec + clip.duration_sec) return;
+      target = clip;
+    }
+  }
+  if (!target) return;
+
+  const layout = transformHandleLayout(frame, getClipTransform(target));
+
+  // 吸附参考线（先画，手柄压在上面）
+  if (guides.length > 0) {
+    ctx.save();
+    ctx.strokeStyle = '#34D399';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    for (const guide of guides) {
+      ctx.beginPath();
+      if (guide.axis === 'v') {
+        ctx.moveTo(guide.at + 0.5, frame.fy);
+        ctx.lineTo(guide.at + 0.5, frame.fy + frame.fh);
+      } else {
+        ctx.moveTo(frame.fx, guide.at + 0.5);
+        ctx.lineTo(frame.fx + frame.fw, guide.at + 0.5);
+      }
+      ctx.stroke();
+      ctx.fillStyle = '#34D399';
+      ctx.font = "500 11px 'Inter','Noto Sans SC',sans-serif";
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      if (guide.axis === 'v') ctx.fillText(guide.label, guide.at + 4, frame.fy + frame.fh - 4);
+      else ctx.fillText(guide.label, frame.fx + 4, guide.at - 3);
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  // 元素轮廓（旋转后的四边形）
+  ctx.save();
+  ctx.strokeStyle = '#4F8CFF';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  layout.corners.forEach(([x, y], i) => {
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  ctx.stroke();
+
+  // 旋转手柄的连线
+  const rotateHandle = layout.handles.find((h) => h.anchor === 'rotate');
+  const topMid = [(layout.corners[0][0] + layout.corners[1][0]) / 2, (layout.corners[0][1] + layout.corners[1][1]) / 2];
+  if (rotateHandle) {
+    ctx.beginPath();
+    ctx.moveTo(topMid[0], topMid[1]);
+    ctx.lineTo(rotateHandle.x, rotateHandle.y);
+    ctx.stroke();
+  }
+
+  // 手柄
+  for (const handle of layout.handles) {
+    ctx.beginPath();
+    if (handle.anchor === 'rotate') {
+      ctx.fillStyle = '#34D399';
+      ctx.arc(handle.x, handle.y, 5, 0, Math.PI * 2);
+    } else {
+      ctx.fillStyle = '#4F8CFF';
+      ctx.rect(handle.x - 5, handle.y - 5, 10, 10);
+    }
+    ctx.fill();
+    ctx.strokeStyle = '#0E101A';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * 预览保真度角标（O-特效预览还原度）。
+ *
+ * 选中片段带"导出有/预览没有"或"预览有/导出没有"的特性时，在预览区角上标出来——
+ * 用户不会误以为"预览什么样、成片就什么样"。
+ */
+function FidelityBadges() {
+  const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
+  const timeline = useTimelineStore((s) => s.timeline);
+  const clip = useMemo(() => {
+    const id = selectedClipIds[0];
+    if (!id) return null;
+    for (const track of timeline.tracks) {
+      for (const c of track.clips) if (c.id === id) return c;
+    }
+    return null;
+  }, [selectedClipIds, timeline]);
+  const badges = useMemo(() => fidelityBadges(clip), [clip]);
+  if (badges.length === 0) return null;
+  return (
+    <div className="absolute right-2 top-2 z-30 flex flex-col items-end gap-1 pointer-events-none"
+         data-testid="fidelity-badges">
+      {badges.map((text) => (
+        <span key={text}
+          className="rounded-cw-xs border border-warn/40 bg-surface-dim/85 px-1.5 py-0.5 text-caption text-warn backdrop-blur">
+          {text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** 预览循环时钟（performance.now 优先） */
 function perfNow(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -1119,6 +1367,14 @@ function drawClipToPreview(
 
   // M11: 转场可见性 — 在进/出转场窗口内对透明度做渐变（淡入淡出/溶解类预览）
   opacity = applyTransitionAlpha(opacity, clip, localT);
+
+  // O-特效预览还原度：静态图 Ken Burns 缓慢推近。
+  // 与导出对齐：ffmpeg `zoompan=z='min(1+0.10/frames*on, 1.10)'` 即从 1.0 线性到 1.10，
+  // 预览按 clip 内进度做同样的线性放大（此前预览完全没有这个推近，看着"导出才有动效"）。
+  if (clip.kind === 'image' && (clip.metadata as { kenburns?: boolean } | undefined)?.kenburns !== false) {
+    const zoom = 1 + 0.10 * Math.min(1, Math.max(0, localT));
+    tf.scale *= zoom;
+  }
 
   // O6: resolve 阶段——素材查找单独计时（缓存命中时这段整块被跳过，正是收益来源）
   const resolveStart = perfNow();
