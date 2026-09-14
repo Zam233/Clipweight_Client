@@ -234,28 +234,60 @@ export function PersonaForgePage() {
     addMsg('user', text || '（见附件）', outgoing);
     setBusy(true);
 
+    // 流式：先插入一个空的助手气泡，增量文本往里追加（不必等完整 JSON）
+    const streamMsgId = uid('m');
+    let streamed = '';
+    setMessages((m) => [...m, { id: streamMsgId, role: 'assistant', content: '' }]);
+    const appendDelta = (delta: string) => {
+      streamed += delta;
+      setMessages((m) => m.map((msg) => (msg.id === streamMsgId ? { ...msg, content: streamed } : msg)));
+    };
+
     try {
-      const res = sessionId
-        ? await personaApi.chatForgeMessage(
-            sessionId,
-            text || '请参考我上传的附件',
-            outgoing.length > 0 ? outgoing : undefined,
-          )
-        : null;
-      if (res?.persona_draft) setDraft(res.persona_draft);
-      const prog = res?.progress;
-      if (prog) {
-        const scaled = normalizeProgress(prog);
-        setProgress((p) => ({ ...p, ...scaled }));
-      }
-      addMsg('assistant', res?.reply ?? '收到，让我想想…');
+      if (!sessionId) throw new Error('no session');
+      await personaApi.chatForgeMessageStream(sessionId, text || '请参考我上传的附件', {
+        onDelta: appendDelta,
+        onDone: (state) => {
+          if (state?.persona_draft) setDraft(state.persona_draft);
+          if (state?.reply) {
+            streamed = state.reply;
+            setMessages((m) => m.map((msg) => (msg.id === streamMsgId ? { ...msg, content: state.reply! } : msg)));
+          }
+          const prog = state?.progress;
+          if (prog) {
+            const scaled = normalizeProgress(prog);
+            setProgress((p) => ({ ...p, ...scaled }));
+          }
+        },
+        onError: (detail, partial) => {
+          // 中断时保留已产出的文本，并说明原因（不让用户白等）
+          const shown = partial || streamed;
+          setMessages((m) => m.map((msg) => (msg.id === streamMsgId
+            ? { ...msg, content: shown ? `${shown}\n\n（流式生成中断：${detail}）` : `流式生成失败：${detail}` }
+            : msg)));
+          toast(`流式生成中断：${detail}`, 'error');
+        },
+      }, outgoing.length > 0 ? outgoing : undefined);
     } catch {
-      // Offline: simulate progressive persona building
-      await new Promise((r) => setTimeout(r, 500));
-      const filled = simulateProgress(progress, text);
-      setProgress(filled.progress);
-      setDraft(filled.draft);
-      addMsg('assistant', filled.reply);
+      // 流式不可用（老后端 / 网络异常）→ 回退到同步接口，界面行为与从前一致
+      try {
+        const res = await personaApi.chatForgeMessage(
+          sessionId ?? '', text || '请参考我上传的附件',
+          outgoing.length > 0 ? outgoing : undefined,
+        );
+        if (res?.persona_draft) setDraft(res.persona_draft);
+        const prog = res?.progress;
+        if (prog) setProgress((p) => ({ ...p, ...normalizeProgress(prog) }));
+        const reply = res?.reply ?? '收到，让我想想…';
+        setMessages((m) => m.map((msg) => (msg.id === streamMsgId ? { ...msg, content: reply } : msg)));
+      } catch {
+        // Offline: simulate progressive persona building
+        await new Promise((r) => setTimeout(r, 500));
+        const filled = simulateProgress(progress, text);
+        setProgress(filled.progress);
+        setDraft(filled.draft);
+        setMessages((m) => m.map((msg) => (msg.id === streamMsgId ? { ...msg, content: filled.reply } : msg)));
+      }
     } finally {
       setBusy(false);
     }

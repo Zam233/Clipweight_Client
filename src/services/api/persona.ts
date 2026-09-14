@@ -1,4 +1,5 @@
 import { getApiClient } from './client';
+import { streamPostSse } from './ssePost';
 import { personaFromBackend, type Persona } from '@/types/persona';
 
 export const personaApi = {
@@ -205,6 +206,41 @@ export const personaApi = {
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
     });
     return data as { reply?: string; persona_draft?: unknown; progress?: Record<string, number>; missing_dimensions?: string[] };
+  },
+
+  /**
+   * 流式发送消息（SSE）：`onDelta` 逐块拿到模型新增文本，`onDone` 拿到完整状态。
+   *
+   * 用 POST + fetch 流读取（见 `ssePost.ts`）：对话正文可能很长、还可能带图片附件，
+   * EventSource 发不了 POST 体。历史欠账：此前只能等完整 JSON 才渲染。
+   */
+  async chatForgeMessageStream(
+    sessionId: string,
+    message: string,
+    handlers: {
+      onDelta?: (text: string) => void;
+      onDone?: (state: {
+        session_id?: string; reply?: string; persona_draft?: unknown;
+        progress?: Record<string, number>; missing_dimensions?: string[];
+      }) => void;
+      onError?: (detail: string, partial?: string) => void;
+    },
+    attachments?: Array<{ type: 'image' | 'file'; name?: string; mime?: string; data_url: string }>,
+    signal?: AbortSignal,
+  ) {
+    await streamPostSse('/api/persona/forge/chat/message/stream', {
+      session_id: sessionId,
+      message,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    }, {
+      signal,
+      onEvent: (raw) => {
+        const event = raw as { type?: string; text?: string; detail?: string; partial?: string };
+        if (event?.type === 'delta' && typeof event.text === 'string') handlers.onDelta?.(event.text);
+        else if (event?.type === 'done') handlers.onDone?.(event as never);
+        else if (event?.type === 'error') handlers.onError?.(event.detail ?? '流式生成失败', event.partial);
+      },
+    });
   },
 
   // ── Chat Forge 历史欠账补齐：会话列表 / 知识库 CRUD（O5 后一轮） ──
