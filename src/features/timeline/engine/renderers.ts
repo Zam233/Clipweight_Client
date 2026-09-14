@@ -7,6 +7,7 @@ import { TRACK_COLORS } from '@/types/timeline';
 import type { TimelineLayout, Marker } from './types';
 import { timeToX, trackToY, scrollbarGeom } from './types';
 import { mediaManager } from '@/services/media/mediaManager';
+import { secondsToFrame } from '@/lib/mediaTime';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useTimelineStore } from '@/stores/timelineStore';
@@ -160,7 +161,7 @@ export function drawRuler(
     ctx.lineTo(x, L.rulerH);
     ctx.stroke();
     const label = showFrames
-      ? `${Math.round(t * fps)}`
+      ? `${secondsToFrame(t, fps)}` // O1：帧号走整数 tick（与播放头/质检同一套换算）
       : major >= 60
         ? `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}`
         : major >= 1

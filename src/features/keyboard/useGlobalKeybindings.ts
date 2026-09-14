@@ -7,6 +7,7 @@ import { useSelectionStore } from '@/stores/selectionStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { uid } from '@/lib/utils';
+import { frameDuration, frameStep } from '@/lib/mediaTime';
 import { clipClipboard } from '@/features/timeline/components/EditorToolbar';
 import {
   extractCopyableAttributes, filterFieldsForKind,
@@ -244,12 +245,12 @@ export function useGlobalKeybindings() {
       if (sel.length === 0) return;
       const store = useTimelineStore.getState();
       const fps = store.timeline.fps || 30;
-      const frame = 1 / fps;
       useHistoryStore.getState().pushState(store.timeline, 'nudge');
       for (const cid of sel) {
         const clip = store.getClip(cid);
         if (!clip) continue;
-        store.moveClip(cid, clip.track_id, Math.max(0, clip.start_sec - frame));
+        // O1：按帧步进走整数 tick（`1/fps` 在 29.97 下会偏离帧网格）
+        store.moveClip(cid, clip.track_id, Math.max(0, frameStep(clip.start_sec, fps, -1)));
       }
     };
 
@@ -258,12 +259,11 @@ export function useGlobalKeybindings() {
       if (sel.length === 0) return;
       const store = useTimelineStore.getState();
       const fps = store.timeline.fps || 30;
-      const frame = 1 / fps;
       useHistoryStore.getState().pushState(store.timeline, 'nudge');
       for (const cid of sel) {
         const clip = store.getClip(cid);
         if (!clip) continue;
-        store.moveClip(cid, clip.track_id, clip.start_sec + frame);
+        store.moveClip(cid, clip.track_id, frameStep(clip.start_sec, fps, 1));
       }
     };
 
@@ -272,12 +272,11 @@ export function useGlobalKeybindings() {
       if (sel.length === 0) return;
       const store = useTimelineStore.getState();
       const fps = store.timeline.fps || 30;
-      const frame = 1 / fps;
       useHistoryStore.getState().pushState(store.timeline, 'trim');
       for (const cid of sel) {
         const clip = store.getClip(cid);
         if (!clip) continue;
-        store.trimClipStart(cid, Math.max(0, clip.start_sec + frame));
+        store.trimClipStart(cid, Math.max(0, frameStep(clip.start_sec, fps, 1)));
       }
     };
 
@@ -286,12 +285,11 @@ export function useGlobalKeybindings() {
       if (sel.length === 0) return;
       const store = useTimelineStore.getState();
       const fps = store.timeline.fps || 30;
-      const frame = 1 / fps;
       useHistoryStore.getState().pushState(store.timeline, 'trim');
       for (const cid of sel) {
         const clip = store.getClip(cid);
         if (!clip) continue;
-        const newEnd = clip.start_sec + clip.duration_sec - frame;
+        const newEnd = frameStep(clip.start_sec + clip.duration_sec, fps, -1);
         if (newEnd > clip.start_sec + 0.1) {
           store.trimClipEnd(cid, newEnd);
         }
@@ -304,20 +302,18 @@ export function useGlobalKeybindings() {
       const first = sel[0];
       if (!first) return;
       const store = useTimelineStore.getState();
-      const fps = store.timeline.fps || 30;
-      const frame = 1 / fps;
+      const offset = dir * frameDuration(store.timeline.fps || 30);
       useHistoryStore.getState().pushState(store.timeline, 'slip');
-      sel.forEach((cid) => store.slipClip(cid, dir * frame));
+      sel.forEach((cid) => store.slipClip(cid, offset));
     };
     const slideBy = (dir: 1 | -1) => {
       const sel = useSelectionStore.getState().selectedClipIds;
       const first = sel[0];
       if (!first) return;
       const store = useTimelineStore.getState();
-      const fps = store.timeline.fps || 30;
-      const frame = 1 / fps;
+      const offset = dir * frameDuration(store.timeline.fps || 30);
       useHistoryStore.getState().pushState(store.timeline, 'slide');
-      sel.forEach((cid) => store.slideClip(cid, dir * frame));
+      sel.forEach((cid) => store.slideClip(cid, offset));
     };
 
     // M2: 编组 / 解组

@@ -23,6 +23,7 @@ import { useHistoryStore } from '@/stores/historyStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { SelectionMode } from '@/stores/selectionStore';
 import { formatTimecode } from '@/lib/utils';
+import { secondsToFrame } from '@/lib/mediaTime';
 
 /**
  * EditorLayout — 4-panel Premiere-style layout
@@ -394,8 +395,9 @@ function StatusBar() {
   }
   const statusDirty = isDirty && !isSaving && !saveError;
 
-  const currentFrame = Math.round(currentTime * fps);
-  const totalFrames = Math.round(duration * fps);
+  // O1：帧号按整数 tick 推导（`Math.round(t * fps)` 在 29.97 下会与真实帧号差 1）
+  const currentFrame = secondsToFrame(currentTime, fps);
+  const totalFrames = secondsToFrame(duration, fps);
 
   return (
     <div className="flex items-center justify-between px-3 py-1 bg-surface-dim border-t border-outline-variant/30 text-caption text-on-surface-variant shrink-0">
