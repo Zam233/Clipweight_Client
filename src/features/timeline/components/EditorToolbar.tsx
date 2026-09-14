@@ -13,6 +13,10 @@ import { Button, Tooltip } from '@/components/ui';
 import { formatTimecode, uid } from '@/lib/utils';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
 import { HistoryPanel } from '@/features/history/HistoryPanel';
+import {
+  alignCuesToFrames, parseSubtitles, summarizeParse,
+  type SubtitleCue, type SubtitleWarning,
+} from '@/features/subtitles/parse';
 import { getApiClient } from '@/services/api';
 import type { Clip } from '@/types/timeline';
 import type { ClipKind } from '@/types/timeline';
@@ -115,6 +119,13 @@ export function EditorToolbar() {
 
   // W7/O3: 撤销历史面板（跳转到任意历史快照 + 中文动作名 + 选中片段数 + 可重做段）
   const [historyOpen, setHistoryOpen] = useState(false);
+  // 字幕导入预览（解析后先看清单与告警，再确认插入）
+  const [srtPreview, setSrtPreview] = useState<{
+    filename: string;
+    cues: SubtitleCue[];
+    warnings: SubtitleWarning[];
+    summary: string;
+  } | null>(null);
 
   const handleCopy = () => {
     const sel = useSelectionStore.getState().selectedClipIds;
@@ -216,49 +227,70 @@ export function EditorToolbar() {
     }
   };
 
+  /**
+   * 字幕导入（SRT / VTT / ASS / SSA）。
+   *
+   * 解析结果**先预览再插入**：畸形 cue（时间倒挂/空文本/无时间戳）逐条列出，
+   * 用户能看到"哪一句会被丢掉"而不是导入后才发现少了几句；
+   * cue 起止按时间线帧率对齐（O1 的 tick 换算），与播放头步进/后端 ASS 输出对得齐。
+   */
   const handleSrtImport = () => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.srt,.vtt';
+    input.accept = '.srt,.vtt,.ass,.ssa';
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
       const text = await file.text();
-      const entries = parseSrt(text);
-      // P1-27: 解析为空给出提示（旧实现静默 return，用户不知道为什么没反应）
-      if (entries.length === 0) {
-        toast('未在文件中解析到字幕条目（请检查文件是否为标准 SRT/VTT 格式）', 'error');
+      const parsed = parseSubtitles(text, file.name);
+      if (parsed.cues.length === 0) {
+        const first = parsed.warnings[0]?.detail ?? '请检查文件是否为标准 SRT/VTT/ASS 格式';
+        toast(`未解析到字幕条目：${first}`, 'error');
         return;
       }
-      const store = useTimelineStore.getState();
-      useHistoryStore.getState().pushState(store.timeline, 'import srt');
-      // 轮74：SRT 只落 caption 轨——旧实现复用已存在的 text 轨，字幕样式级联
-      // （PropertiesPanel 按 trackKind === 'caption' 判断）整层失效
-      let subTrack = store.timeline.tracks.find((t) => t.kind === 'caption');
-      if (!subTrack) {
-        const tid = store.addTrack('caption', '字幕');
-        subTrack = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
-        if (!subTrack) return;
-      }
-      for (const e of entries) {
-        store.addClip(subTrack!.id, {
-          kind: 'caption' as const,
-          asset_id: '',
-          start_sec: e.start,
-          duration_sec: e.end - e.start,
-          source_offset_sec: 0,
-          speed: 1,
-          volume: 1,
-          opacity: 1,
-          text: e.text,
-          font_size: 28,
-          font_color: '#FFFFFF',
-          keyframes: [],
-          metadata: { title: `字幕 ${e.index}` },
-        });
-      }
+      setSrtPreview({
+        filename: file.name,
+        cues: alignCuesToFrames(parsed.cues, usePreviewStore.getState().fps || 30),
+        warnings: parsed.warnings,
+        summary: summarizeParse(parsed),
+      });
     };
     input.click();
+  };
+
+  /** 确认导入预览里的字幕（批量插入 caption 轨） */
+  const commitSrtImport = () => {
+    if (!srtPreview) return;
+    const store = useTimelineStore.getState();
+    useHistoryStore.getState().pushState(store.timeline, 'import srt');
+    // 轮74：SRT 只落 caption 轨——旧实现复用已存在的 text 轨，字幕样式级联
+    // （PropertiesPanel 按 trackKind === 'caption' 判断）整层失效
+    let subTrack = store.timeline.tracks.find((t) => t.kind === 'caption');
+    if (!subTrack) {
+      const tid = store.addTrack('caption', '字幕');
+      subTrack = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
+      if (!subTrack) return;
+    }
+    for (const e of srtPreview.cues) {
+      store.addClip(subTrack.id, {
+        kind: 'caption' as const,
+        asset_id: '',
+        start_sec: e.start,
+        duration_sec: e.end - e.start,
+        source_offset_sec: 0,
+        speed: 1,
+        volume: 1,
+        opacity: 1,
+        text: e.text,
+        font_size: 28,
+        font_color: '#FFFFFF',
+        keyframes: [],
+        metadata: { title: `字幕 ${e.index}` },
+      });
+    }
+    toast(`已导入 ${srtPreview.cues.length} 条字幕${srtPreview.warnings.length > 0 ? `（${srtPreview.warnings.length} 条告警）` : ''}`,
+          srtPreview.warnings.length > 0 ? 'info' : 'success');
+    setSrtPreview(null);
   };
 
   const handleAudioTranscribe = () => {
@@ -483,6 +515,13 @@ export function EditorToolbar() {
 
   return (
     <div className="flex items-center gap-2 px-3 py-2 bg-surface-dim border-b border-outline-variant/30 shrink-0 overflow-x-auto">
+      {srtPreview && (
+        <SrtImportPreview
+          data={srtPreview}
+          onConfirm={commitSrtImport}
+          onCancel={() => setSrtPreview(null)}
+        />
+      )}
       {/* Back + Logo + project name */}
       <div className="flex items-center gap-2 mr-2">
         <Tooltip side="bottom" content="返回首页">
@@ -734,6 +773,61 @@ export function EditorToolbar() {
 
 interface SrtEntry { index: number; start: number; end: number; text: string; }
 
+/**
+ * 字幕导入预览弹窗（O-字幕导入）：解析后先给清单——总条数/总时长、前若干条的时间与文本、
+ * 以及逐条告警（时间倒挂/空文本/无时间戳/被剥离的标签）。
+ * 用户确认后才写入时间线，避免"导进去才发现少了几句"。
+ */
+function SrtImportPreview({
+  data, onConfirm, onCancel,
+}: {
+  data: { filename: string; cues: SubtitleCue[]; warnings: SubtitleWarning[]; summary: string };
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const preview = data.cues.slice(0, 12);
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" data-testid="srt-preview">
+      <div className="w-[520px] max-h-[70vh] flex flex-col rounded-cw-md border border-outline-variant/50 bg-surface-container-high shadow-2xl">
+        <div className="px-4 py-3 border-b border-outline-variant/30">
+          <p className="text-body-sm font-medium text-on-surface">导入字幕预览</p>
+          <p className="text-caption text-on-surface-variant">{data.filename} · {data.summary}</p>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1">
+          {preview.map((cue) => (
+            <div key={`${cue.index}-${cue.start}`} className="flex gap-2 text-caption">
+              <span className="font-mono text-on-surface-variant/70 w-8 shrink-0 text-right">{cue.index}</span>
+              <span className="font-mono text-primary shrink-0">
+                {formatSrtTime(cue.start)} → {formatSrtTime(cue.end)}
+              </span>
+              <span className="text-on-surface truncate">{cue.text.replace(/\n/g, ' / ')}</span>
+            </div>
+          ))}
+          {data.cues.length > preview.length && (
+            <p className="text-caption text-on-surface-variant/60">…… 其余 {data.cues.length - preview.length} 条</p>
+          )}
+          {data.warnings.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-outline-variant/30 space-y-0.5" data-testid="srt-warnings">
+              {data.warnings.slice(0, 8).map((w, i) => (
+                <p key={`${w.kind}-${i}`} className="text-caption text-warn">
+                  ⚠ {w.detail}
+                </p>
+              ))}
+              {data.warnings.length > 8 && (
+                <p className="text-caption text-on-surface-variant/60">…… 另有 {data.warnings.length - 8} 条告警</p>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-4 py-3 border-t border-outline-variant/30">
+          <Button size="sm" variant="outline" onClick={onCancel}>取消</Button>
+          <Button size="sm" onClick={onConfirm}>导入 {data.cues.length} 条</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SaveStatusIndicator() {
   const isSaving = useProjectStore((s) => s.isSaving);
   const lastSavedAt = useProjectStore((s) => s.lastSavedAt);
@@ -755,26 +849,6 @@ function SaveStatusIndicator() {
     return <span className="text-caption text-on-surface-variant">已保存 {time}</span>;
   }
   return null;
-}
-
-function parseSrt(raw: string): SrtEntry[] {
-  // P1-27: 兼容 WebVTT——去掉 WEBVTT 头；cue 没有序号行，在块内探测时间行
-  // 位置（旧实现固定取 lines[1]，vtt 每块都匹配失败 → 静默 0 条）
-  const normalized = raw.replace(/\r\n/g, '\n').replace(/^WEBVTT[^\n]*\n?/, '').trim();
-  const blocks = normalized.split(/\n\n+/);
-  const entries: SrtEntry[] = [];
-  const TIME_RE = /(\d+):(\d+):(\d+)[.,](\d+)\s*-->\s*(\d+):(\d+):(\d+)[.,](\d+)/;
-  for (const block of blocks) {
-    const lines = block.trim().split('\n');
-    const timeIdx = lines.findIndex((l) => TIME_RE.test(l));
-    if (timeIdx < 0) continue;
-    const timeMatch = lines[timeIdx].match(TIME_RE)!;
-    const start = +timeMatch[1] * 3600 + +timeMatch[2] * 60 + +timeMatch[3] + +timeMatch[4] / 1000;
-    const end = +timeMatch[5] * 3600 + +timeMatch[6] * 60 + +timeMatch[7] + +timeMatch[8] / 1000;
-    const text = lines.slice(timeIdx + 1).join('\n').replace(/<[^>]+>/g, '').trim();
-    if (text) entries.push({ index: +lines[0] || entries.length + 1, start, end, text });
-  }
-  return entries;
 }
 
 function formatSrtTime(sec: number): string {

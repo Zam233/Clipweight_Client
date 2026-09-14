@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { render, fireEvent, waitFor, cleanup, screen } from '@testing-library/react';
 import { extractImportError, EditorToolbar } from './EditorToolbar';
 
 const { mocks, stores } = vi.hoisted(() => {
@@ -207,6 +207,9 @@ describe('轮74: SRT 导入只落 caption 轨', () => {
       const btn = container.querySelector('button .lucide-file-text')?.closest('button') as HTMLButtonElement;
       expect(btn).toBeTruthy();
       fireEvent.click(btn);
+      // O-字幕导入：解析后先出预览弹窗，确认后才写入时间线
+      await waitFor(() => expect(screen.getByTestId('srt-preview')).toBeTruthy());
+      fireEvent.click(screen.getByText(/\u5bfc\u5165 \d+ \u6761/));
       await waitFor(() => expect(stores.timeline.addClip).toHaveBeenCalled());
       return stores.timeline.addClip.mock.calls as unknown[][];
     } finally {
