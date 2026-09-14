@@ -2,18 +2,23 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useHistoryStore } from '@/stores/historyStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { TRACK_COLORS } from '@/types/timeline';
-import type { Clip, Track } from '@/types/timeline';
+import type { Clip, Timeline, Track } from '@/types/timeline';
 import { captionFontSize, textLayout } from './captionLayout';
 import { orderTracksForComposite } from './compositeOrder';
 import { computePreviewFrameRect, xToScrubTime } from './frameGeometry';
 import type { FrameRect } from './frameGeometry';
 import { formatTimecode, clamp } from '@/lib/utils';
+import { secondsToFrame } from '@/lib/mediaTime';
 import { mediaManager } from '@/services/media/mediaManager';
 import { interpolateProperties } from '@/features/timeline/engine/easing';
-import { Maximize, Shield, Volume2, VolumeX, ZoomIn, ZoomOut, Camera, Repeat, Play, Pause } from 'lucide-react';
+import { Maximize, Shield, Volume2, VolumeX, ZoomIn, ZoomOut, Camera, Repeat, Play, Pause, Gauge } from 'lucide-react';
 import { Tooltip, Slider } from '@/components/ui';
 import { applyMasterVolume } from './volume';
+import { contentKey, getPreviewLayerCache, quantize, type Layer2DContext } from './layerCache';
+import { createFramePerf, previewPerf, type FramePerf } from './perf';
+import { PreviewPerfOverlay } from './PreviewPerfOverlay';
 
 /**
  * PreviewPanel — Canvas compositor that renders the timeline at the playhead.
@@ -42,6 +47,7 @@ export function PreviewPanel() {
   const toggleLoop = usePreviewStore((s) => s.toggleLoop);
   const volume = usePreviewStore((s) => s.volume);
   const setVolume = usePreviewStore((s) => s.setVolume);
+  const showPerfPanel = useSettingsStore((s) => s.showPerfPanel);
 
   // C1: 画布双击编辑文字 — 命中 text/caption 片段时打开内联编辑
   const [editingText, setEditingText] = useState<{ clipId: string; text: string; x: number; y: number } | null>(null);
@@ -293,10 +299,16 @@ export function PreviewPanel() {
     // Re-render when media state changes (e.g. an asset errors while loading) —
     // otherwise the failed clip would stay a silent black frame until the playhead moves.
     let mediaVersion = 0;
-    const unsubMedia = mediaManager.onChange(() => { mediaVersion++; });
+    const unsubMedia = mediaManager.onChange(() => {
+      mediaVersion++;
+      bumpPreviewMediaVersion();
+      // O6: 素材重新加载/报错 → 媒体层缓存整体失效（旧帧可能已过时，或本就不该缓存）
+      getPreviewLayerCache().invalidatePrefix('media');
+    });
 
     const draw = () => {
       const dpr = window.devicePixelRatio || 1;
+      const perf = createFramePerf(perfNow());
       const rect = wrap.getBoundingClientRect();
       const W = rect.width;
       const H = rect.height;
@@ -338,21 +350,7 @@ export function PreviewPanel() {
 
       // Composite order: lowest track index drawn first (bottom layer), highest index last (top layer) — matches backend render.py is_overlay = track.index > 0.
       // 合成顺序：轨道 index 升序，低 index 先画（底层），高 index 最后（顶层）。
-      const sorted = orderTracksForComposite(tl.tracks);
-      for (const track of sorted) {
-        if (track.hidden) continue; // M7: 隐藏轨道不参与预览合成
-        if (track.muted && (track.kind === 'audio' || track.kind === 'waveform')) continue;
-        for (const clip of track.clips) {
-          if (t < clip.start_sec || t >= clip.start_sec + clip.duration_sec) continue;
-          if (clip.enabled === false) continue;
-          // C3: 嵌套序列 — 递归合成子时间线（深度上限 4，防循环）
-          if (clip.nested_timeline) {
-            drawNestedTimeline(ctx, clip, track, fx, fy, fw, fh, t, 0);
-            continue;
-          }
-          drawClipToPreview(ctx, clip, track, fx, fy, fw, fh, t);
-        }
-      }
+      compositeTimelineClips(ctx, tl, t, { fx, fy, fw, fh }, dpr, perf);
 
       // Empty frame hint
       if (tl.tracks.length === 0) {
@@ -381,6 +379,9 @@ export function PreviewPanel() {
       ctx.strokeStyle = 'rgba(141,141,153,0.3)';
       ctx.lineWidth = 1;
       ctx.strokeRect(fx + 0.5, fy + 0.5, fw - 1, fh - 1);
+
+      // O6: 采样一帧（含缓存命中率）；store 推送由 PerfTracker 内部节流
+      previewPerf.record(perf);
     };
 
     const loop = () => {
@@ -475,6 +476,16 @@ export function PreviewPanel() {
               <Shield className="w-3.5 h-3.5" />
             </button>
           </Tooltip>
+          {/* O6: 性能诊断开关（偏好持久化；关掉即零开销） */}
+          <Tooltip content="性能诊断">
+            <button
+              onClick={() => useSettingsStore.getState().setShowPerfPanel(!showPerfPanel)}
+              aria-pressed={showPerfPanel}
+              aria-label="性能诊断"
+              className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${showPerfPanel ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
+              <Gauge className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
           <Tooltip content="全屏">
             <button onClick={() => {
               // 全屏请求可能被浏览器拒绝：成功后才置位，避免 UI 状态与实际不一致
@@ -557,6 +568,8 @@ export function PreviewPanel() {
             />
           </div>
         )}
+        {/* O6: 性能诊断浮层（拖动播放头时看耗时与缓存命中率） */}
+        <PreviewPerfOverlay />
         {/* Centered play/pause overlay — visible when paused or on hover */}
         <button
           aria-label={isPlaying ? '暂停' : '播放'}
@@ -674,6 +687,8 @@ function drawNestedTimeline(
   fx: number, fy: number, fw: number, fh: number,
   t: number,
   depth: number,
+  dpr = 1,
+  perf?: FramePerf,
 ) {
   if (depth >= 4 || !parent.nested_timeline) return;
   const nestedT = t - parent.start_sec;
@@ -687,76 +702,93 @@ function drawNestedTimeline(
       if (clip.enabled === false) continue;
       if (clip.nested_timeline) {
         // 深度优先：用 clip 自己的时间窗继续下钻
-        drawNestedTimeline(ctx, clip, track, fx, fy, fw, fh, clip.start_sec + nestedT, depth + 1);
+        drawNestedTimeline(ctx, clip, track, fx, fy, fw, fh, clip.start_sec + nestedT, depth + 1, dpr, perf);
         continue;
       }
-      drawClipToPreview(ctx, clip, track, fx, fy, fw, fh, nestedT);
+      drawClipToPreview(ctx, clip, track, fx, fy, fw, fh, nestedT, dpr, perf);
     }
   }
 }
 
-function drawClipToPreview(
+/**
+ * 合成一帧：把时间线上 t 时刻的可见片段按轨道顺序画进 `ctx` 的给定矩形。
+ *
+ * 从 `draw()` 里提取出来的**可测入口**：预览循环与单测走同一条路径，
+ * 性能对比测试（`previewCompositeCache.test.ts`）直接驱动它。
+ * 返回实际绘制的层数。
+ */
+export function compositeTimelineClips(
   ctx: CanvasRenderingContext2D,
+  timeline: Timeline,
+  t: number,
+  geom: FrameRect,
+  dpr = 1,
+  perf?: FramePerf,
+): number {
+  const { fx, fy, fw, fh } = geom;
+  let drawn = 0;
+  const sorted = orderTracksForComposite(timeline.tracks);
+  for (const track of sorted) {
+    if (track.hidden) continue; // M7: 隐藏轨道不参与预览合成
+    if (track.muted && (track.kind === 'audio' || track.kind === 'waveform')) continue;
+    for (const clip of track.clips) {
+      if (t < clip.start_sec || t >= clip.start_sec + clip.duration_sec) continue;
+      if (clip.enabled === false) continue;
+      // C3: 嵌套序列 — 递归合成子时间线（深度上限 4，防循环）
+      if (clip.nested_timeline) {
+        drawNestedTimeline(ctx, clip, track, fx, fy, fw, fh, t, 0, dpr, perf);
+        drawn += 1;
+        continue;
+      }
+      drawClipToPreview(ctx, clip, track, fx, fy, fw, fh, t, dpr, perf);
+      drawn += 1;
+    }
+  }
+  return drawn;
+}
+
+/** 内容绘制阶段的上下文（素材已在 resolve 阶段查好并计时） */
+interface ClipPaintEnv {
+  tf: Transform2D;
+  localT: number;
+  speed: number;
+  color: string;
+  opacity: number;
+  entry: ReturnType<typeof mediaManager.get>;
+  perf?: FramePerf;
+  now: () => number;
+}
+
+/**
+ * 绘制片段**内容**（可被层缓存光栅化的部分）。
+ *
+ * 返回值：`true` = 真实内容（可入缓存）；`false` = 占位/降级内容（不得入缓存，
+ * 否则素材稍后就绪时会把占位冻结在画面上）。
+ *
+ * 注意：每帧变化的部分（globalAlpha / 混合模式 / filter / 裁剪 / 蒙版 / 转场位移）
+ * 由调用方施加在外层 ctx 上，内容本身只许依赖会进缓存键的输入。
+ * 因此 `animation` 分支（正弦脉冲 + 自带 alpha）**不参与缓存**。
+ */
+function paintClipContent(
+  ctx: Layer2DContext,
   clip: Clip,
   track: Track,
   fx: number, fy: number, fw: number, fh: number,
   t: number,
-) {
-  const localT = (t - clip.start_sec) / clip.duration_sec; // 0-1
-  const color = TRACK_COLORS[track.kind] ?? '#4F8CFF';
-
-  // Apply keyframe interpolation for opacity/transform if present
-  let opacity = clip.opacity;
-  const tf: Transform2D = { ...getClipTransform(clip) };
-  let speed = clip.speed;
-  if (clip.keyframes.length > 0) {
-    const props = interpolateProperties(clip.keyframes, localT);
-    opacity = props.opacity ?? opacity;
-    tf.scale = props.scale ?? tf.scale;
-    tf.x = props.position_x ?? tf.x;
-    tf.y = props.position_y ?? tf.y;
-    tf.rotation = props.rotation ?? tf.rotation;
-    // M5: 时间重映射 — 关键帧驱动的变速（预览层）
-    if (props.speed !== undefined) speed = props.speed;
-  }
-
-  // M11: 转场可见性 — 在进/出转场窗口内对透明度做渐变（淡入淡出/溶解类预览）
-  opacity = applyTransitionAlpha(opacity, clip, localT);
-
-  ctx.save();
-  ctx.globalAlpha = clamp(opacity, 0, 1);
-  if (clip.blend_mode && clip.blend_mode !== 'normal') {
-    (ctx as CanvasRenderingContext2D).globalCompositeOperation = clip.blend_mode as GlobalCompositeOperation;
-  }
-
-  // 轮76：几何转场（slide 位移 / wipe 擦除）——与 alpha 路径互斥
-  const geo = transitionGeometry(clip, localT, fw, fh);
-  if (geo.clipW !== null) {
-    ctx.beginPath();
-    ctx.rect(fx, fy, Math.max(0, geo.clipW), fh);
-    ctx.clip();
-  }
-  if (geo.dx) ctx.translate(geo.dx, 0);
-
-  // M4: 蒙版 — 裁剪到矩形/椭圆内
-  applyMaskClip(ctx, clip, fx, fy, fw, fh);
-
-  const fxStr = buildFilter(clip);
-  if (fxStr) {
-    ctx.filter = fxStr;
-  }
+  env: ClipPaintEnv,
+): boolean {
+  const { tf, localT, speed, color } = env;
 
   switch (track.kind) {
     case 'video':
     case 'image': {
-      // Try real media first (uploaded video/image)
-      const entry = mediaManager.get(clip.asset_id);
+      const entry = env.entry;
       const videoEl = entry?.videoEl;
 
       // Media failed to load (404 / network) — show an explicit placeholder instead of silent black
       if (entry?.error) {
         drawErrorPlaceholder(ctx, fx, fy, fw, fh);
-        break;
+        return false;
       }
 
       let drewReal = false;
@@ -771,13 +803,15 @@ function drawClipToPreview(
       } else if (videoEl && videoEl.readyState >= 2) {
         // Real video frame: seek to clip-local time and draw
         const sourceT = (t - clip.start_sec) * speed + clip.source_offset_sec;
+        const seekStart = env.now();
         mediaManager.seekVideo(clip.asset_id, sourceT);
+        if (env.perf) env.perf.resolveMs += env.now() - seekStart;
         drawCover(ctx, videoEl, fx, fy, fw, fh, tf);
         drewReal = true;
       }
 
       if (!drewReal) {
-        // Placeholder gradient block representing media
+        // Placeholder gradient block representing media — 占位图不入缓存（见函数注释）
         const g = ctx.createLinearGradient(fx, fy, fx + fw, fy + fh);
         g.addColorStop(0, shadeColor(color, -0.5));
         g.addColorStop(0.5, shadeColor(color, -0.2));
@@ -798,8 +832,9 @@ function drawClipToPreview(
         ctx.textBaseline = 'top';
         const label = (clip.metadata?.title as string) || clip.asset_id || track.kind;
         ctx.fillText(label, fx + 16, fy + 14);
+        return false;
       }
-      break;
+      return true;
     }
     case 'text':
     case 'caption': {
@@ -888,7 +923,7 @@ function drawClipToPreview(
         (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '0px';
       }
       ctx.textAlign = 'left';
-      break;
+      return true;
     }
     case 'animation': {
       // 关键帧插值已在 switch 之前统一执行（opacity/tf 已含插值结果），此处不重复调用
@@ -900,7 +935,7 @@ function drawClipToPreview(
       const size = (fh * 0.15) * tf.scale * pulse;
       const shape = (typeof clip.metadata?.shape === 'string' && clip.metadata.shape) || clip.shape || 'rect';
       ctx.save();
-      ctx.globalAlpha = clamp(opacity, 0, 1) * 0.85;
+      ctx.globalAlpha = clamp(env.opacity, 0, 1) * 0.85;
       ctx.translate(cx, cy);
       // 轮76：占位形状不是真实 MG/动画渲染结果——加「未渲染预览」标注，
       // 避免用户把脉冲占位形误当成成片效果（渲染后才由 Hyperframes 出图）
@@ -930,15 +965,142 @@ function drawClipToPreview(
       }
       ctx.fill();
       ctx.restore();
-      break;
+      return false; // 时间相关（正弦脉冲）+ 自带 alpha → 不入缓存
     }
     case 'shape': {
       ctx.fillStyle = clip.fill || color;
       ctx.fillRect(fx + fw * 0.3, fy + fh * 0.3, fw * 0.4, fh * 0.4);
-      break;
+      return true;
     }
     default:
-      break; // audio etc. not drawn to video frame
+      return false; // audio etc. not drawn to video frame
+  }
+}
+
+/** 哪些轨道的内容适合进层缓存（内容只依赖缓存键里的输入） */
+function isCacheableTrack(track: Track): boolean {
+  return track.kind === 'video' || track.kind === 'image'
+    || track.kind === 'text' || track.kind === 'caption' || track.kind === 'shape';
+}
+
+/** 预览循环时钟（performance.now 优先） */
+function perfNow(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
+/**
+ * 媒体版本号（模块级）：素材注册/加载/报错时自增。
+ *
+ * 预览 effect 里的局部计数器只负责「要不要重绘」；**缓存键**必须看这个全局版本，
+ * 否则素材重新加载后旧帧仍会被命中（画面停在过时的帧上）。
+ */
+let previewMediaVersion = 0;
+
+/** 素材状态变化时递增媒体版本（供缓存键失效） */
+export function bumpPreviewMediaVersion(): number {
+  previewMediaVersion += 1;
+  return previewMediaVersion;
+}
+
+/** 当前媒体版本（诊断/测试用） */
+export function getPreviewMediaVersion(): number {
+  return previewMediaVersion;
+}
+
+function drawClipToPreview(
+  ctx: CanvasRenderingContext2D,
+  clip: Clip,
+  track: Track,
+  fx: number, fy: number, fw: number, fh: number,
+  t: number,
+  dpr = 1,
+  perf?: FramePerf,
+) {
+  const localT = (t - clip.start_sec) / clip.duration_sec; // 0-1
+  const color = TRACK_COLORS[track.kind] ?? '#4F8CFF';
+
+  // Apply keyframe interpolation for opacity/transform if present
+  let opacity = clip.opacity;
+  const tf: Transform2D = { ...getClipTransform(clip) };
+  let speed = clip.speed;
+  if (clip.keyframes.length > 0) {
+    const props = interpolateProperties(clip.keyframes, localT);
+    opacity = props.opacity ?? opacity;
+    tf.scale = props.scale ?? tf.scale;
+    tf.x = props.position_x ?? tf.x;
+    tf.y = props.position_y ?? tf.y;
+    tf.rotation = props.rotation ?? tf.rotation;
+    // M5: 时间重映射 — 关键帧驱动的变速（预览层）
+    if (props.speed !== undefined) speed = props.speed;
+  }
+
+  // M11: 转场可见性 — 在进/出转场窗口内对透明度做渐变（淡入淡出/溶解类预览）
+  opacity = applyTransitionAlpha(opacity, clip, localT);
+
+  // O6: resolve 阶段——素材查找单独计时（缓存命中时这段整块被跳过，正是收益来源）
+  const resolveStart = perfNow();
+  const entry = mediaManager.get(clip.asset_id);
+  if (perf) {
+    perf.resolveMs += perfNow() - resolveStart;
+    perf.layers += 1;
+  }
+
+  const env: ClipPaintEnv = { tf, localT, speed, color, opacity, entry, perf, now: perfNow };
+
+  ctx.save();
+  ctx.globalAlpha = clamp(opacity, 0, 1);
+  if (clip.blend_mode && clip.blend_mode !== 'normal') {
+    (ctx as CanvasRenderingContext2D).globalCompositeOperation = clip.blend_mode as GlobalCompositeOperation;
+  }
+
+  // 轮76：几何转场（slide 位移 / wipe 擦除）——与 alpha 路径互斥
+  const geo = transitionGeometry(clip, localT, fw, fh);
+  if (geo.clipW !== null) {
+    ctx.beginPath();
+    ctx.rect(fx, fy, Math.max(0, geo.clipW), fh);
+    ctx.clip();
+  }
+  if (geo.dx) ctx.translate(geo.dx, 0);
+
+  // M4: 蒙版 — 裁剪到矩形/椭圆内
+  applyMaskClip(ctx, clip, fx, fy, fw, fh);
+
+  const fxStr = buildFilter(clip);
+  if (fxStr) {
+    ctx.filter = fxStr;
+  }
+
+  if (isCacheableTrack(track)) {
+    // O6：内容层缓存。缓存键必须覆盖一切影响像素的输入：
+    // 素材/源帧号/媒体版本（素材重新加载自动失效）、几何（面板尺寸与缩放）、变换、文字样式。
+    // 视频按**源帧号**量化（时间线 fps）——播放头在同一帧内移动（60Hz rAF 跑 30fps 时间线）时命中。
+    const sourceFps = (clip.metadata?.source_fps as number | undefined) || 30;
+    const sourceFrame = track.kind === 'video' && entry?.videoEl
+      ? secondsToFrame((t - clip.start_sec) * speed + clip.source_offset_sec, sourceFps)
+      : -1;
+    const key = contentKey('media', [
+      track.kind, clip.asset_id, clip.id, sourceFrame, previewMediaVersion,
+      quantize(fx, 1), quantize(fy, 1), quantize(fw, 1), quantize(fh, 1), quantize(dpr, 2),
+      quantize(tf.x), quantize(tf.y), quantize(tf.scale), quantize(tf.rotation),
+      clip.text ?? '', clip.font ?? '', clip.font_size ?? '', clip.font_weight ?? '',
+      clip.font_italic ? 1 : 0, clip.letter_spacing ?? 0, clip.font_color ?? '',
+      clip.text_align ?? '', clip.stroke_width ?? 0, clip.stroke_color ?? '',
+      clip.shadow_blur ?? 0, clip.shadow_color ?? '', clip.shadow_x ?? 0, clip.shadow_y ?? 0,
+      clip.glow_width ?? 0, clip.glow_color ?? '', clip.fill ?? '',
+      (clip.metadata?.position as string) ?? '', (clip.metadata?.shape as string) ?? clip.shape ?? '',
+      clip.kind,
+    ]);
+    const painted = getPreviewLayerCache().draw(
+      ctx, key, { x: fx, y: fy, w: fw, h: fh }, dpr,
+      (layerCtx) => paintClipContent(layerCtx, clip, track, fx, fy, fw, fh, t, env),
+    );
+    if (perf) {
+      if (painted.hit) perf.cacheHits += 1; else perf.cacheMisses += 1;
+    }
+  } else {
+    paintClipContent(ctx, clip, track, fx, fy, fw, fh, t, env);
   }
 
   ctx.restore();

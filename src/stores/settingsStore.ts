@@ -15,6 +15,8 @@ interface SettingsState {
   snapGridSec: number;
   cheatSheetOpen: boolean;
   showFramesInRuler: boolean;
+  /** O6: 预览性能诊断面板（每帧耗时/缓存命中率） */
+  showPerfPanel: boolean;
   defaultFps: number;
   defaultResolution: { width: number; height: number };
   /** 轮 89：后端离线时是否回退演示假数据（生产默认关；仅本地体验可开） */
@@ -32,6 +34,7 @@ interface SettingsState {
   setSnapGridSec: (sec: number) => void;
   setCheatSheetOpen: (open: boolean) => void;
   setShowFramesInRuler: (v: boolean) => void;
+  setShowPerfPanel: (v: boolean) => void;
   setDefaultFps: (fps: number) => void;
   setDefaultResolution: (res: { width: number; height: number }) => void;
   setAllowDemoFallback: (v: boolean) => void;
@@ -53,6 +56,7 @@ function loadEditorPrefs() {
     snapToGrid: typeof raw.snapToGrid === 'boolean' ? raw.snapToGrid : false,
     snapGridSec: num(raw.snapGridSec, 1, 0.05, 60),
     showFramesInRuler: typeof raw.showFramesInRuler === 'boolean' ? raw.showFramesInRuler : false,
+    showPerfPanel: typeof raw.showPerfPanel === 'boolean' ? raw.showPerfPanel : false,
     theme:
       raw.theme === 'light' ? ('light' as const)
       : raw.theme === 'dark' ? ('dark' as const)
@@ -104,6 +108,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   snapGridSec: prefs.snapGridSec,
   cheatSheetOpen: false,
   showFramesInRuler: prefs.showFramesInRuler,
+  // O6: 性能诊断默认关（面向排障，不是日常 UI）
+  showPerfPanel: prefs.showPerfPanel,
   defaultFps: typeof rawFps === 'number' && rawFps > 0 ? rawFps : 30,
   defaultResolution: {
     width: typeof rawRes?.width === 'number' ? rawRes.width : 1920,
@@ -114,8 +120,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 
   setApiBaseUrl: (url) => { set({ apiBaseUrl: url }); persistConnectionPrefs(); },
   setTheme: (theme) => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-    document.documentElement.classList.toggle('light', theme === 'light');
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      document.documentElement.classList.toggle('light', theme === 'light');
+    }
     set({ theme });
     persistEditorPrefs();
   },
@@ -129,6 +137,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   setSnapGridSec: (sec) => { set({ snapGridSec: sec }); persistEditorPrefs(); },
   setCheatSheetOpen: (open) => set({ cheatSheetOpen: open }),
   setShowFramesInRuler: (v) => { set({ showFramesInRuler: v }); persistEditorPrefs(); },
+  setShowPerfPanel: (v) => { set({ showPerfPanel: v }); persistEditorPrefs(); },
   setDefaultFps: (fps) => { set({ defaultFps: fps }); persistEditorPrefs(); },
   setDefaultResolution: (res) => { set({ defaultResolution: res }); persistEditorPrefs(); },
   setAllowDemoFallback: (v) => { set({ allowDemoFallback: v }); persistEditorPrefs(); },
@@ -142,6 +151,7 @@ function persistEditorPrefs() {
     snapToGrid: s.snapToGrid,
     snapGridSec: s.snapGridSec,
     showFramesInRuler: s.showFramesInRuler,
+    showPerfPanel: s.showPerfPanel,
     theme: s.theme,
     allowDemoFallback: s.allowDemoFallback,
     // P2-02: 默认帧率/分辨率/自动保存持久化（原死设置）
@@ -160,5 +170,8 @@ function persistConnectionPrefs() {
 }
 
 // Apply stored theme on module load
-document.documentElement.classList.toggle('dark', prefs.theme === 'dark');
-document.documentElement.classList.toggle('light', prefs.theme === 'light');
+// 注意：Store 可能被非 DOM 环境（node 单测 / SSR）导入，模块级 DOM 访问必须守卫
+if (typeof document !== 'undefined') {
+  document.documentElement.classList.toggle('dark', prefs.theme === 'dark');
+  document.documentElement.classList.toggle('light', prefs.theme === 'light');
+}
