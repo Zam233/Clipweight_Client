@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useHistoryStore } from '@/stores/historyStore';
@@ -7,6 +7,7 @@ import { Slider, Badge, Button } from '@/components/ui';
 import { Tooltip } from '@/components/ui';
 import { TRACK_COLORS } from '@/types/timeline';
 import { EASING_NAMES, interpolateProperties } from '@/features/timeline/engine/easing';
+import { BezierCurveEditor } from './BezierCurveEditor';
 import {
   ANIMATION_PRESETS, presetKeyframes, backendPresetsToPresets,
   type AnimationPreset, type BackendAnimationDef,
@@ -960,7 +961,17 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
 
   const setEasing = (time: number, easing: string) => {
     pushHistory();
-    const kfs = clip.keyframes.map((k) => (Math.abs(k.time - time) < 0.001 ? { ...k, easing } : k));
+    // 显式选名字时清掉自定义曲线：否则 bezier 优先，用户会以为下拉没生效
+    const kfs = clip.keyframes.map((k) => (Math.abs(k.time - time) < 0.001
+      ? { ...k, easing, bezier: undefined }
+      : k));
+    updateClip(clip.id, { keyframes: kfs });
+  };
+
+  /** 曲线编辑器写入自定义贝塞尔（保留 easing 名字作为回退/展示） */
+  const setBezier = (time: number, handles: { x1: number; y1: number; x2: number; y2: number }, commit: boolean) => {
+    if (commit) pushHistory();
+    const kfs = clip.keyframes.map((k) => (Math.abs(k.time - time) < 0.001 ? { ...k, bezier: handles } : k));
     updateClip(clip.id, { keyframes: kfs });
   };
 
@@ -972,6 +983,28 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
     pushHistory();
     updateKeyframe(clip.id, time, { [prop]: v });
   };
+
+  /**
+   * 曲线编辑器的目标区段。
+   *
+   * 缓动取自**区段的结束帧**（`interpolateProperties` 就是读 `next.easing/bezier`），
+   * 因此这里定位「播放头所在区段的结束帧」，并把它前面的帧作为区段起点展示。
+   */
+  const curveTarget = useMemo(() => {
+    if (!clip || clip.keyframes.length < 2) return null;
+    const sorted = [...clip.keyframes].sort((a, b) => a.time - b.time);
+    let target = sorted[sorted.length - 1];
+    for (let i = 1; i < sorted.length; i += 1) {
+      if (localT <= sorted[i].time + 1e-6) { target = sorted[i]; break; }
+    }
+    const idx = sorted.indexOf(target);
+    const prev = sorted[Math.max(0, idx - 1)];
+    return {
+      time: target.time,
+      bezier: target.bezier,
+      label: `${(clip.start_sec + prev.time * clip.duration_sec).toFixed(2)}s → ${(clip.start_sec + target.time * clip.duration_sec).toFixed(2)}s`,
+    };
+  }, [clip, localT]);
 
   const jumpTo = (dir: 1 | -1) => {
     const times = clip.keyframes.map((k) => k.time).sort((a, b) => a - b);
@@ -1095,6 +1128,16 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
             </div>
           ))}
         </div>
+      )}
+
+      {/* O-曲线编辑：曲线上每个可调区段一个编辑器（默认展开第一个有曲线的区段） */}
+      {clip.keyframes.length > 1 && curveTarget && (
+        <BezierCurveEditor
+          value={curveTarget.bezier}
+          segmentLabel={curveTarget.label}
+          onPreset={(handles) => setBezier(curveTarget.time, handles, true)}
+          onChange={(handles) => setBezier(curveTarget.time, handles, false)}
+        />
       )}
     </Section>
   );

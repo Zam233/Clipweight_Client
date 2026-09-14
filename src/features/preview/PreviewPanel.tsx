@@ -650,6 +650,18 @@ export function transitionGeometry(
  * M4: 蒙版裁剪 — 把当前画布裁剪路径限定到蒙版形状内（矩形或椭圆，基于归一化 rect）。
  * 必须在 clip 绘制前调用（ctx.save 之后），restore 由调用方统一处理。
  */
+/**
+ * 蒙版裁剪（M4 + O-遮罩升级）。
+ *
+ * 支持形状：rect / ellipse / polygon（N 边形）/ star（N 角星）/ heart。
+ * 新增：
+ * - `mask_rotation`：绕蒙版中心旋转（度）；
+ * - `mask_inverted`：反相（用 even-odd 填充规则在整幅画面上"挖洞"）；
+ * - `mask_feather`：软边——沿边界多圈描边做 alpha 渐变近似（导出侧用 geq 隐函数线性过渡，
+ *   两者观感一致；预览不做离屏模糊是为了不给每帧多加一张全尺寸画布）。
+ *
+ * 与导出的差异（已在文档写明）：star/heart 导出侧暂不支持（会记警告并跳过蒙版）。
+ */
 export function applyMaskClip(
   ctx: CanvasRenderingContext2D,
   clip: Clip,
@@ -666,12 +678,81 @@ export function applyMaskClip(
   const my = fy + y * fh;
   const mw = w * fw;
   const mh = h * fh;
-  ctx.beginPath();
-  if (clip.mask_type === 'ellipse') {
-    ctx.ellipse(mx + mw / 2, my + mh / 2, mw / 2, mh / 2, 0, 0, Math.PI * 2);
-  } else {
-    ctx.rect(mx, my, mw, mh);
+  const cx = mx + mw / 2;
+  const cy = my + mh / 2;
+  const rx = mw / 2;
+  const ry = mh / 2;
+  const rotation = ((clip.mask_rotation ?? 0) * Math.PI) / 180;
+  const feather = Math.max(0, Math.min(50, clip.mask_feather ?? 0));
+
+  const traceShape = () => {
+    ctx.beginPath();
+    switch (clip.mask_type) {
+      case 'ellipse':
+        ctx.ellipse(cx, cy, rx, ry, rotation, 0, Math.PI * 2);
+        break;
+      case 'polygon': {
+        const sides = Math.max(3, Math.min(12, clip.mask_points ?? 5));
+        for (let i = 0; i < sides; i += 1) {
+          const a = rotation + (2 * Math.PI * i) / sides - Math.PI / 2;
+          const px = cx + rx * Math.cos(a);
+          const py = cy + ry * Math.sin(a);
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        break;
+      }
+      case 'star': {
+        const points = Math.max(3, Math.min(12, clip.mask_points ?? 5));
+        const inner = 0.45; // 内半径比例（五角星观感）
+        for (let i = 0; i < points * 2; i += 1) {
+          const radius = i % 2 === 0 ? 1 : inner;
+          const a = rotation + (Math.PI * i) / points - Math.PI / 2;
+          const px = cx + rx * radius * Math.cos(a);
+          const py = cy + ry * radius * Math.sin(a);
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        break;
+      }
+      case 'heart': {
+        // 心形：两段三次贝塞尔（与导出的形状语言一致）
+        const topY = cy - ry * 0.45;
+        ctx.moveTo(cx, cy + ry * 0.9);
+        ctx.bezierCurveTo(cx - rx * 1.1, cy + ry * 0.1, cx - rx * 0.7, topY - ry * 0.7, cx, topY);
+        ctx.bezierCurveTo(cx + rx * 0.7, topY - ry * 0.7, cx + rx * 1.1, cy + ry * 0.1, cx, cy + ry * 0.9);
+        ctx.closePath();
+        break;
+      }
+      default:
+        ctx.rect(mx, my, mw, mh);
+    }
+  };
+
+  if (clip.mask_inverted) {
+    // 反相：整幅画面减去形状（even-odd 一次成洞，不必离屏合成）
+    ctx.beginPath();
+    ctx.rect(fx - 2, fy - 2, fw + 4, fh + 4);
+    traceShape();
+    ctx.clip('evenodd');
+    return;
   }
+
+  if (feather > 0) {
+    // 软边近似：从形状边界向外若干圈描边，透明度递减
+    const steps = 4;
+    for (let i = steps; i >= 1; i -= 1) {
+      const t = i / steps;
+      ctx.save();
+      ctx.globalAlpha = t;
+      ctx.lineWidth = feather * 2 * (1 - t + 1 / steps);
+      traceShape();
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  traceShape();
   ctx.clip();
 }
 
