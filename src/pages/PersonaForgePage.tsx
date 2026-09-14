@@ -8,9 +8,39 @@ import type { ParameterLayer, Persona } from '@/types/persona';
 import {
   ArrowLeft, Send, Sparkles, Bot, User, Check, Loader2, FileUp, Dna,
   FileText, MessageCircleQuestion, Wand2, RotateCcw, ExternalLink,
+  ImagePlus, Trash2, Pencil, History, X,
 } from 'lucide-react';
 
-interface ChatMsg { id: string; role: 'user' | 'assistant'; content: string; }
+/** 会话内附带的图片（data URL，前端可直接渲染缩略图） */
+interface ChatAttachment { type: 'image' | 'file'; name: string; mime: string; data_url: string }
+
+interface ChatMsg {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  /** 本轮随消息上传的附件（只用于渲染，后端也已存一份） */
+  attachments?: ChatAttachment[];
+}
+
+/** 会话状态浮层里的知识条目 */
+interface KnowledgeItem { id: string; source: string; chars: number; preview: string }
+
+/** 会话列表条目 */
+interface ForgeSessionItem {
+  session_id: string;
+  title: string;
+  message_count: number;
+  knowledge_count: number;
+  created_at: string;
+  updated_at: string;
+  progress: Record<string, number>;
+}
+
+/** 会话 id 的本地持久化键（历史欠账：原先刷新即丢会话） */
+const FORGE_SESSION_KEY = 'clipwright.forgeSessionId';
+/** 前端侧的附件上限（与后端 ChatForge.MAX_ATTACHMENTS / MAX_ATTACHMENT_CHARS 对齐） */
+const MAX_ATTACHMENTS = 4;
+const MAX_ATTACHMENT_BYTES = 6 * 1024 * 1024;
 type Dimension = 'identity' | 'language' | 'rhythm' | 'visual' | 'audio' | 'constraints';
 const DIMENSIONS: { key: Dimension; label: string; color: string }[] = [
   { key: 'identity', label: '身份', color: '#4F8CFF' },
@@ -62,8 +92,55 @@ export function PersonaForgePage() {
   const [restoreId, setRestoreId] = useState('');
   const [restoreBusy, setRestoreBusy] = useState(false);
   const [restoreMsg, setRestoreMsg] = useState('');
+  // 待发送附件（图片/文件）与知识库面板 / 会话列表面板
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [knowledge, setKnowledge] = useState<KnowledgeItem[]>([]);
+  const [editingKb, setEditingKb] = useState<{ id: string; source: string; content: string } | null>(null);
+  const [kbPanelOpen, setKbPanelOpen] = useState(false);
+  const [sessions, setSessions] = useState<ForgeSessionItem[]>([]);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const kbClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 会话 id 持久化（历史欠账：原先刷新/离开即丢，只能靠手抄 id 恢复）
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(FORGE_SESSION_KEY);
+      if (saved) {
+        setRestoreId(saved);
+        setRestoreMsg(`上次会话 ${saved.slice(0, 12)}（点击「恢复会话」继续）`);
+      }
+    } catch { /* 隐私模式：忽略 */ }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (sessionId) localStorage.setItem(FORGE_SESSION_KEY, sessionId);
+    } catch { /* ignore */ }
+  }, [sessionId]);
+
+  /** 拉取知识库条目（面板打开时 / 增删改后） */
+  const refreshKnowledge = async (sid: string | null = sessionId) => {
+    if (!sid) return;
+    try {
+      const res = await personaApi.chatForgeKnowledgeList(sid);
+      setKnowledge(res.items ?? []);
+      setKbPanelOpen(true);
+    } catch {
+      toast('知识库读取失败：后端不可达', 'error');
+    }
+  };
+
+  /** 拉取会话列表（历史欠账：后端原先没有列表端点） */
+  const refreshSessions = async () => {
+    try {
+      const res = await personaApi.chatForgeSessions('mine');
+      setSessions(res.sessions ?? []);
+      setSessionsOpen(true);
+    } catch {
+      toast('会话列表读取失败：后端不可达', 'error');
+    }
+  };
 
   // 挂载时若 URL 带 ?session= 则自动恢复后端会话状态（GET /state/{session}）
   useEffect(() => {
@@ -107,8 +184,8 @@ export function PersonaForgePage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages.length, busy]);
 
-  const addMsg = (role: ChatMsg['role'], content: string) =>
-    setMessages((m) => [...m, { id: uid('m'), role, content }]);
+  const addMsg = (role: ChatMsg['role'], content: string, attachments?: ChatAttachment[]) =>
+    setMessages((m) => [...m, { id: uid('m'), role, content, ...(attachments?.length ? { attachments } : {}) }]);
 
   const handleRestore = async () => {
     const sid = restoreId.trim();
@@ -150,14 +227,20 @@ export function PersonaForgePage() {
 
   const send = async () => {
     const text = input.trim();
-    if (!text || busy) return;
+    if ((!text && attachments.length === 0) || busy) return;
+    const outgoing = attachments;
     setInput('');
-    addMsg('user', text);
+    setAttachments([]);
+    addMsg('user', text || '（见附件）', outgoing);
     setBusy(true);
 
     try {
       const res = sessionId
-        ? await personaApi.chatForgeMessage(sessionId, text)
+        ? await personaApi.chatForgeMessage(
+            sessionId,
+            text || '请参考我上传的附件',
+            outgoing.length > 0 ? outgoing : undefined,
+          )
         : null;
       if (res?.persona_draft) setDraft(res.persona_draft);
       const prog = res?.progress;
@@ -175,6 +258,114 @@ export function PersonaForgePage() {
       addMsg('assistant', filled.reply);
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** 选择图片/文件 → 读成 data URL 放进待发送队列（客户端先做与后端一致的限额校验） */
+  const handleAttachFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    const next: ChatAttachment[] = [];
+    for (const file of files) {
+      if (attachments.length + next.length >= MAX_ATTACHMENTS) {
+        toast(`单条消息最多 ${MAX_ATTACHMENTS} 个附件`, 'error');
+        break;
+      }
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        toast(`${file.name} 超过 ${Math.round(MAX_ATTACHMENT_BYTES / 1024 / 1024)}MB 上限`, 'error');
+        continue;
+      }
+      const dataUrl = await new Promise<string | null>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+      });
+      if (!dataUrl) {
+        toast(`${file.name} 读取失败`, 'error');
+        continue;
+      }
+      next.push({
+        type: file.type.startsWith('image/') ? 'image' : 'file',
+        name: file.name,
+        mime: file.type,
+        data_url: dataUrl,
+      });
+    }
+    if (next.length > 0) setAttachments((prev) => [...prev, ...next]);
+  };
+
+  /** 打开一条知识的编辑器（取全文） */
+  const openKnowledgeEditor = async (kbId: string, source: string) => {
+    if (!sessionId) return;
+    try {
+      const doc = await personaApi.chatForgeKnowledgeGet(sessionId, kbId);
+      setEditingKb({ id: kbId, source: doc.source ?? source, content: doc.content ?? '' });
+    } catch {
+      toast('知识内容读取失败', 'error');
+    }
+  };
+
+  /** 保存知识编辑（只改存储上下文，重分析需另发消息让模型处理） */
+  const saveKnowledgeEdit = async () => {
+    if (!sessionId || !editingKb) return;
+    try {
+      await personaApi.chatForgeKnowledgeUpdate(sessionId, editingKb.id, {
+        content: editingKb.content, source: editingKb.source,
+      });
+      setEditingKb(null);
+      await refreshKnowledge(sessionId);
+      toast('知识条目已更新（未重跑模型；如需重新分析请再发一条消息）', 'success');
+    } catch {
+      toast('保存失败', 'error');
+    }
+  };
+
+  const removeKnowledge = async (kbId: string) => {
+    if (!sessionId) return;
+    try {
+      await personaApi.chatForgeKnowledgeDelete(sessionId, kbId);
+      await refreshKnowledge(sessionId);
+    } catch {
+      toast('删除失败', 'error');
+    }
+  };
+
+  /** 切换/恢复某个历史会话（会话列表点击） */
+  const switchSession = async (sid: string) => {
+    setSessionsOpen(false);
+    setRestoreId(sid);
+    setRestoreBusy(true);
+    try {
+      const state = (await personaApi.chatForgeState(sid)) as ChatForgeStateResp;
+      setSessionId(state.session_id || sid);
+      if (state.persona_draft) {
+        setDraft(state.persona_draft as Partial<ParameterLayer>);
+        setProgress(estimateProgressFromDraft(state.persona_draft));
+      }
+      setMessages([]);
+      addMsg('assistant', `已切到会话 ${sid.slice(0, 12)}：${state.message_count ?? 0} 条对话、${state.knowledge_base_count ?? 0} 个知识块。`);
+      void refreshKnowledge(state.session_id || sid);
+    } catch {
+      toast('该会话不存在或后端不可达', 'error');
+    } finally {
+      setRestoreBusy(false);
+    }
+  };
+
+  /** 删除历史会话（连同后端落盘文件） */
+  const deleteSession = async (sid: string) => {
+    try {
+      await personaApi.chatForgeDeleteSession(sid);
+      setSessions((list) => list.filter((s) => s.session_id !== sid));
+      if (sessionId === sid) {
+        setSessionId(null);
+        setMessages([]);
+      }
+      toast('会话已删除', 'success');
+    } catch {
+      toast('删除失败', 'error');
     }
   };
 
@@ -284,7 +475,48 @@ export function PersonaForgePage() {
           <Button size="sm" variant="outline" onClick={handleRestore} disabled={restoreBusy || !restoreId.trim()}>
             <RotateCcw className="w-3.5 h-3.5" /> {restoreBusy ? '恢复中…' : '恢复会话'}
           </Button>
+          <Button size="sm" variant="outline" onClick={refreshSessions}>
+            <History className="w-3.5 h-3.5" /> 历史会话
+          </Button>
           {restoreMsg && <span className="text-caption text-on-surface-variant">{restoreMsg}</span>}
+        </div>
+      )}
+
+      {/* 会话列表（GET /sessions；点条目切换、右侧垃圾桶删除） */}
+      {mode === 'chat' && sessionsOpen && (
+        <div className="px-6 py-2 border-b border-outline-variant/15 bg-surface-container-low shrink-0 max-h-[180px] overflow-y-auto"
+             data-testid="session-list">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-caption text-on-surface-variant uppercase tracking-wide">历史会话（{sessions.length}）</span>
+            <button onClick={() => setSessionsOpen(false)} className="text-on-surface-variant hover:text-on-surface cursor-pointer">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          {sessions.length === 0 && (
+            <p className="text-caption text-on-surface-variant/60 py-1">暂无会话（后端 chatforge_sessions/ 为空）</p>
+          )}
+          {sessions.map((s) => (
+            <div key={s.session_id} className="flex items-center gap-2 py-1">
+              <button
+                onClick={() => switchSession(s.session_id)}
+                className={`flex-1 text-left px-2 py-1 rounded-cw-xs hover:bg-surface transition-colors cursor-pointer ${
+                  sessionId === s.session_id ? 'bg-surface' : ''
+                }`}
+              >
+                <span className="text-label-sm text-on-surface truncate">{s.title || '(未命名会话)'}</span>
+                <span className="ml-2 text-caption font-mono text-on-surface-variant/60">
+                  {s.message_count} 对话 · {s.knowledge_count} 知识 · {new Date(s.updated_at).toLocaleString('zh-CN')}
+                </span>
+              </button>
+              <button
+                onClick={() => deleteSession(s.session_id)}
+                aria-label={`删除会话 ${s.session_id}`}
+                className="p-1 rounded-cw-xs text-on-surface-variant hover:text-error transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
@@ -318,6 +550,25 @@ export function PersonaForgePage() {
                       ? 'bg-primary-container text-on-primary-container rounded-br-cw-xs'
                       : 'bg-surface-container text-on-surface border border-outline-variant/20 rounded-bl-cw-xs'
                   }`}>
+                    {m.attachments && m.attachments.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-1.5" data-testid="msg-attachments">
+                        {m.attachments.map((a, i) => (
+                          a.type === 'image' ? (
+                            <img
+                              key={`${m.id}-att-${i}`}
+                              src={a.data_url}
+                              alt={a.name}
+                              className="w-20 h-20 object-cover rounded-cw-xs border border-outline-variant/30"
+                            />
+                          ) : (
+                            <span key={`${m.id}-att-${i}`}
+                              className="flex items-center gap-1 px-2 py-1 rounded-cw-xs bg-surface/40 text-caption">
+                              <FileText className="w-3 h-3" /> {a.name}
+                            </span>
+                          )
+                        ))}
+                      </div>
+                    )}
                     {m.content}
                   </div>
                   {m.role === 'user' && (
@@ -338,10 +589,42 @@ export function PersonaForgePage() {
             {/* input */}
             {messages.length > 0 && (
               <div className="p-4 border-t border-outline-variant/25 shrink-0">
+                {attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2" data-testid="pending-attachments">
+                    {attachments.map((a, i) => (
+                      <span key={`pending-${i}`}
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-cw-xs bg-surface-container border border-outline-variant/30 text-caption">
+                        {a.type === 'image'
+                          ? <img src={a.data_url} alt={a.name} className="w-6 h-6 object-cover rounded-[3px]" />
+                          : <FileText className="w-3.5 h-3.5" />}
+                        <span className="max-w-[120px] truncate text-on-surface">{a.name}</span>
+                        <button
+                          onClick={() => setAttachments((list) => list.filter((_, idx) => idx !== i))}
+                          className="text-on-surface-variant hover:text-error cursor-pointer"
+                          aria-label={`移除附件 ${a.name}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <label className="p-2.5 rounded-cw-sm bg-surface-container text-on-surface-variant hover:text-primary border border-outline-variant/30 transition-colors cursor-pointer" title="上传参考文档">
                     <FileUp className="w-4 h-4" />
                     <input type="file" className="hidden" accept=".md,.txt" onChange={handleKnowledge} disabled={kbBusy} />
+                  </label>
+                  {/* 图片/文件附件：随消息一起发给后端（模型看不到图 → 视觉能力开启时先做分析） */}
+                  <label className="p-2.5 rounded-cw-sm bg-surface-container text-on-surface-variant hover:text-primary border border-outline-variant/30 transition-colors cursor-pointer" title="附带图片（最多 4 张）">
+                    <ImagePlus className="w-4 h-4" />
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*,.txt,.md,.json"
+                      multiple
+                      onChange={handleAttachFiles}
+                      data-testid="attachment-input"
+                    />
                   </label>
                   <input
                     value={input}
@@ -351,7 +634,8 @@ export function PersonaForgePage() {
                     className="flex-1 bg-surface-container rounded-cw-sm px-3.5 py-2.5 text-body-sm text-on-surface
                       outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50"
                   />
-                  <Button size="icon" onClick={send} disabled={!input.trim() || busy}>
+                  <Button size="icon" onClick={send} data-testid="chat-send"
+                    disabled={(!input.trim() && attachments.length === 0) || busy}>
                     <Send className="w-4 h-4" />
                   </Button>
                 </div>
@@ -389,6 +673,72 @@ export function PersonaForgePage() {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* 知识库管理（历史欠账：原先只能追加，不能列出/编辑/删除） */}
+            <div>
+              <div className="flex items-center justify-between mb-2.5">
+                <h2 className="text-label font-medium text-on-surface-variant uppercase tracking-wide">参考文档</h2>
+                <button
+                  onClick={() => (kbPanelOpen ? setKbPanelOpen(false) : void refreshKnowledge())}
+                  disabled={!sessionId}
+                  className="text-caption text-primary disabled:opacity-40 hover:underline cursor-pointer"
+                >
+                  {kbPanelOpen ? '收起' : '管理'}
+                </button>
+              </div>
+              {kbPanelOpen && (
+                <div className="space-y-1.5" data-testid="knowledge-panel">
+                  {knowledge.length === 0 && (
+                    <p className="text-caption text-on-surface-variant/60">还没有参考文档（点上方 📄 上传）</p>
+                  )}
+                  {knowledge.map((k) => (
+                    <div key={k.id} className="flex items-start gap-1.5 px-2 py-1.5 rounded-cw-xs bg-surface-container border border-outline-variant/25">
+                      {editingKb?.id === k.id ? (
+                        <div className="flex-1 space-y-1.5">
+                          <input
+                            value={editingKb.source}
+                            onChange={(e) => setEditingKb({ ...editingKb, source: e.target.value })}
+                            className="w-full bg-surface rounded-cw-xs px-2 py-1 text-caption text-on-surface border border-outline-variant/30 outline-none focus:border-primary"
+                          />
+                          <textarea
+                            value={editingKb.content}
+                            onChange={(e) => setEditingKb({ ...editingKb, content: e.target.value })}
+                            rows={5}
+                            className="w-full bg-surface rounded-cw-xs px-2 py-1 text-caption text-on-surface border border-outline-variant/30 outline-none focus:border-primary resize-y"
+                          />
+                          <div className="flex gap-1.5">
+                            <Button size="sm" onClick={saveKnowledgeEdit}>保存</Button>
+                            <Button size="sm" variant="outline" onClick={() => setEditingKb(null)}>取消</Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-label-sm text-on-surface truncate">{k.source}</p>
+                            <p className="text-caption text-on-surface-variant/70 truncate">{k.preview}</p>
+                            <p className="text-caption text-on-surface-variant/50 font-mono">{k.chars} 字</p>
+                          </div>
+                          <button
+                            onClick={() => void openKnowledgeEditor(k.id, k.source)}
+                            aria-label={`编辑 ${k.source}`}
+                            className="p-1 rounded-cw-xs text-on-surface-variant hover:text-primary cursor-pointer"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => void removeKnowledge(k.id)}
+                            aria-label={`删除 ${k.source}`}
+                            className="p-1 rounded-cw-xs text-on-surface-variant hover:text-error cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* live draft preview */}

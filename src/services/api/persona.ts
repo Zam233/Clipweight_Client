@@ -193,13 +193,74 @@ export const personaApi = {
     return data as { session_id: string; persona_draft?: unknown; progress?: Record<string, number>; reply?: string };
   },
 
-  /** Send a chat forge message */
-  async chatForgeMessage(sessionId: string, message: string) {
+  /** Send a chat forge message（可带图片/文件附件） */
+  async chatForgeMessage(
+    sessionId: string,
+    message: string,
+    attachments?: Array<{ type: 'image' | 'file'; name?: string; mime?: string; data_url: string }>,
+  ) {
     const { data } = await getApiClient().post('/api/persona/forge/chat/message', {
       session_id: sessionId,
       message,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
     });
     return data as { reply?: string; persona_draft?: unknown; progress?: Record<string, number>; missing_dimensions?: string[] };
+  },
+
+  // ── Chat Forge 历史欠账补齐：会话列表 / 知识库 CRUD（O5 后一轮） ──
+
+  /** 列出会话（scope=mine 只看自己的；off 鉴权下两者等价） */
+  async chatForgeSessions(scope: 'mine' | 'all' = 'mine') {
+    const { data } = await getApiClient().get('/api/persona/forge/chat/sessions', { params: { scope } });
+    return data as {
+      sessions: Array<{
+        session_id: string; title: string; message_count: number; knowledge_count: number;
+        created_at: string; updated_at: string; progress: Record<string, number>;
+        draft_summary?: { tone?: string; cut_profile?: string; palette?: string };
+      }>;
+      total: number;
+    };
+  },
+
+  /** 删除会话 */
+  async chatForgeDeleteSession(sessionId: string) {
+    const { data } = await getApiClient().delete(`/api/persona/forge/chat/sessions/${sessionId}`);
+    return data as { deleted: boolean; session_id: string };
+  },
+
+  /** 列出会话知识库条目 */
+  async chatForgeKnowledgeList(sessionId: string) {
+    const { data } = await getApiClient().get(`/api/persona/forge/chat/knowledge/${sessionId}`);
+    return data as {
+      items: Array<{ id: string; source: string; chars: number; preview: string }>;
+      total: number;
+    };
+  },
+
+  /** 读取单条知识全文 */
+  async chatForgeKnowledgeGet(sessionId: string, kbId: string) {
+    const { data } = await getApiClient().get(`/api/persona/forge/chat/knowledge/${sessionId}/${kbId}`);
+    return data as { id: string; source: string; content: string };
+  },
+
+  /** 编辑一条知识（只改存储上下文，不重跑 LLM） */
+  async chatForgeKnowledgeUpdate(sessionId: string, kbId: string, patch: { content?: string; source?: string }) {
+    const { data } = await getApiClient().put(
+      `/api/persona/forge/chat/knowledge/${sessionId}/${kbId}`, patch,
+    );
+    return data as { id: string; source: string; content: string };
+  },
+
+  /** 删除一条知识 */
+  async chatForgeKnowledgeDelete(sessionId: string, kbId: string) {
+    const { data } = await getApiClient().delete(`/api/persona/forge/chat/knowledge/${sessionId}/${kbId}`);
+    return data as { deleted: boolean; id: string };
+  },
+
+  /** 清空会话知识库 */
+  async chatForgeKnowledgeClear(sessionId: string) {
+    const { data } = await getApiClient().delete(`/api/persona/forge/chat/knowledge/${sessionId}`);
+    return data as { deleted: number };
   },
 
   /** Upload knowledge content for chat forge (sends text content, chunked) */
