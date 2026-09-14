@@ -19,13 +19,12 @@ import type { Clip } from '@/types/timeline';
 export function useGlobalKeybindings() {
 
   useEffect(() => {
+    // O3：undo/redo 由 historyStore 自己切换时间线并恢复当时的选择
     const undo = () => {
-      const tl = useHistoryStore.getState().undo();
-      if (tl) useTimelineStore.getState().setTimeline(tl);
+      useHistoryStore.getState().undo();
     };
     const redo = () => {
-      const tl = useHistoryStore.getState().redo();
-      if (tl) useTimelineStore.getState().setTimeline(tl);
+      useHistoryStore.getState().redo();
     };
 
     const splitSelected = () => {

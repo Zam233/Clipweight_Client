@@ -10,7 +10,10 @@ interface TimelineState {
   isDirty: boolean;
 
   // Timeline-level actions
-  setTimeline: (timeline: Timeline) => void;
+  setTimeline: (
+    timeline: Timeline,
+    options?: { preserveSelection?: boolean },
+  ) => void;
   resetTimeline: () => void;
   /** 轮75：保存成功后清除未保存标记（状态栏「未保存」指示用） */
   markSaved: () => void;
@@ -109,7 +112,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
   timeline: createEmptyTimeline(),
   isDirty: false,
 
-  setTimeline: (timeline) => {
+  setTimeline: (timeline, options) => {
     // P1-04：Agent 产出的关键帧用绝对秒（如 time=240），而编辑器插值约定
     // clip_local 归一化 [0,1]——不归一化会让动画恒停在首帧。全部 time > 1
     // 且带有效时长/起点时判定为绝对秒，转换为 (t-start)/duration。
@@ -119,7 +122,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     // 同步预览/选择状态，避免 playhead 钳位失效与悬空选择
     usePreviewStore.getState().setDuration(timeline.duration_sec);
     usePreviewStore.getState().setFps(timeline.fps);
-    useSelectionStore.getState().deselectAll();
+    // O3：撤销/重做/历史跳转要恢复「当时的选择」，由 historyStore 在切换后写回，
+    // 因此这些调用方传 preserveSelection=true 跳过这里的清空
+    if (!options?.preserveSelection) {
+      useSelectionStore.getState().deselectAll();
+    }
     // V10: Undo/重做/导入/代理切换后重注册媒体——历史快照可能指向不同素材 URL
     // （动态 import 避免 store↔service 初始化耦合）
     void import('@/services/media/mediaManager').then(({ mediaManager }) =>

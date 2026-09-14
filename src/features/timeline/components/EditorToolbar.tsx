@@ -12,6 +12,7 @@ import { toast } from '@/stores/toastStore';
 import { Button, Tooltip } from '@/components/ui';
 import { formatTimecode, uid } from '@/lib/utils';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
+import { HistoryPanel } from '@/features/history/HistoryPanel';
 import { getApiClient } from '@/services/api';
 import type { Clip } from '@/types/timeline';
 import type { ClipKind } from '@/types/timeline';
@@ -21,7 +22,7 @@ import {
   Undo2, Redo2, Save, PanelLeft, PanelRight, Bot, Film,
   FileText, ArrowLeft, Check, Loader2, Mic, Download,
   Copy, ClipboardPaste, FileUp, Keyboard, FileJson, Upload,
-  History as HistoryIcon, X,
+  History as HistoryIcon,
 } from 'lucide-react';
 
 /**
@@ -107,23 +108,13 @@ export function EditorToolbar() {
   const canUndo = useHistoryStore((s) => s.undoStack.length > 0);
   const canRedo = useHistoryStore((s) => s.redoStack.length > 0);
 
-  const handleUndo = () => {
-    const tl = undo();
-    if (tl) useTimelineStore.getState().setTimeline(tl);
-  };
-  const handleRedo = () => {
-    const tl = redo();
-    if (tl) useTimelineStore.getState().setTimeline(tl);
-  };
+  // O3：undo/redo/跳转由 historyStore 自己切换时间线并恢复当时的选择，
+  // 调用方不要再 setTimeline（那会用默认参数把刚恢复的选择清掉）
+  const handleUndo = () => { undo(); };
+  const handleRedo = () => { redo(); };
 
-  // W7: 撤销历史列表（跳转到任意历史快照）
+  // W7/O3: 撤销历史面板（跳转到任意历史快照 + 中文动作名 + 选中片段数 + 可重做段）
   const [historyOpen, setHistoryOpen] = useState(false);
-  const undoStack = useHistoryStore((s) => s.undoStack);
-  const handleJumpTo = (index: number) => {
-    const tl = useHistoryStore.getState().jumpTo(index);
-    if (tl) useTimelineStore.getState().setTimeline(tl);
-    setHistoryOpen(false);
-  };
 
   const handleCopy = () => {
     const sel = useSelectionStore.getState().selectedClipIds;
@@ -548,44 +539,15 @@ export function EditorToolbar() {
           <Redo2 className="w-4 h-4" />
         </button>
       </Tooltip>
-      {/* W7: 历史列表 */}
+      {/* W7/O3: 历史面板 */}
       <div className="relative">
         <Tooltip side="bottom" content="历史记录">
-          <button onClick={() => setHistoryOpen(!historyOpen)} disabled={undoStack.length === 0}
+          <button onClick={() => setHistoryOpen(!historyOpen)} disabled={!canUndo && !canRedo}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface disabled:opacity-30 transition-colors cursor-pointer">
             <HistoryIcon className="w-4 h-4" />
           </button>
         </Tooltip>
-        {historyOpen && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setHistoryOpen(false)} />
-            <div className="absolute left-0 top-full mt-1.5 z-50 w-[260px] bg-surface-container-high border border-outline-variant/50
-              rounded-cw-md shadow-2xl shadow-black/50 overflow-hidden">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-outline-variant/30">
-                <span className="text-label font-medium text-on-surface-variant uppercase tracking-wide">历史记录 ({undoStack.length})</span>
-                <button onClick={() => setHistoryOpen(false)} className="p-1 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div className="max-h-[280px] overflow-y-auto p-1.5 space-y-0.5">
-                {undoStack.length === 0 && (
-                  <p className="text-caption text-on-surface-variant text-center py-3">暂无历史</p>
-                )}
-                {undoStack.map((entry, i) => (
-                  <button key={i} onClick={() => handleJumpTo(i)}
-                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-cw-sm text-left
-                      bg-surface-container hover:bg-surface transition-colors cursor-pointer">
-                    <span className="font-mono text-caption text-on-surface-variant/60 w-6 shrink-0">{undoStack.length - i}</span>
-                    <span className="text-label-sm text-on-surface truncate flex-1">{entry.label}</span>
-                    <span className="text-caption text-on-surface-variant/50 font-mono shrink-0">
-                      {new Date(entry.timestamp).toLocaleTimeString()}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
+        {historyOpen && <HistoryPanel open onClose={() => setHistoryOpen(false)} />}
       </div>
       <Tooltip side="bottom" content="复制 (Ctrl+C)">
         <button onClick={handleCopy}
