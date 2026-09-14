@@ -19,7 +19,10 @@ vi.mock('@tanstack/react-router', () => ({
   useBlocker: () => ({ status: 'idle', proceed: vi.fn(), reset: vi.fn() }),
 }));
 vi.mock('@/services/media/mediaManager', () => ({
-  mediaManager: { registerTimeline: vi.fn(), clear: vi.fn() },
+  mediaManager: {
+    registerTimeline: vi.fn(), clear: vi.fn(), onChange: vi.fn(() => () => {}),
+    exportSnapshots: vi.fn(() => []), applySnapshots: vi.fn(() => 0),
+  },
 }));
 vi.mock('@/stores/toastStore', () => ({ toast: vi.fn() }));
 vi.mock('@/features/agent/useRequirementsAutoStart', () => ({

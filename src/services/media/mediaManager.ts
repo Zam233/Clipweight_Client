@@ -192,6 +192,77 @@ class MediaManager {
     return this.entries.get(assetId);
   }
 
+  // ── O5：派生数据快照（缩略图/波形/时长）────────────────────
+  //
+  // 媒体**文件**句柄没法持久化（blob URL 刷新即失效，本地文件句柄也不该悄悄存），
+  // 但**派生数据**可以：刷新后先用手上的快照把缩略图/波形画出来，再去后端取真实媒体。
+  // 这部分只读/只写内存里的 Map，因此由上层（EditorPage）负责落 IndexedDB。
+
+  /** 导出可持久化的派生数据（只导出真的有数据的条目） */
+  exportSnapshots(): Array<{
+    assetId: string;
+    durationSec: number;
+    thumbnails: Record<string, string>;
+    waveform?: number[];
+  }> {
+    const out: Array<{ assetId: string; durationSec: number; thumbnails: Record<string, string>; waveform?: number[] }> = [];
+    for (const [assetId, entry] of this.entries) {
+      if (entry.isObjectUrl) continue; // 本地上传：刷新后 URL 已失效，快照没有意义
+      const thumbnails: Record<string, string> = {};
+      for (const [bucket, dataUrl] of entry.thumbnails) thumbnails[String(bucket)] = dataUrl;
+      if (Object.keys(thumbnails).length === 0 && !entry.waveform?.length && !entry.durationSec) continue;
+      out.push({
+        assetId,
+        durationSec: entry.durationSec,
+        thumbnails,
+        waveform: entry.waveform,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * 应用派生数据快照（**只补空，不覆盖已有数据**）。
+   *
+   * 在 `registerTimeline` 之后调用：此时条目已按真实 URL 建好，但缩略图/波形还没生成，
+   * 用快照立即补上，避免刷新后先看到一片空白再逐张出现。
+   */
+  applySnapshots(snapshots: Array<{
+    assetId: string;
+    durationSec?: number;
+    thumbnails?: Record<string, string>;
+    waveform?: number[];
+  }>): number {
+    let applied = 0;
+    for (const snapshot of snapshots) {
+      const entry = this.entries.get(snapshot.assetId);
+      if (!entry) continue;
+      let touched = false;
+      if (entry.durationSec <= 0 && snapshot.durationSec && snapshot.durationSec > 0) {
+        entry.durationSec = snapshot.durationSec;
+        touched = true;
+      }
+      if (snapshot.thumbnails) {
+        for (const [bucket, dataUrl] of Object.entries(snapshot.thumbnails)) {
+          const key = Number(bucket);
+          if (!Number.isFinite(key) || entry.thumbnails.has(key)) continue;
+          entry.thumbnails.set(key, dataUrl);
+          touched = true;
+        }
+      }
+      if (!entry.waveform?.length && snapshot.waveform?.length) {
+        entry.waveform = snapshot.waveform;
+        touched = true;
+      }
+      if (touched) applied += 1;
+    }
+    if (applied > 0) {
+      // 通知订阅者重绘（快照可能是首次填充，画布需要立刻反映）
+      for (const assetId of this.entries.keys()) this.notify(assetId);
+    }
+    return applied;
+  }
+
   /** Unregister an asset and release its resources (object URL, media elements, caches). */
   unregister(assetId: string): void {
     const e = this.entries.get(assetId);
