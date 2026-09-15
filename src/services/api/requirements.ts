@@ -90,6 +90,36 @@ export const requirementsApi = {
     return `${apiBase()}/api/requirements/chat/stream/${sessionId}`;
   },
 
+  /**
+   * R6：解析一句自然语言剪辑指令 → 意图 + 落位预览（**不修改时间线**）。
+   *
+   * 返回 `{ intent, resolution: { preview, affected_clip_ids, questions, ... }, problems, blocked }`；
+   * 前端"意图确认卡"据此展示"将改动什么"与"需要用户拍板的问题"。
+   */
+  async intent(sessionId: string, request: {
+    message: string;
+    timeline: unknown;
+    selected_clip_ids?: string[];
+    region_start_sec?: number;
+    region_end_sec?: number;
+    project_id?: string;
+  }, signal?: AbortSignal) {
+    const { data } = await getApiClient().post(
+      `/api/requirements/${sessionId}/intent`, request, { timeout: 180_000, signal });
+    return data as {
+      session_id: string;
+      intent: string;
+      blocked: boolean;
+      resolution: {
+        preview: string[];
+        affected_clip_ids: string[];
+        questions: { code: string; text: string; options: { value: string; label: string }[]; op_index: number }[];
+        problems: string[];
+      };
+      problems: { level: string; where: string; message: string }[];
+    };
+  },
+
   /** Get session state */
   async getSession(sessionId: string) {
     const { data } = await getApiClient().get(`/api/requirements/session/${sessionId}`);

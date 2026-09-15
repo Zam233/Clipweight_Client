@@ -5,6 +5,7 @@ import { useSelectionStore } from '@/stores/selectionStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { Markdown } from '@/components/shared/Markdown';
 import { TimelineDiffView } from './TimelineDiffView';
+import { IntentCard, type IntentPreview } from './IntentCard';
 import { resolveMessageAttachments } from './requirementsAttachments';
 import { pipelineApi, requirementsApi, personaApi } from '@/services/api';
 import { fetchSseToken, withSseToken } from '@/services/api/sse';
@@ -16,6 +17,29 @@ import { uid } from '@/lib/utils';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline, Clip, ClipKind } from '@/types/timeline';
 import type { RequirementsStatus, CreativeBrief, ProductionPlan } from '@/types/persona';
+
+/** R6：`/intent` 响应里前端真正需要的字段（后端结构见 requirementsApi.intent） */
+type IntentPreviewPayload = {
+  intent: string;
+  blocked: boolean;
+  resolution: {
+    preview: string[];
+    affected_clip_ids: string[];
+    questions: { code: string; text: string; options: { value: string; label: string }[] }[];
+    problems: string[];
+  };
+  problems: { level: string; where: string; message: string }[];
+};
+
+const toIntentCardData = (payload: IntentPreviewPayload): IntentPreview => ({
+  intent: payload.intent,
+  preview: payload.resolution?.preview ?? [],
+  affected_clip_ids: payload.resolution?.affected_clip_ids ?? [],
+  questions: payload.resolution?.questions ?? [],
+  problems: payload.resolution?.problems ?? [],
+  blocked: payload.blocked,
+  hardProblems: payload.problems ?? [],
+});
 import {
   Bot, Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
   MessageSquareText, ChevronDown, ChevronRight, X, Paperclip, RefreshCw, Copy, Square,
@@ -167,6 +191,10 @@ function RequirementsView() {
 
   // 选中素材标签（C6）：订阅时间轴选中片段与当前时间线
   const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
+  // R6：待确认的意图（有未答问题或解析失败时挂起，用户确认后再执行）
+  const [intentPending, setIntentPending] = useState<
+    { sid: string; message: string; preview: IntentPreviewPayload } | null
+  >(null);
   const timeline = useTimelineStore((s) => s.timeline);
   const selectedClips = selectedClipIds
     .map((id) => {
@@ -333,7 +361,9 @@ function RequirementsView() {
   };
 
   // 选中素材 + 自然语言指令 → 时间线编辑（C6）：走 /edit 端点，返回 proposed_timeline 触发 diff 审阅
-  const sendEdit = async (sessionId: string, message: string) => {
+  // R6：先走意图落位（/intent）拿"将改动什么 + 需要拍板的问题"；有未答问题或解析失败时
+  // **不进入执行**，改为在输入框上方弹"意图确认卡"（用户确认后才继续）。
+  const sendEdit = async (sessionId: string, message: string, opts?: { skipIntent?: boolean }) => {
     const labels = selectedClips.map(({ clip, kind }) => {
       const label = clipText(clip, kind);
       return `${label}(${kind})`;
@@ -350,6 +380,31 @@ function RequirementsView() {
       const region = (sel.rangeStart != null && sel.rangeEnd != null)
         ? { region_start_sec: sel.rangeStart, region_end_sec: sel.rangeEnd }
         : {};
+      if (!opts?.skipIntent) {
+        try {
+          const preview = await requirementsApi.intent(sessionId, {
+            message,
+            timeline: useTimelineStore.getState().timeline,
+            selected_clip_ids: selectedClipIds,
+            ...region,
+          }, editSignal);
+          const needsConfirm = Boolean(preview?.blocked)
+            || (preview?.resolution?.questions?.length ?? 0) > 0
+            || (preview?.problems ?? []).some((p) => p.level === 'error');
+          if (needsConfirm) {
+            // 停在确认卡：把原始指令一起存下来，确认后再执行
+            setIntentPending({ sid: sessionId, message, preview });
+            setBusy(false);
+            chatAbortRef.current = null;
+            return;
+          }
+        } catch (e) {
+          // 意图预览失败不该挡住编辑能力：降级为原来的直接编辑
+          if (!(e instanceof DOMException && e.name === 'AbortError')) {
+            // 静默降级（后端未升级/网络抖动都以旧路径为准）
+          }
+        }
+      }
       const res = await requirementsApi.edit({
         session_id: sessionId,
         message,
@@ -527,6 +582,26 @@ function RequirementsView() {
       {/* B17: 管线运行/规划生成期间隐藏输入；完成/失败后恢复 */}
       {messages.length > 0 && !['pipeline_running', 'planning'].includes(status) && (
         <div className="p-3 border-t border-outline-variant/20 shrink-0">
+          {/* R6：意图确认卡 —— 有未答问题/解析失败时先让用户看清"将改动什么"再执行 */}
+          {intentPending && (
+            <div className="mb-2">
+              <IntentCard
+                data={toIntentCardData(intentPending.preview)}
+                onConfirm={() => {
+                  const pending = intentPending;
+                  setIntentPending(null);
+                  void sendEdit(pending.sid, pending.message, { skipIntent: true });
+                }}
+                onCancel={() => {
+                  setIntentPending(null);
+                  addMessage({
+                    id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+                    content: '已取消这次修改，时间线未变。',
+                  });
+                }}
+              />
+            </div>
+          )}
           {selectedClips.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 mb-2">
               <span className="text-caption text-on-surface-variant/60">选中素材</span>
@@ -549,8 +624,7 @@ function RequirementsView() {
           )}
           <div className="flex gap-2">
             {/* G7: 参考文件上传 */}
-            <input
-              ref={uploadInputRef}
+            <input              ref={uploadInputRef}
               type="file"
               accept=".txt,.md,.pdf,.docx,.png,.jpg,.jpeg,.webp,.gif,.srt"
               hidden
