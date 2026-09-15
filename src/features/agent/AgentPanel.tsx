@@ -18,7 +18,7 @@ import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline, Clip, ClipKind } from '@/types/timeline';
 import type { RequirementsStatus, CreativeBrief, ProductionPlan } from '@/types/persona';
 
-/** R6：`/intent` 响应里前端真正需要的字段（后端结构见 requirementsApi.intent） */
+/** R6/R7：`/intent` 响应里前端真正需要的字段（后端结构见 requirementsApi.intent） */
 type IntentPreviewPayload = {
   intent: string;
   blocked: boolean;
@@ -29,6 +29,8 @@ type IntentPreviewPayload = {
     problems: string[];
   };
   problems: { level: string; where: string; message: string }[];
+  /** R7：后端已解析的意图原样回传，确认执行时按**这份**跑，不再重新解析 */
+  intent_raw?: unknown;
 };
 
 const toIntentCardData = (payload: IntentPreviewPayload): IntentPreview => ({
@@ -360,10 +362,74 @@ function RequirementsView() {
     } finally { setBusy(false); chatAbortRef.current = null; }
   };
 
+  // R7：用户在确认卡上点了"确认执行"——走 `/intent/apply` 执行**用户刚看到的那份补丁**。
+  //
+  // 为什么不用 `/edit` 兜一圈：`/edit` 会让模型重新理解一遍原话，用户确认的
+  // "将改动什么"和模型实际做出来的东西可能不是一回事。既然卡上已经把补丁摊开了，
+  // 执行的就该是那份补丁（`intent_raw` 原样回传，后端不再重新解析）。
+  // 执行成功后仍然走既有 diff 审阅覆盖层（`setAgentTimeline`），保持"改完先看再落"的习惯。
+  const applyIntent = async (
+    sid: string,
+    message: string,
+    preview: IntentPreviewPayload,
+    answers: Record<string, string>,
+  ) => {
+    setBusy(true);
+    cancelInFlight();
+    chatAbortRef.current = new AbortController();
+    const signal = chatAbortRef.current.signal;
+    try {
+      const sel = useSelectionStore.getState();
+      const region = (sel.rangeStart != null && sel.rangeEnd != null)
+        ? { region_start_sec: sel.rangeStart, region_end_sec: sel.rangeEnd }
+        : {};
+      const res = await requirementsApi.intentApply(sid, {
+        message,
+        timeline: useTimelineStore.getState().timeline,
+        selected_clip_ids: selectedClipIds,
+        intent_raw: preview.intent_raw,
+        answers,
+        apply: true,
+        ...region,
+      }, signal);
+      if (res.applied && res.timeline) {
+        // 走既有 diff 审阅：接受/合并时才注册真实媒体并写入 store
+        useAgentStore.getState().setAgentTimeline(res.timeline as never);
+        const lines = res.report?.preview ?? [];
+        addMessage({
+          id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: ['已按确认的意图改好，请在上面审阅改动：', ...lines.map((l) => `· ${l}`)].join('\n'),
+        });
+      } else {
+        // 没执行成功：把"为什么"如实说清楚，并把问题挂回卡上让用户改口径
+        const errs = (res.report?.problems ?? []).filter((p) => p.level === 'error');
+        const why = (errs.length ? errs : (res.problems ?? [])).map((p) => p.message).slice(0, 3);
+        addMessage({
+          id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: `这次没有改动时间线：${why.join('；') || '没有可执行的改动'}`,
+        });
+        setIntentPending({
+          sid, message,
+          // 把"为什么没执行"挂回卡上（hardProblems 是卡上唯一会拦住确认的字段），
+          // 用户改口径或换选项后可以再来一次
+          preview: { ...preview, problems: [...(preview.problems ?? []), ...(res.report?.problems ?? [])] },
+        });
+      }
+    } catch {
+      addMessage({
+        id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+        content: '执行失败（后端未响应或指令无法执行），时间线未变。',
+      });
+    } finally {
+      setBusy(false);
+      chatAbortRef.current = null;
+    }
+  };
+
   // 选中素材 + 自然语言指令 → 时间线编辑（C6）：走 /edit 端点，返回 proposed_timeline 触发 diff 审阅
   // R6：先走意图落位（/intent）拿"将改动什么 + 需要拍板的问题"；有未答问题或解析失败时
   // **不进入执行**，改为在输入框上方弹"意图确认卡"（用户确认后才继续）。
-  const sendEdit = async (sessionId: string, message: string, opts?: { skipIntent?: boolean }) => {
+  const sendEdit = async (sessionId: string, message: string) => {
     const labels = selectedClips.map(({ clip, kind }) => {
       const label = clipText(clip, kind);
       return `${label}(${kind})`;
@@ -380,29 +446,29 @@ function RequirementsView() {
       const region = (sel.rangeStart != null && sel.rangeEnd != null)
         ? { region_start_sec: sel.rangeStart, region_end_sec: sel.rangeEnd }
         : {};
-      if (!opts?.skipIntent) {
-        try {
-          const preview = await requirementsApi.intent(sessionId, {
-            message,
-            timeline: useTimelineStore.getState().timeline,
-            selected_clip_ids: selectedClipIds,
-            ...region,
-          }, editSignal);
-          const needsConfirm = Boolean(preview?.blocked)
-            || (preview?.resolution?.questions?.length ?? 0) > 0
-            || (preview?.problems ?? []).some((p) => p.level === 'error');
-          if (needsConfirm) {
-            // 停在确认卡：把原始指令一起存下来，确认后再执行
-            setIntentPending({ sid: sessionId, message, preview });
-            setBusy(false);
-            chatAbortRef.current = null;
-            return;
-          }
-        } catch (e) {
-          // 意图预览失败不该挡住编辑能力：降级为原来的直接编辑
-          if (!(e instanceof DOMException && e.name === 'AbortError')) {
-            // 静默降级（后端未升级/网络抖动都以旧路径为准）
-          }
+      // R6：任何一次自然语言改动**都先落位一遍**（不再有"跳过检查"的旁路——
+      // 确认卡是唯一的执行入口，两个入口对同一句话给出不同理解是最难查的那类 bug）。
+      try {
+        const preview = await requirementsApi.intent(sessionId, {
+          message,
+          timeline: useTimelineStore.getState().timeline,
+          selected_clip_ids: selectedClipIds,
+          ...region,
+        }, editSignal);
+        const needsConfirm = Boolean(preview?.blocked)
+          || (preview?.resolution?.questions?.length ?? 0) > 0
+          || (preview?.problems ?? []).some((p) => p.level === 'error');
+        if (needsConfirm) {
+          // 停在确认卡：把原始指令与意图一起存下来，确认后按**这份意图**执行（R7）
+          setIntentPending({ sid: sessionId, message, preview });
+          setBusy(false);
+          chatAbortRef.current = null;
+          return;
+        }
+      } catch (e) {
+        // 意图预览失败不该挡住编辑能力：降级为原来的直接编辑
+        if (!(e instanceof DOMException && e.name === 'AbortError')) {
+          // 静默降级（后端未升级/网络抖动都以旧路径为准）
         }
       }
       const res = await requirementsApi.edit({
@@ -587,10 +653,10 @@ function RequirementsView() {
             <div className="mb-2">
               <IntentCard
                 data={toIntentCardData(intentPending.preview)}
-                onConfirm={() => {
+                onConfirm={(answers) => {
                   const pending = intentPending;
                   setIntentPending(null);
-                  void sendEdit(pending.sid, pending.message, { skipIntent: true });
+                  void applyIntent(pending.sid, pending.message, pending.preview, answers);
                 }}
                 onCancel={() => {
                   setIntentPending(null);

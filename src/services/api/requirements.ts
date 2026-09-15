@@ -120,6 +120,49 @@ export const requirementsApi = {
     };
   },
 
+  /**
+   * R7：把确认过的意图**编译成时间线补丁**并执行（`apply: true`）。
+   *
+   * 与 `/intent` 的分工：`/intent` 负责"说清要干什么"（只读），本方法负责"干"。
+   * 传 `intent_raw`（`/intent` 已解析的那份）+ `answers`（用户在卡上做的选择），
+   * 保证**执行的就是用户确认过的那份意图**，而不是重新解析出来的另一份。
+   *
+   * 返回 `{ patch, report, applied, blocked, timeline? }`：
+   * `applied=true` 时 `timeline` 是新的时间线；`blocked=true` 时 `report.problems`
+   * 里是"为什么没执行"（硬错误，或仍有未答问题）。
+   */
+  async intentApply(sessionId: string, request: {
+    message: string;
+    timeline: unknown;
+    selected_clip_ids?: string[];
+    region_start_sec?: number;
+    region_end_sec?: number;
+    project_id?: string;
+    apply?: boolean;
+    answers?: Record<string, string>;
+    intent_raw?: unknown;
+  }, signal?: AbortSignal) {
+    const { data } = await getApiClient().post(
+      `/api/requirements/${sessionId}/intent/apply`, request, { timeout: 180_000, signal });
+    return data as {
+      session_id: string;
+      intent: string;
+      applied: boolean;
+      blocked: boolean;
+      timeline?: unknown;
+      report: {
+        preview: string[];
+        problems: { level: string; where: string; message: string }[];
+        clips_before: number;
+        clips_after: number;
+        duration_before: number;
+        duration_after: number;
+        affected_clip_ids: string[];
+      };
+      problems: { level: string; where: string; message: string }[];
+    };
+  },
+
   /** Get session state */
   async getSession(sessionId: string) {
     const { data } = await getApiClient().get(`/api/requirements/session/${sessionId}`);

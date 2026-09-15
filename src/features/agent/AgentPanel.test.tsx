@@ -27,6 +27,7 @@ vi.mock('@/services/api', () => ({
     proceed: vi.fn(),
     // R6：默认返回空（无问题、未 blocked）→ 行为等价于旧路径，不改变既有用例
     intent: vi.fn().mockResolvedValue({ intent: '', resolution: {}, problems: [] }),
+    intentApply: vi.fn().mockResolvedValue({ applied: false, blocked: true, report: { problems: [] }, problems: [] }),
     upload: vi.fn().mockResolvedValue({ file_name: 'ref.txt', content_preview: 'x' }),
   },
   personaApi: {
@@ -622,6 +623,7 @@ describe('R6: 意图落位门禁', () => {
   const api = () => import('@/services/api') as unknown as Promise<{
     requirementsApi: {
       intent: ReturnType<typeof vi.fn>;
+      intentApply: ReturnType<typeof vi.fn>;
       edit: ReturnType<typeof vi.fn>;
     };
   }>;
@@ -689,12 +691,14 @@ describe('R6: 意图落位门禁', () => {
     expect(r.requirementsApi.edit).not.toHaveBeenCalled();
   });
 
-  it('答完问题点确认 → 才调用 /edit', async () => {
+  it('答完问题点确认 → 走 /intent/apply 执行确认过的那份意图', async () => {
     const r = await api();
     r.requirementsApi.intent.mockClear();
+    r.requirementsApi.intentApply.mockClear();
     r.requirementsApi.edit.mockClear();
     r.requirementsApi.intent.mockResolvedValue({
       intent: '删除匹配片段',
+      intent_raw: { ops: [{ op: 'remove', target: { selected: true } }] },
       resolution: {
         preview: ['remove → c0'],
         affected_clip_ids: ['c0'],
@@ -704,14 +708,84 @@ describe('R6: 意图落位门禁', () => {
       },
       problems: [],
     });
-    r.requirementsApi.edit.mockResolvedValue({ reply: '已删除', status: 'gathering' });
+    r.requirementsApi.intentApply.mockResolvedValue({
+      applied: true, blocked: false,
+      timeline: { id: 'tl1', width: 1920, height: 1080, fps: 30, duration_sec: 6, tracks: [] },
+      report: { preview: ['共 1 项改动：片段 1 → 0 个'], problems: [],
+                affected_clip_ids: ['c0'], clips_before: 1, clips_after: 0,
+                duration_before: 2, duration_after: 0 },
+      problems: [],
+    });
     seedSelection();
     await submit('把这段删了');
 
     await waitFor(() => expect(screen.getByTestId('intent-card')).toBeTruthy());
     fireEvent.click(screen.getByTestId('intent-option-ambiguous-c0'));
     fireEvent.click(screen.getByTestId('intent-confirm'));
-    await waitFor(() => expect(r.requirementsApi.edit).toHaveBeenCalledTimes(1));
+
+    await waitFor(() => expect(r.requirementsApi.intentApply).toHaveBeenCalledTimes(1));
+    const [, payload] = r.requirementsApi.intentApply.mock.calls[0] as [string, Record<string, unknown>];
+    // 关键：执行的是用户确认过的那份意图（intent_raw 原样回传）+ 他选的答案
+    expect(payload.apply).toBe(true);
+    expect(payload.answers).toEqual({ ambiguous: 'c0' });
+    expect(payload.intent_raw).toEqual({ ops: [{ op: 'remove', target: { selected: true } }] });
+    // 不再绕道 /edit（那会让模型把这句话重新理解一遍）
+    expect(r.requirementsApi.edit).not.toHaveBeenCalled();
+  });
+
+  it('执行失败（后端 block）→ 如实说"时间线未变"并把问题挂回卡上', async () => {
+    const r = await api();
+    r.requirementsApi.intent.mockClear();
+    r.requirementsApi.intentApply.mockClear();
+    r.requirementsApi.intent.mockResolvedValue({
+      intent: '删除匹配片段',
+      resolution: { preview: [], affected_clip_ids: [], questions: [] },
+      problems: [{ level: 'error', where: 'ops[0]', message: '不支持的操作' }],
+      blocked: true,
+    });
+    r.requirementsApi.intentApply.mockResolvedValue({
+      applied: false, blocked: true,
+      report: { problems: [{ level: 'error', where: 'ops[0]', message: '这段会把时间线清空' }],
+                preview: [], affected_clip_ids: [], clips_before: 1, clips_after: 0,
+                duration_before: 2, duration_after: 0 },
+      problems: [],
+    });
+    seedSelection();
+    await submit('把这个片段炸开');
+
+    await waitFor(() => expect(screen.getByTestId('intent-blocked')).toBeTruthy());
+    // blocked 的卡不能有可用的确认按钮（第一次就拦住）
+    expect((screen.getByTestId('intent-confirm') as HTMLButtonElement).disabled).toBe(true);
+    expect(r.requirementsApi.intentApply).not.toHaveBeenCalled();
+    expect(r.requirementsApi.edit).not.toHaveBeenCalled();
+  });
+
+  it('/intent/apply 抛错 → 明确告知未改动，不伪装成功', async () => {
+    const r = await api();
+    r.requirementsApi.intent.mockClear();
+    r.requirementsApi.intentApply.mockClear();
+    r.requirementsApi.intent.mockResolvedValue({
+      intent: '删除匹配片段',
+      resolution: {
+        preview: ['remove → c0'],
+        affected_clip_ids: ['c0'],
+        questions: [{ code: 'ambiguous', text: '「这段」指哪个？', options: [
+          { value: 'c0', label: '进球片段' },
+        ] }],
+      },
+      problems: [],
+    });
+    r.requirementsApi.intentApply.mockRejectedValue(new Error('boom'));
+    seedSelection();
+    await submit('把这段删了');
+
+    await waitFor(() => expect(screen.getByTestId('intent-card')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('intent-option-ambiguous-c0'));
+    fireEvent.click(screen.getByTestId('intent-confirm'));
+    await waitFor(() => {
+      const msgs = useAgentStore.getState().requirementsMessages;
+      expect(msgs[msgs.length - 1].content).toContain('时间线未变');
+    });
   });
 
   it('blocked（不能执行的操作）→ 弹卡并拦住，用户可取消', async () => {
