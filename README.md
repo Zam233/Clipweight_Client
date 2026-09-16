@@ -206,9 +206,12 @@ VITE_API_BASE_URL=http://localhost:8080
 | --- | --- | --- |
 | 单测 | `npm run test` | **771 passed / 90 files** |
 | 类型检查 | `npx tsc --noEmit` | 无错误 |
-| 生产构建 | `npm run build` | 通过 |
+| 生产构建 | `npm run build` | 通过（`✓ built in 18.80s`） |
 
-> 后端（`J:\Clipwright`）对应基线：`python -m pytest tests -q` = **3187 passed / 0 failed**。
+> 后端（`J:\Clipwright`）对应基线：`python -m pytest tests -q` = **3190 passed / 0 failed**；
+> 内容理解指标门禁 `python scripts/verify_all_metrics.py` = **9/9 PASS**；
+> PowerShell 脚本 `python scripts/fix_ps1_bom.py --check` = 3/3（必须带 UTF-8 BOM，
+> 否则 Windows PowerShell 5.1 会按 cp936 解码 → 中文乱码 / ParseException）。
 
 ---
 
