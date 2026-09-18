@@ -101,7 +101,8 @@ src/
 | `/settings/tools` | ToolsPage | ✓ |
 | `/settings/plugins` | PluginsPage | ✓ |
 | `/plugin/$pageId` | PluginPage（插件自带页面） | ✓ |
-| `/settings/type-maker` | TypeMakerPage | ✓ |
+| `/settings/type-maker` | TypeMakerPage（类型新建/编辑/删除/复制/预览） | ✓ |
+| `/settings/types` | TypeCatalogPage（类型只读总览，与首页「类型」tab 同源） | ✓ |
 | `/settings/templates` | TemplatesPage | ✓ |
 | `/settings/webhooks` | WebhooksPage | ✓ |
 | `/settings/learning` | LearningPage | ✓ |
@@ -113,7 +114,22 @@ src/
 | `/pipeline-admin` | PipelineAdminPage | ✓ |
 | `/help` | HelpPage | ✓ |
 
-共 28 条路由；除 HomePage 外均通过 `React.lazy()` 实现路由级代码分割。
+共 29 条路由；除 HomePage 外均通过 `React.lazy()` 实现路由级代码分割。
+
+### 页面复用约定（避免"同一功能两套实现"）
+
+首页/tab 与独立管理页**不再各写一套**：共享面板放在 `src/features/settings/`，两边渲染同一份。
+
+| 面板 | 独立页 | 首页 tab | 覆盖能力 |
+|---|---|---|---|
+| `PersonaGalleryPanel` | `/persona` | 人格 | 画廊 · 节奏指纹 · 参数条 · 导入/导出/复制/对话创建 |
+| `TypeCatalogPanel` | `/settings/types` | 类型 | 全部类型（内置 + 自定义）只读总览 |
+| `PluginsPanel` | `/settings/plugins` | 插件 | 启停持久化 · 配置 · UI 预览 · 错误通道 · 健康聚合 · 贡献清单 · 删除 |
+| `PreferencesPanel` | `/settings`（本机偏好区） | 设置 | 外观 · 时间线默认 · 保存 · 演示模式 · 后端连接 · 用量 · 素材源 · 快捷键 |
+
+- 控制台入口顺序由 `features/settings/consoleNav.ts` **单一维护**：`ConsoleShell` 左栏与设置页入口列表读同一份，顺序不会再漂移；插件 Hook 进设置页的分区固定排最后。
+- 写操作（新建/编辑/删除类型）只留在「类型制作器」一处，总览页不提供——避免两个地方都能改。
+- 代价（如实说）：HomePage 直接静态引用了这四个面板，而它们同时也是懒加载路由的 chunk，构建产物里**各有一份重复**（主包 gzip 约 +16 KB）。要换回按需加载，把这些面板改成 `lazy()` + `Suspense` 即可。
 
 ---
 
@@ -204,7 +220,7 @@ VITE_API_BASE_URL=http://localhost:8080
 
 | 检查 | 命令 | 当前基线 |
 | --- | --- | --- |
-| 单测 | `npm run test` | **771 passed / 90 files** |
+| 单测 | `npm run test` | **779 passed / 90 files** |
 | 类型检查 | `npx tsc --noEmit` | 无错误 |
 | 生产构建 | `npm run build` | 通过（`✓ built in 18.80s`） |
 

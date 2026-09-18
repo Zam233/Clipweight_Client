@@ -11,6 +11,56 @@ export interface PluginUIDefinition {
   slots?: Array<{ slot: string; id: string; title?: string; layout?: { title?: string; widgets?: unknown[] } }>;
 }
 
+/** `/api/plugin/health` 里每个插件的健康条目（字段与后端 plugin_health() 对齐）。 */
+export interface PluginHealthItem {
+  plugin_id: string;
+  name: string;
+  version: string;
+  /** ok / degraded / error */
+  status: string;
+  issues: string[];
+  enabled: boolean;
+  /** 已发现但未加载时为 null（后端如实置空，不是 false） */
+  signed: boolean | null;
+  verified: boolean | null;
+  dependency_ok: boolean | null;
+  missing_dependencies: string[];
+  hooks: number;
+  agents: number;
+}
+
+export interface PluginHealthResponse {
+  overall: string;
+  plugins: PluginHealthItem[];
+  errors_total: number;
+  /** 已注册的插件提示词条数（按插件分组） */
+  prompts_registered?: number;
+  /** C3: 风格解释器「多注册按 priority 取活跃项」——活跃 owner 与候选 */
+  style_interpreter?: {
+    active?: string;
+    candidates?: Array<{ owner: string; priority: number }>;
+  };
+}
+
+export interface PluginContributionItem {
+  kind: string;
+  id: string;
+  owner: string;
+  meta: Record<string, unknown>;
+  title?: string;
+  order?: number;
+  icon?: string;
+  slot?: string;
+  layout?: unknown;
+  payload?: unknown;
+}
+
+export interface PluginContributionsResponse {
+  contributions: PluginContributionItem[];
+  /** 后端附带的总数（含被 admin_only 过滤掉的？以返回为准） */
+  total?: number;
+}
+
 export const projectApi = {
   /** Create a new project (backend assigns id) */
   async create(request: ProjectSaveRequest) {
@@ -234,6 +284,33 @@ export const pluginApi = {
 
   async capabilities() {
     const { data } = await getApiClient().get('/api/plugin/capabilities');
+    return data;
+  },
+
+  /** P10: 插件健康聚合（overall / 每插件 issues·签名·依赖·Hook·Agent / 风格解释器活跃 owner）。
+   *
+   * 为什么前端要消费它：`/api/plugin/health` 已经把「加载失败、签名校验不过、缺依赖、
+   * 声明了但没注册」这些**非致命但用户看不见**的问题聚合好了；不展示出来，用户就只能
+   * 看到插件"在列表里"却不知道为什么没生效。 */
+  async health() {
+    const { data } = await getApiClient().get('/api/plugin/health');
+    return data as PluginHealthResponse;
+  },
+
+  /** A-6/D-1: 已注册贡献（可按 kind / slot / owner 过滤）——「谁提供了这个工具/页面」的溯源。 */
+  async contributions(params: { kind?: string; slot?: string; owner?: string } = {}) {
+    const qs = new URLSearchParams();
+    if (params.kind) qs.set('kind', params.kind);
+    if (params.slot) qs.set('slot', params.slot);
+    if (params.owner) qs.set('owner', params.owner);
+    const suffix = qs.toString() ? `?${qs}` : '';
+    const { data } = await getApiClient().get(`/api/plugin/contributions${suffix}`);
+    return data as PluginContributionsResponse;
+  },
+
+  /** M8: 删除插件（卸载 + 落盘移除）。 */
+  async remove(pluginId: string) {
+    const { data } = await getApiClient().delete(`/api/plugin/${pluginId}`);
     return data;
   },
 

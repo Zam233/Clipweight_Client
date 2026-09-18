@@ -31,6 +31,7 @@ const ProvidersPage = lazyPage(() => import('./pages/admin/ProvidersPage'), 'Pro
 const ToolsPage = lazyPage(() => import('./pages/admin/ToolsPage'), 'ToolsPage');
 const PluginsPage = lazyPage(() => import('./pages/admin/PluginsPage'), 'PluginsPage');
 const TypeMakerPage = lazyPage(() => import('./pages/admin/TypeMakerPage'), 'TypeMakerPage');
+const TypeCatalogPage = lazyPage(() => import('./pages/admin/TypeCatalogPage'), 'TypeCatalogPage');
 const TemplatesPage = lazyPage(() => import('./pages/admin/TemplatesPage'), 'TemplatesPage');
 const LearningPage = lazyPage(() => import('./pages/admin/LearningPage'), 'LearningPage');
 const VideoEditorPage = lazyPage(() => import('./pages/admin/VideoEditorPage'), 'VideoEditorPage');
@@ -233,6 +234,15 @@ const typeMakerRoute = createRoute({
   errorComponent: RouteErrorFallback,
 });
 
+// 类型总览（只读）：与「类型制作器」分工——这里只看有哪些类型，增删改在各制作器
+const typeCatalogRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/types',
+  beforeLoad: requireAdmin,
+  component: TypeCatalogPage,
+  errorComponent: RouteErrorFallback,
+});
+
 const templatesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/templates',
@@ -350,6 +360,7 @@ const routeTree = rootRoute.addChildren([
   toolsRoute,
   pluginsRoute,
   typeMakerRoute,
+  typeCatalogRoute,
   templatesRoute,
   webhooksRoute,
   learningRoute,

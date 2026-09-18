@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from '@tanstack/react-router';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
 import { safePluginPath } from '@/features/plugins/slots';
+import { CONSOLE_NAV } from '@/features/settings/consoleNav';
 import { healthApi } from '@/services/api';
 import { cn } from '@/lib/utils';
 import {
-  ArrowLeft, Cpu, Wrench, Puzzle, Shapes, LayoutTemplate, Webhook,
-  Type, Activity, Terminal, GraduationCap, Clapperboard, Captions, Film, Sparkles, SlidersHorizontal,
-  Layers,
+  ArrowLeft, Activity, Puzzle, Sparkles, Type, Film, Captions,
+  Terminal, SlidersHorizontal, Wrench,
 } from 'lucide-react';
 
 /**
@@ -33,22 +33,9 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
     Activity, Wrench, SlidersHorizontal, Puzzle, Sparkles, Type, Film, Captions,
   };
 
+  // 内核导航顺序来自 CONSOLE_NAV（设置页的入口列表用同一份，避免两边顺序漂移）
   const NAV = [
-    { to: '/settings/providers', label: '模型提供商', icon: Layers, code: 'PROV' },
-    { to: '/settings/models', label: '模型测试', icon: Cpu, code: 'LLM' },
-    { to: '/settings/backend-config', label: '后端配置', icon: SlidersHorizontal, code: 'CONF' },
-    { to: '/settings/tools', label: '工具与技能', icon: Wrench, code: 'TOOL' },
-    { to: '/settings/plugins', label: '插件管理', icon: Puzzle, code: 'PLUG' },
-    { to: '/settings/type-maker', label: '类型制作器', icon: Shapes, code: 'TYPE' },
-    { to: '/settings/templates', label: '模板管理', icon: LayoutTemplate, code: 'TMPL' },
-    { to: '/settings/learning', label: '学习训练', icon: GraduationCap, code: 'LRN' },
-    { to: '/settings/video-editor', label: '视频编辑器', icon: Film, code: 'VEDT' },
-    { to: '/settings/preprocess', label: '素材预处理', icon: Clapperboard, code: 'PREP' },
-    { to: '/settings/subtitle-tools', label: '字幕与转写', icon: Captions, code: 'SUB' },
-    { to: '/settings/webhooks', label: 'Webhook', icon: Webhook, code: 'HOOK' },
-    { to: '/settings/fonts', label: '字体配置', icon: Type, code: 'FONT' },
-    { to: '/settings/mg-preview', label: 'MG 预览', icon: Sparkles, code: 'MG' },
-    { to: '/pipeline-admin', label: '管线监控', icon: Activity, code: 'PIPE' },
+    ...CONSOLE_NAV.map((item) => ({ ...item })),
     // 插件导航项：payload.to 为路径（D-3a 契约 {to,label,icon}）；
     // icon 走白名单（slots.ts 校验），此处仅按名取已导入图标，未知则回退 Puzzle
     ...pluginNav
