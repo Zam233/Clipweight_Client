@@ -89,7 +89,14 @@ export interface DiagnosisReport {
   cost: { spent_usd: number; budget_usd?: number; tokens: number };
 }
 
-export interface BudgetSnapshot { spent_usd: number; budget_usd?: number; ratio: number; level: 'ok'|'warn'|'blocked' }
+export interface BudgetSnapshot {
+  spent_usd: number;
+  budgetEnabled: boolean;          // false = 设置里未填预算（PRD F6：无上限，不阻断）
+  budget_usd?: number;             // budgetEnabled=false 时 undefined
+  ratio?: number;                  // 同上，无预算时无比例
+  level: 'unlimited' | 'ok' | 'warn' | 'blocked';
+  subagentSpentUsd?: number;       // 子代理开销单列（PRD §7.3）
+}
 ```
 
 类型与后端 `schema/supervisor.py` 一一对应；后端契约变更必须先改本文件（对账见 `docs/frontend-backend-parity.md`）。
@@ -113,6 +120,7 @@ export const supervisorApi = {
 
 - 统一走 `getApiClient()`（已有鉴权/续期拦截器），**不新建 axios 实例**。
 - 写操作（`dispatch` / `acceptSuggestion` / `setMode`）必须二次确认，确认弹窗展示**预估成本与耗时**（PRD §7.2）。
+- **v1.1 追加 API**（子代理、执行日志与授权、`auto-mode`、worker 审核）见 §13.2，本段不重复。
 
 ---
 
@@ -188,14 +196,14 @@ interface SupervisorState {
 
 ---
 
-## 9. 分批计划（与后端 B0–B6 对齐）
+## 9. 分批计划（与后端 B0–B9 对齐）
 
 | 批次 | 内容 | 依赖 | 退出标准 |
 |---|---|---|---|
 | **F0** | 类型层 + API 层 + mock fixture（`__mocks__/ledger.json` 等） | 无（可先行） | `tsc --noEmit` 通过；mock 数据能被 store hydrate |
 | **F1** | `supervisorStore` + SSE 分流 + `SupervisorDrawer` + `DecisionTimeline` | 后端 B1（账本端点 + `ledger_entry` 事件） | 真实管线能看到逐阶段决策记录 |
 | **F2** | `DiagnosisCard` + `SuggestionButton` + 失败自动展开 | 后端 B2（诊断书 + 影子模式） | 失败管线自动展示诊断书，建议按钮可点 |
-| **F3** | `BudgetBar` + `budget` 事件 + 确认弹窗成本提示 | 后端 B5（预算） | 70%/100% 状态正确，超限冻结重试 |
+| **F3** | `BudgetBar` + `budget` 事件 + 确认弹窗成本提示 | 后端 B5（预算） | 配置预算时 70%/100% 状态正确并冻结重试；**未配置时只显示已花、无进度条、不冻结**（PRD F6/A6） |
 | **F4** | 人工改派工单（`dispatch` 写操作）+ 接管后续跑 | 后端 B3/B5（F7） | 改派后管线继续执行，UI 留痕 |
 | **F5** | `RouteTableEditor`（管理员）+ 模式开关 `off/shadow/on` | 后端 B4 | 切换路由表后下一次管线生效 |
 
@@ -236,9 +244,9 @@ interface SupervisorState {
 
 ---
 
-## 13. v1.1 追加：子代理控制台与执行日志（F6–F7）
+## 13. v1.4 追加：子代理控制台、执行日志与 worker 审核（F6–F8）
 
-> 对应 PRD v1.1 的 F12（子代理观测）/ F11（执行能力）。**观测（F6）先于执行日志（F7）**：先把「子代理在干什么」显示出来，再显示「它跑了什么命令」。
+> 对应 PRD **v1.4** 的 F12（子代理观测）/ F11（执行能力）/ F10（审核门）。**观测（F6）先于执行日志（F7）**：先把「子代理在干什么」显示出来，再显示「它跑了什么命令」。
 
 ### 13.1 新增类型（追加到 `src/types/supervisor.ts`）
 
