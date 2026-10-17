@@ -233,3 +233,89 @@ interface SupervisorState {
 - `src/features/supervisor/`（8 个组件 + 测试）
 - `e2e/supervisor.spec.ts`
 - 文档同步：`docs/frontend-backend-parity.md`（§1 路由表 + §2 客户端矩阵）、`docs/api_reference.md` 的前端消费章节（副本）
+
+---
+
+## 13. v1.1 追加：子代理控制台与执行日志（F6–F7）
+
+> 对应 PRD v1.1 的 F12（子代理观测）/ F11（执行能力）。**观测（F6）先于执行日志（F7）**：先把「子代理在干什么」显示出来，再显示「它跑了什么命令」。
+
+### 13.1 新增类型（追加到 `src/types/supervisor.ts`）
+
+```ts
+export type SubagentStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
+
+export interface SubagentNode {
+  id: string; parentId?: string | null;
+  role: string;                              // 角色名，例如「素材可用性核查员」
+  kind: 'stage' | 'plugin' | 'ephemeral';    // 阶段 / 插件 / 临时派生
+  status: SubagentStatus;
+  model?: { provider: string; model: string };
+  durationMs?: number; costUsd?: number;
+  lastOutput?: string;
+  cancellable: boolean;
+}
+
+export interface ExecRecord {
+  id: string; ts: string;
+  kind: 'shell' | 'python';
+  command: string;                 // 原文；UI 截断显示，可展开
+  cwd: string;
+  level: 'readonly' | 'mutating' | 'destructive';
+  exitCode: number | null; durationMs: number;
+  outputTail?: string;
+  rejected?: { reason: string };
+}
+
+export interface PendingExecApproval {
+  id: string; command: string; level: 'mutating' | 'destructive';
+  requestedBy: string; expiresAt: string;
+}
+```
+
+### 13.2 API 与 SSE
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | `/api/pipeline/{pid}/subagents` | 子代理树（F6） |
+| POST | `/api/pipeline/{pid}/subagents/{sid}/cancel` | 取消单个子代理 |
+| GET | `/api/pipeline/{pid}/exec` | 执行日志（分页） |
+| POST | `/api/pipeline/{pid}/exec/{eid}/approve` | 授权一条 mutating 命令（F7） |
+| POST | `/api/pipeline/{pid}/exec/{eid}/reject` | 拒绝 |
+
+新增 SSE 事件：`subagent_start` / `subagent_progress` / `subagent_end` / `exec`。分流规则同 §5（重连后先全量拉再增量追，乱序按 `ts` 排序）。
+
+### 13.3 组件
+
+| 组件 | 职责 | 关键交互 |
+|---|---|---|
+| `SubagentTree.tsx` | 树形展示秘书 → 子代理 | 节点展开看 `lastOutput`；折叠状态记忆 |
+| `SubagentRow.tsx` | 单节点：角色/状态/模型/耗时/成本 | 取消按钮（二次确认，提示成本不退） |
+| `ExecLogList.tsx` | 命令流（时间·分级徽标·命令·退出码·耗时） | 点开看完整输出与 cwd；复制命令 |
+| `ExecPermissionDialog.tsx` | mutating 命令的一次性授权弹窗 | 显示完整命令、cwd、预计影响；**默认焦点在「拒绝」** |
+| `ExecLevelBadge.tsx` | `readonly / mutating / destructive` 徽标 | 不只靠颜色，带图标与文字 |
+
+### 13.4 交互与文案红线
+
+1. **授权弹窗默认焦点在「拒绝」**——手滑一次就能过审的弹窗等于没有弹窗。
+2. **destructive 命令不提供「授权」按钮**（后端直接拒），前端只显示拒绝原因。
+3. `mutating` **一次一授**，不做「本会话永久允许」（本期）。
+4. 执行日志里的命令原文必须可**原样复制**，方便用户本地复现。
+5. 子代理被取消后节点保留（状态 `cancelled`），不消失——用户要能看到「我取消过什么」。
+
+### 13.5 批次
+
+| 批次 | 内容 | 依赖 | 退出标准 |
+|---|---|---|---|
+| **F6** | `SubagentNode` 类型 + `/subagents` + SSE 三事件 + `SubagentTree` + 取消 | 后端 B7 | 并发 3 个子代理状态实时；取消后额度释放（PRD A14） |
+| **F7** | `ExecRecord` 类型 + `/exec` + 授权/拒绝 + `ExecLogList` + `ExecPermissionDialog` | 后端 B9 | 危险命令不出授权按钮；被拒命令可见原因（A15/A16） |
+
+### 13.6 测试
+
+| 类型 | 内容 |
+|---|---|
+| 单测 | store 的子树合并、乱序事件排序、取消后的乐观更新 |
+| 组件测 | `SubagentTree` 五态；授权弹窗默认焦点在「拒绝」 |
+| e2e | 派生子代理 → 树出现节点 → 取消 → 状态变 cancelled |
+| 回归 | `tsc --noEmit` / `vitest run` / `lint` / `build` 四门禁 |
+
