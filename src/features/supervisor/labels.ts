@@ -28,6 +28,8 @@ export const STRATEGY_CN: Record<string, string> = {
   S4_accept_degraded: '接受当前版本',
   S5_new_path: '换一种做法',
   S6_abort: '停止并转人工',
+  /** 人工改派单（用户手填工单，不是调度器选的策略） */
+  manual: '人工改派',
 };
 
 export function strategyLabel(strategy: Strategy | string): string {

@@ -11,6 +11,7 @@ const { api } = vi.hoisted(() => ({
     getDiagnosis: vi.fn(),
     getDecisions: vi.fn(),
     getBudget: vi.fn(),
+    dispatch: vi.fn(),
   },
 }));
 
@@ -229,5 +230,79 @@ describe('applyEvent（SSE 增量）', () => {
     const s = useSupervisorStore.getState();
     expect(s.ledger).toEqual([]);
     expect(s.decisions).toEqual([]);
+  });
+
+  it('dispatch 收人工改派单（无 strategy）时补成决策口径', () => {
+    useSupervisorStore.getState().applyEvent({
+      type: 'dispatch',
+      data: {
+        id: 'ord_1',
+        target_stage: 'edit',
+        reason: '第 3 段卡顿',
+        issues: [],
+        source: 'manual',
+      },
+    });
+    const [d] = useSupervisorStore.getState().decisions;
+    expect(d.id).toBe('ord_1');
+    expect(d.strategy).toBe('manual');
+    expect(d.target_stage).toBe('edit');
+    expect(d.mode).toBe('manual');
+  });
+
+  it('subagent_start 新建节点，progress/end 只更新状态', () => {
+    const apply = useSupervisorStore.getState().applyEvent;
+    apply({ type: 'subagent_start', data: { subagent_id: 'sa_1', role: '素材搜索', status: 'pending' } });
+    expect(useSupervisorStore.getState().subagents).toHaveLength(1);
+
+    apply({ type: 'subagent_progress', data: { subagent_id: 'sa_1', status: 'running' } });
+    apply({ type: 'subagent_end', data: { subagent_id: 'sa_1', status: 'done' } });
+
+    const nodes = useSupervisorStore.getState().subagents;
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].status).toBe('done');
+    expect(nodes[0].role).toBe('素材搜索');
+  });
+
+  it('exec 事件按 id 去重后追加', () => {
+    const apply = useSupervisorStore.getState().applyEvent;
+    const rec = {
+      id: 'ex_1',
+      ts: '2026-10-17T10:00:00Z',
+      kind: 'shell' as const,
+      command: 'npm run lint',
+      cwd: '.',
+      riskLevel: 'low' as const,
+      riskReasons: [],
+      autoMode: false,
+      exitCode: null,
+      durationMs: 0,
+    };
+    apply({ type: 'exec', data: rec });
+    apply({ type: 'exec', data: { ...rec, exitCode: 0, durationMs: 120 } });
+
+    const recs = useSupervisorStore.getState().execRecords;
+    expect(recs).toHaveLength(1);
+    expect(recs[0].exitCode).toBe(0);
+  });
+});
+
+describe('dispatchOrder（人工改派工单）', () => {
+  it('成功时原样返回后端结果', async () => {
+    api.dispatch.mockResolvedValue({ order: { id: 'ord_1' }, accepted: true, requires_retry: true });
+    const res = await useSupervisorStore
+      .getState()
+      .dispatchOrder('pl_1', { target_stage: 'edit', reason: '卡顿' });
+    expect(res?.requires_retry).toBe(true);
+    expect(useSupervisorStore.getState().error).toBe('');
+  });
+
+  it('失败时落 error 并返回 null（不抛给组件）', async () => {
+    api.dispatch.mockRejectedValue(new Error('预算已耗尽'));
+    const res = await useSupervisorStore
+      .getState()
+      .dispatchOrder('pl_1', { target_stage: 'edit', reason: '卡顿' });
+    expect(res).toBeNull();
+    expect(useSupervisorStore.getState().error).toContain('预算已耗尽');
   });
 });

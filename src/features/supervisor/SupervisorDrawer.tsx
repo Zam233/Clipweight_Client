@@ -10,13 +10,14 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import type { DiagnosisSuggestion } from '@/types/supervisor';
-import { useSupervisorStore } from '@/stores/supervisorStore';
-import { useEffect } from 'react';
+import { useSupervisorStore, type SupervisorTab } from '@/stores/supervisorStore';
+import { useEffect, useState } from 'react';
 
 import { AutoModeSwitch } from './AutoModeSwitch';
 import { BudgetBar } from './BudgetBar';
 import { DecisionTimeline } from './DecisionTimeline';
 import { DiagnosisCard } from './DiagnosisCard';
+import { DispatchForm } from './DispatchForm';
 import { ExecLogList } from './ExecLogList';
 import { SubagentTree } from './SubagentTree';
 import { WorkerReviewQueue } from './WorkerReviewQueue';
@@ -29,12 +30,13 @@ interface Props {
   className?: string;
 }
 
-const TABS: { id: 'decisions' | 'diagnosis' | 'cost' | 'subagents' | 'exec' | 'review'; label: string }[] = [
+const TABS: { id: SupervisorTab; label: string }[] = [
   { id: 'decisions', label: '决策记录' },
   { id: 'diagnosis', label: '诊断书' },
   { id: 'cost', label: '成本' },
   { id: 'subagents', label: '子代理' },
   { id: 'exec', label: '执行' },
+  { id: 'dispatch', label: '改派' },
   { id: 'review', label: '待审' },
 ];
 
@@ -57,6 +59,22 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
   const setAutoMode = useSupervisorStore((s) => s.setAutoMode);
   const cancelSubagent = useSupervisorStore((s) => s.cancelSubagent);
   const reviewWorker = useSupervisorStore((s) => s.reviewWorker);
+  const dispatchOrder = useSupervisorStore((s) => s.dispatchOrder);
+
+  // 改派工单的本地态：结果只在这一屏有意义，没必要入 store
+  const [dispatchBusy, setDispatchBusy] = useState(false);
+  const [dispatchResult, setDispatchResult] = useState<{ requires_retry?: boolean } | null>(null);
+
+  const submitDispatch = async (order: { target_stage: string; reason: string }) => {
+    if (!pipelineId) return;
+    setDispatchBusy(true);
+    try {
+      const res = await dispatchOrder(pipelineId, order);
+      setDispatchResult(res ? { requires_retry: res.requires_retry } : null);
+    } finally {
+      setDispatchBusy(false);
+    }
+  };
 
   // 切到「子代理/执行/审核」时才拉对应数据（首屏 hydrate 不背这么多请求）
   useEffect(() => {
@@ -152,6 +170,19 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
               onChange={(v) => pipelineId && void setAutoMode(pipelineId, v)}
             />
             <ExecLogList records={execRecords} />
+          </div>
+        )}
+
+        {activeTab === 'dispatch' && (
+          <div className="space-y-2">
+            <p className="text-caption text-on-surface-variant">
+              手动指定要重做的环节。调度器不会替你判断「该不该重做」，这里只登记你的判断并留痕。
+            </p>
+            <DispatchForm
+              onSubmit={(order) => void submitDispatch(order)}
+              busy={dispatchBusy}
+              result={dispatchResult}
+            />
           </div>
         )}
 

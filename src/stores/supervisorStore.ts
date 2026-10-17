@@ -29,7 +29,14 @@ export const MAX_LEDGER_ENTRIES = 500;
 /** 决策序列上限 */
 export const MAX_DECISIONS = 100;
 
-export type SupervisorTab = 'decisions' | 'diagnosis' | 'cost' | 'subagents' | 'exec' | 'review';
+export type SupervisorTab =
+  | 'decisions'
+  | 'diagnosis'
+  | 'cost'
+  | 'subagents'
+  | 'exec'
+  | 'review'
+  | 'dispatch';
 
 export interface SupervisorState {
   pipelineId: string | null;
@@ -57,6 +64,10 @@ export interface SupervisorState {
   setAutoMode: (pipelineId: string, enabled: boolean) => Promise<void>;
   cancelSubagent: (pipelineId: string, subagentId: string) => Promise<void>;
   reviewWorker: (workerId: string, approve: boolean, confirmHighRisk?: boolean) => Promise<void>;
+  dispatchOrder: (
+    pipelineId: string,
+    body: { target_stage: string; reason?: string; issues?: unknown[] },
+  ) => Promise<{ requires_retry?: boolean } | null>;
   applyEvent: (event: { type?: string; data?: unknown }) => void;
   setDrawerOpen: (open: boolean) => void;
   setActiveTab: (tab: SupervisorTab) => void;
@@ -164,6 +175,15 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     }
   },
 
+  dispatchOrder: async (pipelineId, body) => {
+    try {
+      return await supervisorApi.dispatch(pipelineId, body);
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+      return null;
+    }
+  },
+
   reset: () => set({ pipelineId: null, drawerOpen: false, activeTab: 'decisions', ...EMPTY }),
 
   hydrate: async (pipelineId) => {
@@ -216,14 +236,69 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     }
     if (type === 'dispatch') {
       if (!data || typeof data !== 'object') return;
-      const decision = data as SupervisorDecision;
-      if (!decision.id || !decision.strategy) return;
+      // 后端有两个来源：调度决策（record_decision，含 strategy）与人工改派单
+      // （POST /dispatch 返回的 order，只含 target_stage/source）。后者若直接丢弃，
+      // 用户手工派的工就不会出现在调度时间线上——所以补成决策口径再入列。
+      const raw = data as Partial<SupervisorDecision> & { source?: string };
+      if (!raw.id) return;
+      const isManual = !raw.strategy && (Boolean(raw.target_stage) || raw.source === 'manual');
+      if (!raw.strategy && !isManual) return;
+      const decision: SupervisorDecision = {
+        id: String(raw.id),
+        strategy: String(raw.strategy ?? 'manual'),
+        target_stage: String(raw.target_stage ?? ''),
+        reason: String(raw.reason ?? ''),
+        allow_degrade: Boolean(raw.allow_degrade),
+        aborted: Boolean(raw.aborted),
+        stage_attempts: raw.stage_attempts ?? {},
+        previous_strategy: raw.previous_strategy,
+        mode: String(raw.mode ?? (isManual ? 'manual' : '')),
+        ts: raw.ts,
+      };
       const decisions = [...get().decisions, decision].slice(-MAX_DECISIONS);
       set({
         decisions,
         acceptedDegraded:
           get().acceptedDegraded || decision.strategy === 'S4_accept_degraded',
       });
+      return;
+    }
+    if (type === 'subagent_start' || type === 'subagent_progress' || type === 'subagent_end') {
+      if (!data || typeof data !== 'object') return;
+      const payload = data as { subagent_id?: string; role?: string; status?: string };
+      const id = String(payload.subagent_id ?? '');
+      if (!id) return;
+      const existing = get().subagents.find((n) => n.id === id);
+      if (!existing) {
+        set({
+          subagents: [
+            ...get().subagents,
+            {
+              id,
+              role: String(payload.role ?? ''),
+              kind: 'ephemeral',
+              status: (payload.status as SubagentNode['status']) ?? 'pending',
+              cancellable: true,
+            },
+          ],
+        });
+        return;
+      }
+      set({
+        subagents: get().subagents.map((n) =>
+          n.id === id
+            ? { ...n, status: (payload.status as SubagentNode['status']) ?? n.status }
+            : n,
+        ),
+      });
+      return;
+    }
+    if (type === 'exec') {
+      if (!data || typeof data !== 'object') return;
+      const rec = data as ExecRecord;
+      if (!rec.id || !rec.command) return;
+      const rest = get().execRecords.filter((r) => r.id !== rec.id);
+      set({ execRecords: [...rest, rec].slice(-MAX_LEDGER_ENTRIES) });
     }
   },
 

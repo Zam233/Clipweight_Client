@@ -126,19 +126,24 @@ export const supervisorApi = {
 
 ## 5. SSE 消费
 
-复用 `connectSseStream`，在现有管线 trace 流上按 `type` 分流：
+复用 `connectSseStream`，在现有管线 trace 流上按 `type` 分流（实现见 `src/features/supervisor/useSupervisorEvents.ts`，**不新开第二条流**）：
 
 | 事件 type | 前端处理 |
 |---|---|
-| `ledger_entry` | 追加到 `supervisorStore.ledger`，刷新决策记录列表 |
+| `ledger_entry` | 追加到 `supervisorStore.ledger`，刷新决策记录列表 + `attempts` |
 | `attribution` | 更新「当前归因」小结 |
-| `dispatch` | 在决策记录里插入一条「已派工」行 |
+| `dispatch` | 决策记录里插入一条（兼容两种来源：调度决策含 `strategy`；人工改派单只含 `target_stage/source`，前端补成 `strategy=manual`） |
 | `diag_report` | 渲染诊断书卡片（失败时自动展开） |
-| `budget` | 更新成本条 |
+| `subagent_start / subagent_progress / subagent_end` | 按 `subagent_id` upsert 子代理节点（首次出现即建节点，之后只改状态） |
+| `exec` | 按 `id` 去重后追加执行记录 |
+
+> trace 事件是 `{seq, agent, type, level, message, detail}`，store 吃 `{type, data}`——中间由 `toSupervisorEvent()` 做一次 `detail → data` 搬运，不可省。
+> 成本条**不是** SSE 事件：后端不推 `budget`，一律由 `GET /{pid}/budget` 拉取（见 §4）。
 
 要求：
-- **断线可恢复**：重连后先用 `GET /decisions` 全量拉一次，再增量追 SSE（避免重连丢事件导致面板空白）。
+- **断线可恢复**：抽屉打开时先 `hydrate()` 全量拉一次，再增量追 SSE（避免重连丢事件导致面板空白）。
 - **乱序容忍**：以 `ts` 排序渲染，不以到达顺序。
+- **只在抽屉打开时订阅**：`useSupervisorEvents(pipelineId, drawerOpen)`——关着时事件会漏，但打开时 hydrate 是全量的，不会缺一段；同时省一条 EventSource，避免与 AgentPanel 抢流。
 - **节流**：`ledger_entry` 高频时合并渲染（16ms 批处理），避免长管线把主线程压死。
 
 ---
@@ -359,4 +364,28 @@ export interface PendingWorkerReview {
 | 组件测 | `WorkerReviewCard`：`risk=high` 时批准按钮默认禁用；勾选二次确认后可点 |
 | e2e | 派生子代理 → 树出现节点 → 取消 → 状态变 cancelled；开自动模式 → `med` 不弹窗、`high` 仍弹 |
 | 回归 | `tsc --noEmit` / `vitest run` / `lint` / `build` 四门禁 |
+
+---
+
+## 14. 收尾批次 F9（实时接线 + 改派工单）
+
+> F1–F8 交付后留了三个「能看见但不能动」的缺口：抽屉数据只在打开瞬间是全的（无增量）、
+> store 不认子代理/执行事件、`DispatchForm` 写好了却没人挂。F9 只补这三处，不新增视觉语言。
+
+| 交付 | 位置 | 要点 |
+|---|---|---|
+| SSE 订阅 | `src/features/supervisor/useSupervisorEvents.ts` | `connectSseStream` + trace 流按 `type` 分流；导出 `SUPERVISOR_EVENT_TYPES` / `isSupervisorEventType()` / `toSupervisorEvent()` 便于单测 |
+| 事件映射 | 同上 | trace `{type, detail}` → store `{type, data}`；未知类型与非对象直接丢，不抛错 |
+| store 扩展 | `supervisorStore.applyEvent` | 新增 `subagent_start/progress/end`（按 `subagent_id` upsert）与 `exec`（按 `id` 去重追加）；`dispatch` 兼容「决策」与「人工改派单」两种形状 |
+| 改派动作 | `supervisorStore.dispatchOrder` | 失败落 `error` 并返回 `null`，不把异常抛进组件（抽屉只负责显示） |
+| 抽屉第七段 | `SupervisorDrawer` 的「改派」tab | 挂 `DispatchForm`；提交后如实显示「已登记，重试该环节后生效」而非「已生效」 |
+| 入口接线 | `SupervisorLauncher` | `useSupervisorEvents(pipelineId, drawerOpen)`：关着不连，打开先 hydrate 再追增量 |
+| 文案 | `labels.ts` | `manual → 人工改派`（策略代号不直接暴露在界面上） |
+| 测试 | `useSupervisorEvents.test.ts`(6) / `SupervisorDrawer.test.tsx`(3) / `supervisorStore.test.ts`(14) / `SupervisorLauncher.test.tsx`(4) | 映射与分流、开关与卸载断开、改派参数与结果文案、无管线不提交 |
+
+**仍待人工验收**（不是代码缺口，需真机跑）：
+
+1. `supervisor_mode=off` 时新旧两条管线时间线**逐字节一致**（PRD A10）；
+2. A/B 各 20 条管线对比 token 账单（PRD A5）；
+3. 5 人可用性测试（PRD A8）：能不能只看抽屉说清「上次为什么失败、下一步该做什么」。
 
