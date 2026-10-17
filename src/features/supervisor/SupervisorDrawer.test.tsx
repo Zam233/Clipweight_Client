@@ -56,12 +56,18 @@ describe('SupervisorDrawer', () => {
     expect(api.getPendingWorkerReviews).toHaveBeenCalled();
   });
 
-  it('改派工单：理由为空时不能提交，填好后按参数提交并提示需要重试', async () => {
-    api.dispatch.mockResolvedValue({ order: { id: 'ord_1' }, accepted: true, requires_retry: true });
+  it('改派工单：理由为空时不能提交，填好后按参数提交并如实显示「已开始重做」', async () => {
+    api.dispatch.mockResolvedValue({
+      pipeline_id: 'pl_1',
+      order: { id: 'ord_1', target_stage: 'audio', reason: '配音串味', source: 'manual' },
+      accepted: true,
+      requires_retry: false,
+      retry: { retried: true, status: 'retrying' },
+    });
     render(<SupervisorDrawer />);
 
     fireEvent.click(screen.getByRole('tab', { name: '改派' }));
-    const submit = screen.getByRole('button', { name: '提交改派' }) as HTMLButtonElement;
+    const submit = screen.getByRole('button', { name: '提交并重做' }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'audio' } });
@@ -74,7 +80,25 @@ describe('SupervisorDrawer', () => {
       target_stage: 'audio',
       reason: '第 2 段配音串味',
     });
-    expect(await screen.findByText(/已登记，重试该环节后生效/)).toBeTruthy();
+    expect(await screen.findByText(/已开始重做/)).toBeTruthy();
+  });
+
+  it('改派跑不起来时显示原因（不能让用户以为活已经派下去了）', async () => {
+    api.dispatch.mockResolvedValue({
+      pipeline_id: 'pl_1',
+      order: { id: 'ord_2', target_stage: 'edit', reason: '卡顿', source: 'manual' },
+      accepted: true,
+      requires_retry: true,
+      retry: { retried: false, reason: '管线结果不在内存中' },
+    });
+    render(<SupervisorDrawer />);
+
+    fireEvent.click(screen.getByRole('tab', { name: '改派' }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '卡顿' } });
+    fireEvent.click(screen.getByRole('button', { name: '提交并重做' }));
+
+    expect(await screen.findByText(/没能开始重做/)).toBeTruthy();
+    expect(screen.getByText(/管线结果不在内存中/)).toBeTruthy();
   });
 
   it('无管线时改派不提交（避免打到空管线）', () => {
@@ -83,7 +107,7 @@ describe('SupervisorDrawer', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: '改派' }));
     fireEvent.change(screen.getByRole('textbox'), { target: { value: '想改一下' } });
-    fireEvent.click(screen.getByRole('button', { name: '提交改派' }));
+    fireEvent.click(screen.getByRole('button', { name: '提交并重做' }));
 
     expect(api.dispatch).not.toHaveBeenCalled();
   });

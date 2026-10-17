@@ -11,6 +11,7 @@ import type {
   BudgetSnapshot,
   DecisionsResponse,
   DiagnosisResponse,
+  DispatchResponse,
   ExecRecord,
   ExecRequest,
   ExecResponse,
@@ -21,6 +22,7 @@ import type {
   RoutesResponse,
   SubagentNode,
   SubagentsResponse,
+  SuggestionResponse,
 } from '@/types/supervisor';
 
 export const supervisorApi = {
@@ -66,26 +68,33 @@ export const supervisorApi = {
     return data;
   },
 
-  /** 人工改派工单（PRD F7）。 */
+  /** 人工改派工单（PRD F7）：登记 + **真跑一次重跑**（`auto_retry` 默认 true）。 */
   async dispatch(
     pipelineId: string,
-    body: { target_stage: string; reason?: string; issues?: unknown[] },
-  ): Promise<{ order: Record<string, unknown>; accepted: boolean; requires_retry: boolean }> {
-    const { data } = await getApiClient().post(
+    body: {
+      target_stage: string;
+      reason?: string;
+      issues?: unknown[];
+      auto_retry?: boolean;
+    },
+  ): Promise<DispatchResponse> {
+    const { data } = await getApiClient().post<DispatchResponse>(
       `/api/pipeline/${pipelineId}/dispatch`,
       body,
     );
     return data;
   },
 
-  /** 接受降级 / 一键执行建议（PRD F7）。 */
-  async acceptSuggestion(pipelineId: string, suggestionId = ''): Promise<{ accepted_degraded: boolean }> {
-    const { data } = await getApiClient().post(
+  /** 执行诊断书建议（PRD F7）：接受降级 / 换模型重跑 / 重做某阶段。 */
+  async acceptSuggestion(
+    pipelineId: string,
+    body: { suggestion_id?: string; action?: string; target_stage?: string } = {},
+  ): Promise<SuggestionResponse> {
+    const { data } = await getApiClient().post<SuggestionResponse>(
       `/api/pipeline/${pipelineId}/accept-suggestion`,
-      undefined,
-      { params: suggestionId ? { suggestion_id: suggestionId } : undefined },
+      body,
     );
-    return data as { accepted_degraded: boolean };
+    return data;
   },
 
   // ── B7–B9 端点（子代理 / 执行 / 授权 / worker 审核）──

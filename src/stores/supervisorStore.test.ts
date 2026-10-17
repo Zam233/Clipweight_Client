@@ -22,6 +22,7 @@ const { api } = vi.hoisted(() => ({
     requestExec: vi.fn(),
     approveExec: vi.fn(async () => {}),
     rejectExec: vi.fn(async () => {}),
+    acceptSuggestion: vi.fn(),
   },
 }));
 
@@ -386,5 +387,109 @@ describe('执行请求（requestExec / 授权 / 拒绝）', () => {
     await useSupervisorStore.getState().rejectExec('pl_1', 'ap_2');
     expect(api.rejectExec).toHaveBeenCalledWith('pl_1', 'ap_2');
     expect(api.getPendingApprovals).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('诊断建议（runSuggestion）', () => {
+  it('重做建议带上行动与阶段，重跑起来就刷新首屏状态', async () => {
+    api.acceptSuggestion.mockResolvedValue({
+      pipeline_id: 'pl_1',
+      accepted: true,
+      accepted_degraded: false,
+      action: 'retry_with_model',
+      target_stage: 'material',
+      retry: { retried: true },
+    });
+    const res = await useSupervisorStore.getState().runSuggestion('pl_1', {
+      suggestion_id: 's1',
+      action: 'retry_with_model',
+      target_stage: 'material',
+    });
+    expect(api.acceptSuggestion).toHaveBeenCalledWith('pl_1', {
+      suggestion_id: 's1',
+      action: 'retry_with_model',
+      target_stage: 'material',
+    });
+    expect(res?.retry?.retried).toBe(true);
+    expect(api.getLedger).toHaveBeenCalledWith('pl_1');
+  });
+
+  it('跑不起来时如实返回结果，不抛给组件', async () => {
+    api.acceptSuggestion.mockResolvedValue({
+      pipeline_id: 'pl_1',
+      accepted: false,
+      accepted_degraded: false,
+      action: 'redo_stage',
+      retry: { retried: false, reason: '无可用前置成功结果' },
+    });
+    const res = await useSupervisorStore
+      .getState()
+      .runSuggestion('pl_1', { action: 'redo_stage', target_stage: 'edit' });
+    expect(res?.accepted).toBe(false);
+    expect(res?.retry?.reason).toContain('无可用前置成功结果');
+    // 没有真的重跑，不该白白重拉一遍
+    expect(api.getLedger).not.toHaveBeenCalled();
+  });
+
+  it('请求失败落 error 并返回 null', async () => {
+    api.acceptSuggestion.mockRejectedValue(new Error('预算已耗尽'));
+    const res = await useSupervisorStore.getState().runSuggestion('pl_1', { action: 'redo_stage' });
+    expect(res).toBeNull();
+    expect(useSupervisorStore.getState().error).toContain('预算已耗尽');
+  });
+});
+
+describe('exec 事件：后台高危命令必须进待授权队列', () => {
+  it('待授权条目（有 requestedBy）进 pendingApprovals，不进执行日志', () => {
+    useSupervisorStore.getState().applyEvent({
+      type: 'exec',
+      data: {
+        id: 'ap_1',
+        command: 'rm -rf build',
+        riskLevel: 'high',
+        riskReasons: ['会删除目录'],
+        requestedBy: 'supervisor',
+        needsConfirm: true,
+        expiresAt: '',
+      },
+    });
+    const s = useSupervisorStore.getState();
+    expect(s.pendingApprovals).toHaveLength(1);
+    expect(s.pendingApprovals[0].riskLevel).toBe('high');
+    expect(s.execRecords).toHaveLength(0);
+  });
+
+  it('执行完成条目进日志，并把同 id 的待授权项摘掉', () => {
+    useSupervisorStore.setState({
+      pendingApprovals: [
+        {
+          id: 'ex_1',
+          command: 'del x',
+          riskLevel: 'med',
+          riskReasons: [],
+          dangerExplanation: '',
+          requestedBy: 'supervisor',
+          expiresAt: '',
+        },
+      ],
+    });
+    useSupervisorStore.getState().applyEvent({
+      type: 'exec',
+      data: {
+        id: 'ex_1',
+        ts: '2026-10-17T10:00:00Z',
+        kind: 'shell',
+        command: 'del x',
+        cwd: '',
+        riskLevel: 'med',
+        riskReasons: [],
+        autoMode: false,
+        exitCode: 0,
+        durationMs: 12,
+      },
+    });
+    const s = useSupervisorStore.getState();
+    expect(s.execRecords).toHaveLength(1);
+    expect(s.pendingApprovals).toHaveLength(0);
   });
 });

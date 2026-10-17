@@ -164,6 +164,33 @@ export interface DecisionsResponse {
   decisions: SupervisorDecision[];
 }
 
+/** 重跑到底有没有真的起来（面板必须如实显示，不能只写「已登记」） */
+export interface RetryOutcome {
+  retried: boolean;
+  status?: string;
+  message?: string;
+  reason?: string;
+}
+
+export interface DispatchResponse {
+  pipeline_id: string;
+  order: { id: string; target_stage: string; reason: string; source: string };
+  accepted: boolean;
+  /** true = 还没跑起来（需要人工再触发一次） */
+  requires_retry: boolean;
+  retry?: RetryOutcome;
+}
+
+export interface SuggestionResponse {
+  pipeline_id: string;
+  accepted: boolean;
+  accepted_degraded: boolean;
+  action: string;
+  target_stage?: string;
+  reason?: string;
+  retry?: RetryOutcome;
+}
+
 /** 调度中枢的 SSE 事件（复用管线 trace 流，按 type 分流） */
 export type SupervisorSSEEvent =
   | { type: 'ledger_entry'; data?: LedgerEntry | Record<string, unknown> }

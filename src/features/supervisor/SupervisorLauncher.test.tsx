@@ -6,15 +6,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
-const { hydrate } = vi.hoisted(() => ({ hydrate: vi.fn(async () => {}) }));
+const { hydrate, hydrateReviews, setActiveTab } = vi.hoisted(() => ({
+  hydrate: vi.fn(async () => {}),
+  hydrateReviews: vi.fn(async () => {}),
+  setActiveTab: vi.fn(),
+}));
 
 vi.mock('@/stores/supervisorStore', () => {
   const state = {
     pipelineId: null as string | null,
     setPipeline: vi.fn(),
     hydrate,
+    hydrateReviews,
+    setActiveTab,
     drawerOpen: false,
     setDrawerOpen: vi.fn(),
+    pendingApprovals: [] as unknown[],
+    pendingReviews: [] as unknown[],
   };
   return {
     useSupervisorStore: Object.assign(
@@ -68,5 +76,34 @@ describe('SupervisorLauncher', () => {
     useAgentStore.setState({ pipelineId: 'pl_3' });
     render(<SupervisorLauncher />);
     expect(useEvents).toHaveBeenCalledWith('pl_3', false);
+  });
+
+  it('启动时拉一次全局待审队列（跨管线，不能等用户点开）', () => {
+    render(<SupervisorLauncher />);
+    expect(hydrateReviews).toHaveBeenCalled();
+  });
+
+  it('有待处理项时入口显示数字徽标', () => {
+    const state = store.getState() as unknown as {
+      pendingApprovals: unknown[];
+      pendingReviews: unknown[];
+    };
+    state.pendingApprovals = [{ id: 'ap_1' }];
+    state.pendingReviews = [{ id: 'w_1' }];
+    render(<SupervisorLauncher />);
+    expect(screen.getByLabelText('待处理 2 项')).toBeTruthy();
+    state.pendingApprovals = [];
+    state.pendingReviews = [];
+  });
+
+  it('点开时若有待授权命令，直接落到「执行」段', () => {
+    const state = store.getState() as unknown as { pendingApprovals: unknown[] };
+    state.pendingApprovals = [{ id: 'ap_1' }];
+    useAgentStore.setState({ pipelineId: 'pl_4' });
+    render(<SupervisorLauncher />);
+
+    fireEvent.click(screen.getByRole('button', { name: '打开调度面板' }));
+    expect(setActiveTab).toHaveBeenCalledWith('exec');
+    state.pendingApprovals = [];
   });
 });

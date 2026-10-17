@@ -16,6 +16,7 @@ import type {
   Attribution,
   BudgetSnapshot,
   DiagnosisReport,
+  DispatchResponse,
   ExecRecord,
   ExecRequest,
   ExecResponse,
@@ -23,6 +24,7 @@ import type {
   PendingExecApproval,
   PendingWorkerReview,
   SubagentNode,
+  SuggestionResponse,
   SupervisorDecision,
 } from '@/types/supervisor';
 
@@ -68,8 +70,12 @@ export interface SupervisorState {
   reviewWorker: (workerId: string, approve: boolean, confirmHighRisk?: boolean) => Promise<void>;
   dispatchOrder: (
     pipelineId: string,
-    body: { target_stage: string; reason?: string; issues?: unknown[] },
-  ) => Promise<{ requires_retry?: boolean } | null>;
+    body: { target_stage: string; reason?: string; issues?: unknown[]; auto_retry?: boolean },
+  ) => Promise<DispatchResponse | null>;
+  runSuggestion: (
+    pipelineId: string,
+    body: { suggestion_id?: string; action?: string; target_stage?: string },
+  ) => Promise<SuggestionResponse | null>;
   requestExec: (pipelineId: string, body: ExecRequest) => Promise<ExecResponse | null>;
   approveExec: (
     pipelineId: string,
@@ -186,7 +192,21 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
 
   dispatchOrder: async (pipelineId, body) => {
     try {
-      return await supervisorApi.dispatch(pipelineId, body);
+      const res = await supervisorApi.dispatch(pipelineId, body);
+      // 重跑是后台任务：立刻 hydrate 一次，让决策时间线与账本马上看到新条目
+      if (res?.retry?.retried) void get().hydrate(pipelineId);
+      return res;
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+      return null;
+    }
+  },
+
+  runSuggestion: async (pipelineId, body) => {
+    try {
+      const res = await supervisorApi.acceptSuggestion(pipelineId, body);
+      if (res?.retry?.retried || res?.accepted_degraded) void get().hydrate(pipelineId);
+      return res;
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
       return null;
@@ -335,10 +355,32 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     }
     if (type === 'exec') {
       if (!data || typeof data !== 'object') return;
-      const rec = data as ExecRecord;
+      const rec = data as ExecRecord & { requestedBy?: string; needsConfirm?: boolean };
       if (!rec.id || !rec.command) return;
+      // 待授权条目和执行记录走同一个 `exec` 事件：靠 `requestedBy`/`needsConfirm`
+      // 判别（执行记录没有这两个字段，被硬底线拒绝的记录也没有）。
+      // 只看执行日志会漏掉「后台有人在高危操作、正等你点授权」。
+      const isApproval = rec.requestedBy !== undefined || rec.needsConfirm !== undefined;
+      if (isApproval) {
+        const approval: PendingExecApproval = {
+          id: rec.id,
+          command: rec.command,
+          riskLevel: (rec.riskLevel as PendingExecApproval['riskLevel']) ?? 'high',
+          riskReasons: rec.riskReasons ?? [],
+          dangerExplanation: rec.dangerExplanation ?? (rec.riskReasons ?? []).join('；'),
+          requestedBy: rec.requestedBy ?? 'supervisor',
+          expiresAt: '',
+        };
+        const others = get().pendingApprovals.filter((a) => a.id !== approval.id);
+        set({ pendingApprovals: [...others, approval] });
+        return;
+      }
       const rest = get().execRecords.filter((r) => r.id !== rec.id);
-      set({ execRecords: [...rest, rec].slice(-MAX_LEDGER_ENTRIES) });
+      const approvals = get().pendingApprovals.filter((a) => a.id !== rec.id);
+      set({
+        execRecords: [...rest, rec].slice(-MAX_LEDGER_ENTRIES),
+        pendingApprovals: approvals,
+      });
     }
   },
 

@@ -30,6 +30,10 @@ export function SupervisorLauncher({ onAcceptSuggestion, actionPending }: Props)
   const hydrate = useSupervisorStore((s) => s.hydrate);
   const drawerOpen = useSupervisorStore((s) => s.drawerOpen);
   const setDrawerOpen = useSupervisorStore((s) => s.setDrawerOpen);
+  const setActiveTab = useSupervisorStore((s) => s.setActiveTab);
+  const pendingApprovals = useSupervisorStore((s) => s.pendingApprovals);
+  const pendingReviews = useSupervisorStore((s) => s.pendingReviews);
+  const hydrateReviews = useSupervisorStore((s) => s.hydrateReviews);
 
   useEffect(() => {
     if (pipelineId !== currentId) setPipeline(pipelineId);
@@ -39,8 +43,19 @@ export function SupervisorLauncher({ onAcceptSuggestion, actionPending }: Props)
   // 不会出现「缺一段」的错位（省一条 EventSource，也避免与 AgentPanel 抢流）。
   useSupervisorEvents(pipelineId, drawerOpen);
 
-  const open = () => {
+  // 待审 worker 是**跨管线**的全局队列：不轮询就会出现「后端在等审核、
+  // 用户不知道去哪里批」。60s 一次，失败静默（后端不可用时不刷错误条）。
+  useEffect(() => {
+    void hydrateReviews();
+    const timer = setInterval(() => void hydrateReviews(), 60_000);
+    return () => clearInterval(timer);
+  }, [hydrateReviews]);
+
+  const pendingTotal = pendingApprovals.length + pendingReviews.length;
+
+  const open = (tab?: 'exec' | 'review') => {
     setDrawerOpen(true);
+    if (tab) setActiveTab(tab);
     if (pipelineId) void hydrate(pipelineId);
   };
 
@@ -49,14 +64,28 @@ export function SupervisorLauncher({ onAcceptSuggestion, actionPending }: Props)
       <Button
         size="sm"
         variant="outline"
-        onClick={open}
-        className="fixed bottom-14 right-4 z-30 shadow-lg"
+        onClick={() => open(pendingApprovals.length ? 'exec' : undefined)}
+        className="fixed bottom-14 right-4 z-30 shadow-lg relative"
         aria-label="打开调度面板"
         disabled={!pipelineId}
-        title={pipelineId ? '查看自动诊断与调度记录' : '开始一次生成后可用'}
+        title={
+          pendingTotal > 0
+            ? `有 ${pendingTotal} 项等你处理（待授权命令 / 待审子代理）`
+            : pipelineId
+              ? '查看自动诊断与调度记录'
+              : '开始一次生成后可用'
+        }
       >
         <Gauge className="w-3.5 h-3.5 mr-1" />
         调度
+        {pendingTotal > 0 && (
+          <span
+            className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-error text-on-error text-[10px] leading-4 text-center"
+            aria-label={`待处理 ${pendingTotal} 项`}
+          >
+            {pendingTotal}
+          </span>
+        )}
       </Button>
 
       {drawerOpen && (

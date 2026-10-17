@@ -17,7 +17,7 @@ beforeEach(() => cleanup());
 describe('DispatchForm', () => {
   it('没写理由时不能提交', () => {
     render(<DispatchForm onSubmit={vi.fn()} />);
-    const submit = screen.getByRole('button', { name: '提交改派' }) as HTMLButtonElement;
+    const submit = screen.getByRole('button', { name: '提交并重做' }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
   });
 
@@ -29,7 +29,7 @@ describe('DispatchForm', () => {
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: '第 3 段素材明显不对' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '提交改派' }));
+    fireEvent.click(screen.getByRole('button', { name: '提交并重做' }));
 
     expect(onSubmit).toHaveBeenCalledWith({
       target_stage: 'material',
@@ -37,9 +37,37 @@ describe('DispatchForm', () => {
     });
   });
 
-  it('提交后提示需要重试才生效', () => {
-    render(<DispatchForm onSubmit={vi.fn()} result={{ requires_retry: true }} />);
-    expect(screen.getByText(/重试该环节后生效/)).toBeTruthy();
+  it('重跑真起来时如实显示「已开始重做」', () => {
+    render(
+      <DispatchForm
+        onSubmit={vi.fn()}
+        result={{
+          pipeline_id: 'pl_1',
+          order: { id: 'ord_1', target_stage: 'material', reason: 'x', source: 'manual' },
+          accepted: true,
+          requires_retry: false,
+          retry: { retried: true, status: 'retrying' },
+        }}
+      />,
+    );
+    expect(screen.getByText(/已开始重做/)).toBeTruthy();
+  });
+
+  it('跑不起来时把原因写出来，而不是只说「已登记」', () => {
+    render(
+      <DispatchForm
+        onSubmit={vi.fn()}
+        result={{
+          pipeline_id: 'pl_1',
+          order: { id: 'ord_1', target_stage: 'material', reason: 'x', source: 'manual' },
+          accepted: true,
+          requires_retry: true,
+          retry: { retried: false, reason: '无可用前置成功结果' },
+        }}
+      />,
+    );
+    expect(screen.getByText(/没能开始重做/)).toBeTruthy();
+    expect(screen.getByText(/无可用前置成功结果/)).toBeTruthy();
   });
 });
 

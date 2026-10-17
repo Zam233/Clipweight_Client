@@ -9,7 +9,12 @@ import { X } from 'lucide-react';
 
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import type { DiagnosisSuggestion, ExecResponse, PendingExecApproval } from '@/types/supervisor';
+import type {
+  DiagnosisSuggestion,
+  DispatchResponse,
+  ExecResponse,
+  PendingExecApproval,
+} from '@/types/supervisor';
 import { useSupervisorStore, type SupervisorTab } from '@/stores/supervisorStore';
 import { useEffect, useState } from 'react';
 
@@ -64,13 +69,17 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
   const cancelSubagent = useSupervisorStore((s) => s.cancelSubagent);
   const reviewWorker = useSupervisorStore((s) => s.reviewWorker);
   const dispatchOrder = useSupervisorStore((s) => s.dispatchOrder);
+  const runSuggestion = useSupervisorStore((s) => s.runSuggestion);
   const requestExec = useSupervisorStore((s) => s.requestExec);
   const approveExec = useSupervisorStore((s) => s.approveExec);
   const rejectExec = useSupervisorStore((s) => s.rejectExec);
 
   // 改派工单的本地态：结果只在这一屏有意义，没必要入 store
   const [dispatchBusy, setDispatchBusy] = useState(false);
-  const [dispatchResult, setDispatchResult] = useState<{ requires_retry?: boolean } | null>(null);
+  const [dispatchResult, setDispatchResult] = useState<DispatchResponse | null>(null);
+  // 诊断书建议的执行结果（不接受降级 / 重做某阶段）
+  const [suggestionPending, setSuggestionPending] = useState('');
+  const [suggestionNote, setSuggestionNote] = useState('');
 
   // 执行请求与授权弹窗的本地态
   const [execBusy, setExecBusy] = useState(false);
@@ -81,10 +90,47 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
     if (!pipelineId) return;
     setDispatchBusy(true);
     try {
-      const res = await dispatchOrder(pipelineId, order);
-      setDispatchResult(res ? { requires_retry: res.requires_retry } : null);
+      setDispatchResult(await dispatchOrder(pipelineId, order));
     } finally {
       setDispatchBusy(false);
+    }
+  };
+
+  /**
+   * 诊断书建议的执行入口。
+   *
+   * 页面级 `onAcceptSuggestion` 优先（需要二次确认/埋点的场景）；没有传就**必须**
+   * 自己发：否则按钮点了没反应，用户会以为「系统已经在修了」。
+   */
+  const applySuggestion = async (suggestion: DiagnosisSuggestion) => {
+    if (onAcceptSuggestion) {
+      onAcceptSuggestion(suggestion);
+      return;
+    }
+    if (!pipelineId) return;
+    if (suggestion.action === 'manual') {
+      setSuggestionNote('该建议需要人工处理，系统不会自动执行');
+      return;
+    }
+    const label = suggestion.action === 'accept_degraded' ? '接受当前版本' : '重做该环节';
+    if (!window.confirm(`确定要${label}吗？重做会产生新的模型调用费用。`)) return;
+    setSuggestionPending(suggestion.id);
+    try {
+      const res = await runSuggestion(pipelineId, {
+        suggestion_id: suggestion.id,
+        action: suggestion.action,
+        target_stage: suggestion.target_stage ?? '',
+      });
+      if (!res) setSuggestionNote('请求失败，见上方错误信息');
+      else if (res.retry && !res.retry.retried) {
+        setSuggestionNote(`没能开始重做：${res.retry.reason ?? '原因未知'}`);
+      } else if (res.accepted_degraded) {
+        setSuggestionNote('已按当前版本交付（降级已登记）');
+      } else {
+        setSuggestionNote('已开始重做，进度见下方执行与决策记录');
+      }
+    } finally {
+      setSuggestionPending('');
     }
   };
 
@@ -156,6 +202,14 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
             )}
           >
             {tab.label}
+            {/* 待授权命令 / 待审 worker 的数字必须出现在 tab 上——
+                否则用户要点进去才知道「有人在等我批」，等于没提醒。 */}
+            {tab.id === 'exec' && pendingApprovals.length > 0 && (
+              <span className="ml-1 text-error">{pendingApprovals.length}</span>
+            )}
+            {tab.id === 'review' && pendingReviews.length > 0 && (
+              <span className="ml-1 text-error">{pendingReviews.length}</span>
+            )}
           </button>
         ))}
       </nav>
@@ -184,11 +238,16 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
         )}
 
         {activeTab === 'diagnosis' && (
-          <DiagnosisCard
-            report={diagnosis}
-            onAction={onAcceptSuggestion}
-            actionPending={actionPending}
-          />
+          <div className="space-y-2">
+            <DiagnosisCard
+              report={diagnosis}
+              onAction={(s) => void applySuggestion(s)}
+              actionPending={suggestionPending || actionPending}
+            />
+            {suggestionNote && (
+              <p className="text-caption text-on-surface-variant">{suggestionNote}</p>
+            )}
+          </div>
         )}
 
         {activeTab === 'cost' && <BudgetBar budget={budget} />}
@@ -213,8 +272,8 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
             />
             {pendingApprovals.length > 0 && (
               <section className="space-y-1">
-                <h4 className="text-caption font-semibold text-on-surface-variant">
-                  待授权（{pendingApprovals.length}）
+                <h4 className="text-caption font-semibold text-warning">
+                  待授权（{pendingApprovals.length}）——不处理就不会执行
                 </h4>
                 <ul className="space-y-1">
                   {pendingApprovals.map((ap) => (

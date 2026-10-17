@@ -1,13 +1,18 @@
 /**
  * 人工改派工单（F4）。
  *
- * 只允许选核心环节；必须写理由（进账本留痕）。提交后由页面决定是否触发 retry。
+ * 只允许选核心环节；必须写理由（进账本留痕）。
+ *
+ * 文案纪律：结果必须**如实**——重跑真起来了才说「已开始重做」，跑不起来要说清
+ * 为什么（管线不在内存 / 没有前置成功结果 / 已在跑）。旧文案「已登记，重试该环节
+ * 后生效」在后端根本不触发重试，属于骗人。
  */
 
 import { useState } from 'react';
 
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import type { DispatchResponse } from '@/types/supervisor';
 
 import { STAGE_CN, stageLabel } from './labels';
 
@@ -16,7 +21,7 @@ const STAGES = ['structure', 'material', 'edit', 'animation', 'audio'] as const;
 interface Props {
   onSubmit?: (order: { target_stage: string; reason: string }) => void;
   busy?: boolean;
-  result?: { requires_retry?: boolean } | null;
+  result?: DispatchResponse | null;
   className?: string;
 }
 
@@ -25,6 +30,14 @@ export function DispatchForm({ onSubmit, busy, result, className }: Props) {
   const [reason, setReason] = useState('');
 
   const disabled = busy || !reason.trim();
+
+  const outcome = (() => {
+    if (!result) return '提交后会立刻按你的判断重跑该环节';
+    if (result.retry?.retried) {
+      return `已开始重做「${stageLabel(result.order?.target_stage ?? stage)}」`;
+    }
+    return `工单已登记，但没能开始重做：${result.retry?.reason || '原因未知'}`;
+  })();
 
   return (
     <form
@@ -63,10 +76,15 @@ export function DispatchForm({ onSubmit, busy, result, className }: Props) {
 
       <div className="flex items-center gap-2">
         <Button size="sm" type="submit" disabled={disabled}>
-          提交改派
+          提交并重做
         </Button>
-        <span className="text-caption text-on-surface-variant">
-          {result?.requires_retry ? '已登记，重试该环节后生效' : `目标：${STAGE_CN[stage] ?? stage}`}
+        <span
+          className={cn(
+            'text-caption',
+            result?.retry && !result.retry.retried ? 'text-error' : 'text-on-surface-variant',
+          )}
+        >
+          {result ? outcome : `目标：${STAGE_CN[stage] ?? stage}`}
         </span>
       </div>
     </form>
