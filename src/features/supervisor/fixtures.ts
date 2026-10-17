@@ -116,14 +116,14 @@ export const sampleDiagnosis: DiagnosisReport = {
 export const sampleSubagents: SubagentNode[] = [
   {
     id: 'sa_1',
-    parentId: null,
+    parent_id: null,
     role: '素材可用性核查员',
     kind: 'ephemeral',
     status: 'running',
     model: { provider: 'anthropic', model: 'claude-haiku-x' },
-    durationMs: 1800,
-    costUsd: 0.002,
-    lastOutput: '正在检查 scene:3 是否为占位图…',
+    duration_ms: 1800,
+    cost_usd: 0.002,
+    last_output: '正在检查 scene:3 是否为占位图…',
     cancellable: true,
   },
 ];

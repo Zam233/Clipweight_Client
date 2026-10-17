@@ -177,15 +177,26 @@ export type SubagentStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancel
 
 export interface SubagentNode {
   id: string;
-  parentId?: string | null;
+  parent_id?: string | null;
   role: string;
   kind: 'stage' | 'plugin' | 'ephemeral';
   status: SubagentStatus;
   model?: { provider: string; model: string };
-  durationMs?: number;
-  costUsd?: number;
-  lastOutput?: string;
+  duration_ms?: number;
+  cost_usd?: number;
+  last_output?: string;
   cancellable: boolean;
+  created_at?: string;
+  ts?: string;
+  children?: SubagentNode[];
+}
+
+export interface SubagentsResponse {
+  pipeline_id: string;
+  count: number;
+  by_status: Record<string, number>;
+  nodes: SubagentNode[];
+  tree: SubagentNode[];
 }
 
 // ── 执行（F11 / B9）──────────────────────────────────────────

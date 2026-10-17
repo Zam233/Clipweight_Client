@@ -14,6 +14,7 @@ import type {
   PendingExecApproval,
   PendingWorkerReview,
   SubagentNode,
+  SubagentsResponse,
   ExecRecord,
 } from '@/types/supervisor';
 
@@ -55,9 +56,11 @@ export const supervisorApi = {
   // ── 以下为 B7–B9 端点（后端就绪后启用；前端 F6–F8 依赖）──
 
   /** 子代理树（PRD F12）。 */
-  async getSubagents(pipelineId: string): Promise<{ nodes: SubagentNode[] }> {
-    const { data } = await getApiClient().get(`/api/pipeline/${pipelineId}/subagents`);
-    return data as { nodes: SubagentNode[] };
+  async getSubagents(pipelineId: string): Promise<SubagentsResponse> {
+    const { data } = await getApiClient().get<SubagentsResponse>(
+      `/api/pipeline/${pipelineId}/subagents`,
+    );
+    return data;
   },
 
   async cancelSubagent(pipelineId: string, subagentId: string): Promise<void> {
