@@ -256,13 +256,16 @@ export interface SubagentNode {
   cancellable: boolean;
 }
 
+export type RiskLevel = 'low' | 'med' | 'high' | 'critical';
+
 export interface ExecRecord {
   id: string; ts: string;
   kind: 'shell' | 'python';
   command: string;                 // 原文；UI 截断显示，可展开
   cwd: string;
-  level: 'readonly' | 'judged' | 'dangerous';
-  judgedReason?: string;           // judged 层必填：秘书「为什么现在能跑」
+  riskLevel: RiskLevel;            // 独立 LLM 判定（确定性规则只能上调）
+  riskReasons: string[];           // 判定理由
+  dangerExplanation?: string;      // 给人看的危险说明（弹框必填）
   autoMode: boolean;               // 当时是否开启自动模式（审计需要）
   exitCode: number | null; durationMs: number;
   outputTail?: string;
@@ -270,7 +273,10 @@ export interface ExecRecord {
 }
 
 export interface PendingExecApproval {
-  id: string; command: string; level: 'dangerous';
+  id: string; command: string;
+  riskLevel: Exclude<RiskLevel, 'low'>;
+  riskReasons: string[];
+  dangerExplanation: string;       // 「会动到什么 + 可能后果」，弹框必须展示
   requestedBy: string; expiresAt: string;
 }
 
@@ -291,7 +297,7 @@ export interface PendingWorkerReview {
 | GET | `/api/pipeline/{pid}/subagents` | 子代理树（F6） |
 | POST | `/api/pipeline/{pid}/subagents/{sid}/cancel` | 取消单个子代理 |
 | GET | `/api/pipeline/{pid}/exec` | 执行日志（分页） |
-| POST | `/api/pipeline/{pid}/exec/{eid}/approve` | 授权一条 dangerous 命令（F7） |
+| POST | `/api/pipeline/{pid}/exec/{eid}/approve` | 授权一条 `med` 及以上命令（F7；`critical` 需 `confirm_high_risk`） |
 | POST | `/api/pipeline/{pid}/exec/{eid}/reject` | 拒绝 |
 | GET/PUT | `/api/pipeline/{pid}/exec/auto-mode` | 读 / 写自动模式（用户开关，默认关，状态入账） |
 | GET | `/api/supervisor/workers/pending-review` | 待审核的临时 worker（含独立 LLM 风险等级与理由） |
@@ -305,9 +311,9 @@ export interface PendingWorkerReview {
 |---|---|---|
 | `SubagentTree.tsx` | 树形展示秘书 → 子代理 | 节点展开看 `lastOutput`；折叠状态记忆 |
 | `SubagentRow.tsx` | 单节点：角色/状态/模型/耗时/成本 | 取消按钮（二次确认，提示成本不退） |
-| `ExecLogList.tsx` | 命令流（时间·分级徽标·命令·退出码·耗时） | 点开看完整输出与 cwd；judged 行显示判断理由；复制命令 |
-| `ExecPermissionDialog.tsx` | dangerous 命令的一次性授权弹窗 | 显示完整命令、cwd、预计影响；**默认焦点在「拒绝」** |
-| `ExecLevelBadge.tsx` | `readonly / judged / dangerous` 徽标 | 不只靠颜色，带图标与文字 |
+| `ExecLogList.tsx` | 命令流（时间·风险徽标·命令·退出码·耗时） | 点开看完整输出与 cwd；每行显示风险等级与判定理由；复制命令 |
+| `ExecPermissionDialog.tsx` | `med` 及以上命令的授权弹窗 | 显示**风险等级 + 独立判定理由 + 危险说明（会动到什么、可能后果）** + 完整命令与 cwd；`critical` 需勾选二次确认；**默认焦点在「拒绝」** |
+| `ExecLevelBadge.tsx` | `low / med / high / critical` 风险徽标 | 不只靠颜色，带图标与文字 |
 | `AutoModeSwitch.tsx` | 自动模式开关（执行日志头部） | 明确文案 + 开关后立即生效；状态常驻可见，不藏二级菜单 |
 | `WorkerReviewQueue.tsx` | 待审核的临时 worker 列表（带 shell 的才进队列） | 展示独立 LLM 的风险等级 + 理由 + 完整 prompt/工具集；批准/拒绝 |
 | `WorkerReviewCard.tsx` | 单个待审 worker | `risk=high` 时批准需勾选二次确认，禁止一键通过 |
@@ -315,10 +321,11 @@ export interface PendingWorkerReview {
 ### 13.4 交互与文案红线
 
 1. **授权弹窗默认焦点在「拒绝」**——手滑一次就能过审的弹窗等于没有弹窗。
-2. **硬底线命令不在前端提供「授权」按钮**（后端直接拒：读凭据 / 不可逆系统破坏），前端只显示拒绝原因。
-3. `dangerous` **一次一授**，不做「本会话永久允许」；唯一的批量方式是自动模式开关（用户显式打开）。
-4. 自动模式开关必须**显式、常驻、可反向**：放在执行日志头部，状态文案写清后果（「危险命令将直接执行」），不能藏在设置二级页；会话结束自动复位为关。
-5. `judged` 层每一行都必须显示「判断理由」，让用户能抽查模型的判断质量。
+2. **弹窗必须说清危险程度**：等级 + 会动到什么（哪个目录/哪些文件）+ 可能后果 + 建议动作。只写「是否允许执行」视为不合格。
+3. **硬底线命令不在前端提供「授权」按钮**（后端直接拒：读凭据 / 不可逆系统破坏），前端只显示拒绝原因。
+4. `med` 及以上**一次一授**，不做「本会话永久允许」；唯一的批量方式是自动模式开关（且它只减免 `med`，`high`/`critical` 仍弹）。
+5. 自动模式开关必须**显式、常驻、可反向**：放在执行日志头部，状态文案写清后果（「中危命令将直接执行，高危仍会询问」），不能藏在设置二级页；会话结束自动复位为关。
+6. 每一行执行日志都必须显示**风险等级 + 判定理由**，让用户能抽查判定质量。
 6. 执行日志里的命令原文必须可**原样复制**，方便用户本地复现。
 7. 子代理被取消后节点保留（状态 `cancelled`），不消失——用户要能看到「我取消过什么」。
 8. **审核页必须把独立 LLM 的风险结论放在最显眼位置**（等级 + 理由），而不是折叠在详情里；`risk=high` 的批准按钮默认禁用，勾选「我已了解风险」后才可点。
@@ -329,7 +336,7 @@ export interface PendingWorkerReview {
 | 批次 | 内容 | 依赖 | 退出标准 |
 |---|---|---|---|
 | **F6** | `SubagentNode` 类型 + `/subagents` + SSE 三事件 + `SubagentTree` + 取消 | 后端 B7 | 并发 3 个子代理状态实时；取消后额度释放（PRD A14） |
-| **F7** | `ExecRecord` 类型 + `/exec` + 授权/拒绝 + `AutoModeSwitch` + `ExecLogList` + `ExecPermissionDialog` | 后端 B9 | dangerous 必弹授权（自动模式除外）；硬底线无授权按钮；judged 显示理由（A15/A16/A20/A21） |
+| **F7** | `ExecRecord` 类型 + `/exec` + 授权/拒绝 + `AutoModeSwitch` + `ExecLogList` + `ExecPermissionDialog` | 后端 B9 | `med+` 必弹框且写明危险程度；硬底线无授权按钮；每行显示等级与理由（A15/A16/A20/A21/A24–A26） |
 | **F8** | `WorkerReviewQueue` + `WorkerReviewCard`（独立 LLM 风险等级 + 人工审核） | 后端 B8 | 带 shell 的 worker 未审核不可用；`risk=high` 需二次确认（A22/A23） |
 
 ### 13.6 测试
@@ -338,8 +345,8 @@ export interface PendingWorkerReview {
 |---|---|
 | 单测 | store 的子树合并、乱序事件排序、取消后的乐观更新 |
 | 组件测 | `SubagentTree` 五态；授权弹窗默认焦点在「拒绝」；自动模式开关切换后文案与状态同步 |
-| 单测 | `judged` 行缺 `judgedReason` 时不渲染为正常行（降级为「理由缺失」警示样式） |
+| 单测 | `riskLevel` 缺失或 `riskReasons` 为空时不渲染为正常行（降级为「判定缺失」警示样式） |
 | 组件测 | `WorkerReviewCard`：`risk=high` 时批准按钮默认禁用；勾选二次确认后可点 |
-| e2e | 派生子代理 → 树出现节点 → 取消 → 状态变 cancelled；开自动模式 → dangerous 不弹窗 |
+| e2e | 派生子代理 → 树出现节点 → 取消 → 状态变 cancelled；开自动模式 → `med` 不弹窗、`high` 仍弹 |
 | 回归 | `tsc --noEmit` / `vitest run` / `lint` / `build` 四门禁 |
 
