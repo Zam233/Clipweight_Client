@@ -133,7 +133,32 @@ describe('ExecPermissionDialog', () => {
     fireEvent.click(screen.getByRole('checkbox'));
     expect(allow.disabled).toBe(false);
     fireEvent.click(allow);
-    expect(onApprove).toHaveBeenCalledWith(true);
+    expect(onApprove).toHaveBeenCalledWith(true, false);
+  });
+
+  it('critical / 命中硬底线要过第二道再次确认窗口', () => {
+    const onApprove = vi.fn();
+    const hard: PendingExecApproval = {
+      ...approval,
+      riskLevel: 'critical',
+      needsDoubleConfirm: true,
+      hardFloor: true,
+    };
+    render(<ExecPermissionDialog approval={hard} onApprove={onApprove} onReject={vi.fn()} />);
+
+    // 第一级：勾选后点「继续」，此时**还没有**调用 onApprove
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: '继续' }));
+    expect(onApprove).not.toHaveBeenCalled();
+
+    // 第二级：没勾最终确认前「确认执行」不可点
+    const final = screen.getByRole('button', { name: '确认执行' }) as HTMLButtonElement;
+    expect(final.disabled).toBe(true);
+    const boxes = screen.getAllByRole('checkbox');
+    fireEvent.click(boxes[boxes.length - 1]);
+    expect(final.disabled).toBe(false);
+    fireEvent.click(final);
+    expect(onApprove).toHaveBeenCalledWith(true, true);
   });
 
   it('展示命令、理由与危险说明', () => {

@@ -126,9 +126,15 @@ export const supervisorApi = {
     return data as ExecResponse;
   },
 
-  async approveExec(pipelineId: string, execId: string, confirmHighRisk = false): Promise<void> {
+  async approveExec(
+    pipelineId: string,
+    execId: string,
+    confirmHighRisk = false,
+    secondConfirm = false,
+  ): Promise<void> {
     await getApiClient().post(`/api/pipeline/${pipelineId}/exec/${execId}/approve`, {
       confirm_high_risk: confirmHighRisk,
+      second_confirm: secondConfirm,
     });
   },
 

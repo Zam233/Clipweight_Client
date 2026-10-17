@@ -147,11 +147,15 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
     }
   };
 
-  const decideApproval = async (approve: boolean, confirmHighRisk = false) => {
+  const decideApproval = async (
+    approve: boolean,
+    confirmHighRisk = false,
+    secondConfirm = false,
+  ) => {
     if (!pipelineId || !approval) return;
     setExecBusy(true);
     try {
-      if (approve) await approveExec(pipelineId, approval.id, confirmHighRisk);
+      if (approve) await approveExec(pipelineId, approval.id, confirmHighRisk, secondConfirm);
       else await rejectExec(pipelineId, approval.id);
       setApproval(null);
     } finally {
@@ -294,7 +298,7 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
             <ExecPermissionDialog
               approval={approval}
               busy={execBusy}
-              onApprove={(confirm) => void decideApproval(true, confirm)}
+              onApprove={(confirm, second) => void decideApproval(true, confirm, second)}
               onReject={() => void decideApproval(false)}
             />
           </div>

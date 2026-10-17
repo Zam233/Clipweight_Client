@@ -325,7 +325,7 @@ export interface PendingWorkerReview {
 | `SubagentTree.tsx` | 树形展示秘书 → 子代理 | 节点展开看 `lastOutput`；折叠状态记忆 |
 | `SubagentRow.tsx` | 单节点：角色/状态/模型/耗时/成本 | 取消按钮（二次确认，提示成本不退） |
 | `ExecLogList.tsx` | 命令流（时间·风险徽标·命令·退出码·耗时） | 点开看完整输出与 cwd；每行显示风险等级与判定理由；复制命令 |
-| `ExecPermissionDialog.tsx` | `med` 及以上命令的授权弹窗 | 显示**风险等级 + 独立判定理由 + 危险说明（会动到什么、可能后果）** + 完整命令与 cwd；`critical` 需勾选二次确认；**默认焦点在「拒绝」** |
+| `ExecPermissionDialog.tsx` | `med` 及以上命令的授权弹窗 | 显示**风险等级 + 独立判定理由 + 危险说明（会动到什么、可能后果）** + 完整命令与 cwd；`high` 勾一次「我已了解风险」；**`critical` / 命中硬底线再进第二道「再次确认」窗口**（重摆命令、默认焦点仍在「拒绝」、勾「我确认」才可点）；**默认焦点在「拒绝」** |
 | `ExecLevelBadge.tsx` | `low / med / high / critical` 风险徽标 | 不只靠颜色，带图标与文字 |
 | `AutoModeSwitch.tsx` | 自动模式开关（执行日志头部） | 明确文案 + 开关后立即生效；状态常驻可见，不藏二级菜单 |
 | `WorkerReviewQueue.tsx` | 待审核的临时 worker 列表（带 shell 的才进队列） | 展示独立 LLM 的风险等级 + 理由 + 完整 prompt/工具集；批准/拒绝 |
@@ -337,7 +337,7 @@ export interface PendingWorkerReview {
 
 1. **授权弹窗默认焦点在「拒绝」**——手滑一次就能过审的弹窗等于没有弹窗。
 2. **弹窗必须说清危险程度**：等级 + 会动到什么（哪个目录/哪些文件）+ 可能后果 + 建议动作。只写「是否允许执行」视为不合格。
-3. **硬底线命令不在前端提供「授权」按钮**（后端直接拒：读凭据 / 不可逆系统破坏），前端只显示拒绝原因。
+3. **hardField 命令（命中硬底线）不再由后端直接拒**（v1.5 用户决策）：前端必须提供「两级确认」——授权窗口点「继续」后进第二道「再次确认」窗口，窗口里重摆命令、默认焦点仍在「拒绝」、必须勾「我确认要执行这条极高风险命令」。缺任何一级都不放行。
 4. `med` 及以上**一次一授**，不做「本会话永久允许」；唯一的批量方式是自动模式开关（且它只减免 `med`，`high`/`critical` 仍弹）。
 5. 自动模式开关必须**显式、常驻、可反向**：放在执行日志头部，状态文案写清后果（「中危命令将直接执行，高危仍会询问」），不能藏在设置二级页；会话结束自动复位为关。
 6. 每一行执行日志都必须显示**风险等级 + 判定理由**，让用户能抽查判定质量。
@@ -351,7 +351,7 @@ export interface PendingWorkerReview {
 | 批次 | 内容 | 依赖 | 退出标准 |
 |---|---|---|---|
 | **F6** | `SubagentNode` 类型 + `/subagents` + SSE 三事件 + `SubagentTree` + 取消 | 后端 B7 | 并发 3 个子代理状态实时；取消后额度释放（PRD A14） |
-| **F7** | `ExecRecord` 类型 + `/exec` + 授权/拒绝 + `AutoModeSwitch` + `ExecLogList` + `ExecPermissionDialog` | 后端 B9 | `med+` 必弹框且写明危险程度；硬底线无授权按钮；每行显示等级与理由（A15/A16/A20/A21/A24–A26） |
+| **F7** | `ExecRecord` 类型 + `/exec` + 授权/拒绝 + `AutoModeSwitch` + `ExecLogList` + `ExecPermissionDialog` | 后端 B9 | `med+` 必弹框且写明危险程度；`critical` 两级确认；每行显示等级与理由（A15/A16/A20/A21/A24–A26） |
 | **F8** | `WorkerReviewQueue` + `WorkerReviewCard`（独立 LLM 风险等级 + 人工审核） | 后端 B8 | 带 shell 的 worker 未审核不可用；`risk=high` 需二次确认（A22/A23） |
 
 ### 13.6 测试

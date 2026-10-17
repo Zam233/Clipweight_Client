@@ -163,6 +163,6 @@ describe('SupervisorDrawer', () => {
     fireEvent.click(screen.getByRole('checkbox'));
     expect(allow.disabled).toBe(false);
     fireEvent.click(allow);
-    expect(api.approveExec).toHaveBeenCalledWith('pl_1', 'ap_1', true);
+    expect(api.approveExec).toHaveBeenCalledWith('pl_1', 'ap_1', true, false);
   });
 });

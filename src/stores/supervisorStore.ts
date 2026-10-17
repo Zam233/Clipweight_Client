@@ -81,6 +81,7 @@ export interface SupervisorState {
     pipelineId: string,
     approvalId: string,
     confirmHighRisk?: boolean,
+    secondConfirm?: boolean,
   ) => Promise<void>;
   rejectExec: (pipelineId: string, approvalId: string) => Promise<void>;
   applyEvent: (event: { type?: string; data?: unknown }) => void;
@@ -226,9 +227,9 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     }
   },
 
-  approveExec: async (pipelineId, approvalId, confirmHighRisk = false) => {
+  approveExec: async (pipelineId, approvalId, confirmHighRisk = false, secondConfirm = false) => {
     try {
-      await supervisorApi.approveExec(pipelineId, approvalId, confirmHighRisk);
+      await supervisorApi.approveExec(pipelineId, approvalId, confirmHighRisk, secondConfirm);
       await get().hydrateExecution(pipelineId);
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });

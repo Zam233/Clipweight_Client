@@ -270,6 +270,10 @@ export interface PendingExecApproval {
   dangerExplanation: string;
   requestedBy: string;
   expiresAt: string;
+  /** true = 还要过「再次确认窗口」（critical / 命中硬底线） */
+  needsDoubleConfirm?: boolean;
+  /** true = 命中确定性硬底线（读凭据 / 不可逆破坏） */
+  hardFloor?: boolean;
 }
 
 /** 请求执行（POST /{pid}/exec）——主代理与用户的唯一执行入口 */

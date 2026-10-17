@@ -381,8 +381,8 @@ describe('执行请求（requestExec / 授权 / 拒绝）', () => {
   });
 
   it('授权与拒绝都透传参数并刷新执行态', async () => {
-    await useSupervisorStore.getState().approveExec('pl_1', 'ap_1', true);
-    expect(api.approveExec).toHaveBeenCalledWith('pl_1', 'ap_1', true);
+    await useSupervisorStore.getState().approveExec('pl_1', 'ap_1', true, true);
+    expect(api.approveExec).toHaveBeenCalledWith('pl_1', 'ap_1', true, true);
 
     await useSupervisorStore.getState().rejectExec('pl_1', 'ap_2');
     expect(api.rejectExec).toHaveBeenCalledWith('pl_1', 'ap_2');
