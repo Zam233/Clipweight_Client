@@ -31,7 +31,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           react: ['react', 'react-dom'],
-          'tanstack': ['@tanstack/react-router', '@tanstack/react-virtual', '@tanstack/react-query'],
+          'tanstack': ['@tanstack/react-router', '@tanstack/react-virtual'],
           'lucide': ['lucide-react'],
           'zustand': ['zustand'],
           'radix': ['@radix-ui/react-tooltip', '@radix-ui/react-slider', '@radix-ui/react-select',
