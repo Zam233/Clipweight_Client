@@ -326,6 +326,8 @@ export interface PendingWorkerReview {
 | `WorkerReviewQueue.tsx` | 待审核的临时 worker 列表（带 shell 的才进队列） | 展示独立 LLM 的风险等级 + 理由 + 完整 prompt/工具集；批准/拒绝 |
 | `WorkerReviewCard.tsx` | 单个待审 worker | `risk=high` 时批准需勾选二次确认，禁止一键通过 |
 
+**待审入口**：审核页是**全局页面**（不属于某条管线）。侧栏常驻「待审」徽标（数字 = 待审 worker 数），有待审时高亮、无待审时隐藏；点击直达审核页。这条不做，F8 会出现「后端在等审核、用户不知道要去哪批」的死锁。
+
 ### 13.4 交互与文案红线
 
 1. **授权弹窗默认焦点在「拒绝」**——手滑一次就能过审的弹窗等于没有弹窗。
