@@ -14,6 +14,8 @@ import type {
   LedgerResponse,
   PendingExecApproval,
   PendingWorkerReview,
+  RouteCandidate,
+  RoutesResponse,
   SubagentNode,
   SubagentsResponse,
   ExecRecord,
@@ -151,5 +153,29 @@ export const supervisorApi = {
       `/api/pipeline/${pipelineId}/exec/pending-approvals`,
     );
     return data as { items: PendingExecApproval[] };
+  },
+
+  // ── 路由表与模式（管理员，F5）────────────────────────────
+
+  async getRoutes(): Promise<RoutesResponse> {
+    const { data } = await getApiClient().get<RoutesResponse>('/api/supervisor/routes');
+    return data;
+  },
+
+  async updateRoutes(
+    body: { routes?: RouteCandidate[][]; whitelist?: string[] } | Record<string, unknown>,
+  ): Promise<{ applied: string[]; how: string }> {
+    const { data } = await getApiClient().put('/api/supervisor/routes', body);
+    return data as { applied: string[]; how: string };
+  },
+
+  async getMode(): Promise<{ mode: 'off' | 'shadow' | 'on' }> {
+    const { data } = await getApiClient().get('/api/supervisor/mode');
+    return data as { mode: 'off' | 'shadow' | 'on' };
+  },
+
+  async setMode(mode: 'off' | 'shadow' | 'on'): Promise<{ mode: string; how: string }> {
+    const { data } = await getApiClient().put('/api/supervisor/mode', { mode });
+    return data as { mode: string; how: string };
   },
 };

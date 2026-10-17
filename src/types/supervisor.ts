@@ -171,6 +171,22 @@ export type SupervisorSSEEvent =
   | { type: 'diag_report'; data?: DiagnosisReport }
   | { type: 'dispatch'; data?: SupervisorDecision };
 
+// ── 路由表（F8 / B4，管理员）──────────────────────────────────
+
+export interface RouteCandidate {
+  provider: string;
+  model: string;
+  tier: 'cheap' | 'std' | 'strong';
+  price_in?: number;
+  price_out?: number;
+}
+
+export interface RoutesResponse {
+  routes: Record<string, RouteCandidate[]>;
+  whitelist: string[];
+  allowed_providers: string[];
+}
+
 // ── 子代理（F10/F12 / B7–B8）──────────────────────────────────
 
 export type SubagentStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
