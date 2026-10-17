@@ -1,5 +1,6 @@
 export { getApiClient, resetApiClient } from './client';
 export { pipelineApi } from './pipeline';
+export { supervisorApi } from './supervisor';
 export { personaApi } from './persona';
 export { assetApi } from './asset';
 export { renderApi } from './render';
