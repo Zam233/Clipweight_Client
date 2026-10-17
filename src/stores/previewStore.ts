@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { frameStep } from '@/lib/mediaTime';
 
 interface PreviewState {
   isPlaying: boolean;
@@ -92,8 +93,9 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
   stepForward: () =>
     set((state) => {
       if (state.fps <= 0) return {};
-      const frame = Math.round(state.currentTimeSec * state.fps) + 1;
-      const time = frame / state.fps;
+      // O1：按帧步进走整数 tick（frameStep）——`+1/fps` 在 29.97 下会把播放头
+      // 逐步挪离帧网格，多次步进后帧号与真实帧不一致
+      const time = frameStep(state.currentTimeSec, state.fps, 1);
       return {
         currentTimeSec: Math.min(state.durationSec, Math.max(0, time)),
       };
@@ -102,8 +104,7 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
   stepBackward: () =>
     set((state) => {
       if (state.fps <= 0) return {};
-      const frame = Math.round(state.currentTimeSec * state.fps) - 1;
-      const time = frame / state.fps;
+      const time = frameStep(state.currentTimeSec, state.fps, -1);
       return { currentTimeSec: Math.max(0, time) };
     }),
 
@@ -111,7 +112,9 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
   seekToEnd: () =>
     set((state) => ({
       // One frame before the end so the last frame stays visible
-      currentTimeSec: state.fps > 0 ? Math.max(0, state.durationSec - 1 / state.fps) : state.durationSec,
+      currentTimeSec: state.fps > 0
+        ? Math.max(0, frameStep(state.durationSec, state.fps, -1))
+        : state.durationSec,
     })),
   toggleLoop: () => set((state) => ({ isLooping: !state.isLooping })),
   shuttleReverse: () => set({ isPlaying: true, shuttleSpeed: -1 }),

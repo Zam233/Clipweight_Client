@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
 import { toolApi, skillApi } from '@/services/api';
 import { Button } from '@/components/ui';
@@ -15,6 +16,7 @@ export function ToolsPage() {
   const [tools, setTools] = useState<ToolItem[]>([]);
   const [skills, setSkills] = useState<ToolItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [demoFallback, setDemoFallback] = useState(false); // P2-20：演示回退可见标记
   const [selected, setSelected] = useState<string | null>(null);
   const [params, setParams] = useState('{}');
   const [running, setRunning] = useState(false);
@@ -32,8 +34,15 @@ export function ToolsPage() {
         setSkills(normalize(s));
       } catch {
         if (!alive) return;
-        setTools(DEMO_TOOLS);
-        setSkills(DEMO_SKILLS);
+        // P2-20: 演示回退受设置开关门控（默认关）；回退时明确标记
+        if (useSettingsStore.getState().allowDemoFallback) {
+          setTools(DEMO_TOOLS);
+          setSkills(DEMO_SKILLS);
+          setDemoFallback(true);
+        } else {
+          setTools([]);
+          setSkills([]);
+        }
       } finally {
         if (alive) setLoading(false);
       }
@@ -85,6 +94,11 @@ export function ToolsPage() {
 
   return (
     <ConsoleShell>
+      {demoFallback && (
+        <div className="mb-3 px-3 py-2 rounded-cw-sm bg-warning/10 border border-warning/40 text-label-sm text-on-surface-variant">
+          后端不可达——当前显示的是演示数据（非真实工具/技能列表），执行不可用。
+        </div>
+      )}
       <ConsoleHeading kicker="Capabilities / Tools & Skills" title="工具与技能"
         desc="工具是原子能力（FFmpeg/OpenCV 封装），技能是多工具组合。选择一项并传入 JSON 参数即可执行。" />
 

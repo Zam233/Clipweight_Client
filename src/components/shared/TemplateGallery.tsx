@@ -45,12 +45,19 @@ export function TemplateGallery({ open, onClose, onApplyProject }: {
   const apply = async (t: TemplateCard) => {
     setApplyingId(t.id);
     try {
-      const result = await templateApi.apply(t.id);
+      // 待验证项修复：先建空项目，再带 target_project_id 应用模板——
+      // 素材重映射（轮86）由此生效（旧实现先应用后建项，重映射不执行）
       const project = await projectApi.create({
+        name: `${t.name} · 副本`,
+        timeline: null,
+      });
+      const result = await templateApi.apply(t.id, project.id);
+      await projectApi.save(project.id, {
         name: `${t.name} · 副本`,
         timeline: result.timeline as unknown as Timeline,
       });
-      toast(`已基于「${t.name}」创建项目`, 'success');
+      const remapped = (result as { remapped_assets?: number }).remapped_assets;
+      toast(`已基于「${t.name}」创建项目${remapped ? `（已重映射 ${remapped} 个素材）` : ''}`, 'success');
       onClose();
       if (onApplyProject) onApplyProject(project.id);
     } catch {

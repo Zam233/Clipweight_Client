@@ -10,6 +10,8 @@
 | API 参考 | [docs/api_reference.md](docs/api_reference.md) |
 | 开发指南 | [docs/development.md](docs/development.md) |
 | 修复与功能补全计划 | [docs/fix-and-feature-plan.md](docs/fix-and-feature-plan.md)（§10 执行进度） |
+| **全量缺陷审计与派工计划（2026-09-10）** | [docs/audit-fix-plan-2026-09-10.md](docs/audit-fix-plan-2026-09-10.md)（P0×5 / P1×37 / P2×54 / P3×15 + 待验证×11，含证据与验收标准） |
+| **插件化开发方案（2026-09-10）** | [docs/pluginization-plan-2026-09-10.md](docs/pluginization-plan-2026-09-10.md)（统一贡献契约 + Provider 化 + 前端 Slot 化，含契约骨架与里程碑） |
 | 前后端对账 | [docs/frontend-backend-parity.md](docs/frontend-backend-parity.md) |
 | 项目上下文 | [CLAUDE.md](CLAUDE.md) |
 
@@ -21,7 +23,7 @@ scripts\stop.ps1         # 停止全部
 ```
 
 - 后端：`uvicorn clipwright.main:app --port 8080`（`CLIPWRIGHT_PORT=8080`，见 `.env.example`）
-- 前端：`cd web && npm run dev`（vite 5173；`/api` 代理 → 8080，`/srv` 代理 → 账号服务 8090）
+- 前端：独立仓库 `J:\Clipweight-Client`（`npm run dev`，vite 5173；`/api` 代理 → 8080，`/srv` 代理 → 账号服务 8090）
 - 账号/市场服务（可选）：`K:\Clipwright Server` 独立仓库，端口 8090
 
 ## 项目结构（monorepo）
@@ -40,7 +42,6 @@ J:\Clipwright
 │   ├── schema/       # 11+ 数据模型
 │   ├── rag/          # RAG 知识库
 │   └── persona/      # Persona 配置系统
-├── web/              # 前端（React 19 + TS 5.5 + Vite，见 web/AGENTS.md）
 ├── plugins/          # 内置第三方插件目录（diagram_style 等）
 ├── docs/             # 20+ 文档
 └── scripts/          # start/stop/check_env 一键启动脚本

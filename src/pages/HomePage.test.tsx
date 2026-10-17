@@ -13,6 +13,7 @@ const { mocks } = vi.hoisted(() => ({
     personaList: vi.fn(),
     projectList: vi.fn(),
     projectRemove: vi.fn(),
+    projectTrash: vi.fn(),
     projectDuplicate: vi.fn(),
     getThumbnailUrl: vi.fn(),
     typeMakerList: vi.fn(),
@@ -22,23 +23,35 @@ const { mocks } = vi.hoisted(() => ({
     healthStatus: vi.fn(),
     toast: vi.fn(),
     pluginList: vi.fn(),
+    // 轮 148：插件 tab 复用完整面板后会调用健康聚合/贡献清单
+    pluginHealth: vi.fn(),
+    pluginContributions: vi.fn(),
   },
 }));
 
 vi.mock('@/services/api', () => ({
   healthApi: { check: mocks.healthCheck },
-  personaApi: { list: mocks.personaList },
+  personaApi: { list: mocks.personaList, duplicate: vi.fn(), export: vi.fn(), importPersona: vi.fn() },
   projectApi: {
     list: mocks.projectList,
     remove: mocks.projectRemove,
+    trashProject: mocks.projectTrash,
     duplicate: mocks.projectDuplicate,
     getThumbnailUrl: mocks.getThumbnailUrl,
     create: vi.fn(),
   },
   assetApi: { listSources: mocks.listSources },
   typeMakerApi: { list: mocks.typeMakerList },
+  voiceApi: { list: vi.fn(() => Promise.resolve([])) },
   pipelineApi: { predictScript: mocks.predictScript },
-  pluginApi: { list: mocks.pluginList },
+  resetApiClient: vi.fn(),
+  pluginApi: {
+    list: mocks.pluginList,
+    discover: vi.fn(async () => []),
+    health: mocks.pluginHealth,
+    contributions: mocks.pluginContributions,
+    errors: vi.fn(async () => []),
+  },
   getApiClient: vi.fn(),
 }));
 
@@ -82,6 +95,8 @@ beforeEach(() => {
   mocks.healthStatus.mockReturnValue('offline');
   mocks.predictScript.mockResolvedValue({});
   mocks.pluginList.mockResolvedValue([]);
+  mocks.pluginHealth.mockResolvedValue({ overall: 'ok', plugins: [], errors_total: 0 });
+  mocks.pluginContributions.mockResolvedValue({ contributions: [], total: 0 });
 });
 
 afterEach(() => cleanup());
@@ -96,26 +111,27 @@ async function confirmDelete(projectName: string) {
 
 describe('HomePage handleDeleteProject (U1)', () => {
   it('removes the project from the list when delete succeeds', async () => {
-    mocks.projectRemove.mockResolvedValue({ ok: true });
+    mocks.projectTrash.mockResolvedValue({ ok: true });
     render(<HomePage />);
     await screen.findByText('\u9879\u76eeA');
 
     await confirmDelete('\u9879\u76eeA');
 
-    await waitFor(() => expect(mocks.projectRemove).toHaveBeenCalledWith('proj_a'));
+    await waitFor(() => expect(mocks.projectTrash).toHaveBeenCalledWith('proj_a'));
     await waitFor(() => expect(screen.queryByText('\u9879\u76eeA')).toBeNull());
     expect(screen.getByText('\u9879\u76eeB')).toBeTruthy();
-    expect(mocks.toast).not.toHaveBeenCalled();
+    // P2-39: 删除改为移入回收站，成功时有提示
+    expect(mocks.toast).toHaveBeenCalled();
   });
 
   it('keeps the project in the list and shows an error toast when delete fails', async () => {
-    mocks.projectRemove.mockRejectedValue(new Error('\u540e\u7aef\u4e0d\u53ef\u8fbe'));
+    mocks.projectTrash.mockRejectedValue(new Error('\u540e\u7aef\u4e0d\u53ef\u8fbe'));
     render(<HomePage />);
     await screen.findByText('\u9879\u76eeA');
 
     await confirmDelete('\u9879\u76eeA');
 
-    await waitFor(() => expect(mocks.projectRemove).toHaveBeenCalledWith('proj_a'));
+    await waitFor(() => expect(mocks.projectTrash).toHaveBeenCalledWith('proj_a'));
     await waitFor(() => expect(screen.getByText('\u9879\u76eeA')).toBeTruthy());
     expect(mocks.toast).toHaveBeenCalledWith('\u5220\u9664\u5931\u8d25\uff1a\u540e\u7aef\u4e0d\u53ef\u8fbe\uff0c\u9879\u76ee\u5df2\u4fdd\u7559', 'error');
   });
@@ -216,25 +232,36 @@ describe('图一：左侧导航切换右侧内容区', () => {
     expect(screen.getByRole('button', { name: /音色库/ })).toBeTruthy();
   });
 
-  it('点击「人格」→ 右侧切换到人格列表；点击卡片选中并跳设置', async () => {
+  it('点击「人格」→ 显示与 /persona 相同的完整人格画廊；点卡片选中并进入创作', async () => {
     mocks.personaList.mockResolvedValue([
-      { persona_id: 'p_a', persona_name: '人格A', parameter: { identity: { tone: '批判型' } } },
+      {
+        persona_id: 'p_a', persona_name: '人格A', version: '1.0.0',
+        parameter: {
+          identity: { persona_id: 'p_a', persona_name: '人格A', tone: 'critical', knowledge_domains: ['数字文化'] },
+          language: { academic_density: 0.6, slang_ratio: 0.2 },
+          rhythm: { cut_density_tier: 'medium' },
+        },
+      },
     ]);
     render(<HomePage />);
     fireEvent.click(screen.getByRole('button', { name: '人格' }));
-    expect(await screen.findByText('创作人格')).toBeTruthy();
+    // 首页 tab 现在复用 PersonaGalleryPanel（与 /persona 同一份实现）
+    expect(await screen.findByText('创作人格库')).toBeTruthy();
     expect(await screen.findByText('人格A')).toBeTruthy();
-    // 点击人格卡片 → 切到设置 tab（创作表单）
+    // 画廊的完整内容也在（简化卡片没有这些）：节奏指纹 + 参数条
+    expect(screen.getByText(/剪辑节奏 · medium/)).toBeTruthy();
+    expect(screen.getByText('学术密度')).toBeTruthy();
+    // 点击人格卡片 → 选中该人格并切到创作 tab（首页语义）
     fireEvent.click(screen.getByText('人格A'));
     await screen.findByPlaceholderText(/粘贴口播文案/);
   });
 
-  it('点击「设置」→ 显示系统设置界面（BUG1 修复：不再跳创作表单）', async () => {
+  it('点击「设置」→ 显示偏好设置界面（BUG1 修复：不再跳创作表单）', async () => {
     render(<HomePage />);
     fireEvent.click(screen.getByRole('button', { name: '设置' }));
     expect(await screen.findByText('外观')).toBeTruthy();
     expect(screen.getByText('主题')).toBeTruthy();
-    expect(screen.getByText('时间轴默认')).toBeTruthy();
+    expect(screen.getByText('时间轴默认值')).toBeTruthy();
     // 创作表单不应出现
     expect(screen.queryByPlaceholderText(/粘贴口播文案/)).toBeNull();
   });
@@ -246,34 +273,54 @@ describe('图一：左侧导航切换右侧内容区', () => {
   });
 });
 
-describe('BUG3: 插件 tab 显示真实插件（/api/plugin/list）而非类型插件', () => {
-  it('点击「插件」→ 显示 pluginApi.list 返回的插件', async () => {
+/**
+ * 轮 148：首页「插件」tab 从"只列名字"改为复用完整插件管理面板（与 /settings/plugins 同源）。
+ * 同时守住一条边界：类型 tab 用 typeMakerApi（类型插件），插件 tab 用 pluginApi（真实插件），
+ * 两者互不混淆。
+ */
+describe('插件 tab（轮 148：复用完整插件管理）', () => {
+  it('点击「插件」→ 显示 pluginApi.list 返回的插件，并带启停开关与完整管理入口', async () => {
     mocks.pluginList.mockResolvedValue([
-      { manifest: { id: 'whisper_stt', name: 'Whisper 语音转文字', kind: 'capability', description: '本地转写' } },
-      { manifest: { id: 'bgm_library', name: 'BGM 素材库', kind: 'material' } },
+      { manifest: { id: 'whisper_stt', name: 'Whisper 语音转文字', kind: 'capability', description: '本地转写' }, enabled: true },
+      { manifest: { id: 'bgm_library', name: 'BGM 素材库', kind: 'material' }, enabled: false },
     ]);
+    mocks.pluginHealth.mockResolvedValue({ overall: 'ok', plugins: [], errors_total: 0 });
     render(<HomePage />);
     fireEvent.click(screen.getByRole('button', { name: '插件' }));
-    expect(await screen.findByText('Whisper 语音转文字')).toBeTruthy();
-    expect(screen.getByText('BGM 素材库')).toBeTruthy();
+
+    // 插件确实列出来了（id 为列表主键）
+    expect(await screen.findByText('whisper_stt')).toBeTruthy();
+    expect(screen.getByText('bgm_library')).toBeTruthy();
     expect(mocks.pluginList).toHaveBeenCalled();
+    // 完整管理能力：启停开关 + 健康/贡献/错误通道入口
+    expect(screen.getAllByTitle('禁用（持久化）').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: /健康详情/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /贡献清单/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /错误通道/ })).toBeTruthy();
   });
 
-  it('类型 tab 仍显示类型插件（typeMakerApi），互不混淆', async () => {
+  it('类型 tab 显示类型总览（typeMakerApi），与插件 tab 互不混淆', async () => {
     mocks.typeMakerList.mockResolvedValue([
-      { id: 'knowledge_longform', name: '知识区长片', description: '5-15s' },
+      { id: 'knowledge_longform', name: '知识区长片', description: '5-15s 镜头 · 硬切', builtin: true, tags: [] },
     ]);
     mocks.pluginList.mockResolvedValue([
-      { manifest: { id: 'whisper_stt', name: 'Whisper 语音转文字' } },
+      { manifest: { id: 'whisper_stt', name: 'Whisper 语音转文字' }, enabled: true },
     ]);
+    mocks.pluginHealth.mockResolvedValue({ overall: 'ok', plugins: [], errors_total: 0 });
     render(<HomePage />);
+
     fireEvent.click(screen.getByRole('button', { name: '类型' }));
+    // 类型总览列出全部类型（名称 + id + 内置标记）
     expect(await screen.findByText('知识区长片')).toBeTruthy();
+    expect(screen.getByText('knowledge_longform')).toBeTruthy();
+    // 内置标记（徽章 + 顶部计数各含「内置」字样，故用 getAllByText）
+    expect(screen.getAllByText('内置').length).toBeGreaterThanOrEqual(1);
     // 类型 tab 不应出现真实插件
-    expect(screen.queryByText('Whisper 语音转文字')).toBeNull();
+    expect(screen.queryByText('whisper_stt')).toBeNull();
+
     // 切到插件 tab → 显示真实插件
     fireEvent.click(screen.getByRole('button', { name: '插件' }));
-    expect(await screen.findByText('Whisper 语音转文字')).toBeTruthy();
+    expect(await screen.findByText('whisper_stt')).toBeTruthy();
     expect(screen.queryByText('知识区长片')).toBeNull();
   });
 });

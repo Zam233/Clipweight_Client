@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useTimelineStore } from '@/stores/timelineStore';
+import { usePluginContributions } from '@/features/plugins/usePluginSlots';
 import { useProjectStore } from '@/stores/projectStore';
 import { renderApi, projectApi, assetApi, toolApi } from '@/services/api';
 import { connectSseStream, type SseStreamHandle } from '@/services/api/sseStream';
@@ -9,18 +10,14 @@ import { createEmptyTimeline } from '@/types/timeline';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge } from '@/components/ui';
 import { uid, formatTimecode } from '@/lib/utils';
+import { resolveContainerExt, type ExportPresetDef } from './exportPreset';
 import type { ExportSettings, RenderProgress } from '@/types/api';
 import {
   Download, Clapperboard, Gauge, Cpu, Film, Loader2, CheckCircle2,
   XCircle, ArrowLeft, HardDrive, Zap, RotateCcw, Wand2,
 } from 'lucide-react';
 
-interface PresetDef {
-  name: string;
-  width: number;
-  height: number;
-  fps: number;
-  bitrate: string;
+interface PresetDef extends ExportPresetDef {
   icon: string;
 }
 
@@ -164,10 +161,30 @@ export function ExportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // D-3h：插件贡献的导出预设（kind=export_preset）——键前缀 plugin:，
+  // 提交时置空 preset 名走显式参数（后端 _EXPORT_PRESETS 不含插件 id，
+  // 避免 P1-06 的「未知导出预设 400」陷阱）
+  const pluginPresets = usePluginContributions('export_preset');
+
   // 合并后端预设与内置预设；后端字段缺失时回落到内置默认值，避免 NaN/undefined 设置
   const presets = useMemo(() => {
-    if (!apiPresets || Object.keys(apiPresets).length === 0) return PRESETS;
-    const merged: Record<string, PresetDef> = { ...PRESETS };
+    const withPlugins: Record<string, PresetDef> = { ...PRESETS };
+    for (const c of pluginPresets) {
+      const payload = (c.payload ?? {}) as Partial<PresetDef>;
+      if (!payload.width || !payload.height) continue;
+      withPlugins[`plugin:${c.id}`] = {
+        name: String(payload.name ?? c.title ?? c.id),
+        icon: c.icon ?? '🧩',
+        width: payload.width,
+        height: payload.height,
+        fps: payload.fps ?? 30,
+        bitrate: payload.bitrate ?? '6M',
+        // B12：插件预设可声明容器（payload.container / payload.ext）
+        ...(payload.container ? { container: String(payload.container) } : {}),
+      };
+    }
+    if (!apiPresets || Object.keys(apiPresets).length === 0) return withPlugins;
+    const merged: Record<string, PresetDef> = { ...withPlugins };
     for (const [id, p] of Object.entries(apiPresets)) {
       // 过滤 undefined 字段：后端预设缺 name/icon 时保留内置预设的值（U15）
       const clean = Object.fromEntries(
@@ -180,13 +197,17 @@ export function ExportPage() {
       merged[id] = { ...(merged[id] ?? fallback), ...clean };
     }
     return merged;
-  }, [apiPresets]);
+  }, [apiPresets, pluginPresets]);
 
   const applyPreset = (id: string) => {
     const p = presets[id];
     if (!p) return;
     setPresetId(id);
-    setSettings({ preset: id, width: p.width, height: p.height, fps: p.fps, bitrate: p.bitrate });
+    // P1-06：custom 与插件预设都不是后端合法 preset 名（未知预设 400）——置空串走显式参数分支
+    setSettings({
+      preset: id === 'custom' || id.startsWith('plugin:') ? '' : id,
+      width: p.width, height: p.height, fps: p.fps, bitrate: p.bitrate,
+    });
   };
 
   const submitRender = async () => {
@@ -198,7 +219,7 @@ export function ExportPage() {
     // 批C：容器扩展名跟随预设（ProRes=MOV——MP4 容器装不下 prores 编码），
     // 并加时间戳避免同名任务互相覆盖
     const presetDef = presets[presetId];
-    const ext = presetId === 'prores422hq' ? 'mov' : 'mp4';
+    const ext = resolveContainerExt(presetId, presetDef);
     const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
     const filename = `${safeName}_${settings.width}x${settings.height}_${stamp}.${ext}`;
     const item: QueueItem = {
@@ -230,9 +251,22 @@ export function ExportPage() {
         toast('后端离线，无法真实渲染，已进入演示模式', 'error');
         simulateRender(taskId);
       } else {
-        const detail = anyE?.response?.data?.detail;
-        updateQueue(taskId, { status: 'failed', detail: typeof detail === 'string' ? detail : '提交失败' });
-        toast(typeof detail === 'string' && detail ? detail : '渲染提交失败', 'error');
+        // P1-07：422 的 detail 是 [{loc,msg,type}] 数组——拼接字段级原因，
+        // 优先取 client 拦截器归一化的 userMessage，不再笼统显示「提交失败」
+        const rawDetail = anyE?.response?.data?.detail;
+        let detail: string | undefined;
+        if (typeof rawDetail === 'string') {
+          detail = rawDetail;
+        } else if (Array.isArray(rawDetail)) {
+          detail = (rawDetail as { loc?: unknown[]; msg?: string }[])
+            .slice(0, 3)
+            .map((it) => `${(it.loc ?? []).filter((x) => x !== 'body').join('.')}: ${it.msg ?? '无效'}`)
+            .join('；');
+        }
+        const userMessage = (e as { userMessage?: string }).userMessage;
+        const shown = userMessage || detail;
+        updateQueue(taskId, { status: 'failed', detail: shown || '提交失败' });
+        toast(shown || '渲染提交失败', 'error');
       }
     } finally {
       setSubmitting(false);
@@ -452,7 +486,7 @@ export function ExportPage() {
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-cw-full bg-surface-container-high border border-outline-variant/30 text-caption cursor-pointer hover:border-primary/60"
                     title={`${p.width}×${p.height} · ${p.fps}fps · ${p.bitrate}`}
                   >
-                    <button onClick={() => { setSettings({ ...settings, width: p.width, height: p.height, fps: p.fps, bitrate: p.bitrate }); setPresetId(''); }}
+                    <button onClick={() => { setSettings({ ...settings, preset: '', width: p.width, height: p.height, fps: p.fps, bitrate: p.bitrate }); setPresetId(''); }}
                       className="hover:text-primary">{p.name}</button>
                     <button onClick={() => {
                       const next = savedPresets.filter((x) => x.name !== p.name);

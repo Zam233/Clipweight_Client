@@ -6,6 +6,8 @@ import { usePreviewStore } from '@/stores/previewStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { keybindingEngine } from '@/features/keyboard/KeybindingEngine';
 import { Tooltip } from '@/components/ui';
+import { TimelineContextMenu } from './TimelineContextMenu';
+import type { TimelineContextMenuItem } from './TimelineContextMenu';
 import { formatTimecode, cn } from '@/lib/utils';
 import type { ClipKind } from '@/types/timeline';
 import { TRACK_COLORS } from '@/types/timeline';
@@ -13,24 +15,37 @@ import { HEADER_W } from '../engine/types';
 import {
   Magnet, Plus, ZoomIn, ZoomOut, Maximize2, Trash2, Scissors, ChevronsLeft,
   Layers, Lock, LockOpen, Volume2, VolumeX, ArrowUp, ArrowDown, X, Flag, FlagOff,
-  Grid3x3, Eye, EyeOff, Settings, History as HistoryIcon, RotateCcw,
-} from 'lucide-react';
+  Grid3x3, Eye, EyeOff, Settings, History as HistoryIcon, RotateCcw, Zap } from 'lucide-react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { versionApi } from '@/services/api/project';
 import type { TimelineVersionEntry } from '@/services/api/project';
 import { mediaManager } from '@/services/media/mediaManager';
 import { toast } from '@/stores/toastStore';
+import { usePluginSlots } from '@/features/plugins/usePluginSlots';
+import { getApiClient } from '@/services/api';
 
 /**
  * TimelinePanel — hosts the Canvas timeline engine plus transport/track controls.
  */
+/** D-3：插件槽位动作执行器（受控 API 调用，无任意 JS；失败 toast）。 */
+function runSlotAction(label: string, action: { endpoint: string; method?: string; body?: Record<string, unknown> }) {
+  const method = String(action.method ?? 'POST').toUpperCase();
+  const client = getApiClient();
+  const req = method === 'GET'
+    ? client.get(action.endpoint)
+    : client.request({ url: action.endpoint, method, data: action.body ?? {} });
+  req.catch(() => toast(`插件操作失败：${label}`, 'error'));
+}
+
 export function TimelinePanel() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<TimelineEngine | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [dropActive, setDropActive] = useState(false);
+  // 轮 89（批次 10）：右键菜单位置（null = 关闭）
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
   const addTrack = useTimelineStore((s) => s.addTrack);
   const removeClip = useTimelineStore((s) => s.removeClip);
@@ -96,6 +111,9 @@ export function TimelinePanel() {
     setHistoryError(null);
     try {
       const res = await versionApi.restore(projectId, position);
+      // P2-46: 恢复前推送当前时间线快照——Ctrl+Z 可撤销恢复操作
+      useHistoryStore.getState().pushState(
+        useTimelineStore.getState().timeline, 'restore version');
       useTimelineStore.getState().setTimeline(res.timeline);
       mediaManager.registerTimeline(res.timeline);
       await refreshVersions();
@@ -288,6 +306,50 @@ export function TimelinePanel() {
     useSelectionStore.getState().deselectAll();
   };
 
+  // 轮 89（批次 10）：右键菜单项（复用工具栏既有动作）
+  // D-3e/f：插件时间轴工具与右键菜单项（受控 API 调用）
+  const pluginTools = usePluginSlots('timeline.tool');
+  const pluginMenuItems = usePluginSlots('timeline.context-menu');
+
+  const buildContextMenuItems = (): TimelineContextMenuItem[] => [
+    ...pluginMenuItems.map((c) => {
+      const action = (c.payload as { action?: { endpoint?: string; method?: string; body?: Record<string, unknown> } } | undefined)?.action;
+      const shortcut = (c.payload as { shortcut?: string } | undefined)?.shortcut;
+      return {
+        label: c.title,
+        shortcut,
+        danger: Boolean((c.payload as { danger?: boolean } | undefined)?.danger),
+        disabled: !action?.endpoint,
+        onSelect: () => { if (action?.endpoint) runSlotAction(c.title, { ...action, endpoint: action.endpoint }); },
+      } as TimelineContextMenuItem;
+    }),
+    {
+      label: '在播放头处切分',
+      shortcut: 'S',
+      disabled: selectedClipIds.length === 0,
+      onSelect: handleSplitAtPlayhead,
+    },
+    {
+      label: '删除选中',
+      shortcut: 'Del',
+      danger: true,
+      disabled: selectedClipIds.length === 0,
+      onSelect: handleDelete,
+    },
+    {
+      label: '波纹删除（闭合空隙）',
+      danger: true,
+      disabled: selectedClipIds.length === 0,
+      onSelect: handleRippleDelete,
+    },
+    {
+      label: '取消选择',
+      shortcut: 'Esc',
+      disabled: selectedClipIds.length === 0,
+      onSelect: () => useSelectionStore.getState().deselectAll(),
+    },
+  ];
+
   return (
     <div className="flex flex-col h-full bg-surface-container-low">
       {/* Timeline toolbar */}
@@ -318,6 +380,21 @@ export function TimelinePanel() {
               <Scissors className="w-3.5 h-3.5" />
             </button>
           </Tooltip>
+          {/* D-3e：插件时间轴工具（受控 API 调用，无任意 JS） */}
+          {pluginTools.map((c) => {
+            const action = (c.payload as { action?: { endpoint?: string; method?: string; body?: Record<string, unknown> } } | undefined)?.action;
+            if (!action?.endpoint) return null;
+            return (
+              <Tooltip key={c.id} content={c.title}>
+                <button
+                  onClick={() => runSlotAction(c.title, { ...action, endpoint: action.endpoint! })}
+                  className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                </button>
+              </Tooltip>
+            );
+          })}
           <Tooltip content="范围选择 (R)">
             <button
               onClick={() => setToolMode('range')}
@@ -519,9 +596,23 @@ export function TimelinePanel() {
       <div
         ref={containerRef}
         className="flex-1 relative overflow-hidden min-h-0"
+        onContextMenu={(e) => {
+          // 轮 89（批次 10）：右键命中片段 → 选中并弹出自定义菜单
+          e.preventDefault();
+          const rect = containerRef.current?.getBoundingClientRect();
+          if (!rect || !engineRef.current) return;
+          const hit = engineRef.current.hitTestClip(e.clientX - rect.left, e.clientY - rect.top);
+          if (hit) useSelectionStore.getState().selectClip(hit.clip.id);
+          setCtxMenu({ x: e.clientX, y: e.clientY });
+        }}
         onDragOver={(e) => {
           const types = e.dataTransfer.types;
-          if (types.includes('application/x-clipwright-asset') || types.includes('text/plain')) {
+          // P2-21: 接受操作系统文件拖入（旧实现只认内部拖拽）
+          if (
+            types.includes('Files') ||
+            types.includes('application/x-clipwright-asset') ||
+            types.includes('text/plain')
+          ) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
             setDropActive(true);
@@ -530,6 +621,39 @@ export function TimelinePanel() {
         onDragLeave={() => setDropActive(false)}
         onDrop={(e) => {
           setDropActive(false);
+          // P2-21: OS 文件拖入 → 上传 → 入轨（失败逐文件提示）
+          const files = Array.from(e.dataTransfer.files ?? []);
+          if (files.length > 0) {
+            e.preventDefault();
+            void (async () => {
+              const pid = useProjectStore.getState().projectId;
+              for (const file of files) {
+                try {
+                  const { assetApi } = await import('@/services/api');
+                  const res = await assetApi.upload(file, () => {}, pid ?? undefined);
+                  const assetId = res.id || res.asset_id || `asset_${Date.now().toString(36)}`;
+                  mediaManager.registerFile(assetId, file);
+                  const kind: ClipKind = file.type.startsWith('video')
+                    ? 'video'
+                    : file.type.startsWith('audio')
+                      ? 'audio'
+                      : 'image';
+                  const rect = containerRef.current?.getBoundingClientRect();
+                  if (rect && engineRef.current) {
+                    engineRef.current.dropAssetAt(e.clientX - rect.left, e.clientY - rect.top, {
+                      id: assetId,
+                      kind,
+                      filename: file.name,
+                      duration: res.duration_sec && res.duration_sec > 0 ? res.duration_sec : 5,
+                    });
+                  }
+                } catch {
+                  toast(`「${file.name}」上传失败（后端不可达或格式不支持）`, 'error');
+                }
+              }
+            })();
+            return;
+          }
           const raw = e.dataTransfer.getData('application/x-clipwright-asset') || e.dataTransfer.getData('text/plain');
           if (!raw || !engineRef.current || !containerRef.current) return;
           e.preventDefault();
@@ -546,6 +670,15 @@ export function TimelinePanel() {
         {dropActive && (
           <div className="absolute inset-0 z-10 pointer-events-none border-2 border-dashed border-primary/60 bg-primary/5 rounded-cw-sm" />
         )}
+        {/* 轮 89（批次 10）：时间线右键菜单 */}
+        {ctxMenu && (
+          <TimelineContextMenu
+            x={ctxMenu.x}
+            y={ctxMenu.y}
+            onClose={() => setCtxMenu(null)}
+            items={buildContextMenuItems()}
+          />
+        )}
         {/* M8: 标记重命名输入框（定位在标尺对应 x） */}
         {renamingMarker && (
           <MarkerRenameInput
@@ -558,7 +691,11 @@ export function TimelinePanel() {
         )}
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 block"
+          // P2-24: 时间线画布此前无键盘可达性/语义——补 tabIndex/role/aria
+          tabIndex={0}
+          role="application"
+          aria-label="时间线画布：使用方向键微调选中片段，Delete 删除，Ctrl+Z 撤销；按 ? 查看全部快捷键"
+          className="absolute inset-0 block outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
           style={{ pointerEvents: 'auto' }}
         />
       </div>

@@ -5,7 +5,12 @@ interface WorkspacePanel {
   assets: boolean;
   properties: boolean;
   agent: boolean;
+  /** B10：时间线区域（含插件下栏）的显隐——插件下栏必须跟随它 */
+  timeline: boolean;
 }
+
+/** 抽屉形态只覆盖可停靠/滑出的三栏（时间线是常驻区域，不在抽屉内渲染） */
+type MobilePanelName = 'assets' | 'properties' | 'agent';
 
 interface WorkspaceState {
   /** Panel visibility */
@@ -23,11 +28,11 @@ interface WorkspaceState {
   /** Active bottom tab in timeline area */
   activeBottomTab: 'timeline' | 'keyframes' | 'audio';
   /** 轮69：<lg 视口下的折叠抽屉面板（桌面端恒为 null，不持久化） */
-  mobilePanel: keyof WorkspacePanel | null;
+  mobilePanel: MobilePanelName | null;
 
   // Actions
   togglePanel: (panel: keyof WorkspacePanel) => void;
-  setMobilePanel: (panel: keyof WorkspacePanel | null) => void;
+  setMobilePanel: (panel: MobilePanelName | null) => void;
   setPanelWidth: (panel: keyof WorkspacePanel, width: number) => void;
   setTimelineHeight: (height: number) => void;
   toggleTimelineCollapsed: () => void;
@@ -47,7 +52,7 @@ const DEFAULT_TIMELINE_HEIGHT = 280;
 function loadLayout() {
   try {
     const raw = loadPref('layout', {
-      panels: { assets: true, properties: true, agent: true },
+      panels: { assets: true, properties: true, agent: true, timeline: true },
       panelWidths: { ...DEFAULT_PANEL_WIDTHS },
       timelineHeight: DEFAULT_TIMELINE_HEIGHT,
     });
@@ -58,8 +63,9 @@ function loadLayout() {
           assets: raw.panels.assets === undefined ? true : Boolean(raw.panels.assets),
           properties: raw.panels.properties === undefined ? true : Boolean(raw.panels.properties),
           agent: raw.panels.agent === undefined ? true : Boolean(raw.panels.agent),
+          timeline: raw.panels.timeline === undefined ? true : Boolean(raw.panels.timeline),
         }
-        : { assets: true, properties: true, agent: true },
+        : { assets: true, properties: true, agent: true, timeline: true },
       panelWidths: raw?.panelWidths && typeof raw.panelWidths === 'object'
         ? {
           assets: typeof raw.panelWidths.assets === 'number' ? raw.panelWidths.assets : DEFAULT_PANEL_WIDTHS.assets,
@@ -71,7 +77,7 @@ function loadLayout() {
     };
   } catch {
     return {
-      panels: { assets: true, properties: true, agent: true },
+      panels: { assets: true, properties: true, agent: true, timeline: true },
       panelWidths: { ...DEFAULT_PANEL_WIDTHS },
       timelineHeight: DEFAULT_TIMELINE_HEIGHT,
     };
@@ -110,7 +116,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
 
   resetLayout: () =>
     set({
-      panels: { assets: true, properties: true, agent: true },
+      panels: { assets: true, properties: true, agent: true, timeline: true },
       panelWidths: { ...DEFAULT_PANEL_WIDTHS },
       timelineHeight: DEFAULT_TIMELINE_HEIGHT,
       timelineCollapsed: false,

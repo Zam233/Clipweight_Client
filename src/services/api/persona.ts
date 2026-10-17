@@ -1,4 +1,5 @@
 import { getApiClient } from './client';
+import { streamPostSse } from './ssePost';
 import { personaFromBackend, type Persona } from '@/types/persona';
 
 export const personaApi = {
@@ -24,14 +25,20 @@ export const personaApi = {
     return personaFromBackend(data as Record<string, unknown>);
   },
 
+  /** P0-05: 取未经 UI 映射的原始 manifest（保存时用于保留后端专有字段） */
+  async getRaw(personaId: string): Promise<Record<string, unknown>> {
+    const { data } = await getApiClient().get(`/api/persona/${personaId}`);
+    return data as Record<string, unknown>;
+  },
+
   /** Create a new persona */
   async create(persona: Partial<Persona>) {
     const { data } = await getApiClient().post('/api/persona/create', persona);
     return data;
   },
 
-  /** Update a persona */
-  async update(personaId: string, updates: Partial<Persona>) {
+  /** Update a persona（P0-05: updates 为 buildUpdatePayload 产出的合并负载） */
+  async update(personaId: string, updates: Record<string, unknown>) {
     const { data } = await getApiClient().put(`/api/persona/${personaId}`, updates);
     return data;
   },
@@ -187,13 +194,109 @@ export const personaApi = {
     return data as { session_id: string; persona_draft?: unknown; progress?: Record<string, number>; reply?: string };
   },
 
-  /** Send a chat forge message */
-  async chatForgeMessage(sessionId: string, message: string) {
+  /** Send a chat forge message（可带图片/文件附件） */
+  async chatForgeMessage(
+    sessionId: string,
+    message: string,
+    attachments?: Array<{ type: 'image' | 'file'; name?: string; mime?: string; data_url: string }>,
+  ) {
     const { data } = await getApiClient().post('/api/persona/forge/chat/message', {
       session_id: sessionId,
       message,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
     });
     return data as { reply?: string; persona_draft?: unknown; progress?: Record<string, number>; missing_dimensions?: string[] };
+  },
+
+  /**
+   * 流式发送消息（SSE）：`onDelta` 逐块拿到模型新增文本，`onDone` 拿到完整状态。
+   *
+   * 用 POST + fetch 流读取（见 `ssePost.ts`）：对话正文可能很长、还可能带图片附件，
+   * EventSource 发不了 POST 体。历史欠账：此前只能等完整 JSON 才渲染。
+   */
+  async chatForgeMessageStream(
+    sessionId: string,
+    message: string,
+    handlers: {
+      onDelta?: (text: string) => void;
+      onDone?: (state: {
+        session_id?: string; reply?: string; persona_draft?: unknown;
+        progress?: Record<string, number>; missing_dimensions?: string[];
+      }) => void;
+      onError?: (detail: string, partial?: string) => void;
+    },
+    attachments?: Array<{ type: 'image' | 'file'; name?: string; mime?: string; data_url: string }>,
+    signal?: AbortSignal,
+  ) {
+    await streamPostSse('/api/persona/forge/chat/message/stream', {
+      session_id: sessionId,
+      message,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    }, {
+      signal,
+      onEvent: (raw) => {
+        const event = raw as { type?: string; text?: string; detail?: string; partial?: string };
+        if (event?.type === 'delta' && typeof event.text === 'string') handlers.onDelta?.(event.text);
+        else if (event?.type === 'done') handlers.onDone?.(event as never);
+        else if (event?.type === 'error') handlers.onError?.(event.detail ?? '流式生成失败', event.partial);
+      },
+    });
+  },
+
+  // ── Chat Forge 历史欠账补齐：会话列表 / 知识库 CRUD（O5 后一轮） ──
+
+  /** 列出会话（scope=mine 只看自己的；off 鉴权下两者等价） */
+  async chatForgeSessions(scope: 'mine' | 'all' = 'mine') {
+    const { data } = await getApiClient().get('/api/persona/forge/chat/sessions', { params: { scope } });
+    return data as {
+      sessions: Array<{
+        session_id: string; title: string; message_count: number; knowledge_count: number;
+        created_at: string; updated_at: string; progress: Record<string, number>;
+        draft_summary?: { tone?: string; cut_profile?: string; palette?: string };
+      }>;
+      total: number;
+    };
+  },
+
+  /** 删除会话 */
+  async chatForgeDeleteSession(sessionId: string) {
+    const { data } = await getApiClient().delete(`/api/persona/forge/chat/sessions/${sessionId}`);
+    return data as { deleted: boolean; session_id: string };
+  },
+
+  /** 列出会话知识库条目 */
+  async chatForgeKnowledgeList(sessionId: string) {
+    const { data } = await getApiClient().get(`/api/persona/forge/chat/knowledge/${sessionId}`);
+    return data as {
+      items: Array<{ id: string; source: string; chars: number; preview: string }>;
+      total: number;
+    };
+  },
+
+  /** 读取单条知识全文 */
+  async chatForgeKnowledgeGet(sessionId: string, kbId: string) {
+    const { data } = await getApiClient().get(`/api/persona/forge/chat/knowledge/${sessionId}/${kbId}`);
+    return data as { id: string; source: string; content: string };
+  },
+
+  /** 编辑一条知识（只改存储上下文，不重跑 LLM） */
+  async chatForgeKnowledgeUpdate(sessionId: string, kbId: string, patch: { content?: string; source?: string }) {
+    const { data } = await getApiClient().put(
+      `/api/persona/forge/chat/knowledge/${sessionId}/${kbId}`, patch,
+    );
+    return data as { id: string; source: string; content: string };
+  },
+
+  /** 删除一条知识 */
+  async chatForgeKnowledgeDelete(sessionId: string, kbId: string) {
+    const { data } = await getApiClient().delete(`/api/persona/forge/chat/knowledge/${sessionId}/${kbId}`);
+    return data as { deleted: boolean; id: string };
+  },
+
+  /** 清空会话知识库 */
+  async chatForgeKnowledgeClear(sessionId: string) {
+    const { data } = await getApiClient().delete(`/api/persona/forge/chat/knowledge/${sessionId}`);
+    return data as { deleted: number };
   },
 
   /** Upload knowledge content for chat forge (sends text content, chunked) */

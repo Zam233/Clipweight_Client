@@ -11,6 +11,13 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { toast } from '@/stores/toastStore';
 import { Button, Tooltip } from '@/components/ui';
 import { formatTimecode, uid } from '@/lib/utils';
+import { usePluginSlots } from '@/features/plugins/usePluginSlots';
+import { HistoryPanel } from '@/features/history/HistoryPanel';
+import {
+  alignCuesToFrames, parseSubtitles, summarizeParse,
+  type SubtitleCue, type SubtitleWarning,
+} from '@/features/subtitles/parse';
+import { getApiClient } from '@/services/api';
 import type { Clip } from '@/types/timeline';
 import type { ClipKind } from '@/types/timeline';
 import { createEmptyTimeline } from '@/types/timeline';
@@ -19,7 +26,7 @@ import {
   Undo2, Redo2, Save, PanelLeft, PanelRight, Bot, Film,
   FileText, ArrowLeft, Check, Loader2, Mic, Download,
   Copy, ClipboardPaste, FileUp, Keyboard, FileJson, Upload,
-  History as HistoryIcon, X,
+  History as HistoryIcon,
 } from 'lucide-react';
 
 /**
@@ -35,6 +42,38 @@ export function extractImportError(err: unknown, actionLabel: string): string {
   if (status === 400) return `${actionLabel} — 格式错误：请检查文件内容后重试`;
   if (status === 422) return `${actionLabel} — 数据校验失败，请检查文件`;
   return `${actionLabel} — 后端不可达`;
+}
+
+/** D-3d：插件贡献的工具栏按钮（payload {icon,label,action}；受控 API 调用，无任意 JS）。 */
+function PluginToolbarButtons() {
+  const items = usePluginSlots('editor.toolbar');
+  if (items.length === 0) return null;
+  return (
+    <>
+      {items.map((c) => {
+        const action = (c.payload as { action?: { endpoint?: string; method?: string; body?: Record<string, unknown> } } | undefined)?.action;
+        if (!action?.endpoint) return null;
+        return (
+          <Button
+            key={c.id}
+            size="sm"
+            variant="outline"
+            title={c.title}
+            onClick={() => {
+              const method = String(action.method ?? 'POST').toUpperCase();
+              const client = getApiClient();
+              const req = method === 'GET'
+                ? client.get(action.endpoint!)
+                : client.request({ url: action.endpoint!, method, data: action.body ?? {} });
+              req.catch(() => toast(`插件操作失败：${c.title}`, 'error'));
+            }}
+          >
+            {c.title}
+          </Button>
+        );
+      })}
+    </>
+  );
 }
 
 export function EditorToolbar() {
@@ -59,10 +98,12 @@ export function EditorToolbar() {
   const mobilePanel = useWorkspaceStore((s) => s.mobilePanel);
   const setMobilePanel = useWorkspaceStore((s) => s.setMobilePanel);
   const isDesktop = useMediaQuery('(min-width: 1024px)');
-  const panelActive = (p: 'assets' | 'properties' | 'agent') =>
+  // B10：timeline 也是可切换面板（插件下栏随之显隐）
+  const panelActive = (p: 'assets' | 'properties' | 'agent' | 'timeline') =>
     isDesktop ? panels[p] : mobilePanel === p;
-  const handlePanelToggle = (p: 'assets' | 'properties' | 'agent') => {
-    if (isDesktop) togglePanel(p);
+  const handlePanelToggle = (p: 'assets' | 'properties' | 'agent' | 'timeline') => {
+    // 时间线没有抽屉形态：窄屏下也直接切可见性开关
+    if (isDesktop || p === 'timeline') togglePanel(p);
     else setMobilePanel(mobilePanel === p ? null : p);
   };
 
@@ -71,23 +112,20 @@ export function EditorToolbar() {
   const canUndo = useHistoryStore((s) => s.undoStack.length > 0);
   const canRedo = useHistoryStore((s) => s.redoStack.length > 0);
 
-  const handleUndo = () => {
-    const tl = undo();
-    if (tl) useTimelineStore.getState().setTimeline(tl);
-  };
-  const handleRedo = () => {
-    const tl = redo();
-    if (tl) useTimelineStore.getState().setTimeline(tl);
-  };
+  // O3：undo/redo/跳转由 historyStore 自己切换时间线并恢复当时的选择，
+  // 调用方不要再 setTimeline（那会用默认参数把刚恢复的选择清掉）
+  const handleUndo = () => { undo(); };
+  const handleRedo = () => { redo(); };
 
-  // W7: 撤销历史列表（跳转到任意历史快照）
+  // W7/O3: 撤销历史面板（跳转到任意历史快照 + 中文动作名 + 选中片段数 + 可重做段）
   const [historyOpen, setHistoryOpen] = useState(false);
-  const undoStack = useHistoryStore((s) => s.undoStack);
-  const handleJumpTo = (index: number) => {
-    const tl = useHistoryStore.getState().jumpTo(index);
-    if (tl) useTimelineStore.getState().setTimeline(tl);
-    setHistoryOpen(false);
-  };
+  // 字幕导入预览（解析后先看清单与告警，再确认插入）
+  const [srtPreview, setSrtPreview] = useState<{
+    filename: string;
+    cues: SubtitleCue[];
+    warnings: SubtitleWarning[];
+    summary: string;
+  } | null>(null);
 
   const handleCopy = () => {
     const sel = useSelectionStore.getState().selectedClipIds;
@@ -107,7 +145,15 @@ export function EditorToolbar() {
 
   // C7: 代理工作流（生成代理 / 切换代理·原片）
   const [proxyBusy, setProxyBusy] = useState(false);
-  const [proxyMode, setProxyMode] = useState<'full' | 'proxy'>('full');
+  // P2-42: 代理态持久化——旧实现每次挂载重置为 full（刷新后与实际素材不符）
+  const [proxyMode, setProxyMode] = useState<'full' | 'proxy'>(() => {
+    try {
+      const v = localStorage.getItem('clipwright_proxy_mode');
+      return v === 'proxy' ? 'proxy' : 'full';
+    } catch {
+      return 'full';
+    }
+  });
   const [proxyNotice, setProxyNotice] = useState<string | null>(null);
 
   const handleGenerateProxy = async () => {
@@ -150,6 +196,7 @@ export function EditorToolbar() {
       const nextTl = result as unknown as ReturnType<typeof createEmptyTimeline>;
       useTimelineStore.getState().setTimeline(nextTl);
       setProxyMode(next);
+      try { localStorage.setItem('clipwright_proxy_mode', next); } catch { /* ignore */ }
       // V6: setTimeline 内部已按 URL 变化全量重注册媒体（timelineStore 旋点），
       // 切换改写的素材路径由此获得新 URL，预览不再指向旧地址
       setProxyNotice(next === 'proxy' ? '已切换到代理素材（低分辨率）' : '已切回原始素材（全分辨率）');
@@ -180,45 +227,70 @@ export function EditorToolbar() {
     }
   };
 
+  /**
+   * 字幕导入（SRT / VTT / ASS / SSA）。
+   *
+   * 解析结果**先预览再插入**：畸形 cue（时间倒挂/空文本/无时间戳）逐条列出，
+   * 用户能看到"哪一句会被丢掉"而不是导入后才发现少了几句；
+   * cue 起止按时间线帧率对齐（O1 的 tick 换算），与播放头步进/后端 ASS 输出对得齐。
+   */
   const handleSrtImport = () => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.srt,.vtt';
+    input.accept = '.srt,.vtt,.ass,.ssa';
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
       const text = await file.text();
-      const entries = parseSrt(text);
-      if (entries.length === 0) return;
-      const store = useTimelineStore.getState();
-      useHistoryStore.getState().pushState(store.timeline, 'import srt');
-      // 轮74：SRT 只落 caption 轨——旧实现复用已存在的 text 轨，字幕样式级联
-      // （PropertiesPanel 按 trackKind === 'caption' 判断）整层失效
-      let subTrack = store.timeline.tracks.find((t) => t.kind === 'caption');
-      if (!subTrack) {
-        const tid = store.addTrack('caption', '字幕');
-        subTrack = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
-        if (!subTrack) return;
+      const parsed = parseSubtitles(text, file.name);
+      if (parsed.cues.length === 0) {
+        const first = parsed.warnings[0]?.detail ?? '请检查文件是否为标准 SRT/VTT/ASS 格式';
+        toast(`未解析到字幕条目：${first}`, 'error');
+        return;
       }
-      for (const e of entries) {
-        store.addClip(subTrack!.id, {
-          kind: 'caption' as const,
-          asset_id: '',
-          start_sec: e.start,
-          duration_sec: e.end - e.start,
-          source_offset_sec: 0,
-          speed: 1,
-          volume: 1,
-          opacity: 1,
-          text: e.text,
-          font_size: 28,
-          font_color: '#FFFFFF',
-          keyframes: [],
-          metadata: { title: `字幕 ${e.index}` },
-        });
-      }
+      setSrtPreview({
+        filename: file.name,
+        cues: alignCuesToFrames(parsed.cues, usePreviewStore.getState().fps || 30),
+        warnings: parsed.warnings,
+        summary: summarizeParse(parsed),
+      });
     };
     input.click();
+  };
+
+  /** 确认导入预览里的字幕（批量插入 caption 轨） */
+  const commitSrtImport = () => {
+    if (!srtPreview) return;
+    const store = useTimelineStore.getState();
+    useHistoryStore.getState().pushState(store.timeline, 'import srt');
+    // 轮74：SRT 只落 caption 轨——旧实现复用已存在的 text 轨，字幕样式级联
+    // （PropertiesPanel 按 trackKind === 'caption' 判断）整层失效
+    let subTrack = store.timeline.tracks.find((t) => t.kind === 'caption');
+    if (!subTrack) {
+      const tid = store.addTrack('caption', '字幕');
+      subTrack = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid);
+      if (!subTrack) return;
+    }
+    for (const e of srtPreview.cues) {
+      store.addClip(subTrack.id, {
+        kind: 'caption' as const,
+        asset_id: '',
+        start_sec: e.start,
+        duration_sec: e.end - e.start,
+        source_offset_sec: 0,
+        speed: 1,
+        volume: 1,
+        opacity: 1,
+        text: e.text,
+        font_size: 28,
+        font_color: '#FFFFFF',
+        keyframes: [],
+        metadata: { title: `字幕 ${e.index}` },
+      });
+    }
+    toast(`已导入 ${srtPreview.cues.length} 条字幕${srtPreview.warnings.length > 0 ? `（${srtPreview.warnings.length} 条告警）` : ''}`,
+          srtPreview.warnings.length > 0 ? 'info' : 'success');
+    setSrtPreview(null);
   };
 
   const handleAudioTranscribe = () => {
@@ -291,7 +363,17 @@ export function EditorToolbar() {
         const { edlApi } = await import('@/services/api/edl');
         const result = isFcp ? await edlApi.importFCPXML(text) : await edlApi.importEDL(text);
         const clips = result.clips ?? [];
-        if (clips.length === 0) return;
+        // P1-28: 0 片段明确提示（旧实现静默 return——FCP X 的 <asset-clip>
+        // 语法后端暂不解析，用户完全无感知）
+        if (clips.length === 0) {
+          toast(
+            isFcp
+              ? '未解析到片段：该文件可能是 FCP X 格式（asset-clip），当前仅支持 FCP 7 xmeml 语法的 fcpxml'
+              : '未在文件中解析到任何片段',
+            'error',
+          );
+          return;
+        }
 
         const store = useTimelineStore.getState();
         useHistoryStore.getState().pushState(store.timeline, `import ${isFcp ? 'fcpxml' : 'edl'}`);
@@ -332,10 +414,17 @@ export function EditorToolbar() {
         start_sec: c.start_sec,
         duration_sec: c.duration_sec,
         kind: c.kind,
+        // P1-29: 携带源入点与素材 id——缺失让导出的 EDL 全部 00:00:00:00，
+        // 无法在 NLE 里与原始素材重新链接
+        source_offset_sec: c.source_offset_sec,
+        asset_id: c.asset_id,
         title: c.metadata?.title as string ?? c.asset_id,
       })),
     );
-    if (clips.length === 0) return;
+    if (clips.length === 0) {
+      toast('时间线为空，没有可导出的片段', 'info'); // 待验证项修复：静默→提示
+      return;
+    }
     try {
       const { edlApi } = await import('@/services/api/edl');
       const result = await edlApi.exportEDL(clips, store.timeline.fps);
@@ -373,7 +462,15 @@ export function EditorToolbar() {
       try {
         const text = await file.text();
         const data = JSON.parse(text);
-        if (!data.tracks || !Array.isArray(data.tracks)) return;
+        // P2-43: 校验必需字段并确认后替换——旧实现静默整体替换（坏文件
+        // 也能覆盖当前时间线，且无任何提示）
+        if (!data || typeof data !== 'object' || !Array.isArray(data.tracks)) {
+          toast('JSON 导入失败 — 缺少 tracks 数组（不是 ClipWright 时间线文件？）', 'error');
+          return;
+        }
+        const clipCount = data.tracks.reduce(
+          (n: number, t: { clips?: unknown[] }) => n + (Array.isArray(t?.clips) ? t.clips.length : 0), 0);
+        if (!window.confirm(`将用导入文件替换当前时间线（${data.tracks.length} 轨 / ${clipCount} 片段）？此操作可撤销。`)) return;
         const store = useTimelineStore.getState();
         useHistoryStore.getState().pushState(store.timeline, 'import-json');
         store.setTimeline(data);
@@ -388,10 +485,15 @@ export function EditorToolbar() {
     const store = useTimelineStore.getState();
     const captions = store.timeline.tracks
       .flatMap((t) => t.clips)
-      .filter((c) => (c.kind === 'caption' || c.kind === 'text') && c.text?.trim())
+      // P2-44: 仅导出 caption 轨（text 轨是标题/花字，混入字幕文件语义错误）
+      .filter((c) => c.kind === 'caption' && c.text?.trim())
       .sort((a, b) => a.start_sec - b.start_sec);
 
-    if (captions.length === 0) return;
+    // 待验证项证实并修复：空字幕导出静默无反应——给出明确提示
+    if (captions.length === 0) {
+      toast('没有可导出的字幕（字幕轨为空）', 'info');
+      return;
+    }
 
     let srt = '';
     captions.forEach((c, i) => {
@@ -401,7 +503,8 @@ export function EditorToolbar() {
       srt += `${idx}\n${start} --> ${end}\n${c.text}\n\n`;
     });
 
-    const blob = new Blob([srt], { type: 'text/plain;charset=utf-8' });
+    // P2-44: 加 UTF-8 BOM——Windows 端播放器/NLE 依赖 BOM 识别编码
+    const blob = new Blob(['﻿', srt], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -412,6 +515,13 @@ export function EditorToolbar() {
 
   return (
     <div className="flex items-center gap-2 px-3 py-2 bg-surface-dim border-b border-outline-variant/30 shrink-0 overflow-x-auto">
+      {srtPreview && (
+        <SrtImportPreview
+          data={srtPreview}
+          onConfirm={commitSrtImport}
+          onCancel={() => setSrtPreview(null)}
+        />
+      )}
       {/* Back + Logo + project name */}
       <div className="flex items-center gap-2 mr-2">
         <Tooltip side="bottom" content="返回首页">
@@ -468,44 +578,15 @@ export function EditorToolbar() {
           <Redo2 className="w-4 h-4" />
         </button>
       </Tooltip>
-      {/* W7: 历史列表 */}
+      {/* W7/O3: 历史面板 */}
       <div className="relative">
         <Tooltip side="bottom" content="历史记录">
-          <button onClick={() => setHistoryOpen(!historyOpen)} disabled={undoStack.length === 0}
+          <button onClick={() => setHistoryOpen(!historyOpen)} disabled={!canUndo && !canRedo}
             className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface disabled:opacity-30 transition-colors cursor-pointer">
             <HistoryIcon className="w-4 h-4" />
           </button>
         </Tooltip>
-        {historyOpen && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setHistoryOpen(false)} />
-            <div className="absolute left-0 top-full mt-1.5 z-50 w-[260px] bg-surface-container-high border border-outline-variant/50
-              rounded-cw-md shadow-2xl shadow-black/50 overflow-hidden">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-outline-variant/30">
-                <span className="text-label font-medium text-on-surface-variant uppercase tracking-wide">历史记录 ({undoStack.length})</span>
-                <button onClick={() => setHistoryOpen(false)} className="p-1 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div className="max-h-[280px] overflow-y-auto p-1.5 space-y-0.5">
-                {undoStack.length === 0 && (
-                  <p className="text-caption text-on-surface-variant text-center py-3">暂无历史</p>
-                )}
-                {undoStack.map((entry, i) => (
-                  <button key={i} onClick={() => handleJumpTo(i)}
-                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-cw-sm text-left
-                      bg-surface-container hover:bg-surface transition-colors cursor-pointer">
-                    <span className="font-mono text-caption text-on-surface-variant/60 w-6 shrink-0">{undoStack.length - i}</span>
-                    <span className="text-label-sm text-on-surface truncate flex-1">{entry.label}</span>
-                    <span className="text-caption text-on-surface-variant/50 font-mono shrink-0">
-                      {new Date(entry.timestamp).toLocaleTimeString()}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
+        {historyOpen && <HistoryPanel open onClose={() => setHistoryOpen(false)} />}
       </div>
       <Tooltip side="bottom" content="复制 (Ctrl+C)">
         <button onClick={handleCopy}
@@ -646,6 +727,12 @@ export function EditorToolbar() {
             <Bot className="w-4 h-4" />
           </button>
         </Tooltip>
+        <Tooltip side="bottom" content="时间线 / 插件下栏">
+          <button onClick={() => handlePanelToggle('timeline')}
+            className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panelActive('timeline') ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
+            <Film className="w-4 h-4" />
+          </button>
+        </Tooltip>
         <Tooltip side="bottom" content="属性面板">
           <button onClick={() => handlePanelToggle('properties')}
             className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${panelActive('properties') ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
@@ -661,6 +748,9 @@ export function EditorToolbar() {
             <Keyboard className="w-4 h-4" />
           </button>
         </Tooltip>
+
+        {/* D-3d：插件工具栏按钮（位于内核按钮之前） */}
+        <PluginToolbarButtons />
 
         {/* Save status indicator */}
         <SaveStatusIndicator />
@@ -682,6 +772,61 @@ export function EditorToolbar() {
 }
 
 interface SrtEntry { index: number; start: number; end: number; text: string; }
+
+/**
+ * 字幕导入预览弹窗（O-字幕导入）：解析后先给清单——总条数/总时长、前若干条的时间与文本、
+ * 以及逐条告警（时间倒挂/空文本/无时间戳/被剥离的标签）。
+ * 用户确认后才写入时间线，避免"导进去才发现少了几句"。
+ */
+function SrtImportPreview({
+  data, onConfirm, onCancel,
+}: {
+  data: { filename: string; cues: SubtitleCue[]; warnings: SubtitleWarning[]; summary: string };
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const preview = data.cues.slice(0, 12);
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" data-testid="srt-preview">
+      <div className="w-[520px] max-h-[70vh] flex flex-col rounded-cw-md border border-outline-variant/50 bg-surface-container-high shadow-2xl">
+        <div className="px-4 py-3 border-b border-outline-variant/30">
+          <p className="text-body-sm font-medium text-on-surface">导入字幕预览</p>
+          <p className="text-caption text-on-surface-variant">{data.filename} · {data.summary}</p>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1">
+          {preview.map((cue) => (
+            <div key={`${cue.index}-${cue.start}`} className="flex gap-2 text-caption">
+              <span className="font-mono text-on-surface-variant/70 w-8 shrink-0 text-right">{cue.index}</span>
+              <span className="font-mono text-primary shrink-0">
+                {formatSrtTime(cue.start)} → {formatSrtTime(cue.end)}
+              </span>
+              <span className="text-on-surface truncate">{cue.text.replace(/\n/g, ' / ')}</span>
+            </div>
+          ))}
+          {data.cues.length > preview.length && (
+            <p className="text-caption text-on-surface-variant/60">…… 其余 {data.cues.length - preview.length} 条</p>
+          )}
+          {data.warnings.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-outline-variant/30 space-y-0.5" data-testid="srt-warnings">
+              {data.warnings.slice(0, 8).map((w, i) => (
+                <p key={`${w.kind}-${i}`} className="text-caption text-warn">
+                  ⚠ {w.detail}
+                </p>
+              ))}
+              {data.warnings.length > 8 && (
+                <p className="text-caption text-on-surface-variant/60">…… 另有 {data.warnings.length - 8} 条告警</p>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-4 py-3 border-t border-outline-variant/30">
+          <Button size="sm" variant="outline" onClick={onCancel}>取消</Button>
+          <Button size="sm" onClick={onConfirm}>导入 {data.cues.length} 条</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function SaveStatusIndicator() {
   const isSaving = useProjectStore((s) => s.isSaving);
@@ -706,28 +851,14 @@ function SaveStatusIndicator() {
   return null;
 }
 
-function parseSrt(raw: string): SrtEntry[] {
-  const normalized = raw.replace(/\r\n/g, '\n').trim();
-  const blocks = normalized.split(/\n\n+/);
-  const entries: SrtEntry[] = [];
-  for (const block of blocks) {
-    const lines = block.trim().split('\n');
-    if (lines.length < 2) continue;
-    const timeLine = lines[1];
-    const timeMatch = timeLine.match(/(\d+):(\d+):(\d+)[.,](\d+)\s*-->\s*(\d+):(\d+):(\d+)[.,](\d+)/);
-    if (!timeMatch) continue;
-    const start = +timeMatch[1] * 3600 + +timeMatch[2] * 60 + +timeMatch[3] + +timeMatch[4] / 1000;
-    const end = +timeMatch[5] * 3600 + +timeMatch[6] * 60 + +timeMatch[7] + +timeMatch[8] / 1000;
-    const text = lines.slice(2).join('\n').replace(/<[^>]+>/g, '').trim();
-    if (text) entries.push({ index: +lines[0] || entries.length + 1, start, end, text });
-  }
-  return entries;
-}
-
 function formatSrtTime(sec: number): string {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = (sec % 60);
-  const ms = Math.round((s - Math.floor(s)) * 1000);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(Math.floor(s)).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+  // P2-44: 先整体取整毫秒再拆分——旧实现分秒各自舍入，.9999 会产出 ",1000"
+  let totalMs = Math.round(sec * 1000);
+  const h = Math.floor(totalMs / 3600000);
+  totalMs -= h * 3600000;
+  const m = Math.floor(totalMs / 60000);
+  totalMs -= m * 60000;
+  const s = Math.floor(totalMs / 1000);
+  const ms = totalMs - s * 1000;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
 }

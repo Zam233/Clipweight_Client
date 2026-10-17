@@ -27,6 +27,9 @@ interface ProjectState {
   dubSegments: Array<{ start: number; end: number; text: string }> | null;
   /** P8: dry-run 预览模式 — 管线只生成粗剪时间线，不执行动画/音频/质检 */
   dryRun: boolean;
+  // P2-04: 踩点剪辑（beat-sync）——音色驱动的需求表单入口
+  cutOnBeat: boolean;
+  beatBpm: number | null;
 
   // Actions
   setProjectId: (id: string | null) => void;
@@ -51,6 +54,8 @@ interface ProjectState {
   setMaterialSourceIds: (ids: string[]) => void;
   setDubSegments: (segments: Array<{ start: number; end: number; text: string }> | null) => void;
   setDryRun: (v: boolean) => void;
+  setCutOnBeat: (v: boolean) => void;
+  setBeatBpm: (v: number | null) => void;
   resetProject: () => void;
 }
 
@@ -79,6 +84,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
   materialSourceIds: [],
   dubSegments: null,
   dryRun: false,
+  cutOnBeat: false,
+  beatBpm: null,
 
   setProjectId: (id) => set({ projectId: id }),
   setProjectName: (name) => set({ projectName: name }),
@@ -102,6 +109,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setMaterialSourceIds: (ids) => set({ materialSourceIds: ids }),
   setDubSegments: (segments) => set({ dubSegments: segments }),
   setDryRun: (v) => set({ dryRun: v }),
+  setCutOnBeat: (v) => set({ cutOnBeat: v }),
+  setBeatBpm: (v) => set({ beatBpm: v }),
   resetProject: () =>
     set({
       projectId: null,

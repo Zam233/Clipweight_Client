@@ -2,6 +2,65 @@ import { getApiClient } from './client';
 import { apiBase } from './sse';
 import type { Project, ProjectSummary, ProjectSaveRequest, HealthResponse, AnimationDef } from '@/types/api';
 
+/** 插件 UI 定义（兼容新旧两种响应形态，见 getUI 注释）。 */
+export interface PluginUIDefinition {
+  title?: string;
+  widgets?: unknown[];
+  api_version?: string;
+  legacy?: boolean;
+  slots?: Array<{ slot: string; id: string; title?: string; layout?: { title?: string; widgets?: unknown[] } }>;
+}
+
+/** `/api/plugin/health` 里每个插件的健康条目（字段与后端 plugin_health() 对齐）。 */
+export interface PluginHealthItem {
+  plugin_id: string;
+  name: string;
+  version: string;
+  /** ok / degraded / error */
+  status: string;
+  issues: string[];
+  enabled: boolean;
+  /** 已发现但未加载时为 null（后端如实置空，不是 false） */
+  signed: boolean | null;
+  verified: boolean | null;
+  dependency_ok: boolean | null;
+  missing_dependencies: string[];
+  hooks: number;
+  agents: number;
+}
+
+export interface PluginHealthResponse {
+  overall: string;
+  plugins: PluginHealthItem[];
+  errors_total: number;
+  /** 已注册的插件提示词条数（按插件分组） */
+  prompts_registered?: number;
+  /** C3: 风格解释器「多注册按 priority 取活跃项」——活跃 owner 与候选 */
+  style_interpreter?: {
+    active?: string;
+    candidates?: Array<{ owner: string; priority: number }>;
+  };
+}
+
+export interface PluginContributionItem {
+  kind: string;
+  id: string;
+  owner: string;
+  meta: Record<string, unknown>;
+  title?: string;
+  order?: number;
+  icon?: string;
+  slot?: string;
+  layout?: unknown;
+  payload?: unknown;
+}
+
+export interface PluginContributionsResponse {
+  contributions: PluginContributionItem[];
+  /** 后端附带的总数（含被 admin_only 过滤掉的？以返回为准） */
+  total?: number;
+}
+
 export const projectApi = {
   /** Create a new project (backend assigns id) */
   async create(request: ProjectSaveRequest) {
@@ -228,6 +287,33 @@ export const pluginApi = {
     return data;
   },
 
+  /** P10: 插件健康聚合（overall / 每插件 issues·签名·依赖·Hook·Agent / 风格解释器活跃 owner）。
+   *
+   * 为什么前端要消费它：`/api/plugin/health` 已经把「加载失败、签名校验不过、缺依赖、
+   * 声明了但没注册」这些**非致命但用户看不见**的问题聚合好了；不展示出来，用户就只能
+   * 看到插件"在列表里"却不知道为什么没生效。 */
+  async health() {
+    const { data } = await getApiClient().get('/api/plugin/health');
+    return data as PluginHealthResponse;
+  },
+
+  /** A-6/D-1: 已注册贡献（可按 kind / slot / owner 过滤）——「谁提供了这个工具/页面」的溯源。 */
+  async contributions(params: { kind?: string; slot?: string; owner?: string } = {}) {
+    const qs = new URLSearchParams();
+    if (params.kind) qs.set('kind', params.kind);
+    if (params.slot) qs.set('slot', params.slot);
+    if (params.owner) qs.set('owner', params.owner);
+    const suffix = qs.toString() ? `?${qs}` : '';
+    const { data } = await getApiClient().get(`/api/plugin/contributions${suffix}`);
+    return data as PluginContributionsResponse;
+  },
+
+  /** M8: 删除插件（卸载 + 落盘移除）。 */
+  async remove(pluginId: string) {
+    const { data } = await getApiClient().delete(`/api/plugin/${pluginId}`);
+    return data;
+  },
+
   async getConfig(pluginId: string) {
     const { data } = await getApiClient().get(`/api/plugin/${pluginId}/config`);
     return data as { fields: Record<string, { type: string; value: unknown; label: string; description?: string }> };
@@ -245,10 +331,15 @@ export const pluginApi = {
     return data;
   },
 
-  /** 获取插件的 UI 布局定义 (ui.json) */
-  async getUI(pluginId: string) {
+  /** 获取插件的 UI 布局定义 (ui.json)
+   *
+   * D-1 后响应有两种形态（同一端点）：旧格式文件被包装为
+   * `{title, widgets, api_version, legacy, slots}`；新格式文件原样返回
+   * `{api_version, slots:[{layout:{widgets}}]}`。消费方需两者都接受。
+   */
+  async getUI(pluginId: string): Promise<PluginUIDefinition | null> {
     const { data } = await getApiClient().get(`/api/plugin/${pluginId}/ui`);
-    return data as { title?: string; widgets: unknown[] } | null;
+    return (data ?? null) as PluginUIDefinition | null;
   },
 };
 
@@ -286,6 +377,12 @@ export const animationApi = {
   /** 单镜头 MG 预览（Hyperframes 直出 MP4） */
   async preview(body: { animation_id?: string; mg_json?: unknown; params?: Record<string, string>; width?: number; height?: number; fps?: number }) {
     const { data } = await getApiClient().post<MgPreviewResult>('/api/animation/preview', body, { timeout: 180_000 });
+    return data;
+  },
+
+  /** P2-3: MG HTML 即时预览——只取合成 HTML，不渲染（前端 iframe 内 seek 驱动） */
+  async mgHtml(body: { animation_id?: string; mg_json?: unknown; params?: Record<string, string>; width?: number; height?: number; fps?: number }) {
+    const { data } = await getApiClient().post<MgHtmlPreviewResult>('/api/animation/mg/html', body, { timeout: 30_000 });
     return data;
   },
 
@@ -332,6 +429,16 @@ export interface MgPreviewResult {
   width: number;
   height: number;
   fps: number;
+}
+
+/** P2-3: HTML 即时预览响应（不渲染，前端 iframe 内用 __timelines.seek 驱动） */
+export interface MgHtmlPreviewResult {
+  html: string;
+  duration_sec: number;
+  width: number;
+  height: number;
+  fps: number;
+  animation_id: string;
 }
 
 export const skillApi = {

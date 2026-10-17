@@ -1,0 +1,284 @@
+# 模型提供商配置 + 插件化遗留修复计划（2026-09-10）
+
+> **适用分支**：`feat/pluginization`（后端 `J:\Clipwright` / 前端 `J:\Clipweight-Client`）
+> **来源**：用户对「AstronBot 式多提供商配置」的需求 + 对本分支新增缺陷/回归的评审
+> **性质**：可派工的修复与建设计划；每批完成即验证并记录
+
+---
+
+## 0. 执行须知
+
+- 双仓同分支施工；**不引入新架构分支**（沿用既有 settings/store/门面三层）。
+- 每批必跑回归：
+  ```powershell
+  cd J:\Clipwright;        python -m pytest tests -q
+  cd J:\Clipweight-Client; npx tsc --noEmit; npm run test; npm run build; npx playwright test
+  ```
+- 提交信息带批次号（`feat(B2): …`）。
+- **禁止伪造验证**：未跑的命令不得声称通过。
+
+---
+
+## 1. 需求可行性评估（AstronBot 式提供商配置）
+
+**目标形态**：顶部 tab（LLM / 嵌入 / 重排序 / 语音 TTS）× 左侧「提供商源」列表 × 右侧「设置（ID / API Key（可多条）/ Base URL / 超时 / 代理 / 自定义请求头）+ 模型清单（获取列表 / 自定义 / 启用开关 / 编辑 / 删除）」；**LLM 页同时承载主 LLM、Flash LLM、视觉 LLM，角色在工程文件里分配**。
+
+**当前能否实现：不能直接实现。** 差距逐项：
+
+| 目标能力 | 现状 | 差距 |
+|---|---|---|
+| 多个 provider 源并存（Deepseek/aliyun/hk/gemma…） | 平铺单值字段 `llm_provider` + 一份 `llm_api_key/base_url/model` | **无「源」实体**：换 provider 必须覆盖同一组字段，旧凭据丢失 |
+| 按「角色」分配（主/Flash/视觉） | 三个槽位各自一套平铺字段（`llm_*` / `llm_flash_*` / `vision_llm_*`），凭据不共享 | 角色与源未解耦：同一 Deepseek 源无法被主+视觉复用 |
+| 模型清单（获取/自定义/启用/删除） | 只有 `llm_model` 单字符串；`/api/test/models` 是能力自测（LLM/Embed/Rerank 各一张卡） | **无模型清单实体**，无「获取模型列表」 |
+| 启用开关（单模型级） | 无 | 需模型级 `enabled` |
+| 超时 / 代理 / 自定义请求头 | 无（provider `build_client` 只收 api_key/base_url/model/instructions/max_tokens） | 协议与存储都缺 |
+| API Key 可多条（负载轮换） | 单字段 | 需 `api_keys: list[secret]` |
+| Embedding / Rerank / TTS 各自 tab | embedding：`rag_embed_provider` 三选一硬编码在 `rag/embedder.py`；rerank：`rag_rerank_model/base_url/api_key`（**无 provider 协议**）；TTS：`VoicePage` 前端硬编码三项 | **均未 provider 化**（14 类贡献里没有 `embedding_provider` / `rerank_provider`） |
+| 插件能新增 provider 源 | 门面已支持 `llm_provider`（`/contributions?kind=…` 已备好） | **设置页不消费该端点** → 插件 provider 选不中 |
+
+**结论**：需求本身与插件化方向一致（provider 可插拔），但缺三样东西——**ProviderSource 实体**、**角色绑定层**、**模型清单实体**；Embedding/Rerank 还需补两个贡献 kind 与协议。
+
+---
+
+## 2. 三类清单（含本轮新探索项）
+
+### 2.1 真正消失的功能（用户可见回归）
+
+| # | 项 | 证据 | 影响 |
+|---|---|---|---|
+| D1 | 插件管理页「预览 UI」对所有插件失效 | `PluginsPage.tsx:71-73` 读 `ui.widgets`；D-1 后 `/ui` 旧格式返回 `{api_version, legacy, slots:[…]}`，顶层无 `widgets` | 30+ 插件预览一律显示「未定义 UI」 |
+| D2 | A-5「内置贡献改声明式注册」未真正完成 | `builtin_contributions.py` 为镜像入账；30+ 内置插件仍走 `initialize()` 旧轨 | 方案 M3 的「未迁移数 = 0」不成立 |
+| D3 | StyleInterpreter 由「静默后者胜」变为「第二个所有者注册 → 插件加载失败」 | `services/style_interpreter.py::register_plugin` 新增 owner 拒绝 | 既有双插件共存安装会被破坏 |
+| D4 | `plugin_info()` 形态分叉（旧轨 `{tools,skills,agents}` / 新轨 `{contributions}`） | `plugins/base.py::plugin_info` | 契约漂移（当前无消费方） |
+| D5 | 旧的插件 UI 渲染入口（`/ui` + `getUI`）未被移除也未适配 | 仅 `PluginsPage` 预览在用 | 与 D-3 Slot 形成两套渲染入口 |
+
+### 2.2 新产生的缺陷
+
+| # | 项 | 证据 | 严重度 |
+|---|---|---|---|
+| B1 | 桥接层吞 `contributions()` 异常 → 插件「加载成功但零贡献」 | `plugins/base.py::run_contributions` 仅 `logger.warning` | 高（实测踩到：示例插件 SHORTCUT 误用） |
+| B2 | LLM provider 未做协议符合性校验 | `services/llm.py:342/457/463` 直接调 `normalize_messages/capabilities/uses_system_kwarg` | 高（第三方 provider 只实现 `build_client` → AttributeError） |
+| B3 | 能力协商默认 fail-closed（全 False） | `providers/base.py::ProviderCapabilities` | 中（忘声明 → 工具能力静默消失） |
+| B4 | 内置 hook/prompt 镜像 id 用位置索引 | `builtin_contributions.py`：`builtin_{point}_{i}` | 中（顺序变化 → 门面残留幽灵项） |
+| B5 | `/contributions` 每请求扫盘 `ui.json`（无缓存） | `api/plugin.py::list_contributions` | 中（设置页首屏 × 插件数磁盘 IO） |
+| B6 | 内置镜像仅启动时执行一次 | `main.py` 4.1 | 中（启动后注册的 hook/prompt 不在门面） |
+| B7 | bundle 档在令牌模式必然不可用（iframe 无 Authorization） | `PluginBundleFrame` 的 `src` 无 token | 中（与审计 P1-36 同类） |
+| B8 | 插件启停不失效前端 Slot 缓存 | `invalidatePluginSlots` 仅测试引用（grep 证实） | 高（G7「UI 同步消失」不成立） |
+| B9 | 插件导航项 `navigate({to})` 未校验路径 | `HomePage` 侧栏插件项 | 中（非法路径 → 路由错误页） |
+| B10 | `editor.left-panel`/`bottom-panel` 不受面板开关控制 | `EditorLayout` 不查 `panels.assets/timeline` | 中（关面板后插件列仍在） |
+| B11 | `shortcut` 不消费 `visibleWhen`；`props.section` 未声明 kinds 时全类型显示 | `usePluginShortcuts.ts` / `PropertiesPanel` | 中（无法按上下文约束） |
+| B12 | `export.preset` 无法表达容器（ext） | `ExportPage` 硬编 `prores422hq → mov` | 低 |
+| B13 | 每个 slot 独立请求 `/contributions`（缓存 key 分片） | `usePluginSlots.ts` | 低（首屏请求数线性增长） |
+| B14 | `Slot` 与宿主各持 hook state，invalidate 后可能短暂不同步 | `EditorLayout` + `Slot` | 低 |
+| B15 | `string` 别名只在插件渲染器生效，与 `ConfigValueInput` 语义未对齐 | `PluginLayoutRenderer` | 低 |
+| B16 | bundle 结果回传用 `postMessage('*')` | `PluginBundleFrame` | 低（sandbox origin=null 的技术限制，需注释/校验） |
+
+### 2.3 需要被插件化但还没做
+
+| # | 项 | 现状 |
+|---|---|---|
+| P1 | 30+ 内置插件 `initialize()` → `contributions()` 真迁移 | 全在旧轨 |
+| P2 | Embedding provider 化（含协议与 kind） | `rag/embedder.py` 内硬编码 3 后端 |
+| P3 | Rerank provider 化（含协议与 kind） | 只有 model/base_url/api_key 平铺字段 |
+| P4 | TTS provider 列表前端化（消费 `?kind=tts_provider`） | `VoicePage` 硬编码三项 |
+| P5 | LLM provider 列表前端化（消费 `?kind=llm_provider`） | 设置页选项来自 `Literal` 硬编码 3 项 |
+| P6 | `page` 插槽鉴权（owner/role 约束） | 任意用户可访问 |
+| P7 | bundle 档凭据通道（一次性 token） | 令牌模式不可用 |
+| P8 | 插件启停 → Slot 缓存联动 | 同 B8 |
+| P9 | 权限运行时强制（network/fs_write 沙箱） | 仍仅声明校验 |
+| P10 | 插件作者文档（新契约/清单） | `docs/development.md` 未更新 |
+| **P11（本轮新发现）** | **ProviderSource / 角色绑定 / 模型清单 三个实体**（用户需求） | 完全缺失 |
+| **P12（本轮新发现）** | `/api/plugin/list` 不暴露每插件贡献清单（A-6 未完成部分）；`PluginMetadata` 无 `contributions`/`declared_only` 字段 | `api/plugin.py:41-45` 直接返回 `list_loaded()` |
+| **P13（本轮新发现）** | provider 级 `timeout / proxy / 自定义请求头` 无存储与协议字段 | `LLMProvider.build_client` 签名无此参数 |
+
+---
+
+## 3. 目标架构（Provider 配置）
+
+```
+┌─ ProviderSource（新实体，落盘 ClipwrightData/providers.json，secret 走 Fernet）┐
+│ { id, name, kind(enum: llm/embedding/rerank/tts), provider(实现名，门面解析), │
+│   base_url, api_keys[secret...], timeout_sec, proxy, headers{}, models[] }    │
+│ models: [{ id, name, enabled, max_context?, note? }]                          │
+└───────────────────────────────┬──────────────────────────────────────────────┘
+                                │ 角色绑定（roles）：把「用途」指向 (source_id, model)
+   main / flash / vision / embed / rerank / tts   ←  工程文件/设置页分配角色
+                                │
+        services/llm.py ─ embedder ─ reranker ─ voice.py   ← 按角色解析凭据
+                                │
+        门面 ContributionRegistry（provider 实现可插拔；内置 anthropic/openai/ollama…）
+```
+
+**关键设计**
+1. **源与角色解耦**：同一 Deepseek 源可被 main+vision 复用；换源只改角色绑定。
+2. **向后兼容**：无任何 ProviderSource 时，全部回退现有 `settings.llm_*` / `rag_*` 平铺字段（零行为变化）；迁移时把现有值自动生成一条默认源。
+3. **协议扩展**：`LLMProvider.build_client` 增加可选 `timeout_sec/proxy/headers`；新增 `EmbeddingProvider` / `RerankProvider` 两个协议与两个贡献 kind（`embedding_provider` / `rerank_provider`）。
+4. **模型清单**：`models[]` 由「获取模型列表」（调用 provider 的 list models，失败静默）或「自定义模型」写入；`enabled` 控制是否出现在角色选择器。
+5. **前端**：新增 `/settings/providers`（tabs = LLM / 嵌入 / 重排序 / 语音 TTS；LLM 页内用角色徽标标注 main/flash/vision），复用现有 `Switch`/`Field` 控件风格。
+
+---
+
+## 4. 批次计划
+
+| 批次 | 内容 | 验收 |
+|---|---|---|
+| **B1** | 修 D1 回归（`PluginsPage.openPreview` 适配 slots；`/ui` legacy 响应同时保留 `widgets` 供兼容期消费者） | 预览恢复；`/ui` 新旧格式均可用；测试覆盖 |
+| **B2** | ProviderSource 实体：store（`providers.json` + Fernet）、CRUD API（`/api/providers`）、角色绑定 API（`/api/providers/roles`）、模型清单（增删改/启用/自定义） | 单测覆盖 CRUD/加密/角色绑定；无源时回退旧字段 |
+| **B3** | 解析链接入：`services/llm.py`（main/flash/vision 按角色取源与模型）、`rag/embedder.py` + rerank、`services/voice.py` | 角色绑定生效；旧行为不回归（快照/断言） |
+| **B4** | Provider 协议扩展：`build_client(timeout/proxy/headers)` + `EmbeddingProvider`/`RerankProvider` 协议与 kind + 内置实现注册 | 协议符合性测试；未知 provider 可读报错 |
+| **B5** | 前端「模型提供商」页（tabs + 源列表 + 设置 + 模型清单 + 角色分配），并把 LLM/TTS 的 provider 选项改为从门面拉取（P4/P5） | Playwright 冒烟：建源→填 key→加模型→绑角色；插件 provider 出现在选项里 |
+| **B6** | 插件化缺陷修复：B1/B2/B4/B5/B6/B8/B9/B10/B11 | 每条配单测/断言；启停联动 Playwright 断言 |
+| **B7** | 余项：B7/P7（bundle 凭据）、B12/B13/B14/B15/B16、P12（`/list` 暴露贡献）、P10（插件作者文档） | 逐条验证 |
+| **B8** | 收尾验证：双仓全量 + Playwright 全量 + 三类清单逐条勾选 | 全部通过，清单归零 |
+
+**M8（bundle）与 A-5 真迁移（P1）**：A-5 属大工程（30+ 插件），本计划不纳入强制批次，列为 P1 后续专项；P9 权限沙箱同样独立专项。
+
+---
+
+## 5. 验证清单
+
+1. 后端 `python -m pytest tests -q` 全绿；`python -c "import clipwright.main"` 通过。
+2. 前端 `tsc --noEmit` / `npm run test` / `npm run build` / `npx playwright test` 全绿。
+3. 三类清单（§2）逐条勾选：本次计划覆盖 D1、B1–B16、P2–P8、P11–P13；P1/P9 明确列为后续专项并说明原因。
+4. 端到端：设置页建两个源（Deepseek / 本地 Ollama）→ 主 LLM 绑 A、视觉绑 B → 模型测试页分别验证；禁用插件后其 provider 从下拉消失（配合 B8 联动）。
+
+---
+
+## 6. 执行记录（B1–B8 全部完成）
+
+### 6.1 提交（后端 `J:\Clipwright`，分支 feat/pluginization）
+
+| 批次 | 提交 | 内容 |
+|---|---|---|
+| B1 | `c370354` / `14d6563` | 插件 UI 预览兼容新旧响应形态（D1 回归修复）+ 计划文档入库 |
+| B2+B3 | `0443174` | ProviderSource 存储/CRUD/角色/模型清单 API + LLM 角色绑定解析（main/flash/vision）+ 密文误判修复 |
+| B4 | `b038ece` | 传输层（超时/代理/自定义头落到 SDK）+ 嵌入/重排序协议与 provider + RAG/TTS 角色接入 + `/api/providers/available` |
+| B5 | `301cf21` | 设置页 provider 下拉门面驱动（含插件注册项）+ 嵌入 provider 别名 |
+| B6 | `868fc40` | 插件缺陷 B1/B2/B3/B4/B5/B6（异常可见、协议校验、稳定镜像 id、贡献读缓存、镜像重扫） |
+| B7 | `710ce27` | P12 `/api/plugin/list` 暴露贡献与 declared_only + P10 插件作者指南 |
+
+### 6.2 提交（前端 `J:\Clipweight-Client`，分支 feat/pluginization）
+
+| 批次 | 提交 | 内容 |
+|---|---|---|
+| B5 | `7e34f27` | 「模型提供商」控制台页（tabs/源列表/设置/模型清单/角色）+ 路由与导航 |
+| B6 | `041366c` | 缺陷 B8/B9/B10/B11（启停失效缓存、路径白名单、面板联动、shortcut visibleWhen / kinds fail-closed） |
+| B7 | `9c37849` | bundle 凭据通道（srcDoc+CSP）、请求合并（B13）、挂载态广播（B14）、容器预设（B12）、postMessage 校验（B16） |
+| P4 | `ab2064a` | 语音页 provider 选项门面驱动 |
+| B8 复核 | `ee9a6b2` | **D3 真修**（StyleInterpreter 多注册）+ B2 `build_client` 可读守卫 |
+| B8 复核 | `ee9a6b2` 后续 | B5 缓存失效扩展到 uninstall/配置重载；B12 抽出 `resolveContainerExt` + 测试 |
+
+### 6.3 验证结果
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 后端全量 | `python -m pytest tests -q` | **1797 passed**, 1 skipped, 1 xfailed |
+| 后端导入 | `python -c "import clipwright.main"` | 通过 |
+| 前端类型 | `npx tsc --noEmit` | 无错误 |
+| 前端单测 | `npx vitest run` | **515 passed**（71 文件） |
+| 前端 lint | `npx eslint src e2e` | 0 error（136 warning，均为既有风格告警） |
+| 前端构建 | `npm run build` | 成功 |
+| 端到端验收（API 级） | 提供方配置 5 + 插件审查修复 17 | **22 passed**（建源→多条密钥→模型清单→角色绑定→运行时凭据→插件 provider 联动） |
+| 浏览器 e2e（新增） | `npx playwright test e2e/providers.spec.ts e2e/plugin-slot-invalidation.spec.ts e2e/plugin-slots.spec.ts` | **7 passed** |
+| 浏览器 e2e（全量） | `npx playwright test` | 44 passed / 8 failed —— 8 条**均为本次改动前既有失败**（见 6.4） |
+
+> 说明：真机联调（用真实 Deepseek/Ollama 密钥跑通「模型测试」页）需真实凭据与网络，
+> 不在本仓库自动化范围；API 级验收已用打桩 provider 覆盖到「凭据与传输参数真正进入客户端构造」这一层。
+
+### 6.4 既有 e2e 失败的定性（非本次引入）
+
+已在基线提交 `7e34f27`（B5 前）复现同样失败，故与本计划改动无关：
+
+- `home.spec.ts` 后端健康检查 —— 需要真实后端（本地未启动，`ECONNREFUSED`）。
+- `panel-divider.spec.ts` B18 Agent 分割条拖拽 —— 基线同样 `Expected 380 / Received 260`。
+- `preview-fixes.spec.ts`（D1/UX1/UX2/UX3）、`caption-style.spec.ts`、`agent-edit.spec.ts` —— 基线连跑同样 6 failed。
+
+### 6.5 三类清单勾选（§2）
+
+> 本节在 2026-09-13 做了一次**对着代码的复核**（不只依赖上一轮结论）：发现 D3 原被误标 ✅
+> 而实际未修（`StyleInterpreter.register_plugin` 仍对不同 owner 抛 ValueError），已真修并补测
+> （后端 `ee9a6b2`）；B2 的 `build_client` 兜底、B5 的卸载/重载缓存失效也是本轮复核补上的。
+> **结论：清单里仍有 3 项未完成 —— D2/P1（同一件事）、P6、P9**，见 §6.6。
+
+**D1–D5**：D1 ✅（预览同时读 `ui.widgets` 与 `ui.slots[].layout.widgets`）；D2 ❌ 未做，与 P1 同因（见 §6.6）；D3 ✅（**本轮真修**：`StyleInterpreter` 由「单槽 + 第二个 owner 抛错」改为每 owner 一槽位的多注册表，按 `meta.priority` 选活跃项、`unregister_plugin` 只回收自己并改选、`_plugin/_owner` 保留为活跃项兼容视图；dispatch 透传 priority，内置镜像只镜像无归属槽位。测试 `test_style_interpreter_multi.py` 8 条，含「两个插件各带 style_interpreter 都加载成功」）；D4 ✅（`plugin_info()` 两轨形态统一为 `{id, contributions, tools, skills, agents}`，后端 `a85c1cb` + 测试 2 条）；D5 ✅（**渲染器已统一**：管理页预览与运行时 Slot 都走同一个 `PluginLayoutRenderer`；`/ui` 仅作为管理页预览的数据源保留——插件被禁用时也要能预览其声明面，故数据源保留是刻意的，不是两套渲染系统）。
+
+**B1–B16**：B1 ✅（异常写错误通道并抛出；`load_all` 逐插件隔离，单个插件失败不影响其它）B2 ✅（注册时协议校验 + 运行时安全访问器；本轮补 `build_client` 缺失的可读错误）B3 ✅（能力缺省给最小能力 + 一次性告警）B4 ✅ B5 ✅（扫盘/ui.json/镜像三层缓存；enable/disable/uninstall/配置 PUT·DELETE 共 5 处失效点）B6 ✅ B7 ✅ B8 ✅ B9 ✅ B10 ✅ B11 ✅ B12 ✅（抽出 `resolveContainerExt` 并补 5 条测试，含非法声明的安全负例）B13 ✅ B14 ✅ B15 ✅（核对两个组件：`string` 在两侧都是单行文本输入）B16 ✅。
+
+**P1–P13**：P2 ✅ P3 ✅ P4 ✅ P5 ✅ P7 ✅ P8 ✅ P10 ✅ P11 ✅ P12 ✅ P13 ✅（验收用例证明 timeout/proxy/headers 真正进入客户端构造）。
+
+**P9 ✅（子进程沙箱）**：新增 `clipwright/plugins/runtime/`（协议/worker/权限强制/host/代理），
+manifest 加 `runtime: inprocess|subprocess`。关键属性有测试证明：宿主进程里没有插件模块
+（`sys.modules` 检查）、越权写盘在 worker 内被审计钩子拒绝、超时/崩溃给可读错误而非空结果、
+卸载先停 worker。同时把 7 个异步调用点切到 `execute_async`（子进程 hook 不阻塞事件循环）。
+后端子进程 e2e 14 条 + 单测 15 条 + 钩子异步 8 条。
+
+**P1/D2 ✅ 完成（32/32，含子进程示例）**：已迁移 news/gaming/tutorial/shortform_category、coverr_material、
+platform_export、example_caption_plugin、pexels/pixabay/unsplash/gif_sticker/bgm_library、
+whisper_stt、subtitle_translate、voice_ext、my_material_lib、cloud_render、subagent_demo、
+custom_style、lut_presets。每个都补了 `plugin.yaml` 的 `api_version: "2"` + 声明，
+并用 `scripts/plugin_contribution_snapshot.py` 做迁移前后逐项 diff（**32 插件 0 差异**）。
+顺带补了契约缺口：动画类插件注册的 `AnimationRegistry` 原本没有对应 kind，新增
+`ContributionKind.ANIMATION`（现 17 类）后才可迁移。
+**剩余 0 个**：本轮已全部迁移（含 `text_animations` 的 25 个工具、`mg_animations`/`lottie_animations`/`logic_animations`/`diagram_style` 的钩子、`my_animations`/`kinetic_typography` 的动画定义），详见 §6.7。
+
+**P6 ✅（按确认的策略实现）**：产品确认「插件页默认**所有登录用户**可访问」，默认行为不变，
+改为新增**声明式**限制：贡献 meta 里 `admin_only: true` 的条目，后端 contributions 端点
+直接不投递给非管理员（非管理员拿不到定义，比前端隐藏可靠），插件页壳再按本地角色二次拦截
+并给出可读提示。`off`/`token` 模式无用户身份，按仓库既有语义视为管理员（与
+`_require_admin` 一致）。后端 5 条 + 前端 6 条用例覆盖。
+
+### 6.7 插件审查修复（第二轮，2026-09-13）
+
+对 32 个内置插件做了一次体检（工具 `scripts/plugin_health_report.py`，逐插件加载并核对
+声明/注册/权限/结构），查出 10 项问题并**全部修复**：
+
+| # | 问题 | 修复 |
+|---|---|---|
+| A1 | 子进程插件与 loader 契约不匹配（load 返回 None → `/load` 404、安装服务回滚**删插件**、`get()` 恒 None → 卸载 404、load 不幂等多起 worker、reload 配置不生效、卸载后门面账本残留） | 新增 `SubprocessPluginHandle`；load 幂等；teardown 补门面/动画/解释器/素材源回收 |
+| A2 | 类发现按字母序取到**导入的基类** → `text_animations` 25 个工具全丢（`mg_animations` 2 钩子、`logic_animations` 1 钩子同因） | 只接受属于本插件的类（`__module__` 归属判定）+ 关键模块补 `__all__` |
+| A3 | 6 个素材源插件 `shutdown()` 里 `asyncio.create_task` 永不 await → httpx 连接泄漏 | `material.base.close_source_sync()`（同步安全关闭），6 插件改用 |
+| A4 | 旧轨动画/素材源/风格解释器卸载后能力残留（实测动画残留 2 个） | teardown 按归属回收三类注册物 |
+| B1 | 子进程档可无声明加载（「声明即授权」被绕过） | 强制 `contributions` 声明，否则拒载；`_register_declarations` 建白名单 |
+| B2/C1 | `/api/plugin/list` 的 `contributions`/`declared_only` 前端零消费 → 「已加载但零能力」不可见 | 管理页显示贡献计数 + 「N 项未生效」红标（hover 列出 id）；未加载不告警 |
+| B3/B5 | 剩余 7 个插件仍在旧轨 + 入口文件错位 | 全部迁移（32/32 新契约）+ 补 `__all__` |
+| B4 | 迁移时丢掉了「缺配置」提示 → 静默零能力 | 7 个插件用 `logger.info` 说明原因 |
+| C2 | 子进程插件改配置不生效且无提示 | 随 A1 修复（reload 生效） |
+| C3 | 两个风格解释器同优先级 → 装第二个没反应且无从判断 | priority 可由插件配置覆盖（custom_style 100 / lut_presets 90）；`/api/plugin/health` 暴露活跃 owner 与候选项 |
+| C4 | `gif_sticker` 源码内置 Giphy 公开 beta key（共享限流凭据） | 改为显式 opt-in（`GIPHY_PUBLIC_BETA_KEY=1`），默认要求自配 key 并给出提示 |
+| C5 | 默认禁用的示例插件仍显示「已加载」 | 由 B2/C1 的可见性 + B4 的原因日志覆盖 |
+
+**附带修复**：工具影子表——同源重复注册不再压影子（此前多 loader 实例加载后卸载，
+陈旧代理会被 P1-13 的恢复逻辑复活成可用工具）；按插件批量注销补上「恢复被覆盖实现」。
+
+**最终体检**：32 插件全部可加载、无结构/归属问题；7 项 `declared_only` 全部是
+「未配置密钥」的预期状态（有日志原因 + 界面红标）。
+
+### 6.8 Provider 改动评审修复（第三轮，2026-09-13）
+
+对 B2–B5 的 Provider 改动与前端匹配度做了一轮评审，查出 5 个 bug + 4 项欠缺 + 4 项一致性问题，
+**全部修复**（后端 `91395e5`，前端 `011ecae`）：
+
+| # | 问题 | 修复 |
+|---|---|---|
+| P1 | **存量插件 LLM provider 每次调用都 TypeError**：构造点无条件传 `timeout_sec/proxy/headers`，而 B4 之前的 provider 签名没有这三个参数（实测未配传输参数也崩） | 按 `build_client` 签名过滤 + 配了非默认值时一次性告警 |
+| P2 | 角色↔源类型无校验（TTS 源可绑到 main/flash/vision），运行期才报「未安装 LLM provider」；绑定后可改 kind 造成错配 | 新增 `ROLE_EXPECTED_KINDS` 绑定前校验；已绑定源禁止改类型 |
+| P3 | 绑定后停用模型仍生效（绑定时的校验形同虚设） | 模型停用/删除 → 自动解绑引用它的角色，回传 `unbound_roles` |
+| P4 | `/api/test/embed` 改写全局 settings（进程级副作用），且其 provider 参数在有绑定时被静默忽略 | 改为按需构造一次性 embedder；被忽略时在响应里说明 |
+| P5 | 模型测试面显示"假配置"（只读 settings，与真实生效的角色绑定不一致） | 统一走 `resolve(role)`，响应加 `effective`/`source`；前端测试卡展示生效来源 |
+| B3 | 没有源级测试入口 | 新增 `POST /api/providers/{id}/test` + 前端「测试连接」按钮 |
+| B2 | 前端角色分配**不能选模型**（自动取第一个启用模型） | 角色行加模型下拉（只列启用中的模型），空源给红字提示 |
+| B4 | `ensure_migrated()` 未接线，老用户升级后新页面空白 | 接入启动流程（幂等，未配凭据则跳过） |
+| B5 | 本地/自建 provider 的拉取提示语误导 | 区分「不支持自动拉取」与「未取到（查密钥/地址）」 |
+| B1 | UI 声称多密钥"轮询/备用"但后端只用第一条 | 文案改为「第一条为当前使用；其余备用保存」（不做空头承诺） |
+| C1 | 双配置源无优先级提示（角色绑定静默覆盖后端配置页） | 后端 17 个字段描述补「绑定后以绑定为准」；前端角色区加说明 |
+| C2 | 语音页与 TTS 角色绑定的关系不明 | 语音页加说明 |
+
+测试：后端 `test_provider_review_fixes.py`(14)、前端 providers 页 +5、e2e +2（模型下拉/测试连接）。
+
+### 6.6 明确延期（附理由，不在本计划强制范围）
+
+| 项 | 理由 | 现状 |
+|---|---|---|
+| P1 / D2 | 30+ 内置插件的 `initialize()` → `contributions()` 真迁移是大工程；桥接层已保证双轨行为等价，迁移前后无用户可见差异 | 旧轨继续可用；`docs/plugin_authoring.md §6` 给出手册与迁移清单；`/api/plugin/list` 的 `declared_only` 可用于追踪迁移进度 |
+| P6 | `page` 插槽鉴权需先定义页面级权限模型（owner/role），与鉴权三模式（off/token/jwt）的关系需产品决策 | 当前由管理员安装插件这一事实作为边界；已列入后续专项 |
+| P9 | 进程内 Python 插件无法在不引入子进程/容器隔离的前提下做真沙箱；「声明即授权 + manifest 权限白名单 + 签名」是当前可执行的收口 | 已在 `plugin_authoring.md` 写明；运行时沙箱列为独立专项 |

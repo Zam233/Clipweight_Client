@@ -1,3 +1,9 @@
+/**
+ * P2-47 定位说明：本页是「单素材工具编辑器」（ed_* 独立工程 + 独立撤销栈），
+ * 面向快速单片段处理（裁剪/消音/转码等）；**不是**项目时间线编辑器
+ * （那是 /editor/:projectId 的 TimelineEngine + 项目自动保存体系）。
+ * 两套数据源刻意分离，避免工具操作污染项目时间线。
+ */
 import { useEffect, useState } from 'react';
 import { ConsoleShell, ConsoleHeading, StatusPill } from './ConsoleShell';
 import { videoEditorApi, proxyApi, waveformApi } from '@/services/api';

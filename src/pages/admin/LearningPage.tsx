@@ -114,6 +114,7 @@ export function LearningPage() {
   };
 
   const deleteDataset = async (id: string) => {
+    if (!window.confirm('确认删除该数据集？删除后无法找回。')) return; // P2-28
     setBusyId(`ds_${id}`);
     try {
       await learningApi.deleteDataset(id);
@@ -164,6 +165,7 @@ export function LearningPage() {
   };
 
   const deleteJob = async (id: string) => {
+    if (!window.confirm('确认删除该学习任务？')) return; // P2-28
     setBusyId(`del_${id}`);
     try {
       await learningApi.deleteJob(id);

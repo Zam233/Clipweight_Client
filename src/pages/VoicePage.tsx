@@ -6,15 +6,41 @@ import { voiceApi } from '@/services/api';
 import { Button, Badge } from '@/components/ui';
 import { AudioPlayer } from '@/components/shared/AudioPlayer';
 import type { VoiceRecord } from '@/types/voice';
+import { providersApi } from '@/services/api';
 import {
   Mic, Plus, Trash2, Loader2, Upload, X, Play, AudioLines, Check,
 } from 'lucide-react';
 
-const PROVIDERS = [
-  { id: 'qwen_tts', label: 'Qwen TTS', color: '#4F8CFF' },
-  { id: 'cosyvoice', label: 'CosyVoice', color: '#A855F7' },
-  { id: 'minimax', label: 'MiniMax', color: '#F97316' },
-] as const;
+/** 内置显示元数据（颜色/短名）；未知 provider（插件注册）走兜底样式 —— P4 */
+const PROVIDER_PRESENTATION: Record<string, { label: string; color: string }> = {
+  'qwen-tts': { label: 'Qwen TTS', color: '#4F8CFF' },
+  cosyvoice: { label: 'CosyVoice', color: '#A855F7' },
+  minimax: { label: 'MiniMax', color: '#F97316' },
+};
+const FALLBACK_PRESENTATION = { label: '', color: '#4F8CFF' };
+
+/**
+ * P4：provider 选项来自门面（`/api/providers/available`，含插件注册的 TTS provider），
+ * 不再硬编码三项；显示名/颜色仍由内置表补全，未知 provider 用 id 兜底显示。
+ */
+function useTtsProviders(): Array<{ id: string; label: string; color: string }> {
+  const [ids, setIds] = useState<string[]>(['qwen-tts', 'cosyvoice', 'minimax']);
+  useEffect(() => {
+    let alive = true;
+    providersApi.available()
+      .then((avail) => {
+        if (!alive) return;
+        const list = Array.isArray(avail.tts_provider) ? avail.tts_provider : [];
+        if (list.length) setIds(list);
+      })
+      .catch(() => { /* 后端离线：保留内置兜底 */ });
+    return () => { alive = false; };
+  }, []);
+  return ids.map((id) => {
+    const pres = PROVIDER_PRESENTATION[id] ?? FALLBACK_PRESENTATION;
+    return { id, label: pres.label || id, color: pres.color };
+  });
+}
 
 const ACCEPTED_TYPES = ['.wav', '.mp3', '.m4a', '.flac', '.ogg'];
 const MAX_SIZE = 10 * 1024 * 1024;
@@ -34,11 +60,17 @@ export function VoicePage({ embedded = false, onSelect }: { embedded?: boolean; 
 
   // Persist voice selection for pipeline (skipped in embedded/modal mode).
   // 持久化的是用户实际选择的 voiceId（projectStore），而不是列表第一项。
+  // P1-26: autoDub 由本地设置驱动（不再硬编码 true）。
   useEffect(() => {
     if (embedded) return;
     const persistVoicePreferences = (state: ReturnType<typeof useProjectStore.getState>) => {
       const voiceId = state.voiceId ?? null;
-      localStorage.setItem('clipwright_voice_prefs', JSON.stringify({ voiceId, autoDub: true }));
+      let autoDub = true;
+      try {
+        const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
+        if (typeof prefs.autoDub === 'boolean') autoDub = prefs.autoDub;
+      } catch { /* ignore */ }
+      localStorage.setItem('clipwright_voice_prefs', JSON.stringify({ voiceId, autoDub }));
     };
 
     const unsub = useProjectStore.subscribe(persistVoicePreferences);
@@ -125,7 +157,9 @@ export function VoicePage({ embedded = false, onSelect }: { embedded?: boolean; 
 }
 
 const VoiceCard = memo(function VoiceCard({ voice, onDelete, onSelect }: { voice: VoiceRecord; onDelete: () => void; onSelect?: (v: VoiceRecord) => void }) {
-  const provider = PROVIDERS.find((p) => p.id === voice.provider);
+  // 展示元数据按 provider id 查表（插件 provider 用 id 兜底）—— P4
+  const presentation = PROVIDER_PRESENTATION[voice.provider] ?? FALLBACK_PRESENTATION;
+  const provider = { id: voice.provider, label: presentation.label || voice.provider, color: presentation.color };
   const [previewText, setPreviewText] = useState('你好，这是一段测试语音。');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [synthesizing, setSynthesizing] = useState(false);
@@ -209,9 +243,28 @@ const VoiceCard = memo(function VoiceCard({ voice, onDelete, onSelect }: { voice
         {previewUrl && <AudioPlayer src={previewUrl} />}
       </div>
 
-      {onSelect && (
+      {onSelect ? (
         <Button size="sm" onClick={() => onSelect(voice)} className="w-full">
           <Check className="w-3.5 h-3.5" /> 选择此音色
+        </Button>
+      ) : (
+        // P1-26: 独立 /voice 页没有「选择」入口——提供设为默认音色（写入
+        // projectStore 并持久化，首页「配音驱动」启动时消费）
+        <Button
+          size="sm" variant="outline"
+          onClick={() => {
+            const st = useProjectStore.getState();
+            st.setVoiceId(voice.voice_id);
+            try {
+              let autoDub = true;
+              const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
+              if (typeof prefs.autoDub === 'boolean') autoDub = prefs.autoDub;
+              localStorage.setItem('clipwright_voice_prefs', JSON.stringify({ voiceId: voice.voice_id, autoDub }));
+            } catch { /* ignore */ }
+          }}
+          className="w-full"
+        >
+          <Check className="w-3.5 h-3.5" /> 设为默认音色
         </Button>
       )}
     </div>
@@ -226,7 +279,8 @@ function CloneDialog({ onClose }: { onClose: () => void }) {
 
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState('');
-  const [provider, setProvider] = useState('qwen_tts');
+  const providers = useTtsProviders();
+  const [provider, setProvider] = useState('qwen-tts');
   const [dragOver, setDragOver] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -324,7 +378,7 @@ function CloneDialog({ onClose }: { onClose: () => void }) {
         <div>
           <label className="block text-label text-on-surface-variant mb-1.5">提供者</label>
           <div className="flex gap-2">
-            {PROVIDERS.map((p) => (
+            {providers.map((p) => (
               <button
                 key={p.id}
                 onClick={() => setProvider(p.id)}
@@ -343,6 +397,10 @@ function CloneDialog({ onClose }: { onClose: () => void }) {
               {provider === 'minimax' ? '需要公网 URL + 试听文案，后端自动处理上传' : '需要公网 URL，后端自动处理上传'}
             </p>
           )}
+          {/* C2：说明与「模型提供商 → 语音 TTS」角色绑定的关系 */}
+          <p className="text-caption text-on-surface-variant/70 mt-1">
+            若已在「设置 → 模型提供商 → 语音 TTS」绑定源，源的凭据（密钥/代理/超时）优先于此处选择。
+          </p>
         </div>
 
         {error && cloneStep === 'error' && (

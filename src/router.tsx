@@ -25,10 +25,13 @@ const PersonaPage = lazyPage(() => import('./pages/PersonaPage'), 'PersonaPage')
 const PersonaDetailPage = lazyPage(() => import('./pages/PersonaDetailPage'), 'PersonaDetailPage');
 const PersonaForgePage = lazyPage(() => import('./pages/PersonaForgePage'), 'PersonaForgePage');
 const HelpPage = lazyPage(() => import('./pages/HelpPage'), 'HelpPage');
+const PluginPage = lazyPage(() => import('./pages/PluginPage'), 'PluginPage');
 const ModelsPage = lazyPage(() => import('./pages/admin/ModelsPage'), 'ModelsPage');
+const ProvidersPage = lazyPage(() => import('./pages/admin/ProvidersPage'), 'ProvidersPage');
 const ToolsPage = lazyPage(() => import('./pages/admin/ToolsPage'), 'ToolsPage');
 const PluginsPage = lazyPage(() => import('./pages/admin/PluginsPage'), 'PluginsPage');
 const TypeMakerPage = lazyPage(() => import('./pages/admin/TypeMakerPage'), 'TypeMakerPage');
+const TypeCatalogPage = lazyPage(() => import('./pages/admin/TypeCatalogPage'), 'TypeCatalogPage');
 const TemplatesPage = lazyPage(() => import('./pages/admin/TemplatesPage'), 'TemplatesPage');
 const LearningPage = lazyPage(() => import('./pages/admin/LearningPage'), 'LearningPage');
 const VideoEditorPage = lazyPage(() => import('./pages/admin/VideoEditorPage'), 'VideoEditorPage');
@@ -36,6 +39,7 @@ const WebhooksPage = lazyPage(() => import('./pages/admin/WebhooksPage'), 'Webho
 const FontsPage = lazyPage(() => import('./pages/admin/FontsPage'), 'FontsPage');
 const MgPreviewPage = lazyPage(() => import('./pages/admin/MgPreviewPage'), 'MgPreviewPage');
 const SubtitleToolsPage = lazyPage(() => import('./pages/admin/SubtitleToolsPage'), 'SubtitleToolsPage');
+const BackendConfigPage = lazyPage(() => import('./pages/admin/BackendConfigPage'), 'BackendConfigPage');
 const PreprocessPage = lazyPage(() => import('./pages/admin/PreprocessPage'), 'PreprocessPage');
 const PipelineAdminPage = lazyPage(() => import('./pages/admin/PipelineAdminPage'), 'PipelineAdminPage');
 const VoicePage = lazyPage(() => import('./pages/VoicePage'), 'VoicePage');
@@ -174,11 +178,35 @@ const helpRoute = createRoute({
   errorComponent: RouteErrorFallback,
 });
 
+// D-3b：插件页面统一壳（/plugin/$pageId；贡献未提供时壳内给出提示）
+const pluginPageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/plugin/$pageId',
+  component: PluginPage,
+  errorComponent: RouteErrorFallback,
+});
+
 const modelsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/models',
   beforeLoad: requireAdmin,
   component: ModelsPage,
+  errorComponent: RouteErrorFallback,
+});
+
+const providersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/providers',
+  beforeLoad: requireAdmin,
+  component: ProvidersPage,
+  errorComponent: RouteErrorFallback,
+});
+
+const backendConfigRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/backend-config',
+  beforeLoad: requireAdmin,
+  component: BackendConfigPage,
   errorComponent: RouteErrorFallback,
 });
 
@@ -203,6 +231,15 @@ const typeMakerRoute = createRoute({
   path: '/settings/type-maker',
   beforeLoad: requireAdmin,
   component: TypeMakerPage,
+  errorComponent: RouteErrorFallback,
+});
+
+// 类型总览（只读）：与「类型制作器」分工——这里只看有哪些类型，增删改在各制作器
+const typeCatalogRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/types',
+  beforeLoad: requireAdmin,
+  component: TypeCatalogPage,
   errorComponent: RouteErrorFallback,
 });
 
@@ -316,10 +353,14 @@ const routeTree = rootRoute.addChildren([
   personaDetailRoute,
   personaForgeRoute,
   helpRoute,
+  pluginPageRoute,
   modelsRoute,
+  providersRoute,
+  backendConfigRoute,
   toolsRoute,
   pluginsRoute,
   typeMakerRoute,
+  typeCatalogRoute,
   templatesRoute,
   webhooksRoute,
   learningRoute,

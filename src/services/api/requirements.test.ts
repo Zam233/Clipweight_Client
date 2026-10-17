@@ -5,6 +5,8 @@ import { requirementsApi } from './requirements';
 vi.mock('@/services/api/sse', () => ({
   apiBase: () => 'http://localhost:8000',
   fetchSseToken: async () => '',
+  // P1-36：streamChat 现经 withSseToken 拼 query token
+  withSseToken: (url: string, token: string) => (token ? `${url}${url.includes('?') ? '&' : '?'}token=${token}` : url),
 }));
 
 describe('requirementsApi.streamChat (W1 SSE 流式消费)', () => {

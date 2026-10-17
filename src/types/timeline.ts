@@ -35,9 +35,22 @@ export interface Keyframe {
   properties: Record<string, number>;
   /** Easing function name */
   easing?: string;
+  /**
+   * 自定义贝塞尔缓动（CSS `cubic-bezier(x1,y1,x2,y2)` 的两个控制点），由曲线编辑器写入。
+   * **存在时优先于 `easing` 名字**——拖出来的曲线不该被名字覆盖。
+   * x 夹在 [0,1]（时间单调），y 不限（允许过冲）。
+   */
+  bezier?: { x1: number; y1: number; x2: number; y2: number };
 }
 
 /** A single clip on the timeline */
+export interface MaskRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface Clip {
   id: string;
   kind: ClipKind;
@@ -75,9 +88,18 @@ export interface Clip {
   image_rect?: { x: number; y: number; w: number; h: number } | null;
 
   // M4: 蒙版（video / image only，预览裁剪到形状内）
-  mask_type?: 'none' | 'rect' | 'ellipse' | null;
-  /** 归一化蒙版矩形 {x, y, w, h}，各值 0-1 */
-  mask_rect?: { x: number; y: number; w: number; h: number } | null;
+  // O-遮罩升级：新增 polygon / star / heart 形状与旋转/羽化/反相
+  mask_type?: 'none' | 'rect' | 'ellipse' | 'polygon' | 'star' | 'heart' | null;
+  /** 归一化蒙版矩形 {x, y, w, h}，各值 0-1；多边形/星形/心形用中心与半径 */
+  mask_rect?: MaskRect | null;
+  /** polygon 边数 / star 角数（3-12，默认 5） */
+  mask_points?: number | null;
+  /** 蒙版旋转（度，-180~180） */
+  mask_rotation?: number | null;
+  /** 边缘羽化宽度（像素，0-50）；预览多圈描边近似，导出用 geq 线性过渡 */
+  mask_feather?: number | null;
+  /** 反相：保留形状之外（形状内部透明） */
+  mask_inverted?: boolean | null;
 
   /** C3: 嵌套序列 — 片段内嵌子时间线，预览递归合成 */
   nested_timeline?: Timeline | null;
@@ -136,6 +158,8 @@ export interface Track {
   muted: boolean;
   /** M7: 隐藏轨道（时间轴与预览均跳过渲染） */
   hidden?: boolean;
+  /** P2-03: 轨道级元数据（后端 sfx 标记等） */
+  metadata?: Record<string, unknown>;
 }
 
 /** Complete timeline — unified format for Agent output and editor */
@@ -148,6 +172,8 @@ export interface Timeline {
   tracks: Track[];
   /** M8: 时间轴标记（持久化 + 命名） */
   markers?: TimelineMarker[];
+  /** P2-03: 时间线级元数据（后端消费：loudnorm 响度开关 / soft_subtitle 等） */
+  metadata?: Record<string, unknown>;
 }
 
 /** M8: 时间轴标记 */
@@ -197,6 +223,10 @@ export function createDefaultClip(
     image_rect: null,
     mask_type: null,
     mask_rect: null,
+    mask_points: null,
+    mask_rotation: null,
+    mask_feather: null,
+    mask_inverted: null,
     nested_timeline: null,
     text: null,
     font: null,

@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { formatTimecodeFromSeconds } from '@/lib/mediaTime';
 import type { ClipKind } from '@/types/timeline';
 
 /** Merge Tailwind classes with clsx */
@@ -29,18 +30,15 @@ export function uid(prefix = ''): string {
   return prefix ? `${prefix}_${time}${rand}` : `${time}${rand}`;
 }
 
-/** Format seconds to timecode HH:MM:SS:FF */
+/**
+ * Format seconds to timecode HH:MM:SS:FF.
+ *
+ * O1：换算走 `lib/mediaTime` 的整数 tick（不再 `seconds * fps` 直乘），
+ * NTSC 系帧率（29.97/23.976/59.94）自动使用 drop-frame 时间码（`HH:MM:SS;FF`）。
+ */
 export function formatTimecode(seconds: number, fps = 30): string {
   if (!isFinite(seconds) || seconds < 0 || fps <= 0 || !isFinite(fps)) return '00:00:00:00';
-  const totalFrames = Math.round(seconds * fps);
-  const ff = totalFrames % Math.round(fps);
-  const totalSecs = Math.floor(totalFrames / Math.round(fps));
-  const ss = totalSecs % 60;
-  const mm = Math.floor(totalSecs / 60) % 60;
-  const hh = Math.floor(totalSecs / 3600);
-  return [hh, mm, ss, ff]
-    .map((v) => String(v).padStart(2, '0'))
-    .join(':');
+  return formatTimecodeFromSeconds(seconds, fps);
 }
 
 /** Format seconds to short display (e.g., "1:23.4") */

@@ -15,6 +15,16 @@ import type { UILayout, UIWidget, UIRenderState } from './types';
 export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
   const [state, setState] = useState<UIRenderState>({});
   const updatingRef = useRef(false);
+  // P2-17: schema（布局）变化时重置渲染状态——旧实现跨插件/跨版本复用 state，
+  // 残留的旧 key 会污染新布局的取值
+  const layoutSig = JSON.stringify(layout);
+  const prevSigRef = useRef(layoutSig);
+  if (prevSigRef.current !== layoutSig) {
+    // React 官方支持的「渲染期条件重置」模式：布局（schema）变化即清空
+    // 残留状态，避免旧 key 污染新布局取值
+    prevSigRef.current = layoutSig;
+    setState({});
+  }
   // 动作序号：丢弃过期响应，避免快速连点导致旧响应覆盖新状态
   const actionSeqRef = useRef(0);
 
@@ -135,6 +145,8 @@ export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
             );
           }
 
+          // 别名：后端配置控件与插件 schema 常用 'string' 表示单行文本输入
+          case 'string':
           case 'input': {
             const val = (getValue(widget.key) as string) ?? widget.defaultValue ?? '';
             const inputId = `plui-${widget.key}-input`;
@@ -327,7 +339,17 @@ export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
           }
 
           default:
-            return null;
+            // P2-17: 未知控件不再静默丢弃——给可见占位提示（插件 UI 规范
+            // 演进/前端未实现该控件时用户与开发者都能立刻发现）
+            return (
+              <div
+                key={`unknown-${idx}`}
+                className="px-3 py-2 rounded-cw-sm border border-dashed border-outline-variant/50 text-caption text-on-surface-variant"
+                title={`未知控件类型: ${String((widget as { type?: unknown })?.type ?? '?')}`}
+              >
+                此控件类型暂不支持（本版本前端未实现），已在插件 UI 中占位。
+              </div>
+            );
         }
       },
     [getValue, handleAction, setUIState],

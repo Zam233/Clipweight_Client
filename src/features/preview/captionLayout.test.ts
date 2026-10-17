@@ -45,9 +45,9 @@ describe('textLayout — X3 预览/导出锚点对齐（drawtext 语义）', () 
     expect(tl.x).toBe(20 + 24);
   });
 
-  it('非字幕同轨堆叠 +35px/条（上限 500）；字幕不堆叠', () => {
-    expect(textLayout({ ...base, trackIndex: 0, stackIndex: 2 }).y).toBe(1080 - 20 - 24 + 70);
-    expect(textLayout({ ...base, trackIndex: 0, stackIndex: 99 }).y).toBe(1080 - 20 - 24 + 500);
+  it('非字幕同轨堆叠 −35px/条向上（上限 500，P2-06 与 ASS MarginV 同向）；字幕不堆叠', () => {
+    expect(textLayout({ ...base, trackIndex: 0, stackIndex: 2 }).y).toBe(1080 - 20 - 24 - 70);
+    expect(textLayout({ ...base, trackIndex: 0, stackIndex: 99 }).y).toBe(1080 - 20 - 24 - 500);
     const cap = { ...base, trackIndex: 0, stackIndex: 3, isCaption: true };
     expect(textLayout(cap).y).toBe(1080 - 20 - 24);
   });

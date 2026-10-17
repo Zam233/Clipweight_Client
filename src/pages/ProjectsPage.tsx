@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { projectApi } from '@/services/api';
 import { ProjectCard, type ProjectCardData } from '@/components/shared/ProjectCard';
 import { Badge } from '@/components/ui';
+import { SkeletonCardGrid } from '@/components/ui/skeleton';
 import {
   Film, ArrowLeft, Search, FolderOpen, Folder, X, Plus,
   Loader2, PackageOpen, Tag, Trash2, RotateCcw, ChevronLeft,
@@ -119,7 +120,13 @@ export function ProjectsPage() {
     if (sortBy === 'name') {
       arr.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
     } else {
-      arr.sort((a, b) => String(b.edited ?? '').localeCompare(String(a.edited ?? '')));
+      // 待验证项证实：ISO 字符串排序碰巧等同时间序，但空值/非法值会乱序——
+      // 改为按解析时间戳降序，无法解析的排最后
+      const t = (v: unknown) => {
+        const n = Date.parse(String(v ?? ''));
+        return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY;
+      };
+      arr.sort((a, b) => t(b.edited) - t(a.edited));
     }
     return arr;
   }, [projects, selectedFolder, selectedTag, search, sortBy]);
@@ -246,10 +253,25 @@ export function ProjectsPage() {
 
   const handleCreateFolder = () => {
     const name = newFolderName.trim();
-    if (name) {
-      setSelectedFolder(name);
-      setNewFolderName('');
-      setNewFolderPrompt(false);
+    if (!name) return;
+    // P2-27: 文件夹由项目归属派生（后端无独立建夹端点）——创建后明确
+    // 告知归入方式，避免"新建了却找不到"（旧实现只切本地过滤视图、零落库）
+    setSelectedFolder(name);
+    setNewFolderName('');
+    setNewFolderPrompt(false);
+    const firstUnfiled = projects.find((p) => (p.folder ?? '') !== name);
+    if (firstUnfiled) {
+      void (async () => {
+        try {
+          await projectApi.setFolder(firstUnfiled.id, name);
+          await loadProjects();
+          toast(`文件夹「${name}」已创建（已将「${firstUnfiled.name}」归入；可继续拖入其它项目）`, 'success');
+        } catch {
+          toast(`文件夹「${name}」已选中——将项目拖入后即长期存在`, 'info');
+        }
+      })();
+    } else {
+      toast(`文件夹「${name}」已选中——将项目拖入后即长期存在`, 'info');
     }
   };
 
@@ -403,9 +425,8 @@ export function ProjectsPage() {
               )}
             </div>
           ) : loading ? (
-            <div className="flex flex-col items-center justify-center py-20 gap-3">
-              <Loader2 className="w-6 h-6 text-primary animate-spin" />
-              <span className="text-caption text-on-surface-variant">加载中…</span>
+            <div className="py-4">
+              <SkeletonCardGrid count={6} />
             </div>
           ) : error ? (
             <div className="flex flex-col items-center justify-center py-20 gap-3">

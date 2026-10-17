@@ -4,6 +4,7 @@ import { personaApi, voiceApi } from '@/services/api';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge, Slider } from '@/components/ui';
 import type { Persona } from '@/types/persona';
+import { buildUpdatePayload } from '@/types/persona';
 import type { VoiceRecord } from '@/types/voice';
 import {
   ArrowLeft, Save, SlidersHorizontal, FileText, Database, GitBranch,
@@ -128,12 +129,18 @@ export function PersonaDetailPage() {
     setSaving(true);
     setSaveError('');
     try {
-      // 后端 PersonaManifest.parameter 要求顶层 persona_id；补齐后整体回传
-      await personaApi.update(persona.persona_id, {
-        ...persona,
-        prompt,
-        parameter: { ...persona.parameter, persona_id: persona.persona_id },
-      });
+      // P0-05：PUT 是全量替换语义——先取原始 manifest，把 UI 未映射的后端专有字段
+      // 原样并回请求体，避免一次保存把它们静默重置为默认值
+      let raw: Record<string, unknown> = {};
+      try {
+        raw = await personaApi.getRaw(persona.persona_id);
+      } catch {
+        // 取不到原始 manifest（后端异常等）——退化为仅回传 UI 字段
+      }
+      await personaApi.update(
+        persona.persona_id,
+        buildUpdatePayload({ ...persona, prompt }, raw),
+      );
     } catch {
       setSaveError('保存失败：后端未连接或请求被拒绝');
     }
@@ -334,7 +341,7 @@ export function PersonaDetailPage() {
             </Section>
 
             <Section icon={<Music className="w-4 h-4" />} title="音频 Audio">
-              <Slider label="响度 LUFS" min={-24} max={-8} value={P.audio.loudness_target_lufs ?? -16}
+              <Slider label="响度 LUFS" min={-30} max={-10} value={P.audio.loudness_target_lufs ?? -16}
                 onChange={(v) => setParam((p) => ({ ...p, parameter: { ...p.parameter, audio: { ...p.parameter.audio, loudness_target_lufs: v } } }))} />
               <div>
                 <label className="block text-label text-on-surface-variant mb-1">声音克隆模型</label>

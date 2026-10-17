@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
 import {
   animationApi,
@@ -7,15 +7,26 @@ import {
   type MgPreviewResult,
   type MgTemplateInfo,
 } from '@/services/api/project';
-import { Play, X, Loader2, Sparkles, History } from 'lucide-react';
+import { Play, X, Loader2, Sparkles, History, Pause, Zap } from 'lucide-react';
+import {
+  buildMgPreviewDoc,
+  formatPreviewTime,
+  mgPreviewMessage,
+  parseMgPreviewMessage,
+  type MgPreviewState,
+} from '@/features/preview/mgHtmlPreview';
 
 /**
  * MgPreviewPage — 单镜头 MG 动画预览工坊（Phase 2.6）。
  *
- * 列出后端全部内置 MG 模板；选中后填写模板参数（占位符替换），
- * 调用 POST /api/animation/preview 由 Hyperframes 直出 2-3s MP4 即时预览，
- * 全程不进入主渲染队列。Hyperframes 不可用时后端返回 503，这里给出明确提示。
- * M6: 另列出最近 LLM 生成记录（generation_id），可一键回看渲染。
+ * 两种预览档：
+ * - **HTML 即时预览**（默认，秒级）：`POST /api/animation/mg/html` 取合成 HTML，
+ *   塞进 sandbox iframe 由 `window.__timelines['main'].seek(t)` 驱动播放，
+ *   不起 Chromium、不渲染 MP4 —— 与主管线同源的真效果预览。
+ * - **渲染 MP4**：`POST /api/animation/preview` 由 Hyperframes 直出短视频，
+ *   用于确认编码/透明通道等最终形态。
+ * 全程不进入主渲染队列；Hyperframes 不可用时渲染档返回 503，这里给出明确提示。
+ * M6: 另列出最近 LLM 生成记录（generation_id），可一键回看。
  */
 export function MgPreviewPage() {
   const [templates, setTemplates] = useState<MgTemplateInfo[]>([]);
@@ -31,6 +42,12 @@ export function MgPreviewPage() {
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState('');
   const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // P2-3: HTML 即时预览状态
+  const [htmlDoc, setHtmlDoc] = useState('');
+  const [htmlLoading, setHtmlLoading] = useState(false);
+  const [htmlState, setHtmlState] = useState<MgPreviewState>({ duration: 3, time: 0, playing: false });
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -51,6 +68,42 @@ export function MgPreviewPage() {
     return () => { alive = false; };
   }, []);
 
+  // 接收 iframe 驱动回传的状态（iframe 为不透明源，只能 postMessage）
+  useEffect(() => {
+    const onMessage = (ev: MessageEvent) => {
+      if (iframeRef.current && ev.source !== iframeRef.current.contentWindow) return;
+      const parsed = parseMgPreviewMessage(ev.data);
+      if (parsed) setHtmlState(parsed.state);
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  /** 向 iframe 发送控制指令 */
+  const sendToIframe = useCallback((action: 'seek' | 'play' | 'pause', time?: number) => {
+    try {
+      iframeRef.current?.contentWindow?.postMessage(mgPreviewMessage(action, time), '*');
+    } catch { /* 跨源限制下静默 */ }
+  }, []);
+
+  /** P2-3: HTML 即时预览（不渲染、不起 Chromium，秒级出真效果） */
+  const loadHtmlPreview = useCallback(async (
+    body: { animation_id?: string; mg_json?: unknown; params?: Record<string, string> },
+  ) => {
+    setHtmlLoading(true);
+    setPreviewError('');
+    try {
+      const res = await animationApi.mgHtml({ ...body, width: 1280, height: 720, fps: 30 });
+      setHtmlDoc(buildMgPreviewDoc(res.html));
+      setHtmlState({ duration: res.duration_sec || 3, time: 0, playing: false });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setPreviewError(`HTML 预览失败：${msg}`);
+    } finally {
+      setHtmlLoading(false);
+    }
+  }, []);
+
   const openPreview = (t: MgTemplateInfo) => {
     const defaults: Record<string, string> = {};
     for (const [k, v] of Object.entries(t.params ?? {})) {
@@ -61,14 +114,15 @@ export function MgPreviewPage() {
     setActive(t);
     setParams(defaults);
     setPreview(null);
+    setHtmlDoc('');
     setPreviewError('');
+    void loadHtmlPreview({ animation_id: t.animation_id, params: defaults });
   };
 
   // M6: 打开一条生成记录回看（无参数占位，直接用存储的 mg_def 渲染）
   const openGeneration = async (g: MgGenerationInfo) => {
     setPreviewing(true);
-    setPreviewError('');
-    try {
+    setPreviewError('');    try {
       const record = await animationApi.mgGeneration(g.generation_id);
       setActiveGen({ title: g.animation_id || g.generation_id, record });
       const res = await animationApi.preview({
@@ -147,13 +201,14 @@ export function MgPreviewPage() {
     setActive(null);
     setActiveGen(null);
     setPreview(null);
+    setHtmlDoc('');
     setPreviewError('');
   };
 
   return (
     <ConsoleShell>
       <ConsoleHeading kicker="Animation / MG Preview" title="MG 动画预览工坊"
-        desc="选中内置 MG 模板 → 填写参数 → Hyperframes 直出短视频即时预览，不进入主渲染队列。" />
+        desc="选中内置 MG 模板 → 填写参数 → HTML 即时预览（秒级，可拖时间轴）或 Hyperframes 直出 MP4，不进入主渲染队列。" />
 
       {loading && <p className="text-caption text-on-surface-variant">加载模板中…</p>}
       {error && <p className="text-caption text-error">{error}</p>}
@@ -211,12 +266,45 @@ export function MgPreviewPage() {
               </button>
             </div>
             <div className="p-4">
-              {preview ? (
+              {/* P2-3: HTML 即时预览（iframe 不透明源 + postMessage 驱动时间轴） */}
+              {htmlDoc ? (
+                <div className="flex flex-col gap-2">
+                  <iframe
+                    ref={iframeRef}
+                    title="MG HTML 即时预览"
+                    srcDoc={htmlDoc}
+                    sandbox="allow-scripts"
+                    className="w-full aspect-video rounded-cw-md bg-black border-0"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => sendToIframe(htmlState.playing ? 'pause' : 'play')}
+                      className="p-1.5 rounded-cw-xs hover:bg-surface-container-high cursor-pointer"
+                      aria-label={htmlState.playing ? '暂停' : '播放'}>
+                      {htmlState.playing
+                        ? <Pause className="w-3.5 h-3.5" />
+                        : <Play className="w-3.5 h-3.5" />}
+                    </button>
+                    <input
+                      type="range" min={0} max={Math.max(htmlState.duration, 0.1)} step={0.05}
+                      value={htmlState.time}
+                      onChange={(e) => { sendToIframe('pause'); sendToIframe('seek', Number(e.target.value)); }}
+                      className="flex-1 accent-primary"
+                      aria-label="预览时间轴" />
+                    <span className="text-caption text-on-surface-variant tabular-nums">
+                      {formatPreviewTime(htmlState.time)} / {formatPreviewTime(htmlState.duration)}
+                    </span>
+                  </div>
+                  <p className="text-caption text-on-surface-variant/60">
+                    HTML 即时预览：不渲染、不起 Chromium，拖动时间轴即时查看任意时刻画面。
+                  </p>
+                </div>
+              ) : preview ? (
                 <video ref={videoRef} src={preview.url} controls autoPlay muted loop
                   className="w-full rounded-cw-md bg-black aspect-video" />
               ) : (
                 <div className="w-full aspect-video bg-black rounded-cw-md flex items-center justify-center text-caption text-on-surface-variant/60">
-                  {previewing ? '渲染中…' : '点击「生成预览」渲染本镜头'}
+                  {htmlLoading ? '生成 HTML 预览…' : previewing ? '渲染中…' : '点击下方按钮生成预览'}
                 </div>
               )}
               {previewError && <p className="text-caption text-error mt-2">{previewError}</p>}
@@ -239,11 +327,22 @@ export function MgPreviewPage() {
               )}
 
               <div className="flex justify-end gap-2 mt-4">
+                <button
+                  onClick={() => {
+                    if (hasParams) void loadHtmlPreview({ animation_id: active!.animation_id, params });
+                    else if (activeGen) void loadHtmlPreview({ mg_json: activeGen.record.mg_def });
+                  }}
+                  disabled={htmlLoading}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-cw-sm bg-surface-container-high text-on-surface text-label-sm
+                    hover:bg-surface-container-highest disabled:opacity-50 cursor-pointer">
+                  {htmlLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                  HTML 即时预览
+                </button>
                 <button onClick={hasParams ? runPreview : rerunGeneration} disabled={previewing}
                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-cw-sm bg-primary text-on-primary text-label-sm hover:bg-primary/90
                     disabled:opacity-50 cursor-pointer">
                   {previewing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                  {previewing ? '渲染中…' : '生成预览'}
+                  {previewing ? '渲染中…' : '生成 MP4 预览'}
                 </button>
               </div>
             </div>

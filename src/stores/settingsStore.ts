@@ -15,8 +15,12 @@ interface SettingsState {
   snapGridSec: number;
   cheatSheetOpen: boolean;
   showFramesInRuler: boolean;
+  /** O6: 预览性能诊断面板（每帧耗时/缓存命中率） */
+  showPerfPanel: boolean;
   defaultFps: number;
   defaultResolution: { width: number; height: number };
+  /** 轮 89：后端离线时是否回退演示假数据（生产默认关；仅本地体验可开） */
+  allowDemoFallback: boolean;
 
   // Actions
   setApiBaseUrl: (url: string) => void;
@@ -30,8 +34,10 @@ interface SettingsState {
   setSnapGridSec: (sec: number) => void;
   setCheatSheetOpen: (open: boolean) => void;
   setShowFramesInRuler: (v: boolean) => void;
+  setShowPerfPanel: (v: boolean) => void;
   setDefaultFps: (fps: number) => void;
   setDefaultResolution: (res: { width: number; height: number }) => void;
+  setAllowDemoFallback: (v: boolean) => void;
 }
 
 /** Load persisted editor preferences. */
@@ -50,6 +56,7 @@ function loadEditorPrefs() {
     snapToGrid: typeof raw.snapToGrid === 'boolean' ? raw.snapToGrid : false,
     snapGridSec: num(raw.snapGridSec, 1, 0.05, 60),
     showFramesInRuler: typeof raw.showFramesInRuler === 'boolean' ? raw.showFramesInRuler : false,
+    showPerfPanel: typeof raw.showPerfPanel === 'boolean' ? raw.showPerfPanel : false,
     theme:
       raw.theme === 'light' ? ('light' as const)
       : raw.theme === 'dark' ? ('dark' as const)
@@ -69,22 +76,30 @@ function loadConnectionPrefs() {
       apiBaseUrl: typeof raw.apiBaseUrl === 'string' && raw.apiBaseUrl !== '' ? raw.apiBaseUrl : '',
     });
   }
-  return {
-    apiBaseUrl: typeof raw.apiBaseUrl === 'string' && raw.apiBaseUrl !== '' ? raw.apiBaseUrl : undefined,
-  };
+  // P2-09: 显式空串 = 用户清空（不回落环境变量）；键缺失 = 未设置（回落）
+  if (typeof raw.apiBaseUrl === 'string') {
+    return { apiBaseUrl: raw.apiBaseUrl };
+  }
+  return {};
 }
 
 const prefs = loadEditorPrefs();
+// P2-02: 三个死设置接线——读取端补齐默认帧率/分辨率/自动保存偏好
+const rawFps = (prefs as Record<string, unknown>).defaultFps;
+const rawRes = (prefs as Record<string, unknown>).defaultResolution as { width?: number; height?: number } | undefined;
+const rawAutoSave = (prefs as Record<string, unknown>).autoSave;
 const connPrefs = loadConnectionPrefs();
+// 轮 89：演示回退开关持久化在 editorPrefs
+const rawAllowDemoFallback = loadPref<Record<string, unknown>>('editorPrefs', {}).allowDemoFallback;
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   // P0-11: 默认空串（同源）；持久化的旧 localStorage 值仍会被 loadConnectionPrefs 采用——
   // 仅当用户显式在设置中清空 API 地址时回落到空串。WS 已移除（W9）。
-  apiBaseUrl: connPrefs.apiBaseUrl || import.meta.env.VITE_API_BASE_URL || '',
+  apiBaseUrl: connPrefs.apiBaseUrl ?? import.meta.env.VITE_API_BASE_URL ?? '',
   theme: prefs.theme,
   language: 'zh',
   authToken: null,
-  autoSave: true,
+  autoSave: typeof rawAutoSave === 'boolean' ? rawAutoSave : true,
   autoSaveIntervalSec: 30,
   maxUndoHistory: 200,
   snapEnabled: prefs.snapEnabled,
@@ -93,28 +108,39 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   snapGridSec: prefs.snapGridSec,
   cheatSheetOpen: false,
   showFramesInRuler: prefs.showFramesInRuler,
-  defaultFps: 30,
-  defaultResolution: { width: 1920, height: 1080 },
+  // O6: 性能诊断默认关（面向排障，不是日常 UI）
+  showPerfPanel: prefs.showPerfPanel,
+  defaultFps: typeof rawFps === 'number' && rawFps > 0 ? rawFps : 30,
+  defaultResolution: {
+    width: typeof rawRes?.width === 'number' ? rawRes.width : 1920,
+    height: typeof rawRes?.height === 'number' ? rawRes.height : 1080,
+  },
+  // 轮 89：演示回退默认关闭——生产环境后端不可达时应显示错误而非假数据
+  allowDemoFallback: typeof rawAllowDemoFallback === 'boolean' ? rawAllowDemoFallback : false,
 
   setApiBaseUrl: (url) => { set({ apiBaseUrl: url }); persistConnectionPrefs(); },
   setTheme: (theme) => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-    document.documentElement.classList.toggle('light', theme === 'light');
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      document.documentElement.classList.toggle('light', theme === 'light');
+    }
     set({ theme });
     persistEditorPrefs();
   },
   setLanguage: (lang) => set({ language: lang }),
   // token 仅驻留内存，不持久化（审计 P0 修复）
   setAuthToken: (token) => { set({ authToken: token }); },
-  setAutoSave: (enabled) => set({ autoSave: enabled }),
+  setAutoSave: (enabled) => { set({ autoSave: enabled }); persistEditorPrefs(); },
   setSnapEnabled: (enabled) => { set({ snapEnabled: enabled }); persistEditorPrefs(); },
   setSnapThreshold: (px) => { set({ snapThresholdPx: px }); persistEditorPrefs(); },
   setSnapToGrid: (enabled) => { set({ snapToGrid: enabled }); persistEditorPrefs(); },
   setSnapGridSec: (sec) => { set({ snapGridSec: sec }); persistEditorPrefs(); },
   setCheatSheetOpen: (open) => set({ cheatSheetOpen: open }),
   setShowFramesInRuler: (v) => { set({ showFramesInRuler: v }); persistEditorPrefs(); },
-  setDefaultFps: (fps) => set({ defaultFps: fps }),
-  setDefaultResolution: (res) => set({ defaultResolution: res }),
+  setShowPerfPanel: (v) => { set({ showPerfPanel: v }); persistEditorPrefs(); },
+  setDefaultFps: (fps) => { set({ defaultFps: fps }); persistEditorPrefs(); },
+  setDefaultResolution: (res) => { set({ defaultResolution: res }); persistEditorPrefs(); },
+  setAllowDemoFallback: (v) => { set({ allowDemoFallback: v }); persistEditorPrefs(); },
 }));
 
 function persistEditorPrefs() {
@@ -125,7 +151,13 @@ function persistEditorPrefs() {
     snapToGrid: s.snapToGrid,
     snapGridSec: s.snapGridSec,
     showFramesInRuler: s.showFramesInRuler,
+    showPerfPanel: s.showPerfPanel,
     theme: s.theme,
+    allowDemoFallback: s.allowDemoFallback,
+    // P2-02: 默认帧率/分辨率/自动保存持久化（原死设置）
+    defaultFps: s.defaultFps,
+    defaultResolution: s.defaultResolution,
+    autoSave: s.autoSave,
   });
 }
 
@@ -138,5 +170,8 @@ function persistConnectionPrefs() {
 }
 
 // Apply stored theme on module load
-document.documentElement.classList.toggle('dark', prefs.theme === 'dark');
-document.documentElement.classList.toggle('light', prefs.theme === 'light');
+// 注意：Store 可能被非 DOM 环境（node 单测 / SSR）导入，模块级 DOM 访问必须守卫
+if (typeof document !== 'undefined') {
+  document.documentElement.classList.toggle('dark', prefs.theme === 'dark');
+  document.documentElement.classList.toggle('light', prefs.theme === 'light');
+}

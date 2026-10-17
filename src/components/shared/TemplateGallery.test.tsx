@@ -10,13 +10,14 @@ const { mocks } = vi.hoisted(() => ({
     list: vi.fn(),
     apply: vi.fn(),
     create: vi.fn(),
+    save: vi.fn(),
     toast: vi.fn(),
   },
 }));
 
 vi.mock('@/services/api', () => ({
   templateApi: { list: mocks.list, apply: mocks.apply },
-  projectApi: { create: mocks.create },
+  projectApi: { create: mocks.create, save: mocks.save },
 }));
 
 vi.mock('@/stores/toastStore', () => ({ toast: mocks.toast }));
@@ -48,7 +49,8 @@ describe('TemplateGallery (A3)', () => {
 
     fireEvent.click(screen.getAllByText('应用为新项目')[0]);
     await waitFor(() => {
-      expect(mocks.apply).toHaveBeenCalledWith('tpl_1');
+      // 待验证项修复：先建项目再应用（带 target_project_id 触发素材重映射）
+      expect(mocks.apply).toHaveBeenCalledWith('tpl_1', 'proj_new');
     });
     await waitFor(() => {
       expect(mocks.create).toHaveBeenCalled();

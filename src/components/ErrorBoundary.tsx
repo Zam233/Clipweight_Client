@@ -62,7 +62,7 @@ export class ErrorBoundary extends Component<Props, State> {
           </div>
 
           <p className="text-body text-on-surface-variant leading-relaxed mb-5">
-            编辑器遇到了一个未预期的错误。你的时间线数据保存在本地缓存中，重新加载后通常可以恢复。
+            编辑器遇到了一个未预期的错误。时间线保存在后端项目中——请先保存（Ctrl+S）再刷新；未保存的改动可能丢失。
           </p>
 
           {/* error detail */}

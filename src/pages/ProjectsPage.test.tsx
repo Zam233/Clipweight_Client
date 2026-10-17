@@ -160,13 +160,8 @@ describe('ProjectsPage loadProjects (U10)', () => {
     mocks.list.mockRejectedValue(new Error('network down'));
     render(<ProjectsPage />);
 
-    // loading spinner is visible first
-    expect(screen.getByText('加载中…')).toBeTruthy();
-
-    await waitFor(() => {
-      expect(screen.queryByText('加载中…')).toBeNull();
-    });
-    expect(screen.getByText('后端未连接，无法加载项目')).toBeTruthy();
+    // 轮 89：加载态为骨架屏（无 spinner 文案）；异步等待错误态出现
+    expect(await screen.findByText('后端未连接，无法加载项目')).toBeTruthy();
   });
 });
 

@@ -5,6 +5,7 @@ import { useSelectionStore } from '@/stores/selectionStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { Markdown } from '@/components/shared/Markdown';
 import { TimelineDiffView } from './TimelineDiffView';
+import { IntentCard, type IntentPreview } from './IntentCard';
 import { resolveMessageAttachments } from './requirementsAttachments';
 import { pipelineApi, requirementsApi, personaApi } from '@/services/api';
 import { fetchSseToken, withSseToken } from '@/services/api/sse';
@@ -16,9 +17,34 @@ import { uid } from '@/lib/utils';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline, Clip, ClipKind } from '@/types/timeline';
 import type { RequirementsStatus, CreativeBrief, ProductionPlan } from '@/types/persona';
+
+/** R6/R7：`/intent` 响应里前端真正需要的字段（后端结构见 requirementsApi.intent） */
+type IntentPreviewPayload = {
+  intent: string;
+  blocked: boolean;
+  resolution: {
+    preview: string[];
+    affected_clip_ids: string[];
+    questions: { code: string; text: string; options: { value: string; label: string }[] }[];
+    problems: string[];
+  };
+  problems: { level: string; where: string; message: string }[];
+  /** R7：后端已解析的意图原样回传，确认执行时按**这份**跑，不再重新解析 */
+  intent_raw?: unknown;
+};
+
+const toIntentCardData = (payload: IntentPreviewPayload): IntentPreview => ({
+  intent: payload.intent,
+  preview: payload.resolution?.preview ?? [],
+  affected_clip_ids: payload.resolution?.affected_clip_ids ?? [],
+  questions: payload.resolution?.questions ?? [],
+  problems: payload.resolution?.problems ?? [],
+  blocked: payload.blocked,
+  hardProblems: payload.problems ?? [],
+});
 import {
   Bot, Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
-  MessageSquareText, ChevronDown, ChevronRight, X, Paperclip, RefreshCw, Copy,
+  MessageSquareText, ChevronDown, ChevronRight, X, Paperclip, RefreshCw, Copy, Square,
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<PipelinePhase, string> = {
@@ -167,6 +193,10 @@ function RequirementsView() {
 
   // 选中素材标签（C6）：订阅时间轴选中片段与当前时间线
   const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
+  // R6：待确认的意图（有未答问题或解析失败时挂起，用户确认后再执行）
+  const [intentPending, setIntentPending] = useState<
+    { sid: string; message: string; preview: IntentPreviewPayload } | null
+  >(null);
   const timeline = useTimelineStore((s) => s.timeline);
   const selectedClips = selectedClipIds
     .map((id) => {
@@ -239,9 +269,20 @@ function RequirementsView() {
     } finally { setBusy(false); }
   };
 
+  // P1-35：长请求可取消——进行中的对话/编辑请求可被「停止」或组件卸载中断
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const cancelInFlight = () => {
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+  };
+  useEffect(() => () => cancelInFlight(), []);
+
   const sendChat = async (sessionId: string, message: string) => {
     addMessage({ id: uid('m'), role: 'user', content: message, timestamp: new Date().toISOString() });
     setBusy(true);
+    cancelInFlight();
+    chatAbortRef.current = new AbortController();
+    const signal = chatAbortRef.current.signal;
     // 轮69：真流式——首个 delta 创建打字气泡，后续增量追加；result 到达后收尾替换
     let streamId: string | null = null;
     const pushDelta = (text: string) => {
@@ -266,11 +307,20 @@ function RequirementsView() {
       // 批B：流式失败不再自动整跑一次性 chat（会重复消耗一次完整 LLM 生成），
       // 如实上屏错误；仅在流正常返回但无内容时回退
       res = await requirementsApi.streamChat(sessionId, message, (chunk) => {
-        if (chunk.type === 'status') setStatus('gathering');
+        // P2-33: 按后端权威状态映射（旧实现硬编码 gathering，会把 planning
+        // 阶段打回 gathering 导致输入框在错误时机出现）
+        if (chunk.type === 'status' && typeof chunk.data === 'string') {
+          const st = chunk.data;
+          setStatus(
+            (['gathering', 'brief_ready', 'brief_confirmed', 'planning', 'plan_ready', 'plan_confirmed', 'pipeline_running', 'pipeline_done'] as const).includes(st as never)
+              ? (st as Parameters<typeof setStatus>[0])
+              : 'gathering',
+          );
+        }
         else if (chunk.type === 'delta' && typeof chunk.data === 'string') pushDelta(chunk.data);
-      });
+      }, signal);
       if (Object.keys(res).length === 0) {
-        res = await requirementsApi.chat({ session_id: sessionId, message });
+        res = await requirementsApi.chat({ session_id: sessionId, message }, signal);
       }
       const brief = res.creative_brief ? (res.creative_brief as CreativeBrief) : null;
       const plan = res.production_plan ? (res.production_plan as ProductionPlan) : null;
@@ -298,18 +348,87 @@ function RequirementsView() {
           production_plan: att.production_plan });
       }
     } catch (e) {
+      // P1-35：主动取消不是错误——中性提示
+      const aborted = signal.aborted || (e instanceof DOMException && e.name === 'AbortError');
+      const text = aborted ? '已停止生成。' : `消息发送失败：${errText(e)}`;
       if (streamId) {
         useAgentStore.getState().updateRequirementsMessage(streamId, {
-          content: `消息发送失败：${errText(e)}`, streaming: false,
+          content: text, streaming: false,
         });
       } else {
         addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-          content: `消息发送失败：${errText(e)}` });
+          content: text });
       }
-    } finally { setBusy(false); }
+    } finally { setBusy(false); chatAbortRef.current = null; }
+  };
+
+  // R7：用户在确认卡上点了"确认执行"——走 `/intent/apply` 执行**用户刚看到的那份补丁**。
+  //
+  // 为什么不用 `/edit` 兜一圈：`/edit` 会让模型重新理解一遍原话，用户确认的
+  // "将改动什么"和模型实际做出来的东西可能不是一回事。既然卡上已经把补丁摊开了，
+  // 执行的就该是那份补丁（`intent_raw` 原样回传，后端不再重新解析）。
+  // 执行成功后仍然走既有 diff 审阅覆盖层（`setAgentTimeline`），保持"改完先看再落"的习惯。
+  const applyIntent = async (
+    sid: string,
+    message: string,
+    preview: IntentPreviewPayload,
+    answers: Record<string, string>,
+  ) => {
+    setBusy(true);
+    cancelInFlight();
+    chatAbortRef.current = new AbortController();
+    const signal = chatAbortRef.current.signal;
+    try {
+      const sel = useSelectionStore.getState();
+      const region = (sel.rangeStart != null && sel.rangeEnd != null)
+        ? { region_start_sec: sel.rangeStart, region_end_sec: sel.rangeEnd }
+        : {};
+      const res = await requirementsApi.intentApply(sid, {
+        message,
+        timeline: useTimelineStore.getState().timeline,
+        selected_clip_ids: selectedClipIds,
+        intent_raw: preview.intent_raw,
+        answers,
+        apply: true,
+        ...region,
+      }, signal);
+      if (res.applied && res.timeline) {
+        // 走既有 diff 审阅：接受/合并时才注册真实媒体并写入 store
+        useAgentStore.getState().setAgentTimeline(res.timeline as never);
+        const lines = res.report?.preview ?? [];
+        addMessage({
+          id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: ['已按确认的意图改好，请在上面审阅改动：', ...lines.map((l) => `· ${l}`)].join('\n'),
+        });
+      } else {
+        // 没执行成功：把"为什么"如实说清楚，并把问题挂回卡上让用户改口径
+        const errs = (res.report?.problems ?? []).filter((p) => p.level === 'error');
+        const why = (errs.length ? errs : (res.problems ?? [])).map((p) => p.message).slice(0, 3);
+        addMessage({
+          id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: `这次没有改动时间线：${why.join('；') || '没有可执行的改动'}`,
+        });
+        setIntentPending({
+          sid, message,
+          // 把"为什么没执行"挂回卡上（hardProblems 是卡上唯一会拦住确认的字段），
+          // 用户改口径或换选项后可以再来一次
+          preview: { ...preview, problems: [...(preview.problems ?? []), ...(res.report?.problems ?? [])] },
+        });
+      }
+    } catch {
+      addMessage({
+        id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+        content: '执行失败（后端未响应或指令无法执行），时间线未变。',
+      });
+    } finally {
+      setBusy(false);
+      chatAbortRef.current = null;
+    }
   };
 
   // 选中素材 + 自然语言指令 → 时间线编辑（C6）：走 /edit 端点，返回 proposed_timeline 触发 diff 审阅
+  // R6：先走意图落位（/intent）拿"将改动什么 + 需要拍板的问题"；有未答问题或解析失败时
+  // **不进入执行**，改为在输入框上方弹"意图确认卡"（用户确认后才继续）。
   const sendEdit = async (sessionId: string, message: string) => {
     const labels = selectedClips.map(({ clip, kind }) => {
       const label = clipText(clip, kind);
@@ -318,19 +437,47 @@ function RequirementsView() {
     const content = `【选中素材】${labels.join('、')}\n${message}`;
     addMessage({ id: uid('m'), role: 'user', content, timestamp: new Date().toISOString() });
     setBusy(true);
+    cancelInFlight();
+    chatAbortRef.current = new AbortController();
+    const editSignal = chatAbortRef.current.signal;
     try {
       // W12: 区域级返工 — 附带当前范围选择（M14 range 工具），后端限定编辑窗口
       const sel = useSelectionStore.getState();
       const region = (sel.rangeStart != null && sel.rangeEnd != null)
         ? { region_start_sec: sel.rangeStart, region_end_sec: sel.rangeEnd }
         : {};
+      // R6：任何一次自然语言改动**都先落位一遍**（不再有"跳过检查"的旁路——
+      // 确认卡是唯一的执行入口，两个入口对同一句话给出不同理解是最难查的那类 bug）。
+      try {
+        const preview = await requirementsApi.intent(sessionId, {
+          message,
+          timeline: useTimelineStore.getState().timeline,
+          selected_clip_ids: selectedClipIds,
+          ...region,
+        }, editSignal);
+        const needsConfirm = Boolean(preview?.blocked)
+          || (preview?.resolution?.questions?.length ?? 0) > 0
+          || (preview?.problems ?? []).some((p) => p.level === 'error');
+        if (needsConfirm) {
+          // 停在确认卡：把原始指令与意图一起存下来，确认后按**这份意图**执行（R7）
+          setIntentPending({ sid: sessionId, message, preview });
+          setBusy(false);
+          chatAbortRef.current = null;
+          return;
+        }
+      } catch (e) {
+        // 意图预览失败不该挡住编辑能力：降级为原来的直接编辑
+        if (!(e instanceof DOMException && e.name === 'AbortError')) {
+          // 静默降级（后端未升级/网络抖动都以旧路径为准）
+        }
+      }
       const res = await requirementsApi.edit({
         session_id: sessionId,
         message,
         timeline: useTimelineStore.getState().timeline,
         selected_clip_ids: selectedClipIds,
         ...region,
-      });
+      }, editSignal);
       if (res.proposed_timeline) {
         // 触发既有 TimelineDiffView 审阅覆盖层；接受/合并时 TimelineDiffView 会注册真实媒体
         useAgentStore.getState().setAgentTimeline(res.proposed_timeline);
@@ -340,9 +487,12 @@ function RequirementsView() {
         timestamp: new Date().toISOString(),
         creative_brief: att.creative_brief, production_plan: att.production_plan });
     } catch (e) {
-      addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
-        content: `时间线编辑失败：${errText(e)}` });
-    } finally { setBusy(false); }
+      const aborted = editSignal.aborted || (e instanceof DOMException && e.name === 'AbortError');
+      if (!aborted) {
+        addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: `时间线编辑失败：${errText(e)}` });
+      }
+    } finally { setBusy(false); chatAbortRef.current = null; }
   };
 
   const confirmBrief = async () => {
@@ -397,7 +547,11 @@ function RequirementsView() {
         st.personaId ?? 'default',
         st.pluginId ?? 'knowledge_longform',
         // P8: dry-run 预览模式 — 只生成粗剪时间线，跳过动画/音频/质检
-        { dry_run: st.dryRun },
+        // P2-04: 踩点剪辑透传（用户显式开关 + BPM；后端 extra_params 用户优先）
+        {
+          dry_run: st.dryRun,
+          ...(st.cutOnBeat && st.beatBpm ? { cut_on_beat: true, bpm: st.beatBpm } : {}),
+        },
         // 批B：携带当前项目——成品时间线自动保存回项目（否则 60s 后丢失）
         st.projectId ?? undefined,
       ) as { pipeline_id?: string };
@@ -494,6 +648,26 @@ function RequirementsView() {
       {/* B17: 管线运行/规划生成期间隐藏输入；完成/失败后恢复 */}
       {messages.length > 0 && !['pipeline_running', 'planning'].includes(status) && (
         <div className="p-3 border-t border-outline-variant/20 shrink-0">
+          {/* R6：意图确认卡 —— 有未答问题/解析失败时先让用户看清"将改动什么"再执行 */}
+          {intentPending && (
+            <div className="mb-2">
+              <IntentCard
+                data={toIntentCardData(intentPending.preview)}
+                onConfirm={(answers) => {
+                  const pending = intentPending;
+                  setIntentPending(null);
+                  void applyIntent(pending.sid, pending.message, pending.preview, answers);
+                }}
+                onCancel={() => {
+                  setIntentPending(null);
+                  addMessage({
+                    id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+                    content: '已取消这次修改，时间线未变。',
+                  });
+                }}
+              />
+            </div>
+          )}
           {selectedClips.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 mb-2">
               <span className="text-caption text-on-surface-variant/60">选中素材</span>
@@ -516,10 +690,9 @@ function RequirementsView() {
           )}
           <div className="flex gap-2">
             {/* G7: 参考文件上传 */}
-            <input
-              ref={uploadInputRef}
+            <input              ref={uploadInputRef}
               type="file"
-              accept=".txt,.md,.pdf,.docx"
+              accept=".txt,.md,.pdf,.docx,.png,.jpg,.jpeg,.webp,.gif,.srt"
               hidden
               onChange={(e) => {
                 const f = e.target.files?.[0];
@@ -554,16 +727,23 @@ function RequirementsView() {
               placeholder={selectedClipIds.length > 0 ? '描述对选中素材的修改…（Shift+Enter 换行）' : '继续与需求 Agent 对话…（Shift+Enter 换行）'}
               className="flex-1 bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm text-on-surface resize-none
                 outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50" />
-            <Button size="icon" onClick={() => {
-              const sid = useAgentStore.getState().requirementsSessionId;
-              if (input.trim() && sid) {
-                const m = input; setInput('');
-                if (selectedClipIds.length > 0) sendEdit(sid, m);
-                else sendChat(sid, m);
-              }
-            }}             disabled={!input.trim() || busy}>
-              <Send className="w-3.5 h-3.5" />
-            </Button>
+            {busy ? (
+              // P1-35：进行中提供「停止」——中断在途请求（网络层真正 abort）
+              <Button size="icon" variant="outline" onClick={cancelInFlight} title="停止生成">
+                <Square className="w-3.5 h-3.5" />
+              </Button>
+            ) : (
+              <Button size="icon" onClick={() => {
+                const sid = useAgentStore.getState().requirementsSessionId;
+                if (input.trim() && sid) {
+                  const m = input; setInput('');
+                  if (selectedClipIds.length > 0) sendEdit(sid, m);
+                  else sendChat(sid, m);
+                }
+              }} disabled={!input.trim()}>
+                <Send className="w-3.5 h-3.5" />
+              </Button>
+            )}
           </div>
         </div>
       )}

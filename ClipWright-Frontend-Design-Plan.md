@@ -1305,7 +1305,7 @@ Passed as `extra_params.video_mode`. The mode selector is a dropdown in the edit
 
 ### 10.0c SSE Timeline Snapshot (Real-Time Intermediate Rendering)
 
-During pipeline execution, the backend emits `timeline_snapshot` SSE events containing intermediate timeline state after each Agent completes. The frontend renders these **immediately** into the timeline view 鈥?this is the key UX differentiator for the Agent pipeline.
+During pipeline execution, the backend emits `timeline_snapshot` SSE events containing intermediate timeline state after each Agent completes. The frontend renders these **immediately** into the timeline view �?this is the key UX differentiator for the Agent pipeline.
 
 SSE event types handled by the frontend:
 - `agent_start` / `agent_end` -> phase indicator update
@@ -1606,8 +1606,8 @@ Before pipeline starts, a split mode selector determines how script text is divi
 
 | Mode | Behavior |
 |------|----------|
-| `period` | Split on sentence-ending punctuation (銆傦紒锛?!?) |
-| `punctuation` | Split on all punctuation (锛屻€傦紱锛燂紒), preserving ?! at segment end |
+| `period` | Split on sentence-ending punctuation (。！�?!?) |
+| `punctuation` | Split on all punctuation (，�?�；？！), preserving ?! at segment end |
 
 Passed as `extra_params.split_mode` to the pipeline.
 
@@ -1803,7 +1803,7 @@ Editor Lifecycle Hooks:
 
 ## 17 Phased Implementation Plan
 
-### Phase 1: Scaffolding (Week 1-2) 鈥?MVP Foundation
+### Phase 1: Scaffolding (Week 1-2) �?MVP Foundation
 
 **Goal**: Runnable project, basic layout visible
 
@@ -1820,7 +1820,7 @@ Editor Lifecycle Hooks:
 | P1-9 | CI/CD (GitHub Actions + Vercel/Netlify) | 0.5d | P1 |
 | P1-10 | Health Check Dashboard page with component status cards (mongodb/llm/ffmpeg/hyperframes/queue) | 0.5d | P1 |
 
-### Phase 2: Core Timeline (Week 3-6) 鈥?Most Critical
+### Phase 2: Core Timeline (Week 3-6) �?Most Critical
 
 **Goal**: Interactive multi-track timeline (PR baseline capability)
 

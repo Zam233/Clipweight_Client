@@ -10,7 +10,10 @@ interface TimelineState {
   isDirty: boolean;
 
   // Timeline-level actions
-  setTimeline: (timeline: Timeline) => void;
+  setTimeline: (
+    timeline: Timeline,
+    options?: { preserveSelection?: boolean },
+  ) => void;
   resetTimeline: () => void;
   /** 轮75：保存成功后清除未保存标记（状态栏「未保存」指示用） */
   markSaved: () => void;
@@ -70,16 +73,60 @@ interface TimelineState {
   exportTimeline: () => Timeline;
 }
 
+/**
+ * P1-04：关键帧时间基归一化——把 Agent 产出的绝对秒关键帧转换为编辑器约定的
+ * clip_local 归一化基。判定保守：全部 time > 1 且 min(time) >= start_sec 时才转换
+ * （归一化基本来就全 ≤1，重复调用幂等）；无法确定时不动，交给导出端不标记、
+ * 由后端启发式判断。
+ */
+function normalizeKeyframeTimeBase(timeline: Timeline): Timeline {
+  let changed = false;
+  const tracks = (timeline.tracks ?? []).map((track) => ({
+    ...track,
+    clips: (track.clips ?? []).map((clip) => {
+      const kfs = clip.keyframes;
+      if (!Array.isArray(kfs) || kfs.length === 0) return clip;
+      const dur = clip.duration_sec;
+      if (!dur || dur <= 0) return clip;
+      const times = kfs.map((k) => Number(k.time));
+      if (times.some((t) => !Number.isFinite(t))) return clip;
+      if (times.every((t) => t >= 0 && t <= 1)) return clip; // 已是归一化基
+      if (!times.every((t) => t > 1)) return clip; // 混合基，保守不动
+      const start = clip.start_sec ?? 0;
+      if (Math.min(...times) < start - 0.001) return clip; // 时间不在片段窗口内，保守不动
+      changed = true;
+      return {
+        ...clip,
+        keyframes: kfs.map((kf) => ({
+          ...kf,
+          time: +Math.min(1, Math.max(0, (Number(kf.time) - start) / dur)).toFixed(6),
+        })),
+        metadata: { ...(clip.metadata ?? {}), kf_time_base: 'clip_local' },
+      };
+    }),
+  }));
+  return changed ? { ...timeline, tracks } : timeline;
+}
+
 export const useTimelineStore = create<TimelineState>((set, get) => ({
   timeline: createEmptyTimeline(),
   isDirty: false,
 
-  setTimeline: (timeline) => {
-    set({ timeline, isDirty: false });
+  setTimeline: (timeline, options) => {
+    // P1-04：Agent 产出的关键帧用绝对秒（如 time=240），而编辑器插值约定
+    // clip_local 归一化 [0,1]——不归一化会让动画恒停在首帧。全部 time > 1
+    // 且带有效时长/起点时判定为绝对秒，转换为 (t-start)/duration。
+    // 归一化后所有 time ≤ 1，重复调用幂等。
+    const normalized = normalizeKeyframeTimeBase(timeline);
+    set({ timeline: normalized, isDirty: false });
     // 同步预览/选择状态，避免 playhead 钳位失效与悬空选择
     usePreviewStore.getState().setDuration(timeline.duration_sec);
     usePreviewStore.getState().setFps(timeline.fps);
-    useSelectionStore.getState().deselectAll();
+    // O3：撤销/重做/历史跳转要恢复「当时的选择」，由 historyStore 在切换后写回，
+    // 因此这些调用方传 preserveSelection=true 跳过这里的清空
+    if (!options?.preserveSelection) {
+      useSelectionStore.getState().deselectAll();
+    }
     // V10: Undo/重做/导入/代理切换后重注册媒体——历史快照可能指向不同素材 URL
     // （动态 import 避免 store↔service 初始化耦合）
     void import('@/services/media/mediaManager').then(({ mediaManager }) =>
@@ -302,6 +349,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
   moveClip: (clipId, targetTrackId, newStartSec) =>
     set((state) => {
       let movedClip: Clip | undefined;
+      // P1-30: 目标轨/源轨锁定 → 拒绝移动（业务不变量收口到 store 单点，
+      // UI 层的校验只是提前反馈）
+      const srcTrack = state.timeline.tracks.find((t) => t.clips.some((c) => c.id === clipId));
+      const dstTrack = state.timeline.tracks.find((t) => t.id === targetTrackId);
+      if (srcTrack?.locked || dstTrack?.locked) return state;
       // Remove from source
       const tracksWithout = state.timeline.tracks.map((t) => {
         const clip = t.clips.find((c) => c.id === clipId);
@@ -533,21 +585,46 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 
   rippleDelete: (clipId) => {
     set((state) => {
+      // 定位被删片段
+      let target: Clip | undefined;
+      for (const t of state.timeline.tracks) {
+        const c = t.clips.find((cc) => cc.id === clipId);
+        if (c) { target = c; break; }
+      }
+      if (!target) return state;
+
+      // P1-31: 编组扩散——同组片段一并删除，波纹窗口取组的整体跨度
+      const groupIds = new Set(state.getGroupClipIds(clipId));
+      if (groupIds.size === 0) groupIds.add(clipId); // 无组 → 仅删除自身
+      let winStart = target.start_sec;
+      let winEnd = target.start_sec + target.duration_sec;
+      if (groupIds.size > 1) {
+        for (const t of state.timeline.tracks) {
+          for (const c of t.clips) {
+            if (!groupIds.has(c.id)) continue;
+            winStart = Math.min(winStart, c.start_sec);
+            winEnd = Math.max(winEnd, c.start_sec + c.duration_sec);
+          }
+        }
+      }
+      const window = winEnd - winStart;
+
       const tracks = state.timeline.tracks.map((t) => {
-        const idx = t.clips.findIndex((c) => c.id === clipId);
-        if (idx === -1) return t;
-        const removed = t.clips[idx];
-        const gap = removed.duration_sec;
-        const removedStart = removed.start_sec;
-        // Drop the clip, then shift every later clip left by the gap
-        const clips = t.clips
-          .filter((c) => c.id !== clipId)
-          .map((c) =>
-            c.start_sec >= removedStart + gap - 0.0001
-              ? { ...c, start_sec: Math.max(0, c.start_sec - gap) }
-              : c,
-          );
-        return { ...t, clips };
+        if (t.locked) return t; // 锁定轨不动
+        const kept: Clip[] = [];
+        let touched = false;
+        for (const c of t.clips) {
+          if (groupIds.has(c.id)) { touched = true; continue; }
+          // 窗口之后的片段整体左移——音频/字幕与画面同步前移，不再失同步
+          // （旧实现只左移被删片段所在轨，其余轨道保持原位）
+          if (c.start_sec >= winEnd - 0.0001) {
+            kept.push({ ...c, start_sec: Math.max(0, c.start_sec - window) });
+            touched = true;
+          } else {
+            kept.push(c);
+          }
+        }
+        return touched ? { ...t, clips: kept } : t;
       });
       return {
         timeline: { ...state.timeline, tracks, duration_sec: computeTotalDuration(tracks) },
@@ -826,6 +903,9 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         const kfs = clip.keyframes;
         if (!Array.isArray(kfs) || kfs.length === 0) continue;
         const dur = clip.duration_sec || 1;
+        // P1-04：仅在关键帧确实处于归一化时间基（全 ≤1）时才标记 clip_local 并转秒；
+        // 绝对秒关键帧保持原样——盲目标记曾让后端 shift=0 + duration 钳制把动画压成常量
+        if (!kfs.every((kf) => typeof kf.time === 'number' && kf.time >= 0 && kf.time <= 1)) continue;
         // V3: 标记关键帧时间基——后端 normalize_keyframe_times 据此做确定性
         // 归一化（translate 单位 likewise：clip_local = 画幅比例）
         const meta = { ...(clip.metadata ?? {}), kf_time_base: 'clip_local' };

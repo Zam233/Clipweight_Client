@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from '@tanstack/react-router';
+import { useParams, useBlocker } from '@tanstack/react-router';
 import { EditorLayout } from '@/layouts/EditorLayout';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -15,6 +15,8 @@ import { projectApi, requirementsApi, getApiClient } from '@/services/api';
 import { session } from '@/services/api/session';
 import { mediaManager } from '@/services/media/mediaManager';
 import { useGlobalKeybindings } from '@/features/keyboard/useGlobalKeybindings';
+import { usePluginShortcuts } from '@/features/plugins/usePluginShortcuts';
+import { keybindingEngine } from '@/features/keyboard/KeybindingEngine';
 import { ShortcutCheatSheet } from '@/features/keyboard/ShortcutCheatSheet';
 import { useRequirementsAutoStart } from '@/features/agent/useRequirementsAutoStart';
 import { tabSync } from '@/services/tabSync';
@@ -22,6 +24,9 @@ import { uid } from '@/lib/utils';
 import { createEmptyTimeline } from '@/types/timeline';
 import { Loader2 } from 'lucide-react';
 import { decideFlushPayload } from './flushPayload';
+import {
+  draftAge, getDraftRepository, isDraftNewer, type DraftRecord,
+} from '@/services/storage/drafts';
 
 /**
  * EditorPage — hosts the 4-panel editor. Loads project from backend by id
@@ -29,10 +34,25 @@ import { decideFlushPayload } from './flushPayload';
  */
 export function EditorPage() {
   const { projectId } = useParams({ from: '/editor/$projectId' });
+  // P2-38: 供 agentStore 草稿归属校验读取当前项目 id
+  (globalThis as { __cw_getProjectId?: () => string }).__cw_getProjectId = () => projectId;
   const { cheatSheetOpen, setCheatSheetOpen } = useGlobalKeybindings();
+  // D-3j：插件贡献的快捷键（挂载注册/卸载注销）
+  usePluginShortcuts();
+  // P2-19: 快捷键速查表打开时视为模态——单键快捷键不触发
+  useEffect(() => {
+    keybindingEngine.setModalOpen(cheatSheetOpen);
+    return () => {
+      if (cheatSheetOpen) keybindingEngine.setModalOpen(false);
+    };
+  }, [cheatSheetOpen]);
   const dirtyRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // O5：本地草稿恢复提示（草稿比服务端新时才出现）
+  const [draftPrompt, setDraftPrompt] = useState<DraftRecord | null>(null);
+  /** 本次编辑期间是否已把草稿写进 IndexedDB（用于提示文案与恢复判定） */
+  const draftRef = useRef<DraftRecord | null>(null);
   // HomePage.launch() 写入的需求数据快照。用 ref 保存以跨 StrictMode 双重挂载持久化——
   // 否则首次挂载的 resetProject 会清空 store，第二次挂载快照到的是已清空的值，导致恢复失败。
   // B16: 捕获全部字段（含文稿/音色/配音/模式），resetProject 后再恢复。
@@ -104,7 +124,7 @@ export function EditorPage() {
 
         // Load from backend; on failure (offline / not found) fall back to an
         // empty local project so the editor remains usable in demo mode.
-        let project: { id: string; name: string; persona_id?: string; plugin_id?: string; timeline: ReturnType<typeof createEmptyTimeline> | null; agent_state?: import('@/types/api').AgentStateSnapshot | null };
+        let project: { id: string; name: string; persona_id?: string; plugin_id?: string; timeline: ReturnType<typeof createEmptyTimeline> | null; agent_state?: import('@/types/api').AgentStateSnapshot | null; updated_at?: string };
         try {
           project = await projectApi.load(projectId);
         } catch (loadErr) {
@@ -119,9 +139,32 @@ export function EditorPage() {
         useProjectStore.getState().setProjectName(project.name);
         if (project.persona_id) useProjectStore.getState().setPersonaId(project.persona_id);
         if (project.plugin_id) useProjectStore.getState().setPluginId(project.plugin_id);
-        useTimelineStore.getState().setTimeline(project.timeline ?? createEmptyTimeline());
+        // P2-02: 空时间线应用设置中的默认帧率/分辨率（原硬编 1920x1080@30）
+        const _emptyTl = () => {
+          const st = useSettingsStore.getState();
+          const tl = createEmptyTimeline();
+          tl.fps = st.defaultFps;
+          tl.width = st.defaultResolution.width;
+          tl.height = st.defaultResolution.height;
+          return tl;
+        };
+        useTimelineStore.getState().setTimeline(project.timeline ?? _emptyTl());
         // 注册项目时间线中的真实媒体（video/audio/image），供预览真实渲染
-        mediaManager.registerTimeline(project.timeline ?? createEmptyTimeline());
+        mediaManager.registerTimeline(project.timeline ?? _emptyTl());
+        // O5：先用手上的派生数据快照补缩略图/波形/时长（刷新后不再先看到一片空白），
+        // 再检查是否存在比服务端更新的本地草稿
+        try {
+          const repo = getDraftRepository();
+          const snapshots = await repo.listMediaSnapshots();
+          if (snapshots.length > 0) mediaManager.applySnapshots(snapshots);
+          const draft = await repo.getDraft(project.id);
+          if (isDraftNewer(draft, project.updated_at)) {
+            draftRef.current = draft;
+            setDraftPrompt(draft);
+          }
+        } catch {
+          // 草稿是可选的增强：读写失败静默降级，不阻断编辑器
+        }
         // Restore requirements data so AgentPanel auto-start can consume it
         if (pendingTopic) {
           const pending = pendingReqRef.current!;
@@ -215,6 +258,10 @@ export function EditorPage() {
       dirtyRef.current = false;
       // 轮75：清除时间轴未保存标记（状态栏「未保存」指示复位）
       useTimelineStore.getState().markSaved();
+      // O5: 服务端已经拿到这份改动 → 本地草稿使命完成，删掉避免下次误提示「恢复草稿」
+      draftRef.current = null;
+      setDraftPrompt(null);
+      void getDraftRepository().deleteDraft(st.projectId).catch(() => {});
       // G3: 广播保存事件，通知其他标签页重新拉取
       tabSync.broadcastSaved(st.projectId);
     } catch {
@@ -223,13 +270,38 @@ export function EditorPage() {
     }
   }, []);
 
-  // Server-side auto-save (debounced)
+  // Server-side auto-save (debounced) + O5 本地草稿（立即写，不等网络）
   const serverSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const unsub = useTimelineStore.subscribe((state, prev) => {
       if (state.timeline === prev.timeline) return;
       dirtyRef.current = true;
       const st = useProjectStore.getState();
+      // O5：先把草稿写进 IndexedDB（本地、无网络、1 秒防抖），刷新/崩溃也不再丢改动；
+      // 服务端自动保存仍走下面的 5 秒防抖 + 网络。
+      if (st.projectId) {
+        // 闭包里 TS 不做窄化保持，先取出非空 id
+        const draftProjectId = st.projectId;
+        if (draftTimer.current) clearTimeout(draftTimer.current);
+        draftTimer.current = setTimeout(() => {
+          const record: DraftRecord = {
+            projectId: draftProjectId,
+            name: st.projectName ?? undefined,
+            timeline: useTimelineStore.getState().timeline,
+            savedAt: Date.now(),
+            dirty: true,
+          };
+          draftRef.current = record;
+          void getDraftRepository().putDraft(record).then((result) => {
+            if (!result.ok && result.reason === 'quota') {
+              toast('本地草稿空间不足，已清理旧缓存；建议尽快手动保存', 'info');
+            }
+          }).catch(() => {});
+        }, 1000);
+      }
+      // P2-02: 自动保存开关（设置页可关；关闭时仅依赖手动保存/离开冲刷）
+      if (!useSettingsStore.getState().autoSave) return;
       if (!st.projectId) return;
       if (serverSaveTimer.current) clearTimeout(serverSaveTimer.current);
       serverSaveTimer.current = setTimeout(() => {
@@ -239,14 +311,65 @@ export function EditorPage() {
     return () => {
       unsub();
       if (serverSaveTimer.current) clearTimeout(serverSaveTimer.current);
+      if (draftTimer.current) clearTimeout(draftTimer.current);
     };
   }, [doSave]);
+
+  // O5：草稿恢复 —— 把草稿时间线装回编辑器（选择/历史清空，避免指向不存在的片段）
+  const restoreDraft = useCallback(() => {
+    const draft = draftPrompt;
+    if (!draft) return;
+    useTimelineStore.getState().setTimeline(draft.timeline as ReturnType<typeof createEmptyTimeline>);
+    mediaManager.registerTimeline(draft.timeline as ReturnType<typeof createEmptyTimeline>);
+    useSelectionStore.getState().deselectAll();
+    useHistoryStore.getState().clear();
+    dirtyRef.current = true;
+    setDraftPrompt(null);
+    toast('已恢复本地草稿（服务端仍是旧版本，保存后会覆盖）', 'info');
+  }, [draftPrompt]);
+
+  // O5：丢弃草稿（服务端版本为准）
+  const discardDraft = useCallback(() => {
+    const st = useProjectStore.getState();
+    if (st.projectId) void getDraftRepository().deleteDraft(st.projectId).catch(() => {});
+    draftRef.current = null;
+    setDraftPrompt(null);
+  }, []);
+
+  // O5：媒体派生数据（缩略图/波形/时长）落 IndexedDB —— 变化后 2 秒防抖，best-effort
+  useEffect(() => {
+    const unsub = mediaManager.onChange(() => {
+      const st = useProjectStore.getState();
+      if (!st.projectId) return;
+      const snapshots = mediaManager.exportSnapshots();
+      if (snapshots.length === 0) return;
+      const repo = getDraftRepository();
+      void Promise.all(snapshots.map((s) => repo.putMediaSnapshot(s))).catch(() => {});
+    });
+    return () => { unsub(); };
+  }, []);
 
   // Manual save trigger via saveNonce
   const saveNonce = useProjectStore((s) => s.saveNonce);
   useEffect(() => {
     if (saveNonce > 0) void doSave();
   }, [saveNonce, doSave]);
+
+  // P0-02: SPA 导航守卫 —— 返回首页/导出/项目列表等路由离开前，先落盘未保存改动。
+  // （SPA 跳转不触发 pagehide，原先 5s 防抖窗口内的最后一次改动会静默丢失。）
+  const blocker = useBlocker({ shouldBlockFn: () => dirtyRef.current, withResolver: true });
+  useEffect(() => {
+    if (blocker.status !== 'blocked') return;
+    void (async () => {
+      await doSave();
+      const failed = useProjectStore.getState().saveError || dirtyRef.current;
+      if (failed && !window.confirm('当前有未保存的改动，确认仍要离开吗？')) {
+        blocker.reset();
+        return;
+      }
+      blocker.proceed();
+    })();
+  }, [blocker, doSave]);
 
   // Page-hide save flush — best-effort immediate save when leaving
   useEffect(() => {
@@ -268,7 +391,8 @@ export function EditorPage() {
       // 而此处 pagehide 冲刷省略了 agent_state——卸载临界期避免序列化过大的 Agent 状态。
       // 本次修复不做改动，仅保留注释。
       if (decision.kind === 'metadata') {
-        toast('项目较大，正在保存元数据，请稍候关闭', 'info');
+        // P0-01：超限时不发 timeline（宁可不保存也不能写坏），只同步项目级字段
+        toast('项目较大，本次离开仅保存项目信息，时间线未保存。请回到编辑器手动保存（Ctrl+S）', 'info');
       }
       const payload = JSON.stringify(decision.payload);
       try {
@@ -301,8 +425,12 @@ export function EditorPage() {
       if (!st.projectId || ev.projectId !== st.projectId) return;
       // 本地刚保存过（自己广播的）→ 跳过；用时间差粗判（<1s 视为同源回环）
       if (Date.now() - Date.parse(ev.at) < 1000) return;
-      // 本地有未保存修改时跳过，避免覆盖用户正在进行的编辑
-      if (dirtyRef.current) return;
+      // 本地有未保存修改时跳过覆盖，但明确告知冲突（轮 89：旧实现静默
+      // last-writer-wins，用户不知道另一标签页保存过、本地修改会覆盖远端）
+      if (dirtyRef.current) {
+        toast('另一标签页已保存此项目；本页有未保存修改，保存时将覆盖远端', 'error');
+        return;
+      }
       try {
         const project = await projectApi.load(ev.projectId);
         if (!project || !project.timeline) return;
@@ -340,6 +468,30 @@ export function EditorPage() {
   return (
     <>
       <EditorLayout />
+      {/* O5: 本地草稿恢复提示（草稿比服务端新时出现；不自动覆盖，交给用户决定） */}
+      {draftPrompt && (
+        <div
+          data-testid="draft-restore-banner"
+          className="fixed left-1/2 -translate-x-1/2 bottom-6 z-50 flex items-center gap-3
+            rounded-cw-md border border-outline-variant/50 bg-surface-container-high px-4 py-2.5 shadow-2xl shadow-black/50"
+        >
+          <span className="text-body-sm text-on-surface">
+            发现未保存的本地草稿（{draftAge(draftPrompt.savedAt)}），比服务端版本新
+          </span>
+          <button
+            onClick={restoreDraft}
+            className="px-3 py-1 rounded-cw-sm bg-primary text-on-primary text-label-sm hover:bg-primary/90 cursor-pointer"
+          >
+            恢复草稿
+          </button>
+          <button
+            onClick={discardDraft}
+            className="px-3 py-1 rounded-cw-sm text-on-surface-variant text-label-sm hover:text-on-surface cursor-pointer"
+          >
+            丢弃
+          </button>
+        </div>
+      )}
       <ShortcutCheatSheet open={cheatSheetOpen} onClose={() => setCheatSheetOpen(false)} />
     </>
   );

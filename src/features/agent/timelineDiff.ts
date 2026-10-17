@@ -20,24 +20,44 @@ export interface TimelineDiff {
   isEmpty: boolean;
   /** Human-readable summary counts */
   summary: { added: number; removed: number; modified: number };
+  /** P2-01: 提案时间线本体（mergeTimeline 采纳轨道级/时间线级变更用） */
+  proposedTimeline?: Timeline;
 }
 
-/** Fields compared when deciding whether a clip was modified. */
-const COMPARED_FIELDS: (keyof Clip)[] = [
-  'kind', 'asset_id', 'track_id', 'start_sec', 'duration_sec',
-  'source_offset_sec', 'speed', 'volume', 'opacity', 'text',
-  'font_size', 'font_color', 'transition_in', 'transition_out',
-];
+/**
+ * P1-05：改为「clip 全字段深比较（排除 id/track_id）」——旧白名单只有 14 个
+ * 基础字段，keyframes/metadata（MG 的 mg_def/mg_html）/字幕样式/fx_* 等改动
+ * 会被误判为「无差异」，用户既看不到也接受不了 Agent 的局部重做。
+ */
+// track_id 必须参与比较：mergeTimeline 的跨轨迁移依赖「track_id 不同 → modified」
+const IGNORED_FIELDS = new Set(['id']);
 
 const EPS = 0.001;
 
-function fieldDiffers(a: Clip, b: Clip, field: keyof Clip): boolean {
-  const va = a[field];
-  const vb = b[field];
+function clipFieldNames(a: Clip, b: Clip): string[] {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of IGNORED_FIELDS) keys.delete(k);
+  return [...keys].sort();
+}
+
+function valuesDiffer(va: unknown, vb: unknown): boolean {
   if (typeof va === 'number' && typeof vb === 'number') {
     return Math.abs(va - vb) > EPS;
   }
-  return va !== vb;
+  if (va === vb) return false;
+  // 对象/数组（keyframes、metadata、样式组等）做稳定序列化比较
+  try {
+    return JSON.stringify(va) !== JSON.stringify(vb);
+  } catch {
+    return true;
+  }
+}
+
+function fieldDiffers(a: Clip, b: Clip, field: string): boolean {
+  return valuesDiffer(
+    (a as unknown as Record<string, unknown>)[field],
+    (b as unknown as Record<string, unknown>)[field],
+  );
 }
 
 /** Index all clips in a timeline by id. */
@@ -70,7 +90,7 @@ export function computeTimelineDiff(current: Timeline, proposed: Timeline): Time
       addedClips.push(pClip);
       continue;
     }
-    const fields = COMPARED_FIELDS.filter((f) => fieldDiffers(cClip, pClip, f));
+    const fields = clipFieldNames(cClip, pClip).filter((f) => fieldDiffers(cClip, pClip, f));
     if (fields.length > 0) {
       modifiedClips.push({ current: cClip, proposed: pClip, fields });
     }
@@ -98,6 +118,8 @@ export function computeTimelineDiff(current: Timeline, proposed: Timeline): Time
       removed: removedClips.length,
       modified: modifiedClips.length,
     },
+    // P2-01: 携带提案本体（浅引用即可，merge 时只读级属性）
+    proposedTimeline: proposed,
   };
 }
 
@@ -113,6 +135,28 @@ export function mergeTimeline(
   removeIds: Set<string>,
 ): Timeline {
   const result: Timeline = structuredClone(current);
+
+  // P2-01: 轨道级/时间线级变更一并采纳——旧实现只处理 clip 增删改，
+  // Agent 的 markers/画幅/帧率与轨道属性（locked/muted/hidden/index）被忽略。
+  // 仅在本次确有采纳内容时应用（acceptIds 或 removeIds 非空）。
+  if (acceptIds.size > 0 || removeIds.size > 0) {
+    const prop = diff.proposedTimeline;
+    if (prop) {
+      if (Array.isArray(prop.markers)) result.markers = structuredClone(prop.markers);
+      if (typeof prop.width === 'number' && prop.width > 0) result.width = prop.width;
+      if (typeof prop.height === 'number' && prop.height > 0) result.height = prop.height;
+      if (typeof prop.fps === 'number' && prop.fps > 0) result.fps = prop.fps;
+      for (const pt of prop.tracks) {
+        const rt = result.tracks.find((t) => t.id === pt.id);
+        if (!rt) continue;
+        if (typeof pt.locked === 'boolean') rt.locked = pt.locked;
+        if (typeof pt.muted === 'boolean') rt.muted = pt.muted;
+        if (typeof pt.hidden === 'boolean') rt.hidden = pt.hidden;
+        if (typeof pt.index === 'number') rt.index = pt.index;
+        if (typeof pt.name === 'string' && pt.name) rt.name = pt.name;
+      }
+    }
+  }
 
   // Apply removals
   if (removeIds.size > 0) {

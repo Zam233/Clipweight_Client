@@ -1,4 +1,5 @@
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { useAssetStore } from '@/stores/assetStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -54,8 +55,14 @@ export function AssetPanel() {
       const list = await assetApi.list(projectId ?? undefined);
       setAssets(Array.isArray(list) ? list : []);
     } catch {
-      setAssets(demoAssets());
-      setDemoMode(true);
+      // 轮 89：演示回退受设置开关控制（生产默认关——离线显示空列表而非假数据）
+      if (useSettingsStore.getState().allowDemoFallback) {
+        setAssets(demoAssets());
+        setDemoMode(true);
+      } else {
+        setAssets([]);
+        setLoadError(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -100,19 +107,26 @@ export function AssetPanel() {
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setLoading(true);
-    try {
-      for (const file of Array.from(files)) {
+    // P2-22: 逐文件独立失败域——旧实现整批一个 try，第 N 个失败会把已成功
+    // 上传的文件再降级成一份本地演示素材（重复素材 + 假数据混入）
+    const fallbackFiles: File[] = [];
+    for (const file of Array.from(files)) {
+      try {
         const pid = useProjectStore.getState().projectId;
         const res = await assetApi.upload(file, setUploadProgress, pid ?? undefined);
         // Register uploaded file with MediaManager for local preview/thumbnails
         const assetId = res.id || res.asset_id || uid('asset');
         mediaManager.registerFile(assetId, file);
+      } catch {
+        fallbackFiles.push(file);
       }
+    }
+    try {
       await loadAssets();
-    } catch {
-      // W5: 离线/失败 → 本地演示素材（明确标记为演示数据，不静默伪装成后端素材）
+    } catch { /* 列表刷新失败不影响已上传 */ }
+    if (fallbackFiles.length > 0) {
       setDemoMode(true);
-      const newAssets: Asset[] = Array.from(files).map((f) => {
+      const newAssets: Asset[] = fallbackFiles.map((f) => {
         const id = uid('asset');
         const kind = normalizeClipKind(f.type.startsWith('video') ? 'video' : f.type.startsWith('audio') ? 'audio' : 'image') as Asset['kind'];
         // Register real media so preview/thumbnails/waveforms work
@@ -127,11 +141,10 @@ export function AssetPanel() {
         };
       });
       setAssets([...newAssets, ...useAssetStore.getState().assets]);
-      toast('后端不可达 — 已添加本地演示素材（不持久化）', 'info');
-    } finally {
-      setLoading(false);
-      setUploadProgress(null);
+      toast(`${fallbackFiles.length} 个文件上传失败 — 已添加本地演示素材（不持久化）`, 'info');
     }
+    setLoading(false);
+    setUploadProgress(null);
   };
 
   const addToTimeline = (asset: Asset, opts?: { ripple?: boolean }) => {
@@ -147,7 +160,8 @@ export function AssetPanel() {
     // Prefer real media duration, but guard against zero (0 is falsy for ??)
     const realDur = mediaManager.getDuration(asset.id);
     const duration = realDur > 0 ? realDur : (asset.duration_sec != null && asset.duration_sec > 0 ? asset.duration_sec : 5);
-    const clipData = { kind, asset_id: asset.id, duration_sec: duration, metadata: { title: asset.filename } };
+    // P1-08：写入 local_path——刷新后 resolveMediaUrl 靠它走 by-path 代理，否则片段全部「素材加载失败」
+    const clipData = { kind, asset_id: asset.id, duration_sec: duration, metadata: { title: asset.filename, ...(asset.path ? { local_path: asset.path } : {}) } };
 
     useHistoryStore.getState().pushState(store.timeline, 'add-asset');
     if (opts?.ripple) {
@@ -489,7 +503,9 @@ function AIMatchView() {
       setResults(Array.isArray(res) ? res : []);
     } catch {
       if (seq !== searchSeqRef.current) return;
-      setResults(demoMatches(queryText));
+      if (useSettingsStore.getState().allowDemoFallback) {
+        setResults(demoMatches(queryText));
+      }
     } finally {
       if (seq === searchSeqRef.current) setSearching(false);
     }
@@ -525,7 +541,9 @@ function AIMatchView() {
     const lastEnd = track.clips.reduce((m, c) => Math.max(m, c.start_sec + c.duration_sec), 0);
     store.addClip(track.id, {
       kind, asset_id: r.id, start_sec: lastEnd,
-      duration_sec: r.duration_sec != null && r.duration_sec > 0 ? r.duration_sec : 5, metadata: { title: r.title, source: r.source },
+      // P2-16/P1-08：写 url 供 resolveMediaUrl 直接预览（r.id 是外部素材源 id，非本库 asset）
+      duration_sec: r.duration_sec != null && r.duration_sec > 0 ? r.duration_sec : 5,
+      metadata: { title: r.title, source: r.source, ...(r.url ? { url: r.url } : {}) },
     });
   };
 

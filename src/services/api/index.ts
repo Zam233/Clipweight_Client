@@ -19,3 +19,12 @@ export { learningApi } from './learning';
 export { videoEditorApi } from './videoEditor';
 export { subtitleApi, sttApi } from './subtitle';
 export { visionApi } from './vision';
+export { backendConfigApi } from './backendConfig';
+export { providersApi, providersForKind, buildSourcePayload, KIND_ROLES, KIND_PROVIDER_KEY, ROLE_LABELS } from './providers';
+export type {
+  ProviderKind, ProviderRole, ProviderModel, ProviderSource, ProviderSourceInput,
+  RoleBinding, RoleBindings, AvailableProviders,
+} from './providers';
+export type {
+  BackendConfigField, BackendConfigGroup, BackendConfigResponse, SettingsUpdateResult,
+} from './backendConfig';

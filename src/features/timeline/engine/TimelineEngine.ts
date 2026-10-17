@@ -348,6 +348,13 @@ export class TimelineEngine {
     // Razor tool → split
     if (selection.toolMode === 'razor' && hit) {
       const t = xToTime(x, L);
+      // P2-12: 先判断切点在片段边界内再推历史——旧实现先 push，
+      // splitClip 对边界切分 no-op 时留下幽灵撤销点
+      const rel = t - hit.clip.start_sec;
+      if (rel <= 0.001 || rel >= hit.clip.duration_sec - 0.001) {
+        useTimelineStore.getState().splitClip(hit.clip.id, t); // 边界 no-op，不推历史
+        return;
+      }
       useHistoryStore.getState().pushState(timeline, 'split');
       useTimelineStore.getState().splitClip(hit.clip.id, t);
       return;
@@ -492,6 +499,7 @@ export class TimelineEngine {
           tl.tracks, ids,
           usePreviewStore.getState().currentTimeSec,
           this.markers,
+          this.visibleTimeRangePad(L),
         );
         // Candidate edges = min start and max end of dragged clips
         let minStart = Infinity, maxEnd = -Infinity;
@@ -558,7 +566,13 @@ export class TimelineEngine {
               const origIdx = this.trackIndexOf(orig.track_id);
               const newIdx = clamp(origIdx + dtr, 0, cur0.tracks.length - 1);
               const candidate = cur0.tracks[newIdx];
-              if (candidate && candidate.kind === cur0.tracks[origIdx].kind) {
+              // P1-30: 源轨/目标轨锁定 → 拒绝跨轨移动（hitTestClip 与键盘
+              // moveClipUp/Down 均校验锁定，拖拽路径原先不一致）
+              const sourceTrack = cur0.tracks[origIdx];
+              if (
+                candidate && sourceTrack && !candidate.locked && !sourceTrack.locked
+                && candidate.kind === sourceTrack.kind
+              ) {
                 targetTrackId = candidate.id;
               }
             }
@@ -621,36 +635,44 @@ export class TimelineEngine {
       }
       case 'trim-start': {
         const ghost = this.computeTrimGhost();
-        if (ghost && this.drag.trimOrig) {
-          // M1: Alt+trim-start → rolling 编辑（边界共享，此消彼长）
-          if (this.altKeyHeld) {
-            store.rollingTrim(this.drag.trimOrig.id, ghost.start_sec - this.drag.trimOrig.start_sec, 'start');
-          } else {
-            store.updateClip(this.drag.trimOrig.id, {
-              start_sec: ghost.start_sec,
-              duration_sec: ghost.duration_sec,
-              source_offset_sec: ghost.source_offset_sec,
-            });
-          }
-          // 批C(P0-1)：有实际变更才推送拖拽前快照（单击不再产生幽灵历史）
-          if (this.drag.preSnapshot && store.timeline !== this.drag.preSnapshot) {
-            useHistoryStore.getState().pushState(this.drag.preSnapshot, 'trim');
+        if (ghost && this.drag.trimOrig && this.drag.preSnapshot) {
+          const orig = this.drag.trimOrig;
+          // P0-03：与拖拽前值比较判定实际变更——旧守卫取样自变更前的 store 快照，
+          // `store.timeline !== preSnapshot` 恒为 false → 修剪从不进撤销栈
+          const changed =
+            ghost.start_sec !== orig.start_sec ||
+            ghost.duration_sec !== orig.duration_sec ||
+            ghost.source_offset_sec !== orig.source_offset_sec;
+          if (changed) {
+            // M1: Alt+trim-start → rolling 编辑（边界共享，此消彼长）
+            if (this.altKeyHeld) {
+              store.rollingTrim(orig.id, ghost.start_sec - orig.start_sec, 'start');
+            } else {
+              store.updateClip(orig.id, {
+                start_sec: ghost.start_sec,
+                duration_sec: ghost.duration_sec,
+                source_offset_sec: ghost.source_offset_sec,
+              });
+            }
+            useHistoryStore.getState().pushState(this.drag.preSnapshot, this.drag.preSnapshotLabel || 'trim');
           }
         }
         break;
       }
       case 'trim-end': {
         const ghost = this.computeTrimGhost();
-        if (ghost && this.drag.trimOrig) {
-          // M1: Alt+trim-end → rolling 编辑
-          if (this.altKeyHeld) {
-            store.rollingTrim(this.drag.trimOrig.id, ghost.duration_sec - this.drag.trimOrig.duration_sec, 'end');
-          } else {
-            store.updateClip(this.drag.trimOrig.id, { duration_sec: ghost.duration_sec });
-          }
-          // 批C(P0-1)：有实际变更才推送拖拽前快照
-          if (this.drag.preSnapshot && store.timeline !== this.drag.preSnapshot) {
-            useHistoryStore.getState().pushState(this.drag.preSnapshot, 'trim');
+        if (ghost && this.drag.trimOrig && this.drag.preSnapshot) {
+          const orig = this.drag.trimOrig;
+          // P0-03：与拖拽前值比较判定实际变更（同 trim-start）
+          const changed = ghost.duration_sec !== orig.duration_sec;
+          if (changed) {
+            // M1: Alt+trim-end → rolling 编辑
+            if (this.altKeyHeld) {
+              store.rollingTrim(orig.id, ghost.duration_sec - orig.duration_sec, 'end');
+            } else {
+              store.updateClip(orig.id, { duration_sec: ghost.duration_sec });
+            }
+            useHistoryStore.getState().pushState(this.drag.preSnapshot, this.drag.preSnapshotLabel || 'trim');
           }
         }
         break;
@@ -705,6 +727,7 @@ export class TimelineEngine {
         new Set([orig.id]),
         usePreviewStore.getState().currentTimeSec,
         this.markers,
+        this.visibleTimeRangePad(L),
       );
       const snapped = applySnap([t], 0, targets, L, settings.snapThresholdPx);
       if (snapped.snapX !== null) {
@@ -720,7 +743,10 @@ export class TimelineEngine {
 
     if (this.drag.mode === 'trim-start') {
       const end = orig.start_sec + orig.duration_sec;
-      const newStart = clamp(t, 0, end - 0.1);
+      // P0-04：与 store.trimClipStart 同语义——左边界不越过同轨上一片段的结尾，
+      // 否则拖拽路径可造出同轨重叠（键盘微调路径有钳制，拖拽路径原先没有）
+      const { prevEnd } = this.trimNeighborBounds(orig);
+      const newStart = clamp(t, prevEnd, end - 0.1);
       const delta = newStart - orig.start_sec;
       return {
         ...orig,
@@ -730,21 +756,47 @@ export class TimelineEngine {
       };
     }
     if (this.drag.mode === 'trim-end') {
-      const newEnd = Math.max(orig.start_sec + 0.1, t);
+      // P0-04：与 store.trimClipEnd 同语义——右边界不越过同轨下一片段起点
+      const { nextStart } = this.trimNeighborBounds(orig);
+      const newEnd = Math.max(orig.start_sec + 0.1, Math.min(t, nextStart));
       return { ...orig, duration_sec: newEnd - orig.start_sec };
     }
     return null;
   }
 
+  /** P0-04：修剪的邻居边界（与 timelineStore.trimClipStart/trimClipEnd 的钳制同语义）。 */
+  private trimNeighborBounds(orig: Clip): { prevEnd: number; nextStart: number } {
+    const tl = useTimelineStore.getState().timeline;
+    const track = tl.tracks.find((tr) => tr.clips.some((c) => c.id === orig.id));
+    if (!track) return { prevEnd: 0, nextStart: Infinity };
+    const prevEnd = track.clips
+      .filter((o) => o.id !== orig.id && o.start_sec + o.duration_sec <= orig.start_sec + 0.001)
+      .reduce((m, o) => Math.max(m, o.start_sec + o.duration_sec), 0);
+    const nextStart = track.clips
+      .filter((o) => o.id !== orig.id && o.start_sec >= orig.start_sec + 0.1)
+      .reduce((m, o) => Math.min(m, o.start_sec), Infinity);
+    return { prevEnd, nextStart };
+  }
+
+  /** P2-07: 视口时间范围（左右各放宽一个视口宽，拖动靠近边缘时吸附稳定）。 */
+  private visibleTimeRangePad(L: Parameters<typeof timeToX>[1]): { start: number; end: number } {
+    const w = this.canvas.clientWidth || this.canvas.width || 1200;
+    const left = xToTime(0, L);
+    const right = xToTime(w, L);
+    const pad = Math.max(1, right - left);
+    return { start: Math.max(0, left - pad), end: right + pad };
+  }
+
   private lastMouse = { x: 0, y: 0 };
 
-  private hitTestClip(x: number, y: number): { clip: Clip; track: Track } | null {
+  hitTestClip(x: number, y: number): { clip: Clip; track: Track } | null {
     const L = this.layout();
     const tl = useTimelineStore.getState().timeline;
     const tIdx = yToTrackIndex(y, L);
     if (tIdx < 0 || tIdx >= tl.tracks.length) return null;
     const track = tl.tracks[tIdx];
     if (track.locked) return null;
+    if (track.hidden) return null; // P1-37：隐藏轨不可被点选
     const t = xToTime(x, L);
     for (const clip of track.clips) {
       if (t >= clip.start_sec && t <= clip.start_sec + clip.duration_sec) {

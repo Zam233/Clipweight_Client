@@ -4,6 +4,9 @@ import { cn } from '@/lib/utils';
 import { Tooltip } from '@/components/ui';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { Slot } from '@/features/plugins/Slot';
+import { usePluginSlots } from '@/features/plugins/usePluginSlots';
+import { keybindingEngine } from '@/features/keyboard/KeybindingEngine';
 import { AssetPanel } from '@/features/assets/AssetPanel';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { TimelinePanel } from '@/features/timeline/components/TimelinePanel';
@@ -20,6 +23,7 @@ import { useHistoryStore } from '@/stores/historyStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { SelectionMode } from '@/stores/selectionStore';
 import { formatTimecode } from '@/lib/utils';
+import { secondsToFrame } from '@/lib/mediaTime';
 
 /**
  * EditorLayout — 4-panel Premiere-style layout
@@ -48,7 +52,18 @@ export function EditorLayout() {
   const isWide = useMediaQuery('(min-width: 1280px)');
   // <768 只读（设计规范排除移动端剪辑）：时间线覆盖提示层，阻断编辑手势
   const isNarrow = !useMediaQuery('(min-width: 768px)');
+  // P2-45: 窄屏「只读」此前只挡鼠标（覆盖层）——同步停用编辑类快捷键
+  useEffect(() => {
+    keybindingEngine.setReadOnly(isNarrow);
+    return () => keybindingEngine.setReadOnly(false);
+  }, [isNarrow]);
   const mobilePanel = useWorkspaceStore((s) => s.mobilePanel);
+  // D-3c：编辑区右栏插件面板（无贡献时整列不渲染，零布局影响）
+  // B10：缺失该键（旧持久化数据/外部注入）按可见处理——与 store 加载约定一致
+  const timelineVisible = panels.timeline !== false;
+  const rightPanelContribs = usePluginSlots('editor.right-panel');
+  const leftPanelContribs = usePluginSlots('editor.left-panel');
+  const bottomPanelContribs = usePluginSlots('editor.bottom-panel');
   const setMobilePanel = useWorkspaceStore((s) => s.setMobilePanel);
   const reviewMode = useAgentStore((s) => s.reviewMode);
   const setReviewMode = useAgentStore((s) => s.setReviewMode);
@@ -189,6 +204,19 @@ export function EditorLayout() {
           </>
         )}
 
+        {/* D-3c：插件左栏面板（无贡献时整列不渲染）
+            B10：必须同时受「素材面板」开关约束——关掉面板后插件列不能残留 */}
+        {leftPanelContribs.length > 0 && panels.assets && isDesktop && (
+          <div
+            className="h-full overflow-hidden shrink-0 border-r border-outline-variant/20"
+            style={{ width: panelWidths.assets }}
+          >
+            <div className="h-full overflow-y-auto p-3 space-y-3">
+              <Slot name="editor.left-panel" context={{ hasTimeline: true }} />
+            </div>
+          </div>
+        )}
+
         {/* Center: Preview + Timeline */}
         <div className="flex flex-col flex-1 overflow-hidden min-w-0">
           {/* Preview */}
@@ -197,30 +225,42 @@ export function EditorLayout() {
           </div>
 
           {/* Timeline divider */}
-          <div
-            className={cn('panel-divider-h shrink-0', dragging === 'timeline' && 'bg-primary')}
-            onMouseDown={(e) => handleDividerMouseDown('timeline', e)}
-            onPointerDown={(e) => handleDividerPointerDown('timeline', e)}
-          />
+          {timelineVisible && (
+            <div
+              className={cn('panel-divider-h shrink-0', dragging === 'timeline' && 'bg-primary')}
+              onMouseDown={(e) => handleDividerMouseDown('timeline', e)}
+              onPointerDown={(e) => handleDividerPointerDown('timeline', e)}
+            />
+          )}
 
-          {/* Timeline */}
-          <div
-            className="shrink-0 overflow-hidden relative"
-            style={{ height: timelineHeight }}
-          >
-            <TimelinePanel />
-            {isNarrow && (
-              <div
-                role="note"
-                aria-label="时间线只读提示"
-                className="absolute inset-0 z-10 bg-surface/70 flex items-center justify-center px-4 text-center"
-              >
-                <span className="text-label-sm text-on-surface-variant">
-                  窗口宽度不足 768px，时间线为只读预览。<br />请加宽窗口后再进行剪辑。
-                </span>
-              </div>
-            )}
-          </div>
+          {/* D-3c：插件下栏（时间线上方的横向条；无贡献零渲染）
+              B10：下栏属于时间线区域，随时间线一起在窄屏折叠 */}
+          {bottomPanelContribs.length > 0 && timelineVisible && isDesktop && (
+            <div className="shrink-0 max-h-[200px] overflow-y-auto border-t border-outline-variant/20 px-3 py-2">
+              <Slot name="editor.bottom-panel" context={{ hasTimeline: true }} />
+            </div>
+          )}
+
+          {/* Timeline（B10：受「时间线」面板开关控制；插件下栏随之一并折叠） */}
+          {timelineVisible && (
+            <div
+              className="shrink-0 overflow-hidden relative"
+              style={{ height: timelineHeight }}
+            >
+              <TimelinePanel />
+              {isNarrow && (
+                <div
+                  role="note"
+                  aria-label="时间线只读提示"
+                  className="absolute inset-0 z-10 bg-surface/70 flex items-center justify-center px-4 text-center"
+                >
+                  <span className="text-label-sm text-on-surface-variant">
+                    窗口宽度不足 768px，时间线为只读预览。<br />请加宽窗口后再进行剪辑。
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Right: Properties + Agent */}
@@ -236,6 +276,20 @@ export function EditorLayout() {
               style={{ width: panelWidths.properties }}
             >
               <PropertiesPanel />
+            </div>
+          </>
+        )}
+
+        {rightPanelContribs.length > 0 && isDesktop && (
+          <>
+            <div className="panel-divider shrink-0" />
+            <div
+              className="h-full overflow-hidden shrink-0 flex flex-col"
+              style={{ width: panelWidths.agent }}
+            >
+              <div className="h-full overflow-y-auto p-3 space-y-3">
+                <Slot name="editor.right-panel" context={{ hasTimeline: true }} />
+              </div>
             </div>
           </>
         )}
@@ -341,8 +395,9 @@ function StatusBar() {
   }
   const statusDirty = isDirty && !isSaving && !saveError;
 
-  const currentFrame = Math.round(currentTime * fps);
-  const totalFrames = Math.round(duration * fps);
+  // O1：帧号按整数 tick 推导（`Math.round(t * fps)` 在 29.97 下会与真实帧号差 1）
+  const currentFrame = secondsToFrame(currentTime, fps);
+  const totalFrames = secondsToFrame(duration, fps);
 
   return (
     <div className="flex items-center justify-between px-3 py-1 bg-surface-dim border-t border-outline-variant/30 text-caption text-on-surface-variant shrink-0">

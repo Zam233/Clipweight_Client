@@ -214,6 +214,8 @@ export interface PluginConfigField {
   value: unknown;
   label: string;
   description?: string;
+  /** P1-10: secret 字段——GET 掩码回显；保存必须原样透传，否则后端不再加密落盘 */
+  secret?: boolean;
 }
 
 export interface PluginConfigResponse {

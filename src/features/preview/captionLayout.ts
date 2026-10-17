@@ -82,5 +82,7 @@ export function textLayout(
     if (align === 'left') x = opts.fw * 0.05;
     else if (align === 'right') x = opts.fw * 0.95;
   }
-  return { x, y: base.y + offsetY, align };
+  // P2-06: 堆叠偏移方向与后端 ASS 对齐——MarginV 增大即向上偏移，
+  // 旧实现 y+offsetY 向下，预览与成片方向相反
+  return { x, y: base.y - offsetY, align };
 }

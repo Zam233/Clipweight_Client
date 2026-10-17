@@ -301,6 +301,17 @@ export const useAgentStore = create<AgentState>((set) => ({
 
 const DRAFT_KEY = 'clipwright_requirements_draft';
 
+// P2-38: 草稿记录归属项目——加载端校验 projectId 匹配，杜绝跨项目草稿泄漏
+function _currentProjectId(): string {
+  try {
+    // 动态读取避免 store 间静态循环依赖
+    const mod = (globalThis as { __cw_getProjectId?: () => string }).__cw_getProjectId;
+    return mod ? mod() : '';
+  } catch {
+    return '';
+  }
+}
+
 function saveDraft(partial: {
   messages?: RequirementMessage[];
   brief?: CreativeBrief | null;
@@ -310,7 +321,7 @@ function saveDraft(partial: {
 }) {
   try {
     const current = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}');
-    const merged = { ...current, ...partial, ts: Date.now() };
+    const merged = { ...current, ...partial, ts: Date.now(), projectId: _currentProjectId() };
     if (partial.messages) merged.messages = partial.messages.slice(-50);
     localStorage.setItem(DRAFT_KEY, JSON.stringify(merged));
   } catch { /* ignore */ }
@@ -330,6 +341,11 @@ export function loadRequirementsDraft(): {
     // Guard against missing/invalid timestamp (NaN comparison would never expire)
     if (typeof draft.ts !== 'number' || Date.now() - draft.ts > 86400000) {
       localStorage.removeItem(DRAFT_KEY);
+      return null;
+    }
+    // P2-38: 草稿归属校验——直接导航到别的项目时不恢复他家草稿（旧实现全局键泄漏）
+    const currentPid = _currentProjectId();
+    if (draft.projectId && currentPid && draft.projectId !== currentPid) {
       return null;
     }
     return draft;

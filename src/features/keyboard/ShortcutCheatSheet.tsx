@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { keybindingEngine } from './KeybindingEngine';
+import { findKeybindingConflicts } from './keybindingStore';
 import { Keyboard, X } from 'lucide-react';
 
 /**
@@ -17,14 +18,17 @@ export function ShortcutCheatSheet({ open, onClose }: { open: boolean; onClose: 
   }, [open, onClose]);
   const grouped = useMemo(() => {
     const map = new Map<string, { combo: string; label: string; isCustom: boolean }[]>();
+    const entries: Array<{ id: string; combo: string }> = [];
     for (const b of keybindingEngine.list()) {
       const combo = keybindingEngine.effectiveCombo(b);
+      entries.push({ id: b.id, combo });
       if (!map.has(b.category)) map.set(b.category, []);
       map.get(b.category)!.push({ combo, label: b.label, isCustom: combo !== b.combo });
     }
-    return [...map.entries()];
+    return { groups: [...map.entries()], conflicts: findKeybindingConflicts(entries) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+  const conflicts = grouped.conflicts;
 
   if (!open) return null;
 
@@ -53,7 +57,19 @@ export function ShortcutCheatSheet({ open, onClose }: { open: boolean; onClose: 
 
         {/* bindings */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          {grouped.map(([category, items]) => (
+          {conflicts.length > 0 && (
+            <div className="rounded-cw-sm border border-warn/40 bg-warn/10 px-3 py-2" data-testid="keybinding-conflicts">
+              <p className="text-label-sm text-warn">
+                {conflicts.length} 组快捷键冲突：同一组合键绑了多个动作，后注册的会盖住前面的
+              </p>
+              {conflicts.slice(0, 5).map((c) => (
+                <p key={c.combo} className="text-caption text-on-surface-variant font-mono">
+                  {c.combo} → {c.ids.join(' / ')}
+                </p>
+              ))}
+            </div>
+          )}
+          {grouped.groups.map(([category, items]) => (
             <div key={category}>
               <p className="font-mono text-label-sm tracking-[0.2em] text-primary uppercase mb-2.5">{category}</p>
               <div className="space-y-1.5">

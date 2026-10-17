@@ -19,8 +19,9 @@ export interface FlushPayloadInput {
 /**
  * 决策卸载冲刷负载：
  * - 序列化 ≤48KB → kind 'full'，发送完整负载（原路径不变）；
- * - 序列化 >48KB → kind 'metadata'，仅保存紧凑摘要
- *   （项目 id + 轨道/片段计数 + 最后编辑时间），保证可被 keepalive 可靠发送。
+ * - 序列化 >48KB → kind 'metadata'，仅发送项目级字段（不含 timeline），
+ *   保证可被 keepalive 可靠发送。时间线宁可不保存也不能写坏——
+ *   后端 PUT 是整体覆盖语义，发残缺 timeline 桩会把磁盘上的完整时间线顶掉。
  */
 export function decideFlushPayload(
   input: FlushPayloadInput,
@@ -28,19 +29,11 @@ export function decideFlushPayload(
   if (JSON.stringify(input).length <= FLUSH_PAYLOAD_LIMIT) {
     return { kind: 'full', payload: input };
   }
-  const timeline = input.timeline;
   return {
     kind: 'metadata',
     payload: {
       project_id: input.project_id,
       name: input.name,
-      timeline: {
-        id: timeline.id,
-        duration_sec: timeline.duration_sec,
-        track_count: timeline.tracks.length,
-        clip_count: timeline.tracks.reduce((n, t) => n + t.clips.length, 0),
-        last_edit_at: new Date().toISOString(),
-      },
       persona_id: input.persona_id,
       plugin_id: input.plugin_id,
     },

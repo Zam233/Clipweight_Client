@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useProjectStore } from '@/stores/projectStore';
+import { usePluginSlots } from '@/features/plugins/usePluginSlots';
+import { safePluginPath } from '@/features/plugins/slots';
 import { clearRequirementsDraft } from '@/stores/agentStore';
 import { useBackendHealth } from './useBackendHealth';
 import {
   healthApi, personaApi, projectApi, assetApi, typeMakerApi, pipelineApi,
-  pluginApi,
+  voiceApi,
   getApiClient,
 } from '@/services/api';
+import type { VoiceRecord } from '@/types/voice';
 import { accountApi } from '@/services/api/account';
 import { useAuthStore } from '@/stores/authStore';
-import { useSettingsStore } from '@/stores/settingsStore';
 import { Button, Badge } from '@/components/ui';
 import {
   Film, Settings, ArrowRight, Plus, Bot, ListChecks,
@@ -18,12 +20,20 @@ import {
   Upload, X, Check, Loader2, AudioLines,
   Scissors, FileText, FolderOpen, Clapperboard, Store, LayoutTemplate,
   Home, Shapes, User, Puzzle, Sparkles, Coins, Zap, LogOut, LogIn,
-  Palette, Ruler, Server, ChevronRight, Gauge,
+  Server, ChevronRight,
 } from 'lucide-react';
 import { ProjectCard, type ProjectCardData } from '@/components/shared/ProjectCard';
 import { TemplateGallery } from '@/components/shared/TemplateGallery';
 import { fmtDur, relTime, uid } from '@/lib/utils';
 import { toast } from '@/stores/toastStore';
+// 首页四个 tab 与独立页曾经各写一套（能力不同、字段不同、必然漂移）。
+// 现在统一复用同一份面板实现：人格 → /persona 的画廊，类型 → 类型总览，
+// 插件 → 插件管理页，设置 → 偏好设置面板。
+import { PersonaGalleryPanel } from '@/features/settings/PersonaGalleryPanel';
+import { TypeCatalogPanel } from '@/features/settings/TypeCatalogPanel';
+import { PluginsPanel } from '@/features/settings/PluginsPanel';
+import { PreferencesPanel } from '@/features/settings/PreferencesPanel';
+import { CONSOLE_NAV } from '@/features/settings/consoleNav';
 
 /* ── 图一：左侧导航 tab ── */
 type HomeTab = 'home' | 'types' | 'personas' | 'plugins' | 'create' | 'settings';
@@ -39,22 +49,7 @@ interface ProjectOpt {
 interface DubAudio { path: string; name: string; duration: number }
 interface MatSource { id: string; name: string }
 
-/* ── offline demo fallbacks ────────────────────────────── */
-const DEMO_PERSONAS: PersonaOpt[] = [
-  { id: 'default', name: '默认人格', tone: '通用' },
-  { id: 'zamu_knowledge', name: '扎姆·知识区', tone: '批判型' },
-  { id: 'hexue_digital', name: '何同学·数码', tone: '创意型' },
-  { id: 'yingshi_industrial', name: '影视飓风·工业', tone: '工业型' },
-];
-
 const PLUGIN_PALETTE = ['#4F8CFF', '#FF6B6B', '#A855F7', '#34D399', '#FBBF24', '#F59E0B'];
-const DEMO_PLUGINS: PluginOpt[] = [
-  { id: 'knowledge_longform', name: '知识区长片', desc: '5-15s 镜头 · 硬切', color: '#4F8CFF' },
-  { id: 'kichiku_fastcut', name: '鬼畜快剪', desc: '0.3-2s · 闪白', color: '#FF6B6B' },
-  { id: 'digital_review', name: '数码评测', desc: '3-8s · 缓入缓出', color: '#A855F7' },
-  { id: 'vlog_daily', name: 'Vlog 日常', desc: '3-10s · 混合', color: '#34D399' },
-];
-
 const PROJECT_GRADS: [string, string][] = [
   ['#A855F7', '#4F8CFF'], ['#4F8CFF', '#34D399'], ['#FF6B6B', '#FBBF24'], ['#34D399', '#F59E0B'],
 ];
@@ -129,10 +124,10 @@ export function HomePage() {
   const [guardNotice, setGuardNotice] = useState<string | null>(null);
   const backend = useBackendHealth();
   const [dataMode, setDataMode] = useState<'live' | 'demo'>('demo');
-  const [personas, setPersonas] = useState<PersonaOpt[]>(DEMO_PERSONAS);
-  const [plugins, setPlugins] = useState<PluginOpt[]>(DEMO_PLUGINS);
-  // BUG3: 真实第三方插件（/api/plugin/list，区别于类型插件 typeMakerApi）
-  const [extPlugins, setExtPlugins] = useState<PluginOpt[]>([]);
+  // 人格/类型列表只服务于「创作」表单的下拉选项——展示由共享面板（PersonaGalleryPanel /
+  // TypeCatalogPanel）各拉各的，这里不再兼任展示职责，也不再塞演示数据。
+  const [personas, setPersonas] = useState<PersonaOpt[]>([]);
+  const [plugins, setPlugins] = useState<PluginOpt[]>([]);
   const [projects, setProjects] = useState<ProjectOpt[]>([]);
 
   const [topic, setTopic] = useState('');
@@ -141,6 +136,29 @@ export function HomePage() {
   const [pluginId, setPluginId] = useState('knowledge_longform');
   const [mode, setMode] = useState<'voiceover' | 'visual'>('voiceover');
   const [splitMode, setSplitMode] = useState<'period' | 'punctuation'>('period');
+  // P1-26: 首页直接选音色——旧实现音色只能经 /voice 页传递到新项目，管线
+  // 拿到空 voice_id 时音频 Agent 不生成旁白
+  const [voices, setVoices] = useState<VoiceRecord[]>([]);
+  const [voicePick, setVoicePick] = useState('');
+  const [autoDubPref, setAutoDubPref] = useState(true);
+  // P2-04: 踩点剪辑
+  const [cutOnBeat, setCutOnBeatState] = useState(false);
+  const [beatBpm, setBeatBpmState] = useState<number | null>(null);
+
+  // 加载可用音色（后端离线时静默为空——下拉不渲染）；回填既有偏好
+  useEffect(() => {
+    let alive = true;
+    voiceApi.list().then((vs) => { if (alive && Array.isArray(vs)) setVoices(vs); }).catch(() => {});
+    try {
+      const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
+      if (prefs.voiceId) setVoicePick(String(prefs.voiceId));
+      if (typeof prefs.autoDub === 'boolean') setAutoDubPref(prefs.autoDub);
+    } catch (e) {
+      // P3-06: 留痕（本地偏好读取失败不影响主流程）
+      console.warn('[HomePage] 本地偏好读取失败:', e);
+    }
+    return () => { alive = false; };
+  }, []);
   const [audio, setAudio] = useState<DubAudio | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
@@ -171,7 +189,10 @@ export function HomePage() {
       try {
         const res = await pipelineApi.predictScript(script.trim());
         if (res && typeof res === 'object') setPrediction(res as typeof prediction);
-      } catch { /* 静默失败 */ }
+      } catch (e) {
+        // P3-06: 留痕
+        console.warn('[HomePage] 操作失败:', e);
+      }
     }, 800);
     return () => clearTimeout(timer);
   }, [script, backend]);
@@ -222,7 +243,9 @@ export function HomePage() {
       }
     })();
 
-    const loadPlugins = async () => {
+    // 类型列表（= 创作表单的「视频类型」下拉选项）。
+    // 展示用的类型总览由 TypeCatalogPanel 自己拉（与类型总览页同源），这里只取下拉需要的字段。
+    const loadTypeOptions = async () => {
       try {
         const data = await typeMakerApi.list();
         if (Array.isArray(data) && data.length > 0) {
@@ -242,30 +265,8 @@ export function HomePage() {
     };
 
     (async () => {
-      const result = await loadPlugins();
+      const result = await loadTypeOptions();
       if (alive && result) setPlugins(result);
-    })();
-
-    // BUG3: 真实第三方插件（/api/plugin/list → manifest 列表）
-    (async () => {
-      try {
-        const data = await pluginApi.list();
-        if (!alive || !Array.isArray(data)) return;
-        const items = data
-          .map((p: Record<string, unknown>, i: number) => {
-            const m = (p.manifest ?? p) as Record<string, unknown>;
-            return {
-              id: String(m.id ?? p.id ?? ''),
-              name: String(m.name ?? p.id ?? ''),
-              desc: String(m.description ?? m.kind ?? 'capability'),
-              color: PLUGIN_PALETTE[i % PLUGIN_PALETTE.length],
-            };
-          })
-          .filter((x) => x.id);
-        if (items.length > 0) setExtPlugins(items);
-      } catch {
-        /* 后端离线：保持空列表 */
-      }
     })();
 
     assetApi.listSources()
@@ -375,7 +376,10 @@ export function HomePage() {
       const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
       if (prefs.voiceId) st.setVoiceId(prefs.voiceId);
       if (typeof prefs.autoDub === 'boolean') st.setAutoDub(prefs.autoDub);
-    } catch { /* ignore */ }
+    } catch (e) {
+      // P3-06: 留痕（本地偏好读取失败不影响主流程）
+      console.warn('[HomePage] 本地偏好读取失败:', e);
+    }
 
     // Create project on backend
     // 若健康检查尚未完成（'checking'），先显式探测一次，避免误判为离线
@@ -405,6 +409,8 @@ export function HomePage() {
           if (!isNetwork) {
             const detail = anyE?.response?.data?.detail;
             toast(`项目创建失败：${typeof detail === 'string' && detail ? detail : '请稍后重试'}`, 'error');
+            // P2-40: 失败退出必须复位 launching，否则启动按钮永久 disabled
+            setLaunching(false);
             return;
           }
           // 网络断开才落入离线演示模式
@@ -448,8 +454,10 @@ export function HomePage() {
 
   const handleDeleteProject = async (projectId: string) => {
     try {
-      await projectApi.remove(projectId);
+      // P2-39: 走回收站软删除（与项目页一致），不再绕过回收站硬删
+      await projectApi.trashProject(projectId);
       setProjects((prev) => prev.filter((project) => project.id !== projectId));
+      toast('已移入回收站（可在项目页回收站中恢复）', 'success');
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       toast(`删除失败：${reason}，项目已保留`, 'error');
@@ -473,7 +481,10 @@ export function HomePage() {
           thumbnail: pr.has_thumbnail ? projectApi.getThumbnailUrl(pr.id, pr.updated_at) : undefined,
         })));
       }
-    } catch { /* offline */ }
+    } catch (e) {
+      // P3-06: 离线兜底；留痕便于诊断
+      console.warn('[HomePage] 离线兜底:', e);
+    }
   };
 
   const handleDuplicateProject = async (project: ProjectOpt) => {
@@ -607,107 +618,74 @@ export function HomePage() {
             </section>
           )}
 
-          {/* ── 类型 tab ── */}
+          {/* ── 类型 tab：全部类型的只读总览（与 /settings/types 同一份实现） ── */}
           {activeTab === 'types' && (
             <section className="pt-8 max-w-[1080px]">
-              <p className="font-mono text-label-sm tracking-[0.3em] text-primary uppercase mb-2">Video Types</p>
-              <h1 className="font-display text-[32px] font-bold text-on-surface mb-6">视频类型</h1>
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                {plugins.map((pl) => (
-                  <button key={pl.id}
-                    onClick={() => { setPluginId(pl.id); setActiveTab('create'); }}
-                    className="text-left bg-surface-container border border-outline-variant/30 rounded-cw-md p-4
-                      hover:border-primary/50 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/10
-                      transition-all duration-short3 cursor-pointer group">
-                    <span className="flex items-center gap-2.5 mb-2">
-                      <i className="w-3 h-3 rounded-full shrink-0" style={{ background: pl.color }} />
-                      <span className="text-body-sm font-semibold text-on-surface group-hover:text-primary transition-colors">{pl.name}</span>
-                    </span>
-                    {pl.desc && <span className="block text-caption text-on-surface-variant/70 font-mono">{pl.desc}</span>}
-                  </button>
-                ))}
-              </div>
+              <TypeCatalogPanel />
             </section>
           )}
 
-          {/* ── 人格 tab ── */}
+          {/* ── 人格 tab：完整人格库（与 /persona 同一份实现） ──
+              点卡片 = 选中该人格并进入创作表单（首页语义）；查看/编辑参数请到人物详情页 */}
           {activeTab === 'personas' && (
             <section className="pt-8 max-w-[1080px]">
-              <p className="font-mono text-label-sm tracking-[0.3em] text-primary uppercase mb-2">Persona</p>
-              <h1 className="font-display text-[32px] font-bold text-on-surface mb-6">创作人格</h1>
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                {personas.map((p) => (
-                  <button key={p.id}
-                    onClick={() => { setPersonaId(p.id); setActiveTab('create'); }}
-                    className={`text-left bg-surface-container border rounded-cw-md p-4 transition-all duration-short3 cursor-pointer group ${
-                      personaId === p.id
-                        ? 'border-primary bg-primary/5 shadow-lg shadow-primary/10'
-                        : 'border-outline-variant/30 hover:border-primary/50 hover:-translate-y-0.5'
-                    }`}>
-                    <span className="w-9 h-9 rounded-cw-sm bg-primary-container flex items-center justify-center mb-2.5">
-                      <User className="w-4.5 h-4.5 text-on-primary-container" />
-                    </span>
-                    <p className="text-body-sm font-semibold text-on-surface group-hover:text-primary transition-colors">{p.name}</p>
-                    <p className="text-caption text-on-surface-variant mt-0.5">{p.tone}</p>
-                  </button>
-                ))}
-                <button
-                  onClick={() => navigate({ to: '/persona/forge' })}
-                  className="min-h-[120px] rounded-cw-md border-2 border-dashed border-outline-variant/40 hover:border-primary/60
-                    flex flex-col items-center justify-center gap-2 text-on-surface-variant hover:text-primary
-                    transition-all duration-short3 cursor-pointer">
-                  <Plus className="w-5 h-5" /> 新建人格
-                </button>
-              </div>
+              <PersonaGalleryPanel onPick={(id) => { setPersonaId(id); setActiveTab('create'); }} />
             </section>
           )}
 
-          {/* ── 插件 tab ── */}
+          {/* ── 插件 tab：完整插件管理（与 /settings/plugins 同一份实现） ── */}
           {activeTab === 'plugins' && (
             <section className="pt-8 max-w-[1080px]">
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <p className="font-mono text-label-sm tracking-[0.3em] text-primary uppercase mb-2">Extensions</p>
                   <h1 className="font-display text-[32px] font-bold text-on-surface">插件</h1>
+                  <p className="text-body-sm text-on-surface-variant mt-1">
+                    与「设置 → 插件管理」同一套能力：启停、配置、UI 预览、错误通道、健康与贡献。
+                  </p>
                 </div>
                 <Button size="sm" variant="outline" onClick={() => navigate({ to: '/market' })}>
                   <Store className="w-3.5 h-3.5" /> 插件市场
                 </Button>
               </div>
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                {extPlugins.length === 0 ? (
-                  <div className="col-span-full flex flex-col items-center justify-center py-12 text-center gap-2
-                    border border-dashed border-outline-variant/30 rounded-cw-md">
-                    <Puzzle className="w-8 h-8 text-on-surface-variant/40" />
-                    <p className="text-body-sm text-on-surface-variant">暂无已加载插件</p>
-                    <p className="text-caption text-on-surface-variant/60">
-                      后端未连接或插件目录为空；可在「插件市场」浏览并安装。
-                    </p>
-                  </div>
-                ) : (
-                  extPlugins.map((pl) => (
-                    <div key={pl.id} className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-4
-                      hover:border-primary/50 transition-all duration-short3">
-                      <span className="flex items-center gap-2.5 mb-2">
-                        <span className="w-8 h-8 rounded-cw-sm flex items-center justify-center" style={{ background: `${pl.color}1A`, color: pl.color }}>
-                          <Puzzle className="w-4 h-4" />
-                        </span>
-                        <span className="text-body-sm font-semibold text-on-surface">{pl.name}</span>
-                      </span>
-                      {pl.desc && <span className="block text-caption text-on-surface-variant/70 font-mono">{pl.desc}</span>}
-                    </div>
-                  ))
-                )}
-              </div>
+              <PluginsPanel />
             </section>
           )}
 
-          {/* ── 设置 tab：系统设置（主题/语言/API/时间轴默认） ── */}
+          {/* ── 设置 tab：本机偏好 + 控制台入口（与 /settings 同一份实现） ── */}
           {activeTab === 'settings' && (
             <section className="pt-8 max-w-[1080px]">
               <p className="font-mono text-label-sm tracking-[0.3em] text-primary uppercase mb-2">Preferences</p>
               <h1 className="font-display text-[32px] font-bold text-on-surface mb-6">设置</h1>
-              <HomeSettings onAdvanced={() => navigate({ to: '/settings' })} />
+              <PreferencesPanel
+                connection
+                usage={false}
+                appearance
+                timeline
+                autosave
+                demoMode
+                materialSources={false}
+                keybindings={false}
+              />
+              <div className="mt-6 bg-surface-container border border-outline-variant/30 rounded-cw-md p-5">
+                <h3 className="flex items-center gap-2 text-title-sm font-medium text-on-surface mb-1">
+                  <Server className="w-4 h-4 text-primary" /> 系统控制台
+                </h3>
+                <p className="text-caption text-on-surface-variant mb-3">
+                  模型 / 工具 / 插件 / 类型 / 模板 / 管线监控等 {CONSOLE_NAV.length} 项管理页
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {CONSOLE_NAV.slice(0, 8).map((item) => (
+                    <Button key={item.to} size="sm" variant="outline"
+                      onClick={() => navigate({ to: item.to })}>
+                      {item.label}
+                    </Button>
+                  ))}
+                  <Button size="sm" variant="ghost" onClick={() => navigate({ to: '/settings' })}>
+                    <ChevronRight className="w-3.5 h-3.5" /> 完整设置页（全部 {CONSOLE_NAV.length} 项 + 快捷键 / 用量）
+                  </Button>
+                </div>
+              </div>
             </section>
           )}
 
@@ -913,6 +891,80 @@ export function HomePage() {
                           <ImageIcon className="w-3 h-3" /> 视觉驱动
                         </button>
                       </div>
+
+                      {mode === 'voiceover' && voices.length > 0 && (
+                        <select
+                          value={voicePick}
+                          onChange={(e) => {
+                            setVoicePick(e.target.value);
+                            const st = useProjectStore.getState();
+                            st.setVoiceId(e.target.value || null);
+                            st.setAutoDub(autoDubPref);
+                            try {
+                              localStorage.setItem('clipwright_voice_prefs', JSON.stringify({ voiceId: e.target.value || null, autoDub: autoDubPref }));
+                            } catch (e) {
+      // P3-06: 留痕（本地偏好读取失败不影响主流程）
+      console.warn('[HomePage] 本地偏好读取失败:', e);
+    }
+                          }}
+                          className="px-2 py-1.5 rounded-cw-xs bg-surface border border-outline-variant/40 text-label-sm text-on-surface cursor-pointer"
+                          title="选择克隆音色（可在「语音克隆」页制作）"
+                        >
+                          <option value="">默认音色（自动）</option>
+                          {voices.map((v) => (
+                            <option key={v.id} value={v.voice_id}>{v.voice_name}（{v.provider}）</option>
+                          ))}
+                        </select>
+                      )}
+
+                      {/* P2-04: 踩点剪辑入口——开启后 EditAgent 按 BPM 卡点切镜 */}
+                      <label className="flex items-center gap-1.5 px-1 text-label-sm text-on-surface-variant cursor-pointer select-none"
+                        title="按音乐节拍卡点剪辑（需填写 BPM；留空则用后端检测值）">
+                        <input
+                          type="checkbox"
+                          checked={cutOnBeat}
+                          onChange={(e) => { setCutOnBeatState(e.target.checked); useProjectStore.getState().setCutOnBeat(e.target.checked); }}
+                          className="accent-primary cursor-pointer"
+                        />
+                        踩点剪辑
+                      </label>
+                      {cutOnBeat && (
+                        <input
+                          type="number" min={40} max={300} step={1}
+                          value={beatBpm ?? ''}
+                          placeholder="BPM"
+                          onChange={(e) => {
+                            const n = Number(e.target.value);
+                            const v = Number.isFinite(n) && n > 0 ? n : null;
+                            setBeatBpmState(v);
+                            useProjectStore.getState().setBeatBpm(v);
+                          }}
+                          className="w-16 px-2 py-1 rounded-cw-xs bg-surface border border-outline-variant/40 text-label-sm text-on-surface"
+                        />
+                      )}
+
+                      {mode === 'voiceover' && (
+                        <label className="flex items-center gap-1.5 px-1 text-label-sm text-on-surface-variant cursor-pointer select-none" title="关闭后不自动生成旁白（适合纯画面/B-roll 视频）">
+                          <input
+                            type="checkbox"
+                            checked={autoDubPref}
+                            onChange={(e) => {
+                              setAutoDubPref(e.target.checked);
+                              const st = useProjectStore.getState();
+                              st.setAutoDub(e.target.checked);
+                              try {
+                                const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
+                                localStorage.setItem('clipwright_voice_prefs', JSON.stringify({ voiceId: prefs.voiceId ?? null, autoDub: e.target.checked }));
+                              } catch (e) {
+      // P3-06: 留痕（本地偏好读取失败不影响主流程）
+      console.warn('[HomePage] 本地偏好读取失败:', e);
+    }
+                            }}
+                            className="accent-primary cursor-pointer"
+                          />
+                          自动配音
+                        </label>
+                      )}
 
                       {mode === 'voiceover' && (
                         <div className="flex bg-surface rounded-cw-sm border border-outline-variant/40 p-0.5">
@@ -1141,106 +1193,6 @@ export function HomePage() {
   );
 }
 
-/* ── 设置 tab：轻量系统设置（复用 settingsStore）──────────────── */
-function HomeSettings({ onAdvanced }: { onAdvanced: () => void }) {
-  const s = useSettingsStore();
-  const navigate = useNavigate();
-
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-      {/* 外观 */}
-      <div className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-5 space-y-4">
-        <h3 className="flex items-center gap-2 text-title-sm font-medium text-on-surface">
-          <Palette className="w-4 h-4 text-primary" /> 外观
-        </h3>
-        <div className="flex items-center justify-between">
-          <span className="text-label-sm text-on-surface-variant">主题</span>
-          <div className="flex bg-surface rounded-cw-sm border border-outline-variant/40 p-0.5">
-            {(['dark', 'light'] as const).map((t) => (
-              <button key={t}
-                onClick={() => s.setTheme(t)}
-                className={`px-3 py-1 rounded-cw-xs text-label-sm transition-colors cursor-pointer ${
-                  s.theme === t ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:text-on-surface'
-                }`}>
-                {t === 'dark' ? '深色' : '浅色'}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-label-sm text-on-surface-variant">语言</span>
-          <div className="flex bg-surface rounded-cw-sm border border-outline-variant/40 p-0.5">
-            {(['zh', 'en'] as const).map((l) => (
-              <button key={l}
-                onClick={() => s.setLanguage(l)}
-                className={`px-3 py-1 rounded-cw-xs text-label-sm transition-colors cursor-pointer ${
-                  s.language === l ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:text-on-surface'
-                }`}>
-                {l === 'zh' ? '中文' : 'English'}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-label-sm text-on-surface-variant">自动保存</span>
-          <input type="checkbox" checked={s.autoSave} onChange={(e) => s.setAutoSave(e.target.checked)}
-            className="accent-primary w-4 h-4 cursor-pointer" />
-        </div>
-      </div>
-
-      {/* 时间轴默认 */}
-      <div className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-5 space-y-4">
-        <h3 className="flex items-center gap-2 text-title-sm font-medium text-on-surface">
-          <Ruler className="w-4 h-4 text-primary" /> 时间轴默认
-        </h3>
-        <div className="flex items-center justify-between">
-          <span className="text-label-sm text-on-surface-variant">帧率 FPS</span>
-          <input type="number" value={s.defaultFps} min={1} max={120}
-            onChange={(e) => s.setDefaultFps(Number(e.target.value) || 30)}
-            className="w-20 bg-surface rounded-cw-xs px-2 py-1 text-label-sm font-mono text-on-surface outline-none border border-outline-variant/30 focus:border-primary" />
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-label-sm text-on-surface-variant">默认分辨率</span>
-          <div className="flex items-center gap-1.5">
-            <input type="number" value={s.defaultResolution.width}
-              onChange={(e) => s.setDefaultResolution({ ...s.defaultResolution, width: Number(e.target.value) || 1920 })}
-              className="w-20 bg-surface rounded-cw-xs px-2 py-1 text-label-sm font-mono text-on-surface outline-none border border-outline-variant/30 focus:border-primary" />
-            <span className="text-on-surface-variant">×</span>
-            <input type="number" value={s.defaultResolution.height}
-              onChange={(e) => s.setDefaultResolution({ ...s.defaultResolution, height: Number(e.target.value) || 1080 })}
-              className="w-20 bg-surface rounded-cw-xs px-2 py-1 text-label-sm font-mono text-on-surface outline-none border border-outline-variant/30 focus:border-primary" />
-          </div>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-label-sm text-on-surface-variant">吸附（对齐）</span>
-          <input type="checkbox" checked={s.snapEnabled} onChange={(e) => s.setSnapEnabled(e.target.checked)}
-            className="accent-primary w-4 h-4 cursor-pointer" />
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-label-sm text-on-surface-variant">时间轴标尺显示帧标记</span>
-          <input type="checkbox" checked={s.showFramesInRuler} onChange={(e) => s.setShowFramesInRuler(e.target.checked)}
-            className="accent-primary w-4 h-4 cursor-pointer" />
-        </div>
-      </div>
-
-      {/* 高级设置入口 */}
-      <div className="lg:col-span-2 bg-surface-container border border-outline-variant/30 rounded-cw-md p-5">
-        <h3 className="flex items-center gap-2 text-title-sm font-medium text-on-surface mb-3">
-          <Server className="w-4 h-4 text-primary" /> 高级
-        </h3>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button size="sm" variant="outline" onClick={onAdvanced}>
-            <ChevronRight className="w-3.5 h-3.5" /> 完整设置页（API / 快捷键 / 模型 / 工具…）
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => navigate({ to: '/pipeline-admin' })}>
-            <Gauge className="w-3.5 h-3.5" /> 管线监控
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ── 图一：左侧栏（用户卡片 + 导航）───────────────────── */
 function HomeSidebar({ activeTab, onTab, credit, user, onTopup, estimate }: {
   activeTab: HomeTab;
@@ -1255,6 +1207,9 @@ function HomeSidebar({ activeTab, onTab, credit, user, onTopup, estimate }: {
   const authUser = useAuthStore((s) => s.user);
   const authToken = useAuthStore((s) => s.accessToken);
   const authLogout = useAuthStore((s) => s.logout);
+
+  // D-3a：插件主导航项
+  const pluginNav = usePluginSlots('nav.primary');
 
   const NAV: { id: HomeTab; label: string; icon: typeof Home }[] = [
     { id: 'home', label: '首页', icon: Home },
@@ -1335,6 +1290,24 @@ function HomeSidebar({ activeTab, onTab, credit, user, onTopup, estimate }: {
             {label}
           </button>
         ))}
+
+        {/* D-3a：插件贡献的主导航项（payload.to 路径跳转；无贡献零渲染） */}
+        {pluginNav.map((c) => {
+          // B9：路径白名单校验，非法值不渲染（避免 navigate 把用户送进错误页）
+          const to = safePluginPath((c.payload as { to?: unknown } | undefined)?.to);
+          if (!to) return null;
+          return (
+            <button
+              key={c.id}
+              onClick={() => navigate({ to })}
+              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-cw-sm text-label-sm font-medium
+                text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-all duration-short3 cursor-pointer"
+            >
+              <Puzzle className="w-4 h-4" />
+              {c.title}
+            </button>
+          );
+        })}
       </nav>
 
       {/* 底部：账号操作 + 其他入口 */}

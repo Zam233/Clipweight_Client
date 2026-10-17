@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useHistoryStore } from '@/stores/historyStore';
@@ -7,6 +7,7 @@ import { Slider, Badge, Button } from '@/components/ui';
 import { Tooltip } from '@/components/ui';
 import { TRACK_COLORS } from '@/types/timeline';
 import { EASING_NAMES, interpolateProperties } from '@/features/timeline/engine/easing';
+import { BezierCurveEditor } from './BezierCurveEditor';
 import {
   ANIMATION_PRESETS, presetKeyframes, backendPresetsToPresets,
   type AnimationPreset, type BackendAnimationDef,
@@ -14,6 +15,7 @@ import {
 import { animationApi, personaApi } from '@/services/api';
 import { shouldPush } from './historyCoalesce';
 import { sectionsForKind } from './sectionsForKind';
+import { Slot } from '@/features/plugins/Slot';
 import { useProjectStore } from '@/stores/projectStore';
 import {
   extractCopyableAttributes, filterFieldsForKind,
@@ -39,6 +41,17 @@ function pushHistoryCoalesced(clipId: string, label: string) {
 /**
  * PropertiesPanel — inspects and edits the selected clip's attributes.
  */
+/** B11：未声明 payload.kinds 的 props.section 贡献只提示一次，避免刷屏。 */
+const _warnedPropKinds = new Set<string>();
+function warnUndeclaredPropKinds(id: string): void {
+  if (_warnedPropKinds.has(id)) return;
+  _warnedPropKinds.add(id);
+  console.warn(
+    `[plugin] props.section 贡献 ${id} 未声明 payload.kinds —— 已按「不适用」处理；`
+    + '请在贡献声明里补 kinds（如 ["video"]）。',
+  );
+}
+
 export function PropertiesPanel() {
   const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
   const timeline = useTimelineStore((s) => s.timeline);
@@ -105,9 +118,11 @@ export function PropertiesPanel() {
 
   // Style edits cascade to every clip on the same caption layer (ONE history point);
   // text clips keep per-clip updateClip.
+  // P2-05: 单选时仅改当前片段（可单条覆盖）；多选时保持整轨级联
+  // （批量统一字幕样式的既有工作流零变化）。
   const applyStyle = (updates: Partial<Clip>) => {
     pushHistory();
-    if (trackKind === 'caption' && trackId) {
+    if (trackKind === 'caption' && trackId && selectedClipIds.length > 1) {
       updateTrackClips(trackId, updates);
     } else {
       set(updates);
@@ -131,6 +146,8 @@ export function PropertiesPanel() {
       toast('没有可粘贴的兼容属性（类型不匹配）', 'info');
       return;
     }
+    // P2-13: 按钮路径与快捷键路径同语义——先推撤销栈再写值
+    pushHistory();
     // 全量 set：单片段用 updateClip，多选批量更新（沿用既有 set 语义）
     set(Object.fromEntries(entries) as Partial<Clip>);
     toast(`已粘贴 ${entries.length} 项属性`, 'success');
@@ -522,6 +539,23 @@ export function PropertiesPanel() {
 
             {/* Keyframes */}
             <KeyframeEditor clip={clip} />
+
+            {/* D-3g：插件贡献的属性分区（payload.kinds 按片段类型过滤）
+                B11：未声明 kinds 视为「不适用任何类型」（fail-closed）——
+                否则插件的属性分区会出现在所有片段上，用户以为功能串味。
+                插件作者应声明 payload.kinds，例如 ["video"] / ["audio","subtitle"]。 */}
+            <Slot
+              name="props.section"
+              context={{ clipKind: trackKind, hasSelection: true }}
+              filter={(c) => {
+                const kinds = (c.payload as { kinds?: unknown } | undefined)?.kinds;
+                if (!Array.isArray(kinds) || kinds.length === 0) {
+                  warnUndeclaredPropKinds(c.id);
+                  return false;
+                }
+                return kinds.map(String).includes(String(trackKind));
+              }}
+            />
           </div>
         )}
       </div>
@@ -927,7 +961,17 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
 
   const setEasing = (time: number, easing: string) => {
     pushHistory();
-    const kfs = clip.keyframes.map((k) => (Math.abs(k.time - time) < 0.001 ? { ...k, easing } : k));
+    // 显式选名字时清掉自定义曲线：否则 bezier 优先，用户会以为下拉没生效
+    const kfs = clip.keyframes.map((k) => (Math.abs(k.time - time) < 0.001
+      ? { ...k, easing, bezier: undefined }
+      : k));
+    updateClip(clip.id, { keyframes: kfs });
+  };
+
+  /** 曲线编辑器写入自定义贝塞尔（保留 easing 名字作为回退/展示） */
+  const setBezier = (time: number, handles: { x1: number; y1: number; x2: number; y2: number }, commit: boolean) => {
+    if (commit) pushHistory();
+    const kfs = clip.keyframes.map((k) => (Math.abs(k.time - time) < 0.001 ? { ...k, bezier: handles } : k));
     updateClip(clip.id, { keyframes: kfs });
   };
 
@@ -939,6 +983,28 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
     pushHistory();
     updateKeyframe(clip.id, time, { [prop]: v });
   };
+
+  /**
+   * 曲线编辑器的目标区段。
+   *
+   * 缓动取自**区段的结束帧**（`interpolateProperties` 就是读 `next.easing/bezier`），
+   * 因此这里定位「播放头所在区段的结束帧」，并把它前面的帧作为区段起点展示。
+   */
+  const curveTarget = useMemo(() => {
+    if (!clip || clip.keyframes.length < 2) return null;
+    const sorted = [...clip.keyframes].sort((a, b) => a.time - b.time);
+    let target = sorted[sorted.length - 1];
+    for (let i = 1; i < sorted.length; i += 1) {
+      if (localT <= sorted[i].time + 1e-6) { target = sorted[i]; break; }
+    }
+    const idx = sorted.indexOf(target);
+    const prev = sorted[Math.max(0, idx - 1)];
+    return {
+      time: target.time,
+      bezier: target.bezier,
+      label: `${(clip.start_sec + prev.time * clip.duration_sec).toFixed(2)}s → ${(clip.start_sec + target.time * clip.duration_sec).toFixed(2)}s`,
+    };
+  }, [clip, localT]);
 
   const jumpTo = (dir: 1 | -1) => {
     const times = clip.keyframes.map((k) => k.time).sort((a, b) => a - b);
@@ -1062,6 +1128,16 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
             </div>
           ))}
         </div>
+      )}
+
+      {/* O-曲线编辑：曲线上每个可调区段一个编辑器（默认展开第一个有曲线的区段） */}
+      {clip.keyframes.length > 1 && curveTarget && (
+        <BezierCurveEditor
+          value={curveTarget.bezier}
+          segmentLabel={curveTarget.label}
+          onPreset={(handles) => setBezier(curveTarget.time, handles, true)}
+          onChange={(handles) => setBezier(curveTarget.time, handles, false)}
+        />
       )}
     </Section>
   );
@@ -1200,7 +1276,11 @@ function BatchEditSection({ count, set, pushHistory, initial, onShift }: {
           type="number"
           step="0.1"
           value={shift}
-          onChange={(e) => setShift(Number(e.target.value) || 0)}
+          onChange={(e) => {
+            // P2-14: 非法中间态（空串/负号）不写 store
+            const n = Number(e.target.value);
+            if (Number.isFinite(n)) setShift(n);
+          }}
           className="w-20 bg-surface-container rounded-cw-xs px-1.5 py-1 text-label-sm text-on-surface font-mono
             outline-none border border-outline-variant/30 focus:border-primary"
           title="正数右移，负数左移（整体受 0s 边界钳制，保持相对间距）"

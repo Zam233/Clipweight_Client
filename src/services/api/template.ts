@@ -42,8 +42,13 @@ export const templateApi = {
     await getApiClient().delete(`/api/template/${id}`);
   },
 
-  async apply(id: string): Promise<ApplyTemplateResult> {
-    const { data } = await getApiClient().post<ApplyTemplateResult>(`/api/template/${id}/apply`);
+  async apply(id: string, targetProjectId?: string): Promise<ApplyTemplateResult> {
+    // 待验证项证实并修复：旧实现提交空 body——后端 target_project_id 素材
+    // 重映射通道（轮86）永不生效，跨项目应用时素材在渲染期静默降级色块。
+    const { data } = await getApiClient().post<ApplyTemplateResult>(
+      `/api/template/${id}/apply`,
+      targetProjectId ? { target_project_id: targetProjectId } : {},
+    );
     return data;
   },
 
