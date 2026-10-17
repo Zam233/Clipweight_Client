@@ -10,6 +10,7 @@ const { api } = vi.hoisted(() => ({
     getAttribution: vi.fn(),
     getDiagnosis: vi.fn(),
     getDecisions: vi.fn(),
+    getBudget: vi.fn(),
   },
 }));
 
@@ -49,6 +50,11 @@ beforeEach(() => {
   api.getLedger.mockResolvedValue(EMPTY_LEDGER);
   api.getAttribution.mockResolvedValue({ found: false, pipeline_id: 'pl_1' });
   api.getDiagnosis.mockResolvedValue({ found: false, pipeline_id: 'pl_1' });
+  api.getBudget.mockResolvedValue({
+    spent_usd: 0,
+    budgetEnabled: false,
+    level: 'unlimited',
+  });
   api.getDecisions.mockResolvedValue({
     pipeline_id: 'pl_1',
     found: false,
@@ -113,7 +119,12 @@ describe('hydrate', () => {
       cost: { tokens: 10, spent_usd: null, budget_usd: null, subagent_tokens: 0 },
       mode: 'shadow',
     });
-    api.getDecisions.mockResolvedValue({
+    api.getBudget.mockResolvedValue({
+    spent_usd: 0,
+    budgetEnabled: false,
+    level: 'unlimited',
+  });
+  api.getDecisions.mockResolvedValue({
       pipeline_id: 'pl_1',
       found: true,
       count: 1,

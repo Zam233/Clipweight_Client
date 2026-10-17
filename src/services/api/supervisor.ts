@@ -8,6 +8,7 @@
 import { getApiClient } from './client';
 import type {
   AttributionResponse,
+  BudgetSnapshot,
   DecisionsResponse,
   DiagnosisResponse,
   LedgerResponse,
@@ -51,6 +52,36 @@ export const supervisorApi = {
       `/api/pipeline/${pipelineId}/decisions`,
     );
     return data;
+  },
+
+  /** 预算快照（PRD F6）。未配置预算时 level=unlimited、ratio=null。 */
+  async getBudget(pipelineId: string): Promise<BudgetSnapshot> {
+    const { data } = await getApiClient().get<BudgetSnapshot>(
+      `/api/pipeline/${pipelineId}/budget`,
+    );
+    return data;
+  },
+
+  /** 人工改派工单（PRD F7）。 */
+  async dispatch(
+    pipelineId: string,
+    body: { target_stage: string; reason?: string; issues?: unknown[] },
+  ): Promise<{ order: Record<string, unknown>; accepted: boolean; requires_retry: boolean }> {
+    const { data } = await getApiClient().post(
+      `/api/pipeline/${pipelineId}/dispatch`,
+      body,
+    );
+    return data;
+  },
+
+  /** 接受降级 / 一键执行建议（PRD F7）。 */
+  async acceptSuggestion(pipelineId: string, suggestionId = ''): Promise<{ accepted_degraded: boolean }> {
+    const { data } = await getApiClient().post(
+      `/api/pipeline/${pipelineId}/accept-suggestion`,
+      undefined,
+      { params: suggestionId ? { suggestion_id: suggestionId } : undefined },
+    );
+    return data as { accepted_degraded: boolean };
   },
 
   // ── 以下为 B7–B9 端点（后端就绪后启用；前端 F6–F8 依赖）──

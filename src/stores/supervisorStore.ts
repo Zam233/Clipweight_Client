@@ -14,6 +14,7 @@ import { create } from 'zustand';
 import { supervisorApi } from '@/services/api/supervisor';
 import type {
   Attribution,
+  BudgetSnapshot,
   DiagnosisReport,
   LedgerEntry,
   SupervisorDecision,
@@ -34,6 +35,7 @@ export interface SupervisorState {
   diagnosis: DiagnosisReport | null;
   decisions: SupervisorDecision[];
   acceptedDegraded: boolean;
+  budget: BudgetSnapshot | null;
   drawerOpen: boolean;
   activeTab: SupervisorTab;
   loading: boolean;
@@ -54,6 +56,7 @@ const EMPTY = {
   diagnosis: null as DiagnosisReport | null,
   decisions: [] as SupervisorDecision[],
   acceptedDegraded: false,
+  budget: null as BudgetSnapshot | null,
   loading: false,
   error: '',
 };
@@ -86,11 +89,12 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   hydrate: async (pipelineId) => {
     set({ pipelineId, loading: true, error: '' });
     try {
-      const [ledger, attribution, diagnosis, decisions] = await Promise.all([
+      const [ledger, attribution, diagnosis, decisions, budget] = await Promise.all([
         supervisorApi.getLedger(pipelineId),
         supervisorApi.getAttribution(pipelineId),
         supervisorApi.getDiagnosis(pipelineId),
         supervisorApi.getDecisions(pipelineId),
+        supervisorApi.getBudget(pipelineId).catch(() => null),
       ]);
       set({
         ledger: (ledger?.entries ?? []).slice(-MAX_LEDGER_ENTRIES),
@@ -99,6 +103,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
         diagnosis: diagnosis?.found ? diagnosis : null,
         decisions: (decisions?.decisions ?? []).slice(-MAX_DECISIONS),
         acceptedDegraded: Boolean(decisions?.accepted_degraded),
+        budget: budget ?? null,
         loading: false,
       });
     } catch (e) {
