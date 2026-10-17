@@ -201,7 +201,7 @@ interface SupervisorState {
 | 批次 | 内容 | 依赖 | 退出标准 |
 |---|---|---|---|
 | **F0** ✅ | 类型层 + API 层 + mock fixture（`__mocks__/ledger.json` 等） | 无（可先行） | **已完成**：`src/types/supervisor.ts`、`src/services/api/supervisor.ts`、`features/supervisor/fixtures.ts` + 8 条契约测试；`tsc` 通过、全量 787 passed |
-| **F1** | `supervisorStore` + SSE 分流 + `SupervisorDrawer` + `DecisionTimeline` | 后端 B1（账本端点 + `ledger_entry` 事件） | 真实管线能看到逐阶段决策记录 |
+| **F1** 🚧 | `supervisorStore` + SSE 分流 + `SupervisorDrawer` + `DecisionTimeline` | 后端 B1（账本端点 + `ledger_entry` 事件） | **store 已完成**（hydrate/applyEvent/跨管线隔离，9 条测试）；抽屉与时间线组件待做 |
 | **F2** | `DiagnosisCard` + `SuggestionButton` + 失败自动展开 | 后端 B2（诊断书 + 影子模式） | 失败管线自动展示诊断书，建议按钮可点 |
 | **F3** | `BudgetBar` + `budget` 事件 + 确认弹窗成本提示 | 后端 B5（预算） | 配置预算时 70%/100% 状态正确并冻结重试；**未配置时只显示已花、无进度条、不冻结**（PRD F6/A6） |
 | **F4** | 人工改派工单（`dispatch` 写操作）+ 接管后续跑 | 后端 B3/B5（F7） | 改派后管线继续执行，UI 留痕 |

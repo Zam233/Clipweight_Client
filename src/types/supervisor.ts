@@ -121,7 +121,7 @@ export interface DiagnosisResponse extends DiagnosisReport {
   found: boolean;
 }
 
-// ── 成本条（F6 / B5）──────────────────────────────────────────
+// ── 预算（F6 / B5）────────────────────────────────────────────
 
 export interface BudgetSnapshot {
   spent_usd: number;
@@ -132,6 +132,44 @@ export interface BudgetSnapshot {
   level: 'unlimited' | 'ok' | 'warn' | 'blocked';
   subagentSpentUsd?: number;
 }
+
+// ── 调度决策（F3/F4 / B3）─────────────────────────────────────
+
+export type Strategy =
+  | 'S1_same'
+  | 'S2_model'
+  | 'S3_upstream'
+  | 'S4_accept_degraded'
+  | 'S5_new_path'
+  | 'S6_abort';
+
+export interface SupervisorDecision {
+  id: string;
+  strategy: Strategy | string;
+  target_stage: string;
+  reason: string;
+  allow_degrade: boolean;
+  aborted: boolean;
+  stage_attempts: Record<string, number>;
+  previous_strategy?: string;
+  mode: 'off' | 'shadow' | 'on' | string;
+  ts?: string;
+}
+
+export interface DecisionsResponse {
+  pipeline_id: string;
+  found: boolean;
+  count: number;
+  accepted_degraded: boolean;
+  decisions: SupervisorDecision[];
+}
+
+/** 调度中枢的 SSE 事件（复用管线 trace 流，按 type 分流） */
+export type SupervisorSSEEvent =
+  | { type: 'ledger_entry'; data?: LedgerEntry | Record<string, unknown> }
+  | { type: 'attribution'; data?: Attribution }
+  | { type: 'diag_report'; data?: DiagnosisReport }
+  | { type: 'dispatch'; data?: SupervisorDecision };
 
 // ── 子代理（F10/F12 / B7–B8）──────────────────────────────────
 

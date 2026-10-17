@@ -8,6 +8,7 @@
 import { getApiClient } from './client';
 import type {
   AttributionResponse,
+  DecisionsResponse,
   DiagnosisResponse,
   LedgerResponse,
   PendingExecApproval,
@@ -39,6 +40,14 @@ export const supervisorApi = {
   async getDiagnosis(pipelineId: string): Promise<DiagnosisResponse> {
     const { data } = await getApiClient().get<DiagnosisResponse>(
       `/api/pipeline/${pipelineId}/diagnosis`,
+    );
+    return data;
+  },
+
+  /** 调度决策序列（PRD F3/F4，调度面板数据源）。 */
+  async getDecisions(pipelineId: string): Promise<DecisionsResponse> {
+    const { data } = await getApiClient().get<DecisionsResponse>(
+      `/api/pipeline/${pipelineId}/decisions`,
     );
     return data;
   },
