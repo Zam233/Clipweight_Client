@@ -245,6 +245,29 @@ export interface PendingExecApproval {
   expiresAt: string;
 }
 
+/** 请求执行（POST /{pid}/exec）——主代理与用户的唯一执行入口 */
+export interface ExecRequest {
+  kind: 'shell' | 'python';
+  /** kind=shell 时的命令原文 */
+  command?: string;
+  /** kind=python 时的脚本正文 */
+  code?: string;
+  cwd?: string;
+  timeout_sec?: number;
+}
+
+/** 执行请求的三种结局：已执行 / 等授权 / 被拒（硬底线不可授权） */
+export interface ExecResponse {
+  pipeline_id: string;
+  status: 'done' | 'failed' | 'pending_approval' | 'rejected';
+  reason?: string;
+  approval?: PendingExecApproval;
+  record?: ExecRecord;
+  kind?: string;
+  exitCode?: number | null;
+  outputTail?: string;
+}
+
 export interface PendingWorkerReview {
   id: string;
   role: string;

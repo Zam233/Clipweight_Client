@@ -11,6 +11,9 @@ import type {
   BudgetSnapshot,
   DecisionsResponse,
   DiagnosisResponse,
+  ExecRecord,
+  ExecRequest,
+  ExecResponse,
   LedgerResponse,
   PendingExecApproval,
   PendingWorkerReview,
@@ -18,7 +21,6 @@ import type {
   RoutesResponse,
   SubagentNode,
   SubagentsResponse,
-  ExecRecord,
 } from '@/types/supervisor';
 
 export const supervisorApi = {
@@ -86,7 +88,7 @@ export const supervisorApi = {
     return data as { accepted_degraded: boolean };
   },
 
-  // ── 以下为 B7–B9 端点（后端就绪后启用；前端 F6–F8 依赖）──
+  // ── B7–B9 端点（子代理 / 执行 / 授权 / worker 审核）──
 
   /** 子代理树（PRD F12）。 */
   async getSubagents(pipelineId: string): Promise<SubagentsResponse> {
@@ -104,6 +106,15 @@ export const supervisorApi = {
   async getExecLog(pipelineId: string): Promise<{ records: ExecRecord[] }> {
     const { data } = await getApiClient().get(`/api/pipeline/${pipelineId}/exec`);
     return data as { records: ExecRecord[] };
+  },
+
+  /**
+   * 请求执行（PRD F11）：低风险直接跑；`med+` 返回 `pending_approval`（等授权）；
+   * 命中硬底线返回 `rejected`（**任何模式都不可授权**）。
+   */
+  async requestExec(pipelineId: string, body: ExecRequest): Promise<ExecResponse> {
+    const { data } = await getApiClient().post(`/api/pipeline/${pipelineId}/exec`, body);
+    return data as ExecResponse;
   },
 
   async approveExec(pipelineId: string, execId: string, confirmHighRisk = false): Promise<void> {

@@ -17,6 +17,8 @@ import type {
   BudgetSnapshot,
   DiagnosisReport,
   ExecRecord,
+  ExecRequest,
+  ExecResponse,
   LedgerEntry,
   PendingExecApproval,
   PendingWorkerReview,
@@ -68,6 +70,13 @@ export interface SupervisorState {
     pipelineId: string,
     body: { target_stage: string; reason?: string; issues?: unknown[] },
   ) => Promise<{ requires_retry?: boolean } | null>;
+  requestExec: (pipelineId: string, body: ExecRequest) => Promise<ExecResponse | null>;
+  approveExec: (
+    pipelineId: string,
+    approvalId: string,
+    confirmHighRisk?: boolean,
+  ) => Promise<void>;
+  rejectExec: (pipelineId: string, approvalId: string) => Promise<void>;
   applyEvent: (event: { type?: string; data?: unknown }) => void;
   setDrawerOpen: (open: boolean) => void;
   setActiveTab: (tab: SupervisorTab) => void;
@@ -181,6 +190,37 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
       return null;
+    }
+  },
+
+  requestExec: async (pipelineId, body) => {
+    try {
+      const res = await supervisorApi.requestExec(pipelineId, body);
+      // 结局可能是「已执行」「等授权」「被拒」——三种都要让列表立刻看到，
+      // 所以统一重拉一次执行态（比本地猜测后端落账口径更可靠）。
+      await get().hydrateExecution(pipelineId);
+      return res;
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+      return null;
+    }
+  },
+
+  approveExec: async (pipelineId, approvalId, confirmHighRisk = false) => {
+    try {
+      await supervisorApi.approveExec(pipelineId, approvalId, confirmHighRisk);
+      await get().hydrateExecution(pipelineId);
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  rejectExec: async (pipelineId, approvalId) => {
+    try {
+      await supervisorApi.rejectExec(pipelineId, approvalId);
+      await get().hydrateExecution(pipelineId);
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
     }
   },
 

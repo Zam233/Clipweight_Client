@@ -22,6 +22,9 @@ const { api } = vi.hoisted(() => ({
     getAutoMode: vi.fn(async () => ({ enabled: false })),
     getPendingWorkerReviews: vi.fn(async () => ({ items: [] })),
     dispatch: vi.fn(),
+    requestExec: vi.fn(),
+    approveExec: vi.fn(async () => {}),
+    rejectExec: vi.fn(async () => {}),
   },
 }));
 
@@ -83,5 +86,59 @@ describe('SupervisorDrawer', () => {
     fireEvent.click(screen.getByRole('button', { name: '提交改派' }));
 
     expect(api.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('执行页：提交命令后如实显示结局（已执行 / 等授权）', async () => {
+    api.requestExec.mockResolvedValue({
+      pipeline_id: 'pl_1',
+      status: 'done',
+      exitCode: 0,
+      outputTail: 'ok',
+    });
+    render(<SupervisorDrawer />);
+
+    fireEvent.click(screen.getByRole('tab', { name: '执行' }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'npm run lint' } });
+    fireEvent.click(screen.getByRole('button', { name: '提交执行' }));
+
+    expect(api.requestExec).toHaveBeenCalledWith('pl_1', {
+      kind: 'shell',
+      command: 'npm run lint',
+    });
+    expect(await screen.findByText(/已执行/)).toBeTruthy();
+  });
+
+  it('执行页：高风险命令直接弹授权框，且批准要带二次确认', async () => {
+    api.requestExec.mockResolvedValue({
+      pipeline_id: 'pl_1',
+      status: 'pending_approval',
+      approval: {
+        id: 'ap_1',
+        command: 'npm run deploy',
+        riskLevel: 'high',
+        riskReasons: ['会改动线上产物'],
+        dangerExplanation: '会覆盖 dist 目录',
+        requestedBy: 'supervisor',
+        expiresAt: '',
+      },
+    });
+    render(<SupervisorDrawer />);
+
+    fireEvent.click(screen.getByRole('tab', { name: '执行' }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'npm run deploy' } });
+    fireEvent.click(screen.getByRole('button', { name: '提交执行' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '命令授权' });
+    expect(dialog).toBeTruthy();
+    expect(screen.getByText(/会覆盖 dist 目录/)).toBeTruthy();
+
+    // high 未勾确认时「允许执行」不可点
+    const allow = screen.getByRole('button', { name: '允许执行' }) as HTMLButtonElement;
+    expect(allow.disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(allow.disabled).toBe(false);
+    fireEvent.click(allow);
+    expect(api.approveExec).toHaveBeenCalledWith('pl_1', 'ap_1', true);
   });
 });

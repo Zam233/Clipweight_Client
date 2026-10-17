@@ -1,15 +1,15 @@
 /**
- * 调度抽屉（前端 F1）：决策记录 / 诊断书 / 成本 三段。
+ * 调度抽屉（前端 F1/F4/F7）：决策记录 / 诊断书 / 成本 / 子代理 / 执行 / 改派 / 待审。
  *
  * 数据一律来自 `supervisorStore`（由 hydrate + SSE 增量维护），组件本身不发请求；
- * 动作通过 `onAcceptSuggestion` 上抛，由页面决定是否调用 API（便于二次确认）。
+ * 动作通过 store 的动作发出去，页面级确认（`onAcceptSuggestion`）才上抛。
  */
 
 import { X } from 'lucide-react';
 
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import type { DiagnosisSuggestion } from '@/types/supervisor';
+import type { DiagnosisSuggestion, ExecResponse, PendingExecApproval } from '@/types/supervisor';
 import { useSupervisorStore, type SupervisorTab } from '@/stores/supervisorStore';
 import { useEffect, useState } from 'react';
 
@@ -18,7 +18,10 @@ import { BudgetBar } from './BudgetBar';
 import { DecisionTimeline } from './DecisionTimeline';
 import { DiagnosisCard } from './DiagnosisCard';
 import { DispatchForm } from './DispatchForm';
+import { ExecLevelBadge } from './ExecLevelBadge';
 import { ExecLogList } from './ExecLogList';
+import { ExecPermissionDialog } from './ExecPermissionDialog';
+import { ExecRequestForm } from './ExecRequestForm';
 import { SubagentTree } from './SubagentTree';
 import { WorkerReviewQueue } from './WorkerReviewQueue';
 import { strategyLabel, stageLabel } from './labels';
@@ -53,6 +56,7 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
   const subagents = useSupervisorStore((s) => s.subagents);
   const execRecords = useSupervisorStore((s) => s.execRecords);
   const pendingReviews = useSupervisorStore((s) => s.pendingReviews);
+  const pendingApprovals = useSupervisorStore((s) => s.pendingApprovals);
   const autoMode = useSupervisorStore((s) => s.autoMode);
   const hydrateExecution = useSupervisorStore((s) => s.hydrateExecution);
   const hydrateReviews = useSupervisorStore((s) => s.hydrateReviews);
@@ -60,10 +64,18 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
   const cancelSubagent = useSupervisorStore((s) => s.cancelSubagent);
   const reviewWorker = useSupervisorStore((s) => s.reviewWorker);
   const dispatchOrder = useSupervisorStore((s) => s.dispatchOrder);
+  const requestExec = useSupervisorStore((s) => s.requestExec);
+  const approveExec = useSupervisorStore((s) => s.approveExec);
+  const rejectExec = useSupervisorStore((s) => s.rejectExec);
 
   // 改派工单的本地态：结果只在这一屏有意义，没必要入 store
   const [dispatchBusy, setDispatchBusy] = useState(false);
   const [dispatchResult, setDispatchResult] = useState<{ requires_retry?: boolean } | null>(null);
+
+  // 执行请求与授权弹窗的本地态
+  const [execBusy, setExecBusy] = useState(false);
+  const [execResult, setExecResult] = useState<ExecResponse | null>(null);
+  const [approval, setApproval] = useState<PendingExecApproval | null>(null);
 
   const submitDispatch = async (order: { target_stage: string; reason: string }) => {
     if (!pipelineId) return;
@@ -73,6 +85,31 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
       setDispatchResult(res ? { requires_retry: res.requires_retry } : null);
     } finally {
       setDispatchBusy(false);
+    }
+  };
+
+  const submitExec = async (body: { kind: 'shell' | 'python'; command?: string; code?: string }) => {
+    if (!pipelineId) return;
+    setExecBusy(true);
+    try {
+      const res = await requestExec(pipelineId, body);
+      setExecResult(res);
+      // 需要授权就直接把弹窗顶上来，不让用户去列表里找
+      if (res?.status === 'pending_approval' && res.approval) setApproval(res.approval);
+    } finally {
+      setExecBusy(false);
+    }
+  };
+
+  const decideApproval = async (approve: boolean, confirmHighRisk = false) => {
+    if (!pipelineId || !approval) return;
+    setExecBusy(true);
+    try {
+      if (approve) await approveExec(pipelineId, approval.id, confirmHighRisk);
+      else await rejectExec(pipelineId, approval.id);
+      setApproval(null);
+    } finally {
+      setExecBusy(false);
     }
   };
 
@@ -164,12 +201,43 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
         )}
 
         {activeTab === 'exec' && (
-          <div className="space-y-2">
+          <div className="space-y-3">
             <AutoModeSwitch
               enabled={autoMode}
               onChange={(v) => pipelineId && void setAutoMode(pipelineId, v)}
             />
+            <ExecRequestForm
+              onSubmit={(body) => void submitExec(body)}
+              busy={execBusy}
+              result={execResult}
+            />
+            {pendingApprovals.length > 0 && (
+              <section className="space-y-1">
+                <h4 className="text-caption font-semibold text-on-surface-variant">
+                  待授权（{pendingApprovals.length}）
+                </h4>
+                <ul className="space-y-1">
+                  {pendingApprovals.map((ap) => (
+                    <li key={ap.id}>
+                      <button
+                        type="button"
+                        className="w-full text-left text-caption px-2 py-1 rounded-cw-sm bg-surface-container hover:bg-surface-container-high"
+                        onClick={() => setApproval(ap)}
+                      >
+                        <ExecLevelBadge level={ap.riskLevel} /> {ap.command.slice(0, 48)}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             <ExecLogList records={execRecords} />
+            <ExecPermissionDialog
+              approval={approval}
+              busy={execBusy}
+              onApprove={(confirm) => void decideApproval(true, confirm)}
+              onReject={() => void decideApproval(false)}
+            />
           </div>
         )}
 

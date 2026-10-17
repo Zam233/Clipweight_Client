@@ -379,9 +379,12 @@ export interface PendingWorkerReview {
 | store 扩展 | `supervisorStore.applyEvent` | 新增 `subagent_start/progress/end`（按 `subagent_id` upsert）与 `exec`（按 `id` 去重追加）；`dispatch` 兼容「决策」与「人工改派单」两种形状 |
 | 改派动作 | `supervisorStore.dispatchOrder` | 失败落 `error` 并返回 `null`，不把异常抛进组件（抽屉只负责显示） |
 | 抽屉第七段 | `SupervisorDrawer` 的「改派」tab | 挂 `DispatchForm`；提交后如实显示「已登记，重试该环节后生效」而非「已生效」 |
+| 执行入口 | `ExecRequestForm.tsx` + 「执行」tab | 提交 `POST /{pid}/exec`（shell / python 二选一）；三种结局如实显示：已执行 / 待授权 / 被拒（硬底线不可授权）；`pending_approval` 时**直接把授权弹窗顶上来**，不让用户去列表里找 |
+| 授权闭环 | 「执行」tab 的待授权列表 + `ExecPermissionDialog` | 之前弹窗只有组件没有挂载点——现在列表 + 弹窗接通，`high/critical` 仍需勾选二次确认 |
+| store 动作 | `requestExec` / `approveExec` / `rejectExec` | 每次动作后重拉一次执行态（等授权项、日志、自动模式），失败落 `error` 不抛给组件 |
 | 入口接线 | `SupervisorLauncher` | `useSupervisorEvents(pipelineId, drawerOpen)`：关着不连，打开先 hydrate 再追增量 |
 | 文案 | `labels.ts` | `manual → 人工改派`（策略代号不直接暴露在界面上） |
-| 测试 | `useSupervisorEvents.test.ts`(6) / `SupervisorDrawer.test.tsx`(3) / `supervisorStore.test.ts`(14) / `SupervisorLauncher.test.tsx`(4) | 映射与分流、开关与卸载断开、改派参数与结果文案、无管线不提交 |
+| 测试 | `useSupervisorEvents.test.ts`(6) / `SupervisorDrawer.test.tsx`(5) / `supervisorStore.test.ts`(18) / `SupervisorLauncher.test.tsx`(4) | 映射与分流、开关与卸载断开、改派参数与结果文案、执行三结局与授权二次确认、无管线不提交 |
 
 **仍待人工验收**（不是代码缺口，需真机跑）：
 

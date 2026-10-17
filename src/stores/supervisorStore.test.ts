@@ -12,6 +12,16 @@ const { api } = vi.hoisted(() => ({
     getDecisions: vi.fn(),
     getBudget: vi.fn(),
     dispatch: vi.fn(),
+    getSubagents: vi.fn(async () => ({ tree: [] })),
+    getExecLog: vi.fn(async (): Promise<{ records: ExecRecord[] }> => ({ records: [] })),
+    getPendingApprovals: vi.fn(
+      async (): Promise<{ items: PendingExecApproval[] }> => ({ items: [] }),
+    ),
+    getAutoMode: vi.fn(async () => ({ enabled: false })),
+    getPendingWorkerReviews: vi.fn(async () => ({ items: [] })),
+    requestExec: vi.fn(),
+    approveExec: vi.fn(async () => {}),
+    rejectExec: vi.fn(async () => {}),
   },
 }));
 
@@ -22,7 +32,7 @@ import {
   MAX_LEDGER_ENTRIES,
   useSupervisorStore,
 } from './supervisorStore';
-import type { LedgerEntry } from '@/types/supervisor';
+import type { ExecRecord, LedgerEntry, PendingExecApproval } from '@/types/supervisor';
 
 function entry(stage: string, attempt: number): LedgerEntry {
   return {
@@ -304,5 +314,77 @@ describe('dispatchOrder（人工改派工单）', () => {
       .dispatchOrder('pl_1', { target_stage: 'edit', reason: '卡顿' });
     expect(res).toBeNull();
     expect(useSupervisorStore.getState().error).toContain('预算已耗尽');
+  });
+});
+
+describe('执行请求（requestExec / 授权 / 拒绝）', () => {
+  it('提交后原样返回结局，并重拉一次执行态', async () => {
+    api.requestExec.mockResolvedValue({ pipeline_id: 'pl_1', status: 'done', exitCode: 0 });
+    api.getExecLog.mockResolvedValue({
+      records: [
+        {
+          id: 'ex_9',
+          ts: '2026-10-17T10:00:00Z',
+          kind: 'shell',
+          command: 'pytest',
+          cwd: '',
+          riskLevel: 'low',
+          riskReasons: [],
+          autoMode: false,
+          exitCode: 0,
+          durationMs: 10,
+        },
+      ],
+    });
+
+    const res = await useSupervisorStore
+      .getState()
+      .requestExec('pl_1', { kind: 'shell', command: 'pytest' });
+
+    expect(res?.status).toBe('done');
+    expect(api.getExecLog).toHaveBeenCalledWith('pl_1');
+    expect(useSupervisorStore.getState().execRecords).toHaveLength(1);
+  });
+
+  it('等授权时把待授权项拉进 store', async () => {
+    api.requestExec.mockResolvedValue({
+      pipeline_id: 'pl_1',
+      status: 'pending_approval',
+      approval: { id: 'ap_1', command: 'deploy', riskLevel: 'high' },
+    });
+    api.getPendingApprovals.mockResolvedValue({
+      items: [
+        {
+          id: 'ap_1',
+          command: 'deploy',
+          riskLevel: 'high',
+          riskReasons: [],
+          dangerExplanation: '会覆盖 dist',
+          requestedBy: 'supervisor',
+          expiresAt: '',
+        },
+      ],
+    });
+
+    await useSupervisorStore.getState().requestExec('pl_1', { kind: 'shell', command: 'deploy' });
+    expect(useSupervisorStore.getState().pendingApprovals).toHaveLength(1);
+  });
+
+  it('请求失败时落 error 且不抛给组件', async () => {
+    api.requestExec.mockRejectedValue(new Error('预算已耗尽'));
+    const res = await useSupervisorStore
+      .getState()
+      .requestExec('pl_1', { kind: 'shell', command: 'x' });
+    expect(res).toBeNull();
+    expect(useSupervisorStore.getState().error).toContain('预算已耗尽');
+  });
+
+  it('授权与拒绝都透传参数并刷新执行态', async () => {
+    await useSupervisorStore.getState().approveExec('pl_1', 'ap_1', true);
+    expect(api.approveExec).toHaveBeenCalledWith('pl_1', 'ap_1', true);
+
+    await useSupervisorStore.getState().rejectExec('pl_1', 'ap_2');
+    expect(api.rejectExec).toHaveBeenCalledWith('pl_1', 'ap_2');
+    expect(api.getPendingApprovals).toHaveBeenCalledTimes(2);
   });
 });
