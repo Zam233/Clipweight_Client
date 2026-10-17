@@ -16,7 +16,11 @@ import type {
   Attribution,
   BudgetSnapshot,
   DiagnosisReport,
+  ExecRecord,
   LedgerEntry,
+  PendingExecApproval,
+  PendingWorkerReview,
+  SubagentNode,
   SupervisorDecision,
 } from '@/types/supervisor';
 
@@ -25,7 +29,7 @@ export const MAX_LEDGER_ENTRIES = 500;
 /** 决策序列上限 */
 export const MAX_DECISIONS = 100;
 
-export type SupervisorTab = 'decisions' | 'diagnosis' | 'cost';
+export type SupervisorTab = 'decisions' | 'diagnosis' | 'cost' | 'subagents' | 'exec' | 'review';
 
 export interface SupervisorState {
   pipelineId: string | null;
@@ -36,6 +40,11 @@ export interface SupervisorState {
   decisions: SupervisorDecision[];
   acceptedDegraded: boolean;
   budget: BudgetSnapshot | null;
+  subagents: SubagentNode[];
+  execRecords: ExecRecord[];
+  pendingApprovals: PendingExecApproval[];
+  pendingReviews: PendingWorkerReview[];
+  autoMode: boolean;
   drawerOpen: boolean;
   activeTab: SupervisorTab;
   loading: boolean;
@@ -43,6 +52,11 @@ export interface SupervisorState {
 
   setPipeline: (id: string | null) => void;
   hydrate: (pipelineId: string) => Promise<void>;
+  hydrateExecution: (pipelineId: string) => Promise<void>;
+  hydrateReviews: () => Promise<void>;
+  setAutoMode: (pipelineId: string, enabled: boolean) => Promise<void>;
+  cancelSubagent: (pipelineId: string, subagentId: string) => Promise<void>;
+  reviewWorker: (workerId: string, approve: boolean, confirmHighRisk?: boolean) => Promise<void>;
   applyEvent: (event: { type?: string; data?: unknown }) => void;
   setDrawerOpen: (open: boolean) => void;
   setActiveTab: (tab: SupervisorTab) => void;
@@ -57,6 +71,11 @@ const EMPTY = {
   decisions: [] as SupervisorDecision[],
   acceptedDegraded: false,
   budget: null as BudgetSnapshot | null,
+  subagents: [] as SubagentNode[],
+  execRecords: [] as ExecRecord[],
+  pendingApprovals: [] as PendingExecApproval[],
+  pendingReviews: [] as PendingWorkerReview[],
+  autoMode: false,
   loading: false,
   error: '',
 };
@@ -82,6 +101,67 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     if (prev === id) return;
     // 换管线一律清空：避免上一轮的诊断书出现在新管线的面板里
     set({ pipelineId: id, drawerOpen: false, activeTab: 'decisions', ...EMPTY });
+  },
+
+  hydrateExecution: async (pipelineId) => {
+    try {
+      const [subagents, exec, approvals, auto] = await Promise.all([
+        supervisorApi.getSubagents(pipelineId).catch(() => null),
+        supervisorApi.getExecLog(pipelineId).catch(() => null),
+        supervisorApi.getPendingApprovals(pipelineId).catch(() => null),
+        supervisorApi.getAutoMode(pipelineId).catch(() => null),
+      ]);
+      set({
+        subagents: subagents?.tree ?? [],
+        execRecords: exec?.records ?? [],
+        pendingApprovals: approvals?.items ?? [],
+        autoMode: Boolean(auto?.enabled),
+      });
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  hydrateReviews: async () => {
+    try {
+      const res = await supervisorApi.getPendingWorkerReviews().catch(() => null);
+      set({ pendingReviews: res?.items ?? [] });
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  setAutoMode: async (pipelineId, enabled) => {
+    set({ autoMode: enabled });
+    try {
+      await supervisorApi.setAutoMode(pipelineId, enabled);
+    } catch (e) {
+      set({ autoMode: !enabled, error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  cancelSubagent: async (pipelineId, subagentId) => {
+    const mark = (nodes: SubagentNode[]): SubagentNode[] =>
+      nodes.map((n) => ({
+        ...n,
+        status: n.id === subagentId ? ('cancelled' as const) : n.status,
+        children: n.children ? mark(n.children) : n.children,
+      }));
+    set({ subagents: mark(get().subagents) });
+    try {
+      await supervisorApi.cancelSubagent(pipelineId, subagentId);
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  reviewWorker: async (workerId, approve, confirmHighRisk = false) => {
+    try {
+      await supervisorApi.reviewWorker(workerId, approve, confirmHighRisk);
+      set({ pendingReviews: get().pendingReviews.filter((w) => w.id !== workerId) });
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+    }
   },
 
   reset: () => set({ pipelineId: null, drawerOpen: false, activeTab: 'decisions', ...EMPTY }),

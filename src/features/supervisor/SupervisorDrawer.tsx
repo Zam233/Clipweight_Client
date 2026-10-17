@@ -11,10 +11,15 @@ import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import type { DiagnosisSuggestion } from '@/types/supervisor';
 import { useSupervisorStore } from '@/stores/supervisorStore';
+import { useEffect } from 'react';
 
+import { AutoModeSwitch } from './AutoModeSwitch';
 import { BudgetBar } from './BudgetBar';
 import { DecisionTimeline } from './DecisionTimeline';
 import { DiagnosisCard } from './DiagnosisCard';
+import { ExecLogList } from './ExecLogList';
+import { SubagentTree } from './SubagentTree';
+import { WorkerReviewQueue } from './WorkerReviewQueue';
 import { strategyLabel, stageLabel } from './labels';
 
 interface Props {
@@ -24,10 +29,13 @@ interface Props {
   className?: string;
 }
 
-const TABS: { id: 'decisions' | 'diagnosis' | 'cost'; label: string }[] = [
+const TABS: { id: 'decisions' | 'diagnosis' | 'cost' | 'subagents' | 'exec' | 'review'; label: string }[] = [
   { id: 'decisions', label: '决策记录' },
   { id: 'diagnosis', label: '诊断书' },
   { id: 'cost', label: '成本' },
+  { id: 'subagents', label: '子代理' },
+  { id: 'exec', label: '执行' },
+  { id: 'review', label: '待审' },
 ];
 
 export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, className }: Props) {
@@ -39,6 +47,25 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
   const setActiveTab = useSupervisorStore((s) => s.setActiveTab);
   const loading = useSupervisorStore((s) => s.loading);
   const error = useSupervisorStore((s) => s.error);
+  const pipelineId = useSupervisorStore((s) => s.pipelineId);
+  const subagents = useSupervisorStore((s) => s.subagents);
+  const execRecords = useSupervisorStore((s) => s.execRecords);
+  const pendingReviews = useSupervisorStore((s) => s.pendingReviews);
+  const autoMode = useSupervisorStore((s) => s.autoMode);
+  const hydrateExecution = useSupervisorStore((s) => s.hydrateExecution);
+  const hydrateReviews = useSupervisorStore((s) => s.hydrateReviews);
+  const setAutoMode = useSupervisorStore((s) => s.setAutoMode);
+  const cancelSubagent = useSupervisorStore((s) => s.cancelSubagent);
+  const reviewWorker = useSupervisorStore((s) => s.reviewWorker);
+
+  // 切到「子代理/执行/审核」时才拉对应数据（首屏 hydrate 不背这么多请求）
+  useEffect(() => {
+    if (!pipelineId) return;
+    if (activeTab === 'subagents' || activeTab === 'exec') {
+      void hydrateExecution(pipelineId);
+    }
+    if (activeTab === 'review') void hydrateReviews();
+  }, [activeTab, pipelineId, hydrateExecution, hydrateReviews]);
 
   return (
     <aside
@@ -110,6 +137,30 @@ export function SupervisorDrawer({ onClose, onAcceptSuggestion, actionPending, c
         )}
 
         {activeTab === 'cost' && <BudgetBar budget={budget} />}
+
+        {activeTab === 'subagents' && (
+          <SubagentTree
+            nodes={subagents}
+            onCancel={(node) => pipelineId && void cancelSubagent(pipelineId, node.id)}
+          />
+        )}
+
+        {activeTab === 'exec' && (
+          <div className="space-y-2">
+            <AutoModeSwitch
+              enabled={autoMode}
+              onChange={(v) => pipelineId && void setAutoMode(pipelineId, v)}
+            />
+            <ExecLogList records={execRecords} />
+          </div>
+        )}
+
+        {activeTab === 'review' && (
+          <WorkerReviewQueue
+            items={pendingReviews}
+            onReview={(wid, approve, confirm) => void reviewWorker(wid, approve, confirm)}
+          />
+        )}
       </div>
     </aside>
   );

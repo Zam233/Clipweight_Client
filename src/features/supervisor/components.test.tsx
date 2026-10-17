@@ -200,3 +200,20 @@ describe('SupervisorDrawer', () => {
     expect(onClose).toHaveBeenCalled();
   });
 });
+
+describe('SupervisorDrawer 新增三段（子代理/执行/待审）', () => {
+  it('三段能渲染对应空态', async () => {
+    useSupervisorStore.setState({ pipelineId: 'pl_1' });
+    render(<SupervisorDrawer onClose={() => {}} />);
+
+    fireEvent.click(screen.getByRole('tab', { name: '子代理' }));
+    expect(await screen.findByText(/没有派生子代理/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('tab', { name: '执行' }));
+    expect(await screen.findByText(/自动模式/)).toBeTruthy();
+    expect(await screen.findByText(/没有执行过命令/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('tab', { name: '待审' }));
+    expect(await screen.findByText(/没有待审核的子代理/)).toBeTruthy();
+  });
+});

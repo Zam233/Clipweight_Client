@@ -42,6 +42,7 @@ const SubtitleToolsPage = lazyPage(() => import('./pages/admin/SubtitleToolsPage
 const BackendConfigPage = lazyPage(() => import('./pages/admin/BackendConfigPage'), 'BackendConfigPage');
 const PreprocessPage = lazyPage(() => import('./pages/admin/PreprocessPage'), 'PreprocessPage');
 const PipelineAdminPage = lazyPage(() => import('./pages/admin/PipelineAdminPage'), 'PipelineAdminPage');
+const SupervisorAdminPage = lazyPage(() => import('./pages/admin/SupervisorAdminPage'), 'SupervisorAdminPage');
 const VoicePage = lazyPage(() => import('./pages/VoicePage'), 'VoicePage');
 const ProjectsPage = lazyPage(() => import('./pages/ProjectsPage'), 'ProjectsPage');
 const LoginPage = lazyPage(() => import('./pages/LoginPage'), 'LoginPage');
@@ -315,6 +316,14 @@ const pipelineAdminRoute = createRoute({
   errorComponent: RouteErrorFallback,
 });
 
+const supervisorAdminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/supervisor',
+  beforeLoad: requireAdmin,
+  component: SupervisorAdminPage,
+  errorComponent: RouteErrorFallback,
+});
+
 const voiceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/voice',
@@ -370,6 +379,7 @@ const routeTree = rootRoute.addChildren([
   subtitleToolsRoute,
   preprocessRoute,
   pipelineAdminRoute,
+  supervisorAdminRoute,
   voiceRoute,
   projectsRoute,
   loginRoute,
