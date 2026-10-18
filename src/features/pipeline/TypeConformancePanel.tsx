@@ -48,6 +48,20 @@ export function TypeConformancePanel({ events }: Props) {
     [events],
   );
 
+  // V3「前端黄条」：strict 冲突（类型规范把用户值改回去了）与类型变形必须一眼可见，
+  // 不能埋在下方的参数表里等人去读。
+  const strictConflicts = useMemo(
+    () =>
+      resolutions.flatMap((event) =>
+        (event.detail?.conflicts ?? []).filter((conflict) => conflict.enforce === 'strict'),
+      ),
+    [resolutions],
+  );
+  const deformations = useMemo(
+    () => resolutions.filter((event) => Boolean(event.detail?.deformation)),
+    [resolutions],
+  );
+
   if (resolutions.length === 0) {
     return (
       <div className="mt-3 pt-2.5 border-t border-outline-variant/15" data-testid="type-conformance">
@@ -62,6 +76,29 @@ export function TypeConformancePanel({ events }: Props) {
   return (
     <div className="mt-3 pt-2.5 border-t border-outline-variant/15" data-testid="type-conformance">
       <p className="text-label text-on-surface-variant mb-2">类型符合度</p>
+
+      {strictConflicts.length > 0 && (
+        <div
+          className="mb-2 bg-warning/15 border border-warning/40 rounded-cw-xs px-2.5 py-1.5"
+          data-testid="type-conflict-banner"
+        >
+          <p className="font-mono text-caption text-warning">
+            类型规范改写了 {strictConflicts.length} 处参数（strict，用户值被覆盖）：
+            {strictConflicts.map((conflict) => conflict.key ?? conflict.code).join('、')}
+          </p>
+        </div>
+      )}
+
+      {deformations.length > 0 && (
+        <div
+          className="mb-2 bg-error/10 border border-error/30 rounded-cw-xs px-2.5 py-1.5"
+          data-testid="type-deformation-banner"
+        >
+          <p className="font-mono text-caption text-error">
+            {deformations.length} 处类型变形：只能回落到类型合法域或显式切换类型，不提供豁免。
+          </p>
+        </div>
+      )}
       <div className="space-y-2">
         {resolutions.map((event, index) => {
           const detail = event.detail ?? {};
