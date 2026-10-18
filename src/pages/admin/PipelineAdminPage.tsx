@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ConsoleShell, ConsoleHeading, StatusPill } from './ConsoleShell';
 import { pipelineApi } from '@/services/api';
 import { TaskListSection } from '@/features/task/TaskListSection';
+import { TypeConformancePanel } from '@/features/pipeline/TypeConformancePanel';
 import { cn } from '@/lib/utils';
 import {
   Activity, Gauge, Coins, Timer, ChevronDown, ChevronRight,
@@ -274,10 +275,14 @@ export function PipelineAdminPage() {
                       ) : trace?.error ? (
                         <p className="text-caption text-warning font-mono">{trace.error}</p>
                       ) : (
-                        <pre className="bg-surface rounded-cw-sm border border-outline-variant/30 px-3 py-2.5 font-mono text-caption
+                        <>
+                          {/* F-03：类型符合度（读 trace 里的 prompt_resolution 事件） */}
+                          <TypeConformancePanel events={trace?.events} />
+                          <pre className="mt-2 bg-surface rounded-cw-sm border border-outline-variant/30 px-3 py-2.5 font-mono text-caption
                           text-track-audio leading-relaxed max-h-72 overflow-auto whitespace-pre-wrap">
                           {JSON.stringify(trace?.events ?? [], null, 2)}
                         </pre>
+                        </>
                       )}
                     </div>
                   </div>
