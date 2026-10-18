@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ConsoleShell, ConsoleHeading, StatusPill } from './ConsoleShell';
 import { pipelineApi } from '@/services/api';
+import { TaskListSection } from '@/features/task/TaskListSection';
 import { cn } from '@/lib/utils';
 import {
   Activity, Gauge, Coins, Timer, ChevronDown, ChevronRight,
@@ -128,6 +129,9 @@ export function PipelineAdminPage() {
           刷新
         </button>
       </div>
+
+      {/* 路线 C：任务列表（老 runs 视图仍保留，直到 C7 退役） */}
+      <TaskListSection />
 
       {error && (
         <div className="flex items-center justify-between mb-5 max-w-[900px] bg-error/10 border border-error/30 rounded-cw-md px-4 py-2.5">

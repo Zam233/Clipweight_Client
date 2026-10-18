@@ -20,6 +20,7 @@ import { useTaskStore } from '@/stores/taskStore';
 
 import { EventFeed } from '@/features/task/EventFeed';
 import { PlanPanel } from '@/features/task/PlanPanel';
+import { TaskArtifacts } from '@/features/task/TaskArtifacts';
 import { TaskSubagents } from '@/features/task/TaskSubagents';
 import { TaskToolbar } from '@/features/task/TaskToolbar';
 import { durationText, moneyText, statusLabel } from '@/features/task/labels';
@@ -188,6 +189,8 @@ export function TaskPage() {
         </section>
 
         <TaskSubagents taskId={taskId} active={!terminal} />
+
+        <TaskArtifacts taskId={taskId} enabled={terminal || Boolean(task?.plan)} />
 
         {terminal && (
           <p className="text-caption text-on-surface-variant">

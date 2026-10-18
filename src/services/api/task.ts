@@ -79,4 +79,27 @@ export const taskApi = {
     const { data } = await getApiClient().get('/api/task', { params: { limit } });
     return data;
   },
+
+  /** 任务产物快照：有没有可编辑的 timeline、几条轨道、时长。 */
+  async result(taskId: string): Promise<{
+    task_id: string;
+    has_timeline: boolean;
+    tracks: number;
+    clips: number;
+    duration_sec: number;
+    output_path: string;
+  }> {
+    const { data } = await getApiClient().get(`/api/task/${taskId}/result`);
+    return data;
+  },
+
+  /** 把任务产物落成一个项目（编辑器继续剪的入口）。 */
+  async toProject(taskId: string, name = ''): Promise<{
+    task_id: string;
+    project_id: string;
+    name: string;
+  }> {
+    const { data } = await getApiClient().post(`/api/task/${taskId}/to-project`, { name });
+    return data;
+  },
 };
