@@ -16,7 +16,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { Button, Badge } from '@/components/ui';
 import {
   Film, Settings, ArrowRight, Plus, Bot, ListChecks,
-  PenLine, PackageCheck, Clock, Layers, Wand2, Mic, Image as ImageIcon,
+  PenLine, PackageCheck, Clock, Layers, Wand2, Mic,
   Upload, X, Check, Loader2, AudioLines,
   Scissors, FileText, FolderOpen, Clapperboard, Store, LayoutTemplate,
   Home, Shapes, User, Puzzle, Sparkles, Coins, Zap, LogOut, LogIn,
@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import { ProjectCard, type ProjectCardData } from '@/components/shared/ProjectCard';
 import { TemplateGallery } from '@/components/shared/TemplateGallery';
+import { ChatForgeDrawer } from '@/features/chatforge/ChatForgeDrawer';
+import { CreativePromptField } from '@/features/creation/CreativePromptField';
 import { fmtDur, relTime, uid } from '@/lib/utils';
 import { toast } from '@/stores/toastStore';
 // 首页四个 tab 与独立页曾经各写一套（能力不同、字段不同、必然漂移）。
@@ -135,6 +137,10 @@ export function HomePage() {
   const [personaId, setPersonaId] = useState('');
   const [pluginId, setPluginId] = useState('knowledge_longform');
   const [mode, setMode] = useState<'voiceover' | 'visual'>('voiceover');
+  // F-04：不再让用户二选一——有配音时按台词节奏编排，否则按画面与文案匹配
+  const [creativePrompt, setCreativePrompt] = useState('');
+  const [creativeAvoid, setCreativeAvoid] = useState<string[]>([]);
+  const [chatOpen, setChatOpen] = useState(false);
   const [splitMode, setSplitMode] = useState<'period' | 'punctuation'>('period');
   // P1-26: 首页直接选音色——旧实现音色只能经 /voice 页传递到新项目，管线
   // 拿到空 voice_id 时音频 Agent 不生成旁白
@@ -160,6 +166,11 @@ export function HomePage() {
     return () => { alive = false; };
   }, []);
   const [audio, setAudio] = useState<DubAudio | null>(null);
+
+  // F-04：编排路径自动派生（有配音→按台词，否则→按画面），用户不再二选一
+  useEffect(() => {
+    setMode(audio ? 'voiceover' : 'visual');
+  }, [audio]);
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
@@ -367,6 +378,9 @@ export function HomePage() {
     st.setRequirementsAudioDuration(estDuration);
     st.setScriptText(script.trim());
     st.setVideoMode(mode);
+    // F-04：提示词随任务下发（进入 requirements 草稿，供需求阶段消费）
+    st.setCreativePrompt(creativePrompt.trim());
+    st.setCreativeAvoid(creativeAvoid);
     st.setSplitMode(splitMode);
     st.setAudioPath(audio?.path || '');
     st.setAudioDurationSec(audio?.duration || 0);
@@ -883,23 +897,8 @@ export function HomePage() {
                     stat={audio ? `${audio.name} · ${fmtDur(audio.duration)}` : undefined}
                   >
                     <div className="flex items-center gap-3 mb-3">
-                      <div className="flex bg-surface rounded-cw-sm border border-outline-variant/40 p-0.5">
-                        <button
-                          onClick={() => setMode('voiceover')}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-cw-xs text-label-sm transition-colors cursor-pointer ${
-                            mode === 'voiceover' ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:text-on-surface'
-                          }`}
-                        >
-                          <Mic className="w-3 h-3" /> 配音驱动
-                        </button>
-                        <button
-                          onClick={() => setMode('visual')}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-cw-xs text-label-sm transition-colors cursor-pointer ${
-                            mode === 'visual' ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:text-on-surface'
-                          }`}
-                        >
-                          <ImageIcon className="w-3 h-3" /> 视觉驱动
-                        </button>
+                      <div className="flex-1 bg-surface/40 rounded-cw-sm border border-outline-variant/40 p-2.5">
+                        <p className="text-caption text-on-surface-variant">编排路径由系统按材料自动决定（有配音按台词节奏，否则按画面与文案匹配），不需要手动二选一。</p>
                       </div>
 
                       {mode === 'voiceover' && voices.length > 0 && (
@@ -1065,17 +1064,26 @@ export function HomePage() {
 
                     {mode === 'visual' && (
                       <p className="text-caption text-on-surface-variant/70 leading-relaxed">
-                        视觉驱动模式：文案每一行视为一个场景描述，由素材 Agent 检索匹配画面。
+                        画面优先模式：文案每一行视为一个场景描述，由素材 Agent 检索匹配画面。
                       </p>
                     )}
                   </ConsoleStep>
+
+                  {/* ── 03.5 创作提示词（F-04）── */}
+                  <CreativePromptField
+                    value={creativePrompt}
+                    avoid={creativeAvoid}
+                    onChange={setCreativePrompt}
+                    onAvoidChange={setCreativeAvoid}
+                    onOpenChat={() => setChatOpen(true)}
+                  />
 
                   {/* ── 04 启动 ── */}
                   <div className="border-t border-outline-variant/25 pt-4">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-4 font-mono text-caption text-on-surface-variant">
                       <span className="flex items-center gap-1"><FileText className="w-3 h-3" />{captions.length || '—'} 段字幕</span>
                       <span className="flex items-center gap-1"><Clock className="w-3 h-3" />≈ {fmtDur(estDuration)}</span>
-                      <span className="flex items-center gap-1"><Mic className="w-3 h-3" />{mode === 'voiceover' ? (audio ? '已上传配音' : '无配音') : '视觉驱动'}</span>
+                      <span className="flex items-center gap-1"><Mic className="w-3 h-3" />{mode === 'voiceover' ? (audio ? '已上传配音' : '无配音') : '画面优先'}</span>
                       <span className="flex items-center gap-1"><Layers className="w-3 h-3" />{plugins.find((p) => p.id === pluginId)?.name ?? pluginId}</span>
                     </div>
                     {launchErr && (
@@ -1199,6 +1207,24 @@ export function HomePage() {
         onClose={() => setTemplateGalleryOpen(false)}
         onApplyProject={(projectId) => navigate({ to: '/editor/$projectId', params: { projectId } })}
       />
+
+      {/* F-04/F-05：右侧对话按钮打开的 ChatForge 抽屉 */}
+      {chatOpen && (
+        <ChatForgeDrawer
+          context={{
+            type: pluginId,
+            topic: topic.trim(),
+            has_audio: Boolean(audio),
+            existing_prompt: creativePrompt,
+            existing_avoid: creativeAvoid,
+          }}
+          onApply={({ prompt, avoid }) => {
+            setCreativePrompt(prompt);
+            setCreativeAvoid(avoid);
+          }}
+          onClose={() => setChatOpen(false)}
+        />
+      )}
     </div>
   );
 }
