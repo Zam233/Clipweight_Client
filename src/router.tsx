@@ -47,6 +47,11 @@ const VoicePage = lazyPage(() => import('./pages/VoicePage'), 'VoicePage');
 const ProjectsPage = lazyPage(() => import('./pages/ProjectsPage'), 'ProjectsPage');
 const LoginPage = lazyPage(() => import('./pages/LoginPage'), 'LoginPage');
 const MarketPage = lazyPage(() => import('./pages/MarketPage'), 'MarketPage');
+const TaskPage = lazyPage(() => import('./pages/TaskPage'), 'TaskPage');
+const TaskLauncherPage = lazyPage(
+  () => import('./pages/TaskLauncherPage'),
+  'TaskLauncherPage',
+);
 
 /** 管理页鉴权守卫（审计 P1 修复）：
  * - 存在账号会话（restore 成功）时，仅 role === 'admin' 可访问管理页；
@@ -353,6 +358,23 @@ const marketRoute = createRoute({
   errorComponent: RouteErrorFallback,
 });
 
+// ── 路线 C：任务工作台（C4）────────────────────────────
+const taskRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/task',
+  beforeLoad: requireSession,
+  component: TaskLauncherPage,
+  errorComponent: RouteErrorFallback,
+});
+
+const taskDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/task/$taskId',
+  beforeLoad: requireSession,
+  component: TaskPage,
+  errorComponent: RouteErrorFallback,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   editorRoute,
@@ -384,6 +406,8 @@ const routeTree = rootRoute.addChildren([
   projectsRoute,
   loginRoute,
   marketRoute,
+  taskRoute,
+  taskDetailRoute,
 ]);
 
 export const router = createRouter({ routeTree });

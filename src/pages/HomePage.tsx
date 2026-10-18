@@ -701,9 +701,19 @@ export function HomePage() {
                 把你的选题，
                 <span className="text-primary">剪</span>成一支视频。
               </h1>
-              <p className="text-body text-on-surface-variant mb-7 max-w-[480px]">
+              <p className="text-body text-on-surface-variant mb-4 max-w-[480px]">
                 稿件 → 风格 → 配音 → 启动。Agent 负责结构化与体力活，你负责审美与微调。
               </p>
+
+              {/* 路线 C：主 Agent 入口——先给计划，再花钱 */}
+              <div className="mb-6 flex flex-wrap items-center gap-2">
+                <Button size="sm" onClick={() => navigate({ to: '/task' })}>
+                  <Sparkles className="w-3.5 h-3.5 mr-1" /> 一句话出片（主 Agent）
+                </Button>
+                <span className="text-caption text-on-surface-variant">
+                  先看计划与预估成本，再按需执行；老流程仍可用
+                </span>
+              </div>
 
               <div className="bg-surface-container border border-outline-variant/40 rounded-cw-lg overflow-hidden shadow-2xl shadow-black/40">
                 {/* console header — Material You tonal banner */}
