@@ -557,6 +557,10 @@ function RequirementsView() {
           // F-04：提示词直达管线（需求阶段已消费；这里再兜一次，保证 proceed 也带）
           ...(st.creativePrompt ? { creative_prompt: st.creativePrompt } : {}),
           ...(st.creativeAvoid.length > 0 ? { creative_avoid: st.creativeAvoid } : {}),
+          // D23：镜头下限策略（默认 off；选了才下发，保持后端默认行为）
+          ...(st.shotFloorPolicy && st.shotFloorPolicy !== 'off'
+            ? { shot_floor_policy: st.shotFloorPolicy }
+            : {}),
         },
         // 批B：携带当前项目——成品时间线自动保存回项目（否则 60s 后丢失）
         st.projectId ?? undefined,

@@ -34,6 +34,8 @@ interface ProjectState {
   // P2-04: 踩点剪辑（beat-sync）——音色驱动的需求表单入口
   cutOnBeat: boolean;
   beatBpm: number | null;
+  /** D23 镜头下限策略（off/record/extend/loop）；默认 off，等产品拍板 */
+  shotFloorPolicy: string;
 
   // Actions
   setProjectId: (id: string | null) => void;
@@ -61,6 +63,7 @@ interface ProjectState {
   setDubSegments: (segments: Array<{ start: number; end: number; text: string }> | null) => void;
   setDryRun: (v: boolean) => void;
   setCutOnBeat: (v: boolean) => void;
+  setShotFloorPolicy: (v: string) => void;
   setBeatBpm: (v: number | null) => void;
   resetProject: () => void;
 }
@@ -94,6 +97,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   dryRun: false,
   cutOnBeat: false,
   beatBpm: null,
+  shotFloorPolicy: 'off',
 
   setProjectId: (id) => set({ projectId: id }),
   setProjectName: (name) => set({ projectName: name }),
@@ -121,6 +125,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setDryRun: (v) => set({ dryRun: v }),
   setCutOnBeat: (v) => set({ cutOnBeat: v }),
   setBeatBpm: (v) => set({ beatBpm: v }),
+  setShotFloorPolicy: (v) => set({ shotFloorPolicy: v }),
   resetProject: () =>
     set({
       projectId: null,

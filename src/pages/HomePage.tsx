@@ -179,6 +179,8 @@ export function HomePage() {
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   // P8: dry-run 预览模式（只生成粗剪时间线）
   const [dryRun, setDryRun] = useState(false);
+  // D23 镜头下限策略（off/record/extend/loop）：默认 off，等产品拍板后才改默认值
+  const [shotFloorPolicy, setShotFloorPolicy] = useState('off');
   const [materialSources, setMaterialSources] = useState<MatSource[]>([]);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -386,6 +388,7 @@ export function HomePage() {
     st.setAudioDurationSec(audio?.duration || 0);
     st.setMaterialSourceIds(selectedSources);
     st.setDryRun(dryRun); // P8: 传递 dry-run 预览模式
+    st.setShotFloorPolicy(shotFloorPolicy); // D23: 镜头下限策略
     try {
       const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
       if (prefs.voiceId) st.setVoiceId(prefs.voiceId);
@@ -1116,6 +1119,21 @@ export function HomePage() {
                         className="accent-primary w-3.5 h-3.5"
                       />
                       仅预览（dry-run）— 只生成粗剪时间线，跳过动画/音频/质检，快速出规划
+                    </label>
+                    {/* D23: 镜头下限策略（试验开关，默认 off） */}
+                    <label className="mt-2 flex items-center gap-2 text-label-sm text-on-surface-variant select-none">
+                      <span className="shrink-0">镜头下限</span>
+                      <select
+                        value={shotFloorPolicy}
+                        onChange={(e) => setShotFloorPolicy(e.target.value)}
+                        className="bg-surface rounded-cw-xs px-2 py-1 text-label-sm text-on-surface outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                        data-testid="shot-floor-policy"
+                      >
+                        <option value="off">不处理（默认）</option>
+                        <option value="record">仅记录冲突（C2）</option>
+                        <option value="extend">拉长画面到下限</option>
+                        <option value="loop">循环填充（渲染待支持）</option>
+                      </select>
                     </label>
                   </div>
                 </div>
