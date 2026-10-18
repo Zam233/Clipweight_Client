@@ -14,6 +14,7 @@ import { PropertiesPanel } from '@/features/properties/PropertiesPanel';
 import { AgentPanel } from '@/features/agent/AgentPanel';
 import { SupervisorLauncher } from '@/features/supervisor/SupervisorLauncher';
 import { ReviewPanel } from '@/features/agent/ReviewPanel';
+import type { PlanView } from '@/features/plan/PlanReviewPanel';
 import { EditorToolbar } from '@/features/timeline/components/EditorToolbar';
 import { useAgentStore } from '@/stores/agentStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -360,6 +361,7 @@ export function EditorLayout() {
           <ReviewPanel
             brief={reviewMode === 'brief' ? creativeBrief : null}
             planMarkdown={reviewMode === 'plan' ? (productionPlan?.markdown_content || productionPlan?.markdown || '') : undefined}
+            planView={reviewMode === 'plan' ? ((productionPlan?.plan as unknown as PlanView | undefined) ?? null) : undefined}
             onBack={handleCloseReview}
           />
         </div>

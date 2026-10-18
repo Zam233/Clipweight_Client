@@ -7,17 +7,20 @@ import { Button } from '@/components/ui';
 import { Markdown } from '@/components/shared/Markdown';
 import { resolveMessageAttachments } from './requirementsAttachments';
 import { uid } from '@/lib/utils';
+import { PlanReviewPanel, type PlanView } from '@/features/plan/PlanReviewPanel';
 import { MessageSquare, ThumbsDown, ThumbsUp, X, Send, Check, Loader2, ChevronLeft } from 'lucide-react';
 
 interface ReviewPanelProps {
   brief?: NonNullable<ReturnType<typeof useAgentStore.getState>['creativeBrief']> | null;
   planMarkdown?: string;
+  /** F-06：结构化规划（有则渲染双栏确认视图；无则保持旧的 markdown 只读视图） */
+  planView?: PlanView | null;
   onBack: () => void;
 }
 
 type AnnType = 'comment' | 'dislike' | 'like';
 
-export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
+export function ReviewPanel({ brief, planMarkdown, planView, onBack }: ReviewPanelProps) {
   const addAnnotation = useAgentStore((s) => s.addAnnotation);
   const removeAnnotation = useAgentStore((s) => s.removeAnnotation);
   const annotations = useAgentStore((s) => s.annotations);
@@ -254,6 +257,15 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
               {brief.asset_ratio && (
                 <div><span className="text-on-surface-variant">素材/动画占比：</span>实拍 {brief.asset_ratio.footage} · MG {brief.asset_ratio.mg}</div>
               )}
+            </div>
+          )}
+          {planView && (
+            <div className="mb-4">
+              <PlanReviewPanel
+                plan={planView}
+                brief={(brief as unknown as Record<string, unknown>) ?? undefined}
+                readOnly
+              />
             </div>
           )}
           {planMarkdown && <Markdown text={planMarkdown} />}
