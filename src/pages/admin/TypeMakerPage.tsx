@@ -3,8 +3,9 @@ import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
 import { typeMakerApi } from '@/services/api';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import { Plus, Copy, Trash2, Pencil, Film, Eye, X } from 'lucide-react';
+import { Plus, Copy, Trash2, Pencil, Film, Eye, X, SlidersHorizontal } from 'lucide-react';
 import type { TypePreviewResult } from '@/services/api/typeMaker';
+import { TypeSpecEditor } from '@/features/settings/TypeSpecEditor';
 
 interface VideoType {
   id: string;
@@ -32,6 +33,7 @@ export function TypeMakerPage() {
   const [previewFor, setPreviewFor] = useState<{ id: string; name: string } | null>(null);
   const [previewResult, setPreviewResult] = useState<TypePreviewResult | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [specFor, setSpecFor] = useState<string | null>(null);
 
   const reload = async () => {
     try {
@@ -157,6 +159,7 @@ export function TypeMakerPage() {
               onEdit={() => (editing === t.id ? commitEdit(t) : setEditing(t.id))}
               onDuplicate={() => duplicate(t)}
               onPreview={() => runPreview(t)}
+              onSpec={() => setSpecFor(t.id)}
               onRemove={() => setConfirmDelete(t.id)}
               onChange={(patch) => setTypes((ts) => ts.map((x) => (x.id === t.id ? { ...x, ...patch } : x)))} />
           ))
@@ -219,15 +222,25 @@ export function TypeMakerPage() {
           </div>
         </div>
       )}
+      {/* F-01：类型规范编辑器（提示词槽位 + 参数规则 + 指标） */}
+      {specFor && (
+        <TypeSpecEditor
+          typeId={specFor}
+          onClose={() => setSpecFor(null)}
+          onSaved={reload}
+        />
+      )}
+
     </ConsoleShell>
   );
 }
 
 function TypeCard({
-  type, editing, onEdit, onDuplicate, onPreview, onRemove, onChange,
+  type, editing, onEdit, onDuplicate, onPreview, onSpec, onRemove, onChange,
 }: {
   type: VideoType; editing: boolean; onEdit: () => void; onDuplicate: () => void;
-  onPreview: () => void; onRemove: () => void; onChange: (patch: Partial<VideoType>) => void;
+  onPreview: () => void; onSpec: () => void; onRemove: () => void;
+  onChange: (patch: Partial<VideoType>) => void;
 }) {
   // rhythm bars derived from cut interval (lower interval = denser)
   const density = Math.max(1, Math.min(8, Math.round(8 - type.cut_interval_ms / 2000)));
@@ -245,6 +258,8 @@ function TypeCard({
           </span>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-short3">
             <IconBtn title="预览" onClick={onPreview}><Eye className="w-3.5 h-3.5" /></IconBtn>
+            {/* F-01：类型规范编辑（提示词/规则/指标），内置类型只读预览规范 */}
+            <IconBtn title="规范" onClick={onSpec}><SlidersHorizontal className="w-3.5 h-3.5" /></IconBtn>
             {/* P2-26: 内置类型不可编辑（后端 404）——隐藏编辑入口，改由「复制」派生 */}
             {!type.builtin && (
               <IconBtn title="编辑" onClick={onEdit}><Pencil className="w-3.5 h-3.5" /></IconBtn>
