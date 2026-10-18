@@ -1,8 +1,0 @@
-V3 类型冲突黄条：strict 覆盖与类型变形在运行详情一眼可见
-
-- TypeConformancePanel 顶部新增 type-conflict-banner（strict 冲突）与
-  type-deformation-banner（C9 变形，写明不提供豁免）
-- PipelineAdminPage 运行详情内已渲染该面板，黄条随 trace 出现
-- 新增真机 trace 夹具 __fixtures__/trace-real-floor.json（后端
-  scripts/e2e_pipeline_probe.py 产出，只保留 prompt_resolution/agent_* 事件）
-- 测试 10 项（含用真机夹具渲染断言）；tsc/eslint/build 全绿
