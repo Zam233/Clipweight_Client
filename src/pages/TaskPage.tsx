@@ -20,6 +20,7 @@ import { useTaskStore } from '@/stores/taskStore';
 
 import { EventFeed } from '@/features/task/EventFeed';
 import { PlanPanel } from '@/features/task/PlanPanel';
+import { TaskSubagents } from '@/features/task/TaskSubagents';
 import { TaskToolbar } from '@/features/task/TaskToolbar';
 import { durationText, moneyText, statusLabel } from '@/features/task/labels';
 import { useTaskEvents } from '@/features/task/useTaskEvents';
@@ -185,6 +186,8 @@ export function TaskPage() {
           <h2 className="text-body-sm font-semibold text-on-surface">调用记录</h2>
           <EventFeed events={events} />
         </section>
+
+        <TaskSubagents taskId={taskId} active={!terminal} />
 
         {terminal && (
           <p className="text-caption text-on-surface-variant">
