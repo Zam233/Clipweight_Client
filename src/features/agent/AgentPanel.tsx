@@ -257,6 +257,9 @@ function RequirementsView() {
           auto_dub: st.autoDub,
           voice_id: st.voiceId || undefined,
           dub_segments: st.dubSegments?.length ? st.dubSegments : undefined,
+          // F-04：创作页提示词随需求会话下发（L1，优先于类型默认风格）
+          creative_prompt: st.creativePrompt || undefined,
+          creative_avoid: st.creativeAvoid.length > 0 ? st.creativeAvoid : undefined,
         },
       });
       setSession(res.session_id);
@@ -551,6 +554,9 @@ function RequirementsView() {
         {
           dry_run: st.dryRun,
           ...(st.cutOnBeat && st.beatBpm ? { cut_on_beat: true, bpm: st.beatBpm } : {}),
+          // F-04：提示词直达管线（需求阶段已消费；这里再兜一次，保证 proceed 也带）
+          ...(st.creativePrompt ? { creative_prompt: st.creativePrompt } : {}),
+          ...(st.creativeAvoid.length > 0 ? { creative_avoid: st.creativeAvoid } : {}),
         },
         // 批B：携带当前项目——成品时间线自动保存回项目（否则 60s 后丢失）
         st.projectId ?? undefined,
