@@ -63,7 +63,26 @@ describe('G9: PipelineAdminPage 真实成本 + 重试', () => {
   it('无 llm_cost → 成本显示 —', async () => {
     mocks.getRunRecords.mockResolvedValue([RUNS[1]]);
     render(<PipelineAdminPage />);
-    await screen.findByText('—');
+    // V38 之后「成本」与「用量」两处都可能显示占位符 —，因此按数量断言
+    const dashes = await screen.findAllByText('—');
+    expect(dashes.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('V38: 有 usage 时显示 token 用量，无 usage 时不编造', async () => {
+    mocks.getRunRecords.mockResolvedValue([
+      {
+        ...RUNS[0],
+        usage: { input_tokens: 5697, output_tokens: 2465, total_tokens: 8162, calls: 2, render_sec: 12.4 },
+      },
+      RUNS[1],
+    ]);
+    render(<PipelineAdminPage />);
+    const usage = await screen.findByTestId('run-usage');
+    expect(usage.textContent).toContain('8,162');
+    expect(usage.textContent).toContain('2 次调用');
+    expect(usage.textContent).toContain('渲染 12.4s');
+    // 只有一条记录带 usage，页面上只出现一处
+    expect(screen.getAllByTestId('run-usage')).toHaveLength(1);
   });
 
   it('失败 run 显示重试按钮 → 点击调用 retry(id, agent) 并刷新', async () => {

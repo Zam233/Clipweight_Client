@@ -120,6 +120,8 @@ export interface RenderRequest {
   output_path: string;
   audio_file_path?: string;
   bgm_file_path?: string;
+  /** V32 负时间片头：画面先起 N 秒、音频延后同样时长（0/缺省 = 无片头，上限 15） */
+  preroll_sec?: number;
   settings: ExportSettings;
 }
 

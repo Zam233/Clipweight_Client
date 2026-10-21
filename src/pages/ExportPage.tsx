@@ -11,6 +11,7 @@ import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge } from '@/components/ui';
 import { uid, formatTimecode } from '@/lib/utils';
 import { resolveContainerExt, type ExportPresetDef } from './exportPreset';
+import { clampPreroll, prerollPayload } from '@/services/api/preroll';
 import type { ExportSettings, RenderProgress } from '@/types/api';
 import {
   Download, Clapperboard, Gauge, Cpu, Film, Loader2, CheckCircle2,
@@ -85,6 +86,8 @@ export function ExportPage() {
   });
   // W11: BGM 素材源 — 从素材库选音频作为背景音乐
   const [bgmPath, setBgmPath] = useState('');
+  // V32: 负时间片头（0 = 无片头）；后端上限 15s
+  const [prerollSec, setPrerollSec] = useState(0);
   const [audioAssets, setAudioAssets] = useState<{ id: string; name: string; path: string }[]>([]);
   useEffect(() => {
     let alive = true;
@@ -237,6 +240,8 @@ export function ExportPage() {
         settings,
         // W11: BGM 素材源（用户从素材库选择；无则后端走无 BGM 路径）
         ...(bgmPath ? { bgm_file_path: bgmPath } : {}),
+        // V32: 负时间片头（0 不传，保持后端默认）
+        ...prerollPayload(prerollSec),
       });
       // 后端返回真实 task_id（render_N_ts）；替换本地占位 ID 后再挂接进度流
       const realId = res.task_id ?? taskId;
@@ -535,6 +540,27 @@ export function ExportPage() {
               {audioAssets.length === 0 && (
                 <p className="text-caption text-on-surface-variant/60 mt-1">素材库暂无音频（上传音频素材后可选用作 BGM）</p>
               )}
+            </div>
+
+            {/* V32: 负时间片头——画面先起、音乐后进；成片总长 = 原时长 + 片头 */}
+            <div className="pt-2 border-t border-outline-variant/20">
+              <label className="block text-label text-on-surface-variant mb-1">
+                片头（秒）
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={15}
+                step={0.5}
+                value={prerollSec}
+                onChange={(e) => setPrerollSec(clampPreroll(e.target.value))}
+                className="w-full bg-surface rounded-cw-xs px-2 py-1.5 text-body-sm text-on-surface outline-none border border-outline-variant/30 focus:border-primary"
+              />
+              <p className="text-caption text-on-surface-variant/60 mt-1">
+                {prerollSec > 0
+                  ? `画面先起 ${prerollSec}s，音乐延后同样时长（成片约 +${prerollSec}s）`
+                  : '0 = 无片头，音画同起'}
+              </p>
             </div>
           </div>
 

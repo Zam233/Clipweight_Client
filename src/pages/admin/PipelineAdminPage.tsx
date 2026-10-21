@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { ConsoleShell, ConsoleHeading, StatusPill } from './ConsoleShell';
 import { pipelineApi } from '@/services/api';
+import { TaskListSection } from '@/features/task/TaskListSection';
+import { TypeConformancePanel } from '@/features/pipeline/TypeConformancePanel';
 import { cn } from '@/lib/utils';
 import {
   Activity, Gauge, Coins, Timer, ChevronDown, ChevronRight,
-  RefreshCw, FileJson, Loader2, Layers, AlertTriangle,
+  RefreshCw, FileJson, Loader2, Layers, AlertTriangle, Cpu,
 } from 'lucide-react';
 
 interface Span { agent: string; start: number; dur: number; status: 'ok' | 'fail' | 'retry'; }
@@ -16,6 +18,14 @@ interface PipelineRun {
   agents: Span[];
   startedAt: string;
   llmCost?: number;
+  /** V38 用量总账：token 按 Agent 汇总，render_sec 是渲染耗时（wall-clock） */
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+    calls?: number;
+    render_sec?: number;
+  };
 }
 interface TraceView { loading: boolean; events: unknown[] | null; error?: string; }
 
@@ -90,12 +100,15 @@ export function PipelineAdminPage() {
   const completed = runs.filter((r) => r.status === 'completed');
   const runsWithCost = runs.filter((r) => r.llmCost !== undefined);
   const totalCost = runsWithCost.reduce((s, r) => s + (r.llmCost ?? 0), 0);
+  // V38：token 总账（后端 usage.total_tokens）；没有记录就显示 "—"，不编造
+  const totalTokens = runs.reduce((sum, r) => sum + (r.usage?.total_tokens ?? 0), 0);
   const stats = {
     total: runs.length,
     successRate: runs.length ? Math.round((completed.length / runs.length) * 100) : 0,
     avgSec: completed.length ? (completed.reduce((s, r) => s + r.durationMs, 0) / completed.length / 1000).toFixed(1) : '0',
     // G9: 真实成本（后端记录 llm_cost）；不可得时显示 "—"，不造假值
     llmCost: runsWithCost.length > 0 ? totalCost.toFixed(2) : null,
+    totalTokens: totalTokens > 0 ? totalTokens.toLocaleString() : null,
   };
   // G9: 重试状态
   const [retryingId, setRetryingId] = useState<string | null>(null);
@@ -128,6 +141,9 @@ export function PipelineAdminPage() {
           刷新
         </button>
       </div>
+
+      {/* 路线 C：任务列表（老 runs 视图仍保留，直到 C7 退役） */}
+      <TaskListSection />
 
       {error && (
         <div className="flex items-center justify-between mb-5 max-w-[900px] bg-error/10 border border-error/30 rounded-cw-md px-4 py-2.5">
@@ -175,6 +191,13 @@ export function PipelineAdminPage() {
         <StatCard icon={Gauge} label="成功率" value={`${stats.successRate}%`} sub="pass rate" color="#34D399" />
         <StatCard icon={Timer} label="平均耗时" value={stats.avgSec} sub="seconds" color="#FBBF24" />
         <StatCard icon={Coins} label="LLM 成本" value={stats.llmCost ? `¥${stats.llmCost}` : '—'} sub="actual" color="#A855F7" />
+        <StatCard
+          icon={Cpu}
+          label="LLM 用量"
+          value={stats.totalTokens ? `${stats.totalTokens}` : '—'}
+          sub={stats.totalTokens ? 'tokens（V38 入账）' : '暂无用量记录'}
+          color="#00E5FF"
+        />
       </div>
 
       {/* run queue with gantt traces */}
@@ -201,6 +224,13 @@ export function PipelineAdminPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-body-sm font-medium text-on-surface truncate">{run.topic}</p>
                     <p className="font-mono text-caption text-on-surface-variant mt-0.5">{run.id} · {run.startedAt}</p>
+                    {run.usage?.total_tokens ? (
+                      <p className="font-mono text-caption text-primary/80 mt-0.5" data-testid="run-usage">
+                        {run.usage.total_tokens.toLocaleString()} tokens
+                        {run.usage.calls ? ` · ${run.usage.calls} 次调用` : ''}
+                        {run.usage.render_sec ? ` · 渲染 ${run.usage.render_sec}s` : ''}
+                      </p>
+                    ) : null}
                   </div>
                   <span className="font-mono text-caption text-on-surface-variant shrink-0">{(run.durationMs / 1000).toFixed(1)}s</span>
                   <StatusPill ok={run.status === 'completed'}
@@ -270,10 +300,14 @@ export function PipelineAdminPage() {
                       ) : trace?.error ? (
                         <p className="text-caption text-warning font-mono">{trace.error}</p>
                       ) : (
-                        <pre className="bg-surface rounded-cw-sm border border-outline-variant/30 px-3 py-2.5 font-mono text-caption
+                        <>
+                          {/* F-03：类型符合度（读 trace 里的 prompt_resolution 事件） */}
+                          <TypeConformancePanel events={trace?.events} />
+                          <pre className="mt-2 bg-surface rounded-cw-sm border border-outline-variant/30 px-3 py-2.5 font-mono text-caption
                           text-track-audio leading-relaxed max-h-72 overflow-auto whitespace-pre-wrap">
                           {JSON.stringify(trace?.events ?? [], null, 2)}
                         </pre>
+                        </>
                       )}
                     </div>
                   </div>
@@ -320,6 +354,7 @@ function normalize(data: unknown): PipelineRun[] {
         durationMs: Number(o.duration_ms ?? 0),
         startedAt: String(o.started_at ?? ''),
         agents: Array.isArray(o.agents) ? (o.agents as Span[]) : [],
+        usage: (o.usage && typeof o.usage === 'object') ? (o.usage as PipelineRun['usage']) : undefined,
         llmCost: Number.isFinite(llmCost) ? llmCost : undefined,
       };
     });

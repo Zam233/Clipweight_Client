@@ -12,7 +12,9 @@ import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { TimelinePanel } from '@/features/timeline/components/TimelinePanel';
 import { PropertiesPanel } from '@/features/properties/PropertiesPanel';
 import { AgentPanel } from '@/features/agent/AgentPanel';
+import { SupervisorLauncher } from '@/features/supervisor/SupervisorLauncher';
 import { ReviewPanel } from '@/features/agent/ReviewPanel';
+import type { PlanView } from '@/features/plan/PlanReviewPanel';
 import { EditorToolbar } from '@/features/timeline/components/EditorToolbar';
 import { useAgentStore } from '@/stores/agentStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -314,6 +316,9 @@ export function EditorLayout() {
       {/* Status Bar */}
       <StatusBar />
 
+      {/* 调度面板入口（F1 集成）：浮动按钮 + 右侧抽屉 */}
+      <SupervisorLauncher />
+
       {/* 轮69 响应式 3b：<lg 折叠抽屉——右侧滑出，遮罩点击/Esc 关闭 */}
       {!isDesktop && mobilePanel && (
         <>
@@ -356,6 +361,7 @@ export function EditorLayout() {
           <ReviewPanel
             brief={reviewMode === 'brief' ? creativeBrief : null}
             planMarkdown={reviewMode === 'plan' ? (productionPlan?.markdown_content || productionPlan?.markdown || '') : undefined}
+            planView={reviewMode === 'plan' ? ((productionPlan?.plan as unknown as PlanView | undefined) ?? null) : undefined}
             onBack={handleCloseReview}
           />
         </div>

@@ -55,6 +55,14 @@ vi.mock('@/services/api', () => ({
   getApiClient: vi.fn(),
 }));
 
+// 轮 148 遗留：TypeCatalogPanel 经 useTypeCatalog **直接** import
+// '@/services/api/typeMaker'，不经过 '@/services/api' 门面。只 mock 门面时这里
+// 会去打真实后端（本地有 .env + 8080 在线 → 侥幸通过；CI 无后端 → 红）。
+// 必须按真实引用路径 mock，否则本用例测的不是 mock 数据。
+vi.mock('@/services/api/typeMaker', () => ({
+  typeMakerApi: { list: mocks.typeMakerList },
+}));
+
 vi.mock('@/services/api/account', () => ({
   accountApi: {
     creditBalance: vi.fn(async () => ({ credit: 10, recent: [] })),

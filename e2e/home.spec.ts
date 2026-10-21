@@ -15,6 +15,10 @@ test.describe('首页冒烟测试', () => {
     await mockBackendApi(page);
     await page.goto('/');
 
+    // 「编排引擎」健康卡片挂在创建面板（activeTab === 'create'）里，首页默认
+    // 停在 home 标签，必须先进入创建面板才能看到连接状态。
+    await page.getByRole('button', { name: /开始创作/ }).click();
+
     await expect(page.getByText(/已连接/)).toBeVisible({ timeout: 10_000 });
   });
 
