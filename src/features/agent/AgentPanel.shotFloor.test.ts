@@ -40,6 +40,16 @@ describe('D23 镜头节奏策略下发链路', () => {
     expect(agent).toContain('shot_floor_policy: st.shotFloorPolicy');
   });
 
+  it('上界策略（V35 切分）也接了线，且默认同样不下发', () => {
+    expect(store).toContain('shotCapPolicy: string;');
+    expect(store).toContain("shotCapPolicy: 'default',");
+    expect(store).toContain('setShotCapPolicy: (v) => set({ shotCapPolicy: v })');
+    expect(home).toContain('st.setShotCapPolicy(shotCapPolicy)');
+    expect(home).toContain('data-testid="shot-cap-policy"');
+    expect(agent).toContain("st.shotCapPolicy !== 'default'");
+    expect(agent).toContain('shot_cap_policy: st.shotCapPolicy');
+  });
+
   it('后端默认策略在注释里写清（merge 保总时长）', () => {
     expect(agent).toContain('merge');
   });

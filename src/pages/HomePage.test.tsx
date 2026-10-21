@@ -21,6 +21,7 @@ const { mocks } = vi.hoisted(() => ({
     healthCheck: vi.fn(),
     predictScript: vi.fn(),
     healthStatus: vi.fn(),
+    healthDetail: vi.fn(),
     toast: vi.fn(),
     pluginList: vi.fn(),
     // 轮 148：插件 tab 复用完整面板后会调用健康聚合/贡献清单
@@ -77,9 +78,19 @@ vi.mock('@/stores/authStore', () => ({
     sel ? sel({ user: null, accessToken: null, logout: vi.fn() }) : { user: null, accessToken: null, logout: vi.fn() },
 }));
 
-vi.mock('./useBackendHealth', () => ({
-  useBackendHealth: () => mocks.healthStatus(),
-}));
+vi.mock('./useBackendHealth', async () => {
+  // 保留真实实现里的纯函数（组件 chip 构造/配色），只把轮询换成可控桩：
+  // 这样断言的是"后端字段怎么被展示"，而不是把映射逻辑在测试里重写一遍。
+  const actual = await vi.importActual<typeof import('./useBackendHealth')>('./useBackendHealth');
+  return {
+    ...actual,
+    useBackendHealthDetail: () => {
+      const status = mocks.healthStatus();
+      return { status, detail: status === 'online' ? mocks.healthDetail() : null };
+    },
+    useBackendHealth: () => mocks.healthStatus(),
+  };
+});
 
 vi.mock('@/stores/toastStore', () => ({ toast: mocks.toast }));
 
@@ -101,6 +112,7 @@ beforeEach(() => {
   mocks.typeMakerList.mockResolvedValue([]);
   mocks.listSources.mockResolvedValue([]);
   mocks.healthStatus.mockReturnValue('offline');
+  mocks.healthDetail.mockReturnValue(null);
   mocks.predictScript.mockResolvedValue({});
   mocks.pluginList.mockResolvedValue([]);
   mocks.pluginHealth.mockResolvedValue({ overall: 'ok', plugins: [], errors_total: 0 });

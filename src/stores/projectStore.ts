@@ -40,6 +40,11 @@ interface ProjectState {
    * 默认 `default` = **不显式下发**，由后端按它自己的默认（merge + split）执行。
    */
   shotFloorPolicy: string;
+  /**
+   * D23 上界策略：`default`（不下发，后端 split）/ off / record。
+   * 超过 `max_shot_ms` 的场景切成多镜，总时长不变（V35 的落地机制）。
+   */
+  shotCapPolicy: string;
 
   // Actions
   setProjectId: (id: string | null) => void;
@@ -68,6 +73,7 @@ interface ProjectState {
   setDryRun: (v: boolean) => void;
   setCutOnBeat: (v: boolean) => void;
   setShotFloorPolicy: (v: string) => void;
+  setShotCapPolicy: (v: string) => void;
   setBeatBpm: (v: number | null) => void;
   resetProject: () => void;
 }
@@ -102,6 +108,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   cutOnBeat: false,
   beatBpm: null,
   shotFloorPolicy: 'default',
+  shotCapPolicy: 'default',
 
   setProjectId: (id) => set({ projectId: id }),
   setProjectName: (name) => set({ projectName: name }),
@@ -130,6 +137,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setCutOnBeat: (v) => set({ cutOnBeat: v }),
   setBeatBpm: (v) => set({ beatBpm: v }),
   setShotFloorPolicy: (v) => set({ shotFloorPolicy: v }),
+  setShotCapPolicy: (v) => set({ shotCapPolicy: v }),
   resetProject: () =>
     set({
       projectId: null,

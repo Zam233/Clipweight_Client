@@ -4,7 +4,10 @@ import { useProjectStore } from '@/stores/projectStore';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
 import { safePluginPath } from '@/features/plugins/slots';
 import { clearRequirementsDraft } from '@/stores/agentStore';
-import { useBackendHealth } from './useBackendHealth';
+import {
+  useBackendHealthDetail,
+  buildHealthComponents,
+} from './useBackendHealth';
 import {
   healthApi, personaApi, projectApi, assetApi, typeMakerApi, pipelineApi,
   voiceApi,
@@ -124,7 +127,13 @@ export function HomePage() {
   }, [accessToken]);
 
   const [guardNotice, setGuardNotice] = useState<string | null>(null);
-  const backend = useBackendHealth();
+  // 组件级健康：一次轮询同时给出连接状态与各组件状态（避免两个轮询器）。
+  const healthState = useBackendHealthDetail();
+  const backend = healthState.status;
+  const healthComponents = useMemo(
+    () => buildHealthComponents(healthState.detail),
+    [healthState.detail],
+  );
   const [dataMode, setDataMode] = useState<'live' | 'demo'>('demo');
   // 人格/类型列表只服务于「创作」表单的下拉选项——展示由共享面板（PersonaGalleryPanel /
   // TypeCatalogPanel）各拉各的，这里不再兼任展示职责，也不再塞演示数据。
@@ -182,6 +191,7 @@ export function HomePage() {
   // D23 已拍板：默认 `default` = 不下发，跟随后端 merge（低于下限合并）+ split
   // （高于上限切分），两者都保总时长；其余档位仅供取证/救急。
   const [shotFloorPolicy, setShotFloorPolicy] = useState('default');
+  const [shotCapPolicy, setShotCapPolicy] = useState('default');
   const [materialSources, setMaterialSources] = useState<MatSource[]>([]);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -390,6 +400,7 @@ export function HomePage() {
     st.setMaterialSourceIds(selectedSources);
     st.setDryRun(dryRun); // P8: 传递 dry-run 预览模式
     st.setShotFloorPolicy(shotFloorPolicy); // D23: 镜头下限策略
+    st.setShotCapPolicy(shotCapPolicy); // D23: 镜头上限策略（V35 切分）
     try {
       const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
       if (prefs.voiceId) st.setVoiceId(prefs.voiceId);
@@ -1121,7 +1132,7 @@ export function HomePage() {
                       />
                       仅预览（dry-run）— 只生成粗剪时间线，跳过动画/音频/质检，快速出规划
                     </label>
-                    {/* D23: 镜头下限策略（试验开关，默认 off） */}
+                    {/* D23: 镜头节奏策略（下限合并 / 上限切分，都保总时长） */}
                     <label className="mt-2 flex items-center gap-2 text-label-sm text-on-surface-variant select-none">
                       <span className="shrink-0">镜头下限</span>
                       <select
@@ -1134,6 +1145,20 @@ export function HomePage() {
                         <option value="record">仅记录冲突（C2）</option>
                         <option value="extend">拉长画面到下限</option>
                         <option value="loop">循环填充（渲染待支持）</option>
+                        <option value="off">不处理</option>
+                      </select>
+                    </label>
+                    {/* D23 上界：超过 max_shot_ms 的场景切分成多镜（V35 靠它落地） */}
+                    <label className="mt-1.5 flex items-center gap-2 text-label-sm text-on-surface-variant select-none">
+                      <span className="shrink-0">镜头上限</span>
+                      <select
+                        value={shotCapPolicy}
+                        onChange={(e) => setShotCapPolicy(e.target.value)}
+                        className="bg-surface rounded-cw-xs px-2 py-1 text-label-sm text-on-surface outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                        data-testid="shot-cap-policy"
+                      >
+                        <option value="default">跟随类型节奏（超长切分，保总时长）</option>
+                        <option value="record">仅记录冲突（C3）</option>
                         <option value="off">不处理</option>
                       </select>
                     </label>
@@ -1194,6 +1219,33 @@ export function HomePage() {
                     ? '未检测到后端。编辑器仍可独立使用，Agent 功能将以演示数据运行。'
                     : 'Persona 引擎、六 Agent 管线与渲染队列已就绪。'}
                 </p>
+                {/* 组件级健康：后端 /health 逐项探测 mongodb / llm / ffmpeg /
+                    hyperframes / 队列，前端此前只读 status 把这些全丢了。
+                    只在拿到响应且在线时展示（离线时组件状态无意义，不编造）。 */}
+                {backend === 'online' && healthComponents.length > 0 && (
+                  <div className="mt-2.5 flex flex-wrap gap-1.5" data-testid="health-components">
+                    {healthComponents.map((item) => (
+                      <span
+                        key={item.key}
+                        data-testid={`health-component-${item.key}`}
+                        title={`${item.label}: ${item.value}`}
+                        className={`inline-flex items-center gap-1 rounded-cw-full px-2 py-0.5 text-caption border ${
+                          item.tone === 'ok'
+                            ? 'text-track-audio border-track-audio/30 bg-track-audio/10'
+                            : item.tone === 'warn'
+                              ? 'text-track-text border-track-text/30 bg-track-text/10'
+                              : item.tone === 'error'
+                                ? 'text-error border-error/30 bg-error/10'
+                                : 'text-on-surface-variant border-outline-variant/30 bg-surface'
+                        }`}
+                      >
+                        <i className="w-1.5 h-1.5 rounded-full bg-current" />
+                        {item.label}
+                        <span className="opacity-70">{item.valueLabel}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </section>

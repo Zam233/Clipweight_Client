@@ -7,9 +7,22 @@ import type { PipelineRequest, PipelineState } from './pipeline';
 import type { Persona } from './persona';
 
 // ── Health ──
+/**
+ * `GET /health` 的真实形状（见后端 `clipwright/main.py::health`）。
+ * 除了 status/service，后端还逐项探测 mongodb / llm / ffmpeg / hyperframes 与渲染
+ * 队列积压——这些字段过去在前端类型里完全没有，等于把诊断信息整块丢掉。
+ * 各值语义：`ok` / `no_key` / `not_found` / `checking` / `disconnected` / `error`。
+ */
 export interface HealthResponse {
   status: string;
   service: string;
+  mongodb?: string;
+  llm?: string;
+  ffmpeg?: string;
+  hyperframes?: string;
+  queue?: string;
+  queue_pending?: number;
+  queue_running?: number;
 }
 
 // ── Project ──

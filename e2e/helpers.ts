@@ -237,8 +237,22 @@ export const demoSummary = {
  * 模块请求（如 /src/services/api/client.ts）。
  */
 export async function mockBackendApi(page: Page): Promise<void> {
+  // 形状与后端 `main.py::health` 对齐（含组件字段）：前端引擎卡片会把这些逐项
+  // 展示出来，mock 里缺字段就测不到那部分接线。
   await page.route(/https?:\/\/[^/]+\/health(\?|$)/, (route) =>
-    route.fulfill({ json: { status: 'ok', service: 'clipwright-engine' } }),
+    route.fulfill({
+      json: {
+        status: 'ok',
+        service: 'clipwright-engine',
+        mongodb: 'ok',
+        llm: 'ok',
+        ffmpeg: 'ok',
+        hyperframes: 'not_found',
+        queue: 'idle',
+        queue_pending: 0,
+        queue_running: 0,
+      },
+    }),
   );
 
   await page.route(/https?:\/\/[^/]+\/api\//, (route) => {

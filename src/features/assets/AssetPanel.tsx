@@ -440,6 +440,8 @@ function AIMatchView() {
   const [results, setResults] = useState<MaterialSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
+  /** 本次结果是"演示回退"（后端不可达 + 用户开了 allowDemoFallback） */
+  const [searchDemo, setSearchDemo] = useState(false);
   const [sources, setSources] = useState<{ id: string; name: string }[]>([]);
   const [selSources, setSelSources] = useState<string[]>([]);
   const [visionOpen, setVisionOpen] = useState(false);
@@ -497,6 +499,7 @@ function AIMatchView() {
     const seq = ++searchSeqRef.current;
     setSearching(true);
     setSearched(true);
+    setSearchDemo(false);
     try {
       const res = await assetApi.searchMaterials({ query: queryText, limit: 12, source: selSources.length > 0 ? selSources : undefined });
       if (seq !== searchSeqRef.current) return; // 忽略过期响应
@@ -504,7 +507,11 @@ function AIMatchView() {
     } catch {
       if (seq !== searchSeqRef.current) return;
       if (useSettingsStore.getState().allowDemoFallback) {
+        // 演示回退必须**自报家门**：这些是本地伪造的占位结果，来源写 `demo`，
+        // 不许标成 pexels——后端已删掉假素材源，前端也不能再造一个；详情/收藏
+        // 也不该拿这些假 id 去请求后端。
         setResults(demoMatches(queryText));
+        setSearchDemo(true);
       }
     } finally {
       if (seq === searchSeqRef.current) setSearching(false);
@@ -597,6 +604,13 @@ function AIMatchView() {
       )}
 
       <div className="flex-1 overflow-y-auto space-y-1.5 min-h-0">
+        {/* 演示回退：明确告诉用户这不是真实素材（来源标注为 demo，不可详情/收藏） */}
+        {searchDemo && !searching && (
+          <div className="rounded-cw-xs border border-track-text/30 bg-track-text/10 px-2.5 py-1.5 text-caption text-track-text"
+            data-testid="ai-match-demo-notice">
+            后端不可达，以下为**演示占位结果**（非真实素材，来源标为 demo）；连接后端后重新检索即可。
+          </div>
+        )}
         {searching && (
           <div className="flex items-center gap-2 text-label-sm text-on-surface-variant py-4 justify-center">
             <span className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -633,17 +647,24 @@ function AIMatchView() {
               {r.reason && <span className="block text-caption text-on-surface-variant/70 truncate">{r.reason}</span>}
             </span>
             <Plus className="w-3.5 h-3.5 text-on-surface-variant group-hover:text-primary shrink-0" />
+            {/* 演示回退结果没有真实素材 id，详情接口必 404 → 直接禁用 */}
             <button
-              onClick={(e) => { e.stopPropagation(); loadDetail(r.source, r.id, r.title); }}
-              title="查看素材详情"
-              className="p-1 rounded-cw-full transition-colors cursor-pointer shrink-0 text-on-surface-variant/30 hover:text-primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (r.source === 'demo') return;
+                loadDetail(r.source, r.id, r.title);
+              }}
+              disabled={r.source === 'demo'}
+              title={r.source === 'demo' ? '演示数据无详情' : '查看素材详情'}
+              className="p-1 rounded-cw-full transition-colors cursor-pointer shrink-0 text-on-surface-variant/30 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed"
             >
               <Info className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={(e) => toggleFavorite(r, e)}
-              title={favorites.has(r.id) ? '已收藏' : '收藏到素材库'}
-              className={`p-1 rounded-cw-full transition-colors cursor-pointer shrink-0 ${
+              disabled={r.source === 'demo'}
+              title={r.source === 'demo' ? '演示数据不可收藏' : favorites.has(r.id) ? '已收藏' : '收藏到素材库'}
+              className={`p-1 rounded-cw-full transition-colors cursor-pointer shrink-0 disabled:opacity-30 disabled:cursor-not-allowed ${
                 favorites.has(r.id) ? 'text-error hover:text-error/80' : 'text-on-surface-variant/30 hover:text-error'
               }`}
             >
@@ -762,8 +783,9 @@ function demoMatches(query: string): MaterialSearchResult[] {
     { title: '人物采访 · 中景', score: 0.68, reason: '叙事补充' },
   ];
   return base.map((b, i) => ({
-    id: `match_${i}_${Date.now().toString(36)}`, title: b.title, url: '', score: b.score,
-    source: 'pexels', duration_sec: 4 + i * 2, reason: b.reason,
+    id: `demo_${i}_${Date.now().toString(36)}`, title: b.title, url: '', score: b.score,
+    // 来源写 `demo`：这是本地占位，不是任何真实素材源的结果
+    source: 'demo', duration_sec: 4 + i * 2, reason: b.reason,
   }));
 }
 

@@ -562,6 +562,10 @@ function RequirementsView() {
           ...(st.shotFloorPolicy && st.shotFloorPolicy !== 'default'
             ? { shot_floor_policy: st.shotFloorPolicy }
             : {}),
+          // 上界切分（V35）：只在显式选择时下发，默认交给后端 split
+          ...(st.shotCapPolicy && st.shotCapPolicy !== 'default'
+            ? { shot_cap_policy: st.shotCapPolicy }
+            : {}),
         },
         // 批B：携带当前项目——成品时间线自动保存回项目（否则 60s 后丢失）
         st.projectId ?? undefined,
