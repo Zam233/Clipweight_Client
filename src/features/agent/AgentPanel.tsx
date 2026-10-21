@@ -557,8 +557,9 @@ function RequirementsView() {
           // F-04：提示词直达管线（需求阶段已消费；这里再兜一次，保证 proceed 也带）
           ...(st.creativePrompt ? { creative_prompt: st.creativePrompt } : {}),
           ...(st.creativeAvoid.length > 0 ? { creative_avoid: st.creativeAvoid } : {}),
-          // D23：镜头下限策略（默认 off；选了才下发，保持后端默认行为）
-          ...(st.shotFloorPolicy && st.shotFloorPolicy !== 'off'
+          // D23：镜头节奏策略。`default` = 不下发，跟随后端默认（merge + split
+          // 都保总时长）；off/record/extend/loop 是显式覆盖，用于取证或救急。
+          ...(st.shotFloorPolicy && st.shotFloorPolicy !== 'default'
             ? { shot_floor_policy: st.shotFloorPolicy }
             : {}),
         },

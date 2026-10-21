@@ -34,7 +34,11 @@ interface ProjectState {
   // P2-04: 踩点剪辑（beat-sync）——音色驱动的需求表单入口
   cutOnBeat: boolean;
   beatBpm: number | null;
-  /** D23 镜头下限策略（off/record/extend/loop）；默认 off，等产品拍板 */
+  /**
+   * D23 镜头节奏策略：`default`（跟随类型节奏——低于下限合并、高于上限切分，
+   * 两者都保总时长）/ off / record / extend / loop。
+   * 默认 `default` = **不显式下发**，由后端按它自己的默认（merge + split）执行。
+   */
   shotFloorPolicy: string;
 
   // Actions
@@ -97,7 +101,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   dryRun: false,
   cutOnBeat: false,
   beatBpm: null,
-  shotFloorPolicy: 'off',
+  shotFloorPolicy: 'default',
 
   setProjectId: (id) => set({ projectId: id }),
   setProjectName: (name) => set({ projectName: name }),

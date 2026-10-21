@@ -45,6 +45,19 @@ describe('textLayout — X3 预览/导出锚点对齐（drawtext 语义）', () 
     expect(tl.x).toBe(20 + 24);
   });
 
+  it('字幕无论在哪条轨道都底锚（与 ASS 导出对齐）', () => {
+    // 回归：字幕曾沿用轨序回退（track 2 → top、track 3 → center），
+    // 预览把字幕画到画面顶部/中间，与后端 ASS 的底部对齐不一致。
+    const bottomCenter = 1080 - 20 - 24;
+    for (const trackIndex of [0, 1, 2, 3, 4]) {
+      expect(textLayout({ ...base, trackIndex, isCaption: true }).y).toBe(bottomCenter);
+    }
+    // 显式 position 仍然优先
+    expect(
+      textLayout({ ...base, trackIndex: 2, isCaption: true, position: 'center' }).y,
+    ).toBe(540);
+  });
+
   it('非字幕同轨堆叠 −35px/条向上（上限 500，P2-06 与 ASS MarginV 同向）；字幕不堆叠', () => {
     expect(textLayout({ ...base, trackIndex: 0, stackIndex: 2 }).y).toBe(1080 - 20 - 24 - 70);
     expect(textLayout({ ...base, trackIndex: 0, stackIndex: 99 }).y).toBe(1080 - 20 - 24 - 500);

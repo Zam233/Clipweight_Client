@@ -179,8 +179,9 @@ export function HomePage() {
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   // P8: dry-run 预览模式（只生成粗剪时间线）
   const [dryRun, setDryRun] = useState(false);
-  // D23 镜头下限策略（off/record/extend/loop）：默认 off，等产品拍板后才改默认值
-  const [shotFloorPolicy, setShotFloorPolicy] = useState('off');
+  // D23 已拍板：默认 `default` = 不下发，跟随后端 merge（低于下限合并）+ split
+  // （高于上限切分），两者都保总时长；其余档位仅供取证/救急。
+  const [shotFloorPolicy, setShotFloorPolicy] = useState('default');
   const [materialSources, setMaterialSources] = useState<MatSource[]>([]);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -1129,10 +1130,11 @@ export function HomePage() {
                         className="bg-surface rounded-cw-xs px-2 py-1 text-label-sm text-on-surface outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
                         data-testid="shot-floor-policy"
                       >
-                        <option value="off">不处理（默认）</option>
+                        <option value="default">跟随类型节奏（合并达标，保总时长）</option>
                         <option value="record">仅记录冲突（C2）</option>
                         <option value="extend">拉长画面到下限</option>
                         <option value="loop">循环填充（渲染待支持）</option>
+                        <option value="off">不处理</option>
                       </select>
                     </label>
                   </div>
