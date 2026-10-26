@@ -14,10 +14,12 @@ export function ThinkingDisclosure({ events }: { events: TaskEvent[] }) {
   const thoughts = React.useMemo(
     () => events
       .filter((e) => e.type === 'thinking')
-      .map((e) => String((e.detail as Record<string, unknown>)?.delta || e.message || '')),
+      .map((e) => String((e.detail as Record<string, unknown>)?.delta || e.message || ''))
+      .filter(Boolean),
     [events],
   );
-  const latest = thoughts.length ? thoughts[thoughts.length - 1] : '';
+  // 累积全部片段（不是只显示最新一段）：流式时逐块追加，结束后仍是完整思考过程
+  const merged = thoughts.join('');
 
   return (
     <div className="border-b border-outline-variant/20 px-3 py-1.5" data-testid="thinking-disclosure">
@@ -31,9 +33,9 @@ export function ThinkingDisclosure({ events }: { events: TaskEvent[] }) {
         <Sparkles className="h-3 w-3" />
         <span>{thoughts.length ? `思考了 ${thoughts.length} 段 · 展开` : '该模型未提供思考内容'}</span>
       </button>
-      {open && latest && (
+      {open && merged && (
         <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-cw-sm bg-surface-container p-2 text-caption text-on-surface-variant">
-          {latest}
+          {merged}
         </pre>
       )}
     </div>
