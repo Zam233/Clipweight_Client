@@ -806,7 +806,7 @@ export function HomePage() {
               </p>
 
               {/* 路线 C 入口已按产品决定下线：主 Agent 改由「新建制作」承载
-                  （一句话出片按钮与 /task 启动页已删除；/task/$id 详情页保留，
+                  （一句话出片按钮、/task 启动页与 /task/$id 详情页均已删除；任务在编辑器副驾驶里跑，
                   新建制作走主 Agent 后跳这里看计划与步骤）。 */}
 
               <div className="bg-surface-container border border-outline-variant/40 rounded-cw-lg overflow-hidden shadow-2xl shadow-black/40">

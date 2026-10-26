@@ -7,12 +7,12 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { ListChecks } from 'lucide-react';
 
 import { Badge } from '@/components/ui';
 import { taskApi } from '@/services/api/task';
 import type { TaskListItem } from '@/types/task';
+import { useCopilotStore } from '@/stores/copilotStore';
 
 import { statusLabel } from '@/features/task/labels';
 
@@ -24,7 +24,16 @@ function variantOf(status: string) {
 }
 
 export function TaskListSection() {
-  const navigate = useNavigate();
+  // /task/$taskId 页已删除（PRD §19.3）：点任务改为在编辑器副驾驶里开「任务运行」标签
+  const openInCopilot = (taskId: string) => {
+    useCopilotStore.getState().openTab({
+      id: `task-run:${taskId}`,
+      kind: 'task-run',
+      title: '任务运行',
+      closable: true,
+      payload: { taskId },
+    });
+  };
   const [items, setItems] = useState<TaskListItem[]>([]);
   const [error, setError] = useState('');
 
@@ -59,7 +68,7 @@ export function TaskListSection() {
             <li key={item.id}>
               <button
                 type="button"
-                onClick={() => navigate({ to: '/task/$taskId', params: { taskId: item.id } })}
+                onClick={() => openInCopilot(item.id)}
                 className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 rounded-cw-sm
                   bg-surface-container hover:bg-surface-container-high text-caption"
               >
