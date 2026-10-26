@@ -48,10 +48,6 @@ const ProjectsPage = lazyPage(() => import('./pages/ProjectsPage'), 'ProjectsPag
 const LoginPage = lazyPage(() => import('./pages/LoginPage'), 'LoginPage');
 const MarketPage = lazyPage(() => import('./pages/MarketPage'), 'MarketPage');
 const TaskPage = lazyPage(() => import('./pages/TaskPage'), 'TaskPage');
-const TaskLauncherPage = lazyPage(
-  () => import('./pages/TaskLauncherPage'),
-  'TaskLauncherPage',
-);
 
 /** 管理页鉴权守卫（审计 P1 修复）：
  * - 存在账号会话（restore 成功）时，仅 role === 'admin' 可访问管理页；
@@ -359,14 +355,8 @@ const marketRoute = createRoute({
 });
 
 // ── 路线 C：任务工作台（C4）────────────────────────────
-const taskRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/task',
-  beforeLoad: requireSession,
-  component: TaskLauncherPage,
-  errorComponent: RouteErrorFallback,
-});
-
+// 启动页（/task）已按产品决定下线：主 Agent 入口改由「新建制作 → 主 Agent」承载。
+// 详情页保留——新建制作走主 Agent 后仍跳到这里看计划/步骤/产物。
 const taskDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/task/$taskId',
@@ -406,7 +396,6 @@ const routeTree = rootRoute.addChildren([
   projectsRoute,
   loginRoute,
   marketRoute,
-  taskRoute,
   taskDetailRoute,
 ]);
 

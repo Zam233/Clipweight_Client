@@ -132,8 +132,8 @@ export function PipelineAdminPage() {
   return (
     <ConsoleShell>
       <div className="flex items-start justify-between gap-4">
-        <ConsoleHeading kicker="Observability / Pipeline" title="管线监控"
-          desc="追踪每次管线执行的 Agent 耗时分布、成功率与 LLM 成本，定位慢节点与失败重试。" />
+        <ConsoleHeading kicker="Observability / Execution" title="执行诊断"
+          desc="主 Agent 任务与历史管线的执行诊断：Agent 耗时分布、阶段成败、LLM 成本。老管线已下线（只读保留历史记录）。" />
         <button onClick={loadRuns} disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-cw-sm border border-outline-variant/30 bg-surface-container
             text-label-sm text-on-surface-variant hover:text-on-surface hover:border-outline/60 transition-colors disabled:opacity-50 cursor-pointer shrink-0">

@@ -19,9 +19,12 @@ export default defineConfig({
         changeOrigin: true,
       },
       // P3-3B: 账号/市场服务（ClipWright Server，K:\Clipwright Server :8090）
+      // rewrite：客户端 baseURL 是 /srv，而 Server 的路由在 /api/... 下；
+      // 少了这条 /srv/api/auth/refresh 会原样打到 8090 → 404（服务在也没用）。
       '/srv': {
         target: 'http://localhost:8090',
         changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/srv/, ''),
       },
     },
   },

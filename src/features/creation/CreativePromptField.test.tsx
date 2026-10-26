@@ -54,7 +54,10 @@ describe('HomePage 源约束（F-04 R1）', () => {
     expect(source).toContain('setCreativePrompt');
   });
 
-  it('编排路径由材料自动派生（有配音→voiceover）', () => {
-    expect(source).toMatch(/setMode\(audio \? 'voiceover' : 'visual'\)/);
+  it('编排路径由材料自动派生（上传配音 / 自动配音+音色 → voiceover）', () => {
+    // 旧断言锁死了「只看 audio」的写法：没有音频就永远 visual，而上传入口又被
+    // 藏在 voiceover 分支里 → 用户根本没有上传配音的入口。现在两者都参与派生。
+    expect(source).toMatch(/const canTts = autoDubPref && Boolean\(voicePick\);/);
+    expect(source).toMatch(/setMode\(audio \|\| canTts \? 'voiceover' : 'visual'\)/);
   });
 });

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { pluginApi } from '@/services/api';
+import { getApiClient } from '@/services/api/client';
 import type { PluginContributionItem, PluginHealthResponse } from '@/services/api/project';
 import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
@@ -46,6 +47,10 @@ export function PluginsPanel() {
   const [configLoading, setConfigLoading] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
+
+  // 插件自检（PRD F11）：调用插件约定的 `<id>_doctor` 能力，把"目录填错在哪"
+  // 直接显示在管理页，而不是等运行到工具时才报错
+  const [selfCheck, setSelfCheck] = useState<{ id: string; text: string } | null>(null);
 
   // M12: 插件 UI 预览
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -115,6 +120,46 @@ export function PluginsPanel() {
       setPreviewError(e instanceof Error ? e.message : '读取插件 UI 失败');
     } finally {
       setPreviewLoading(false);
+    }
+  };
+
+  const runSelfCheck = async (p: PluginItem) => {
+    setBusyId(p.id);
+    try {
+      const { data } = await getApiClient().post('/api/tool/execute', {
+        name: `${p.id}_doctor`,
+        params: {},
+      });
+      const out = (data as { output?: Record<string, unknown> })?.output ?? {};
+      const available = Boolean(out.available);
+      const layout = String(
+        (out.layout ?? (out.paths as Record<string, unknown> | undefined)?.layout) ?? '',
+      );
+      const lines = [
+        `插件：${p.id}`,
+        `自检结果：${available ? '可用' : '不可用'}`,
+        layout ? `引擎布局：${layout}` : '',
+        out.error ? `原因：${String(out.error)}` : '',
+        out.layouts ? `排版锚点：${Object.keys(out.layouts as object).length} 项` : '',
+        out.kinds ? `文字动效：${(out.kinds as unknown[]).length} 项` : '',
+        out.audit_rules ? `审计规则：${(out.audit_rules as unknown[]).length} 条` : '',
+      ].filter(Boolean);
+      setSelfCheck({ id: p.id, text: lines.join('\n') });
+    } catch (e: unknown) {
+      const detail = e as {
+        response?: { data?: { detail?: unknown } };
+        message?: string;
+      };
+      setSelfCheck({
+        id: p.id,
+        text: [
+          `插件：${p.id}`,
+          '自检不可用：该插件没有约定的 <id>_doctor 能力，或插件尚未加载。',
+          String(detail?.response?.data?.detail ?? detail?.message ?? e),
+        ].join('\n'),
+      });
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -432,6 +477,14 @@ export function PluginsPanel() {
                 <Eye className="w-3.5 h-3.5" />
               </button>
 
+              {p.loaded && (
+                <button onClick={() => void runSelfCheck(p)} disabled={busyId === p.id}
+                  className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer shrink-0"
+                  title="自检（调用该插件的 <id>_doctor 能力；没有则如实提示）">
+                  {busyId === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+                </button>
+              )}
+
               <button onClick={() => removePlugin(p)} disabled={busyId === p.id}
                 className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors cursor-pointer shrink-0"
                 title="删除插件（从插件目录移除）">
@@ -500,6 +553,15 @@ export function PluginsPanel() {
               </div>
             </>
           )}
+        </Modal>
+      )}
+
+      {selfCheck && (
+        <Modal onClose={() => setSelfCheck(null)} title={`插件自检 · ${selfCheck.id}`}
+          icon={<Activity className="w-4 h-4 text-primary" />}>
+          <pre className="text-caption whitespace-pre-wrap break-words text-on-surface-variant font-mono">
+            {selfCheck.text}
+          </pre>
         </Modal>
       )}
 

@@ -20,6 +20,11 @@ interface ProjectState {
   audioPath: string;
   audioDurationSec: number;
 
+  /** 工作区（PRD workspace-prd-2026-10-24）：项目唯一产物根 */
+  workspaceRoot: string;
+  workspaceAutoIndex: boolean;
+  workspaceVisionIndex: boolean;
+
   requirementsTopic: string;
   requirementsScript: string;
   requirementsAudioDuration: number;
@@ -63,6 +68,9 @@ interface ProjectState {
   setSplitMode: (v: string) => void;
   setAudioPath: (v: string) => void;
   setAudioDurationSec: (v: number) => void;
+  setWorkspaceRoot: (v: string) => void;
+  setWorkspaceAutoIndex: (v: boolean) => void;
+  setWorkspaceVisionIndex: (v: boolean) => void;
   setRequirementsTopic: (v: string) => void;
   setRequirementsScript: (v: string) => void;
   setRequirementsAudioDuration: (v: number) => void;
@@ -96,6 +104,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
   splitMode: 'period',
   audioPath: '',
   audioDurationSec: 0,
+  workspaceRoot: '',
+  workspaceAutoIndex: true,
+  workspaceVisionIndex: true,
 
   requirementsTopic: '',
   requirementsScript: '',
@@ -126,6 +137,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setSplitMode: (v) => set({ splitMode: v }),
   setAudioPath: (v) => set({ audioPath: v }),
   setAudioDurationSec: (v) => set({ audioDurationSec: v }),
+  setWorkspaceRoot: (v) => set({ workspaceRoot: v }),
+  setWorkspaceAutoIndex: (v) => set({ workspaceAutoIndex: v }),
+  setWorkspaceVisionIndex: (v) => set({ workspaceVisionIndex: v }),
   setRequirementsTopic: (v) => set({ requirementsTopic: v }),
   setRequirementsScript: (v) => set({ requirementsScript: v }),
   setRequirementsAudioDuration: (v) => set({ requirementsAudioDuration: v }),
@@ -155,6 +169,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
       splitMode: 'period',
       audioPath: '',
       audioDurationSec: 0,
+      workspaceRoot: '',
+      workspaceAutoIndex: true,
+      workspaceVisionIndex: true,
       requirementsTopic: '',
       requirementsScript: '',
       requirementsAudioDuration: 0,

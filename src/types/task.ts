@@ -33,7 +33,14 @@ export type TaskEventType =
   | 'gate_hit'
   | 'checkpoint'
   | 'task_end'
-  | 'inject';
+  | 'inject'
+  // PRD §19.4/§19.9：叙述 / 意图 / 思考 / 汇报 / 文档写入 / 上下文装载
+  | 'narration'
+  | 'intent'
+  | 'thinking'
+  | 'report'
+  | 'doc_write'
+  | 'context_loaded';
 
 export interface PlanStep {
   id: string;

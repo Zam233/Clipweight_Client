@@ -23,6 +23,7 @@ import { PlanPanel } from '@/features/task/PlanPanel';
 import { TaskArtifacts } from '@/features/task/TaskArtifacts';
 import { TaskSubagents } from '@/features/task/TaskSubagents';
 import { TaskToolbar } from '@/features/task/TaskToolbar';
+import { WorkspaceMaterialsPanel } from '@/features/workspace/WorkspaceMaterialsPanel';
 import { durationText, moneyText, statusLabel } from '@/features/task/labels';
 import { useTaskEvents } from '@/features/task/useTaskEvents';
 
@@ -45,6 +46,12 @@ export function TaskPage() {
   const [busy, setBusy] = useState(false);
 
   const terminal = task ? ['done', 'failed', 'cancelled'].includes(task.status) : false;
+
+  // 工作区（PRD workspace-prd §6.2）：proceed 双轨把 workspace_project_id 写进 Task.extra
+  const workspaceProjectId = useMemo(() => {
+    const extra = (task?.request?.extra ?? {}) as Record<string, unknown>;
+    return String(extra.workspace_project_id ?? '');
+  }, [task?.request?.extra]);
 
   useEffect(() => {
     if (!taskId) return;
@@ -152,6 +159,15 @@ export function TaskPage() {
             onStart={() => void act(() => start(task.id))}
             onReplan={() => void act(() => rep(task.id))}
           />
+        )}
+
+        {/* 工作区（PRD workspace-prd-2026-10-24）：产物根 + 素材索引可见性 */}
+        {workspaceProjectId && (
+          <section className="rounded-cw-md border border-outline-variant/30 p-3 space-y-2"
+            aria-label="工作区">
+            <p className="text-body-sm text-on-surface font-semibold">工作区</p>
+            <WorkspaceMaterialsPanel projectId={workspaceProjectId} compact />
+          </section>
         )}
 
         {task?.finish && (

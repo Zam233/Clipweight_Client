@@ -49,6 +49,13 @@ export const EVENT_CN: Record<TaskEventType, string> = {
   checkpoint: '存档',
   task_end: '任务结束',
   inject: '人工插话',
+  // PRD §19.4/§19.9
+  narration: '主 agent 说明',
+  intent: '准备执行',
+  thinking: '思考',
+  report: '阶段汇报',
+  doc_write: '写入文档',
+  context_loaded: '装载上下文',
 };
 
 export function eventLabel(type: string): string {

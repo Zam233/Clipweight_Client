@@ -57,6 +57,11 @@ export function useRequirementsAutoStart(ready: boolean) {
             voice_id: st.voiceId || undefined,
             // B21: 配音段传入需求会话，StructureAgent 场景时间与之对齐
             dub_segments: st.dubSegments ?? undefined,
+            // 工作区（PRD workspace-prd-2026-10-24）：名称/开关随会话走，
+            // 后端 proceed 双轨据此建 Task 并确保工作区存在
+            workspace_name: st.projectName || undefined,
+            workspace_auto_index: st.workspaceAutoIndex,
+            workspace_vision: st.workspaceVisionIndex,
           },
         });
         useAgentStore.getState().setRequirementsSession(res.session_id);

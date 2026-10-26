@@ -29,3 +29,7 @@ export type {
 export type {
   BackendConfigField, BackendConfigGroup, BackendConfigResponse, SettingsUpdateResult,
 } from './backendConfig';
+export { workspaceApi } from './workspace';
+export type {
+  ScanReport, WorkspaceDoc, WorkspaceMaterial, WorkspaceReport, WorkspaceStatus,
+} from './workspace';

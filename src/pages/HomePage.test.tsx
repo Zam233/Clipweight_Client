@@ -45,6 +45,15 @@ vi.mock('@/services/api', () => ({
   typeMakerApi: { list: mocks.typeMakerList },
   voiceApi: { list: vi.fn(() => Promise.resolve([])) },
   pipelineApi: { predictScript: mocks.predictScript },
+  // 04 工作区（PRD workspace-prd）：项目建好后会创建；失败不阻断启动
+  workspaceApi: {
+    create: vi.fn(async () => ({ root: 'J:/tmp/ws', exists: true })),
+    get: vi.fn(async () => ({ exists: false })),
+    materials: vi.fn(async () => ({ items: [], count: 0, pending: 0 })),
+    scan: vi.fn(async () => ({ scanned: 0, new: 0, indexed: 0, deduped: 0, failed: 0 })),
+    upload: vi.fn(),
+    remove: vi.fn(),
+  },
   resetApiClient: vi.fn(),
   pluginApi: {
     list: mocks.pluginList,
@@ -342,5 +351,33 @@ describe('插件 tab（轮 148：复用完整插件管理）', () => {
     fireEvent.click(screen.getByRole('button', { name: '插件' }));
     expect(await screen.findByText('whisper_stt')).toBeTruthy();
     expect(screen.queryByText('知识区长片')).toBeNull();
+  });
+});
+
+describe('配音上传入口（默认可用）', () => {
+  it('未上传配音时也能看到上传按钮（旧实现被 mode=visual 藏掉）', async () => {
+    render(<HomePage />);
+    await gotoCreate();
+    expect(screen.getByRole('button', { name: /上传配音文件/ })).toBeTruthy();
+  });
+
+  it('有文案时展示字幕切分预览（段数来自 splitMode）', async () => {
+    render(<HomePage />);
+    await gotoCreate();
+    fireEvent.change(screen.getByPlaceholderText(/粘贴口播文案/), {
+      target: { value: '第一句。第二句。第三句。' },
+    });
+    await waitFor(() => expect(screen.getByText(/字幕切分预览/)).toBeTruthy());
+    expect(screen.getByText(/字幕切分预览/).textContent).toContain('3 段');
+  });
+});
+
+describe('04 工作区（PRD workspace-prd-2026-10-24）', () => {
+  it('创作表单默认出现工作区步骤与两个开关', async () => {
+    render(<HomePage />);
+    await gotoCreate();
+    expect(screen.getAllByText('工作区').length).toBeGreaterThan(0);
+    expect(screen.getByText('自动索引新素材')).toBeTruthy();
+    expect(screen.getByText('视觉解读')).toBeTruthy();
   });
 });

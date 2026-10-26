@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState, useEffect } from 'react';
+﻿import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip } from '@/components/ui';
@@ -11,7 +11,7 @@ import { AssetPanel } from '@/features/assets/AssetPanel';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { TimelinePanel } from '@/features/timeline/components/TimelinePanel';
 import { PropertiesPanel } from '@/features/properties/PropertiesPanel';
-import { AgentPanel } from '@/features/agent/AgentPanel';
+import { CopilotDock } from '@/features/copilot/CopilotDock';
 import { SupervisorLauncher } from '@/features/supervisor/SupervisorLauncher';
 import { ReviewPanel } from '@/features/agent/ReviewPanel';
 import type { PlanView } from '@/features/plan/PlanReviewPanel';
@@ -307,7 +307,7 @@ export function EditorLayout() {
               className="h-full overflow-hidden shrink-0"
               style={{ width: panelWidths.agent }}
             >
-              <AgentPanel />
+              <CopilotDock />
             </div>
           </>
         )}
@@ -345,7 +345,7 @@ export function EditorLayout() {
             <div className="flex-1 overflow-hidden min-h-0">
               {mobilePanel === 'assets' && <AssetPanel />}
               {mobilePanel === 'properties' && <PropertiesPanel />}
-              {mobilePanel === 'agent' && <AgentPanel />}
+              {mobilePanel === 'agent' && <CopilotDock />}
             </div>
           </div>
         </>

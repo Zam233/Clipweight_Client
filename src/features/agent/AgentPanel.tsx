@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { useNavigate } from '@tanstack/react-router';
+import { applyProceedResult } from './proceedResult';
 import { useAgentStore, loadRequirementsDraft, clearRequirementsDraft } from '@/stores/agentStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSelectionStore } from '@/stores/selectionStore';
@@ -9,7 +11,7 @@ import { IntentCard, type IntentPreview } from './IntentCard';
 import { resolveMessageAttachments } from './requirementsAttachments';
 import { pipelineApi, requirementsApi, personaApi } from '@/services/api';
 import { fetchSseToken, withSseToken } from '@/services/api/sse';
-import { savePipelineId, loadPipelineId, clearPipelineId } from '@/services/storage/pipelineSession';
+import { loadPipelineId, clearPipelineId } from '@/services/storage/pipelineSession';
 import { useBackendHealth } from '@/pages/useBackendHealth';
 import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
@@ -159,9 +161,13 @@ function RequirementsView() {
   const setSession = useAgentStore((s) => s.setRequirementsSession);
   const setPipelineId = useAgentStore((s) => s.setPipelineId);
   const updatePhase = useAgentStore((s) => s.updatePhase);
+  const navigate = useNavigate();
   const setReviewMode = useAgentStore((s) => s.setReviewMode);
   const [topic, setTopic] = useState('');
   const [input, setInput] = useState('');
+  // PRD §19.4：思考内容（SSE reasoning 帧逐块追加；没有就不显示）
+  const [liveReasoning, setLiveReasoning] = useState('');
+  const [reasoningOpen, setReasoningOpen] = useState(false);
   const [manualBusy, setBusy] = useState(false);
   // Auto-start (from HomePage launch) runs in EditorPage via useRequirementsAutoStart;
   // reflect its busy flag here so the UI shows progress even though it's store-driven.
@@ -569,13 +575,17 @@ function RequirementsView() {
         },
         // 批B：携带当前项目——成品时间线自动保存回项目（否则 60s 后丢失）
         st.projectId ?? undefined,
-      ) as { pipeline_id?: string };
-      if (res.pipeline_id) {
-        // 设置 pipelineId + 运行相位，BottomBar 的 effect 会自动挂接 SSE 追踪
-        setPipelineId(res.pipeline_id);
+      ) as { pipeline_id?: string; task_id?: string; workspace_root?: string };
+      // 双轨（PRD workspace-prd §6.2）：task_id 存在即主 Agent 任务，跳详情页走 Task 事件流
+      const target = applyProceedResult(res);
+      if (target?.mode === 'task') {
+        setStatus('pipeline_running');
         updatePhase('structure', 5);
-        // 持久化到 sessionStorage：页面刷新后 BottomBar 挂载时可恢复并自动重连 SSE
-        savePipelineId(res.pipeline_id);
+        // PRD §19.3：不跳页——任务在编辑器右侧的「任务运行」标签里就地跑（applyProceedResult 已开标签）
+      } else if (target) {
+        // 设置 pipelineId + 运行相位，BottomBar 的 effect 会自动挂接 SSE 追踪
+        setPipelineId(target.id);
+        updatePhase('structure', 5);
       }
     } catch {
       setStatus('plan_ready');
@@ -654,8 +664,31 @@ function RequirementsView() {
         ))}
 
         {busy && !messages.some((m) => m.streaming) && (
-          <div className="flex items-center gap-2 text-label-sm text-on-surface-variant px-3">
-            <Loader2 className="w-3 h-3 animate-spin text-primary" /> 正在思考…
+          <div className="px-3 text-label-sm text-on-surface-variant">
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-3 h-3 animate-spin text-primary" />
+              {liveReasoning ? (
+                <button
+                  type="button"
+                  data-testid="live-thinking-toggle"
+                  className="hover:text-on-surface"
+                  onClick={() => setReasoningOpen((v) => !v)}
+                  aria-expanded={reasoningOpen}
+                >
+                  正在思考{reasoningOpen ? ' ▴' : ' ▾'}
+                </button>
+              ) : (
+                <span>正在思考…</span>
+              )}
+            </div>
+            {reasoningOpen && liveReasoning && (
+              <pre
+                data-testid="live-reasoning"
+                className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-cw-sm bg-surface-container p-2 text-caption"
+              >
+                {liveReasoning}
+              </pre>
+            )}
           </div>
         )}
       </div>
