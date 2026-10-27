@@ -4,11 +4,12 @@ import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import {
   providersApi, providersForKind, buildSourcePayload, KIND_ROLES, ROLE_LABELS,
+  validateGeneration, GENERATION_LIMITS,
   type AvailableProviders, type ProviderKind, type ProviderModel, type ProviderRole,
-  type ProviderSource, type RoleBindings,
+  type ProviderSource, type RoleBindings, type ModelGeneration,
 } from '@/services/api/providers';
 import {
-  Plus, Trash2, RefreshCw, Loader2, Save, KeyRound, Star, StarOff, Pencil, Check, X, Activity,
+  Plus, Trash2, RefreshCw, Loader2, Save, KeyRound, Star, StarOff, Pencil, Check, X, Activity, SlidersHorizontal,
 } from 'lucide-react';
 
 const TABS: { kind: ProviderKind; label: string; hint: string }[] = [
@@ -71,6 +72,8 @@ export function ProvidersPage() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [editingModel, setEditingModel] = useState('');
+  /** B4：正在编辑生成参数的模型 id（空 = 全部收起） */
+  const [editingGeneration, setEditingGeneration] = useState('');
   const [newModel, setNewModel] = useState('');
 
   const reload = useCallback(async () => {
@@ -214,6 +217,41 @@ export function ProvidersPage() {
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : '重命名失败');
+    }
+  };
+
+  /** B4：逐模型生成参数编辑（空串 = 不提交该键；非法值 inline 报错且不落库） */
+  const [genDraft, setGenDraft] = useState<Record<string, Partial<Record<keyof ModelGeneration, string>>>>({});
+  const [genErrors, setGenErrors] = useState<Record<string, string>>({});
+
+  const saveGeneration = async (model: ProviderModel) => {
+    if (!selectedId) return;
+    const draft = genDraft[model.id] ?? {};
+    const { value, errors } = validateGeneration(draft);
+    if (Object.keys(errors).length) {
+      setGenErrors((e) => ({
+        ...e,
+        [model.id]: Object.values(errors).join('；'),
+      }));
+      return;
+    }
+    setGenErrors((e) => { const next = { ...e }; delete next[model.id]; return next; });
+    setBusy(`gen-${model.id}`);
+    try {
+      const updated = await providersApi.upsertModel(selectedId, {
+        ...model,
+        generation: value,
+      });
+      setForm((f) => ({ ...f, models: updated.models ?? f.models }));
+      setEditingGeneration('');
+      await reload();
+    } catch (e) {
+      setGenErrors((prev) => ({
+        ...prev,
+        [model.id]: e instanceof Error ? e.message : '保存生成参数失败',
+      }));
+    } finally {
+      setBusy('');
     }
   };
 
@@ -479,7 +517,8 @@ export function ProvidersPage() {
                 <li className="py-3 text-caption text-on-surface-variant/70">暂无模型（先获取或自定义添加）</li>
               )}
               {form.models.map((m) => (
-                <li key={m.id} className="py-2 flex items-center gap-2">
+                <li key={m.id} className="py-2">
+                  <div className="flex items-center gap-2">
                   <button type="button" aria-label={`启用 ${m.id}`} onClick={() => void toggleModel(m)}
                     className="text-on-surface-variant hover:text-primary">
                     {(m.enabled ?? true)
@@ -509,6 +548,21 @@ export function ProvidersPage() {
                         (m.enabled ?? true) ? 'text-on-surface' : 'text-on-surface-variant/50 line-through')}>
                         {m.id}{m.name && m.name !== m.id ? ` (${m.name})` : ''}
                       </span>
+                      {/* B4：逐模型生成参数（temperature/top_p/max_tokens） */}
+                      <Button size="icon-sm" variant="ghost" aria-label={`生成参数 ${m.id}`}
+                        onClick={() => {
+                          setEditingGeneration((cur) => (cur === m.id ? '' : m.id));
+                          setGenDraft((d) => ({
+                            ...d,
+                            [m.id]: {
+                              temperature: m.generation?.temperature?.toString() ?? '',
+                              top_p: m.generation?.top_p?.toString() ?? '',
+                              max_tokens: m.generation?.max_tokens?.toString() ?? '',
+                            },
+                          }));
+                        }}>
+                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                      </Button>
                       <Button size="icon-sm" variant="ghost" aria-label={`编辑 ${m.id}`}
                         onClick={() => setEditingModel(m.id)}>
                         <Pencil className="w-3.5 h-3.5" />
@@ -518,6 +572,51 @@ export function ProvidersPage() {
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </>
+                  )}
+                  </div>
+                  {editingGeneration === m.id && (
+                    <div className="mt-2 pl-6" data-testid={`generation-${m.id}`}>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {(Object.keys(GENERATION_LIMITS) as Array<keyof ModelGeneration>).map((key) => (
+                          <label key={key} className="flex items-center gap-1 text-caption text-on-surface-variant">
+                            <span className="font-mono">{GENERATION_LIMITS[key].label}</span>
+                            <input
+                              className={cn(INPUT, 'w-24')}
+                              inputMode="decimal"
+                              aria-label={`${GENERATION_LIMITS[key].label} ${m.id}`}
+                              placeholder={String(key === 'max_tokens' ? 4096 : key === 'temperature' ? 0.7 : 1)}
+                              value={genDraft[m.id]?.[key] ?? ''}
+                              onChange={(e) => setGenDraft((d) => ({
+                                ...d,
+                                [m.id]: { ...(d[m.id] ?? {}), [key]: e.target.value },
+                              }))}
+                            />
+                          </label>
+                        ))}
+                        <Button size="sm" variant="outline" disabled={busy === `gen-${m.id}`}
+                          onClick={() => void saveGeneration(m)}>
+                          <Check className="w-3.5 h-3.5" /> 保存参数
+                        </Button>
+                        <Button size="sm" variant="ghost"
+                          onClick={() => {
+                            setEditingGeneration('');
+                            setGenErrors((e) => { const next = { ...e }; delete next[m.id]; return next; });
+                          }}>
+                          取消
+                        </Button>
+                      </div>
+                      {genErrors[m.id] && (
+                        <p className="mt-1 text-caption text-error" data-testid={`generation-error-${m.id}`}>
+                          {genErrors[m.id]}
+                        </p>
+                      )}
+                      {m.generation && !genErrors[m.id] && (
+                        <p className="mt-1 text-caption text-on-surface-variant/70">
+                          当前生效：{Object.entries(m.generation)
+                            .map(([k, v]) => `${k}=${v}`).join(' · ')}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </li>
               ))}

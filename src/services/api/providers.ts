@@ -6,10 +6,59 @@ export type ProviderKind = 'llm' | 'embedding' | 'rerank' | 'tts';
 /** 角色（工程文件按角色分配：主/Flash/视觉 LLM、嵌入、重排序、语音） */
 export type ProviderRole = 'main' | 'flash' | 'vision' | 'embed' | 'rerank' | 'tts';
 
+/**
+ * 逐模型生成参数（2026-10-28 PRD B4）。
+ *
+ * 语义：缺席 = 沿用调用方/默认值；显式数值 = 真实下发给该模型的每次请求
+ * （含工具循环每一轮）。
+ */
+export interface ModelGeneration {
+  temperature?: number;
+  top_p?: number;
+  max_tokens?: number;
+}
+
+/** 各参数的合法区间（与后端 `provider_sources.GENERATION_LIMITS` 一致）。 */
+export const GENERATION_LIMITS: Record<keyof ModelGeneration, { min: number; max: number; int: boolean; label: string }> = {
+  temperature: { min: 0, max: 2, int: false, label: 'temperature' },
+  top_p: { min: 0, max: 1, int: false, label: 'top_p' },
+  max_tokens: { min: 1, max: 200000, int: true, label: 'max_tokens' },
+};
+
+export interface GenerationValidation {
+  /** 只含合法值（空串/未填 = 不提交该键） */
+  value: ModelGeneration;
+  /** 字段 → 可读错误（页面 inline 显示，不静默吞掉） */
+  errors: Partial<Record<keyof ModelGeneration, string>>;
+}
+
+/** 校验用户在模型行填的生成参数；非法值不进 payload。 */
+export function validateGeneration(raw: Partial<Record<keyof ModelGeneration, string | number | null | undefined>>): GenerationValidation {
+  const value: ModelGeneration = {};
+  const errors: GenerationValidation['errors'] = {};
+  (Object.keys(GENERATION_LIMITS) as Array<keyof ModelGeneration>).forEach((key) => {
+    const limits = GENERATION_LIMITS[key];
+    const input = raw[key];
+    if (input === undefined || input === null || input === '') return;
+    const num = typeof input === 'number' ? input : Number(input);
+    if (!Number.isFinite(num)) {
+      errors[key] = `${limits.label} 必须是数字`;
+      return;
+    }
+    if (num < limits.min || num > limits.max) {
+      errors[key] = `${limits.label} 需在 ${limits.min}–${limits.max} 之间`;
+      return;
+    }
+    value[key] = limits.int ? Math.round(num) : num;
+  });
+  return { value, errors };
+}
+
 export interface ProviderModel {
   id: string;
   name?: string;
   enabled?: boolean;
+  generation?: ModelGeneration;
 }
 
 /** 源（脱敏形态：明文密钥绝不回传，只有掩码） */

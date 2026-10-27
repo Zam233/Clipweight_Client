@@ -110,10 +110,13 @@ export function AssetPanel() {
     // P2-22: 逐文件独立失败域——旧实现整批一个 try，第 N 个失败会把已成功
     // 上传的文件再降级成一份本地演示素材（重复素材 + 假数据混入）
     const fallbackFiles: File[] = [];
+    // B9：同内容文件重传 → 后端 200 复用（deduplicated），要明确告知而不是当成失败
+    let reused = 0;
     for (const file of Array.from(files)) {
       try {
         const pid = useProjectStore.getState().projectId;
         const res = await assetApi.upload(file, setUploadProgress, pid ?? undefined);
+        if (res.deduplicated) reused += 1;
         // Register uploaded file with MediaManager for local preview/thumbnails
         const assetId = res.id || res.asset_id || uid('asset');
         mediaManager.registerFile(assetId, file);
@@ -124,6 +127,9 @@ export function AssetPanel() {
     try {
       await loadAssets();
     } catch { /* 列表刷新失败不影响已上传 */ }
+    if (reused > 0) {
+      toast(`${reused} 个文件已存在，已复用`, 'info');
+    }
     if (fallbackFiles.length > 0) {
       setDemoMode(true);
       const newAssets: Asset[] = fallbackFiles.map((f) => {

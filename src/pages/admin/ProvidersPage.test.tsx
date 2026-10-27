@@ -181,6 +181,40 @@ describe('ProvidersPage（模型提供商）', () => {
     }));
   });
 
+  it('B4：逐模型生成参数保存后随 upsertModel 提交', async () => {
+    mocks.upsertModel.mockResolvedValue({
+      models: [{ id: 'deepseek-chat', name: 'deepseek-chat', enabled: true,
+        generation: { temperature: 0.3, max_tokens: 900 } }],
+    });
+    render(<ProvidersPage />);
+    await screen.findByTestId('source-src_a');
+    fireEvent.click(screen.getByTestId('source-src_a'));
+
+    fireEvent.click(screen.getByLabelText('生成参数 deepseek-chat'));
+    fireEvent.change(screen.getByLabelText('temperature deepseek-chat'), { target: { value: '0.3' } });
+    fireEvent.change(screen.getByLabelText('max_tokens deepseek-chat'), { target: { value: '900' } });
+    fireEvent.click(screen.getByRole('button', { name: /保存参数/ }));
+
+    await waitFor(() => expect(mocks.upsertModel).toHaveBeenCalledWith('src_a', expect.objectContaining({
+      id: 'deepseek-chat',
+      generation: { temperature: 0.3, max_tokens: 900 },
+    })));
+  });
+
+  it('B4：非法生成参数 inline 报错且不提交', async () => {
+    render(<ProvidersPage />);
+    await screen.findByTestId('source-src_a');
+    fireEvent.click(screen.getByTestId('source-src_a'));
+
+    fireEvent.click(screen.getByLabelText('生成参数 deepseek-chat'));
+    fireEvent.change(screen.getByLabelText('temperature deepseek-chat'), { target: { value: '9' } });
+    fireEvent.click(screen.getByRole('button', { name: /保存参数/ }));
+
+    const err = await screen.findByTestId('generation-error-deepseek-chat');
+    expect(err.textContent).toContain('temperature');
+    expect(mocks.upsertModel).not.toHaveBeenCalled();
+  });
+
   it('「获取模型列表」为空时给出可读提示', async () => {
     mocks.fetchModels.mockResolvedValue({ models: [], note: '获取失败：timeout' });
     render(<ProvidersPage />);
