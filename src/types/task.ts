@@ -40,7 +40,11 @@ export type TaskEventType =
   | 'thinking'
   | 'report'
   | 'doc_write'
-  | 'context_loaded';
+  | 'context_loaded'
+  // M3：统一 AgentRun 事件（阶段与调研同一组）
+  | 'agent_run_start'
+  | 'agent_run_update'
+  | 'agent_run_end';
 
 export interface PlanStep {
   id: string;

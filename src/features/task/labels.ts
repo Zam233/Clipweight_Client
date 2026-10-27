@@ -56,6 +56,10 @@ export const EVENT_CN: Record<TaskEventType, string> = {
   report: '阶段汇报',
   doc_write: '写入文档',
   context_loaded: '装载上下文',
+  // M3：统一 AgentRun 事件
+  agent_run_start: '派出子 agent',
+  agent_run_update: '子 agent 进展',
+  agent_run_end: '子 agent 结束',
 };
 
 export function eventLabel(type: string): string {
