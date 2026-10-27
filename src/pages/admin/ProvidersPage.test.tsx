@@ -245,6 +245,56 @@ describe('ProvidersPage（模型提供商）', () => {
     render(<ProvidersPage />);
     expect(await screen.findByText('后端离线')).toBeTruthy();
   });
+
+  it('B6：获取成功才覆盖清单，并显示「已获取」', async () => {
+    mocks.fetchModels.mockResolvedValue({
+      status: 'ok',
+      models: [{ id: 'brand-new', enabled: true }],
+      note: '',
+    });
+    render(<ProvidersPage />);
+    fireEvent.click(await screen.findByTestId('source-src_a'));
+    fireEvent.click(screen.getByRole('button', { name: /获取模型列表/ }));
+    await waitFor(() => expect(screen.getByTestId('fetch-state').getAttribute('data-state')).toBe('ok'));
+    expect(screen.getByTestId('fetch-state').textContent).toContain('已获取');
+  });
+
+  it('B6：获取失败保留已有模型、显示 note 且不提示「已获取」', async () => {
+    mocks.fetchModels.mockResolvedValue({
+      status: 'error',
+      models: [],
+      note: '获取失败：鉴权被拒绝（HTTP 401），请检查 API Key',
+      errorCode: 'credential_error',
+    });
+    render(<ProvidersPage />);
+    fireEvent.click(await screen.findByTestId('source-src_a'));
+    fireEvent.click(screen.getByRole('button', { name: /获取模型列表/ }));
+
+    await waitFor(() => expect(screen.getByText(/鉴权被拒绝/)).toBeTruthy());
+    const state = screen.getByTestId('fetch-state');
+    expect(state.getAttribute('data-state')).toBe('error');
+    expect(state.textContent).not.toContain('已获取');
+    // 已有模型仍在（deepseek-chat 来自 source fixture）
+    expect(screen.getByTestId('model-list').textContent).toContain('deepseek-chat');
+    // 手动新增入口始终可用
+    expect(screen.getByRole('button', { name: /自定义模型/ })).toBeTruthy();
+  });
+
+  it('B6：provider 不支持自动拉取 → 明确说明并保留手动入口', async () => {
+    mocks.fetchModels.mockResolvedValue({
+      status: 'unsupported',
+      models: [],
+      note: 'provider「my-gateway」不支持自动获取模型列表（本地/自建端点常见），请用「自定义模型」手动添加',
+      errorCode: 'provider_unsupported',
+    });
+    render(<ProvidersPage />);
+    fireEvent.click(await screen.findByTestId('source-src_a'));
+    fireEvent.click(screen.getByRole('button', { name: /获取模型列表/ }));
+
+    expect(await screen.findByText(/不支持自动获取模型列表/)).toBeTruthy();
+    expect(screen.getByTestId('fetch-state').getAttribute('data-state')).toBe('empty');
+    expect(screen.getByTestId('model-list').textContent).toContain('deepseek-chat');
+  });
 });
 
 // ── P1/P5 评审修复：模型可选 / 源级测试 / 优先级提示 / 多密钥文案 ──────────

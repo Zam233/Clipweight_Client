@@ -54,6 +54,19 @@ export function validateGeneration(raw: Partial<Record<keyof ModelGeneration, st
   return { value, errors };
 }
 
+/** 模型列表探测的状态与错误码（与后端 `providers/model_listing.py` 一致） */
+export type ModelListingStatus = 'ok' | 'empty' | 'unsupported' | 'error';
+export const LISTING_STATUSES: ModelListingStatus[] = ['ok', 'empty', 'unsupported', 'error'];
+export type ModelListingErrorCode =
+  | 'provider_unsupported'
+  | 'http_error'
+  | 'invalid_response'
+  | 'credential_error'
+  | 'timeout';
+export const LISTING_ERROR_CODES: ModelListingErrorCode[] = [
+  'provider_unsupported', 'http_error', 'invalid_response', 'credential_error', 'timeout',
+];
+
 export interface ProviderModel {
   id: string;
   name?: string;
@@ -207,12 +220,34 @@ export const providersApi = {
     return data;
   },
 
-  /** 「获取模型列表」：失败返回空列表 + note（前端降级为自定义模型） */
-  async fetchModels(id: string): Promise<{ models: ProviderModel[]; note?: string }> {
+  /**
+   * 「获取模型列表」（2026-10-28 PRD B6）：返回状态机而不是一个裸数组。
+   *
+   * - `status='ok'` 时才覆盖已有模型；
+   * - `empty`/`unsupported`/`error` 都带可读 `note`，前端保留旧清单并继续允许手动添加；
+   * - `errorCode` 区分 `provider_unsupported / http_error / invalid_response /
+   *   credential_error / timeout`（旧后端没有这些字段时回落为 `empty`/`error`）。
+   */
+  async fetchModels(id: string): Promise<{
+    status: ModelListingStatus;
+    models: ProviderModel[];
+    note: string;
+    errorCode?: ModelListingErrorCode;
+  }> {
     const { data } = await getApiClient().post(`/api/providers/${id}/models/fetch`);
+    const models = Array.isArray(data?.models) ? (data.models as ProviderModel[]) : [];
+    const raw = typeof data?.status === 'string' ? data.status : '';
+    const status: ModelListingStatus = LISTING_STATUSES.includes(raw as ModelListingStatus)
+      ? (raw as ModelListingStatus)
+      : (models.length ? 'ok' : 'empty');
+    const code = typeof data?.error_code === 'string' ? data.error_code : '';
     return {
-      models: Array.isArray(data?.models) ? data.models : [],
-      note: typeof data?.note === 'string' ? data.note : undefined,
+      status,
+      models,
+      note: typeof data?.note === 'string' ? data.note : '',
+      errorCode: LISTING_ERROR_CODES.includes(code as ModelListingErrorCode)
+        ? (code as ModelListingErrorCode)
+        : undefined,
     };
   },
 

@@ -72,6 +72,8 @@ export function ProvidersPage() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [editingModel, setEditingModel] = useState('');
+  /** B6：模型列表探测四态（idle = 还没点过） */
+  const [fetchState, setFetchState] = useState<'idle' | 'loading' | 'ok' | 'empty' | 'error'>('idle');
   /** B4：正在编辑生成参数的模型 id（空 = 全部收起） */
   const [editingGeneration, setEditingGeneration] = useState('');
   const [newModel, setNewModel] = useState('');
@@ -158,16 +160,26 @@ export function ProvidersPage() {
     if (!selectedId) { setError('请先保存源，再获取模型列表'); return; }
     setBusy('fetch');
     setError('');
+    setFetchState('loading');
     try {
-      const { models, note } = await providersApi.fetchModels(selectedId);
-      if (models.length) {
+      // B6：四态（loading/ok/empty/error）。只有 ok 才覆盖清单；
+      // 失败保留已有模型，且**不**提示"已获取"。
+      const { status, models, note, errorCode } = await providersApi.fetchModels(selectedId);
+      if (status === 'ok' && models.length) {
+        setFetchState('ok');
         setForm((f) => ({ ...f, models }));
         setNotice(`已获取 ${models.length} 个模型`);
+        await reload();
       } else {
-        setNotice(note ?? 'provider 未返回模型列表，可添加自定义模型');
+        setFetchState(status === 'error' ? 'error' : 'empty');
+        const hint = note || (status === 'unsupported'
+          ? 'provider 不支持自动获取模型列表，请用「自定义模型」手动添加'
+          : 'provider 未返回模型列表，可添加自定义模型');
+        setNotice(errorCode ? `${hint}（${errorCode}）` : hint);
+        // 不清空 form.models / 不 reload：保留用户已存的模型与手动配置
       }
-      await reload();
     } catch (e) {
+      setFetchState('error');
       setError(e instanceof Error ? e.message : '获取模型列表失败');
     } finally {
       setBusy('');
@@ -499,6 +511,16 @@ export function ProvidersPage() {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-body-sm font-semibold text-on-surface">模型清单</h3>
               <span className="flex items-center gap-2">
+                <span
+                  className="text-caption text-on-surface-variant/70"
+                  data-testid="fetch-state"
+                  data-state={fetchState}
+                >
+                  {fetchState === 'loading' && '正在获取…'}
+                  {fetchState === 'ok' && '已获取'}
+                  {fetchState === 'empty' && '未获取到模型（保留现有清单）'}
+                  {fetchState === 'error' && '获取失败（保留现有清单）'}
+                </span>
                 <Button size="sm" variant="outline" onClick={() => void fetchModels()} disabled={busy === 'fetch'}>
                   {busy === 'fetch' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                   获取模型列表
