@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { AgentPanel } from './AgentPanel';
 import { useAgentStore } from '@/stores/agentStore';
+import { useProjectStore } from '@/stores/projectStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { createDefaultClip } from '@/types/timeline';
@@ -820,5 +821,30 @@ describe('R6: 意图落位门禁', () => {
 
     await waitFor(() => expect(r.requirementsApi.edit).toHaveBeenCalledTimes(1));
     expect(screen.queryByTestId('intent-card')).toBeNull();
+  });
+});
+
+describe('B5：推理强度入口（reasoning_effort）', () => {
+  it('默认「跟随模型配置」，选高后写入 projectStore', async () => {
+    useAgentStore.setState({
+      requirementsStatus: 'gathering',
+      requirementsSessionId: 'req_1',
+      requirementsMessages: [
+        { id: 'm1', role: 'user', content: '选题', timestamp: new Date().toISOString() },
+      ],
+    });
+    render(<AgentPanel />);
+
+    const select = (await screen.findByTestId('reasoning-effort')) as HTMLSelectElement;
+    expect(select.value).toBe(''); // 默认不下发（跟随模型配置）
+
+    fireEvent.change(select, { target: { value: 'high' } });
+    expect(useProjectStore.getState().reasoningEffort).toBe('high');
+    expect((screen.getByTestId('reasoning-effort') as HTMLSelectElement).value).toBe('high');
+    // 明确告知"可能被忽略"，不把请求值假装成已生效值
+    expect(screen.getByText(/不支持该参数的模型会忽略/)).toBeTruthy();
+
+    fireEvent.change(screen.getByTestId('reasoning-effort'), { target: { value: '' } });
+    expect(useProjectStore.getState().reasoningEffort).toBe('');
   });
 });

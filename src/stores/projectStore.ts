@@ -36,6 +36,11 @@ interface ProjectState {
   dubSegments: Array<{ start: number; end: number; text: string }> | null;
   /** P8: dry-run 预览模式 — 管线只生成粗剪时间线，不执行动画/音频/质检 */
   dryRun: boolean;
+  /**
+   * 推理强度（2026-10-28 PRD B5）：'' = 不下发（跟随模型配置）；
+   * low/medium/high = 显式请求；provider 不支持时后端记降级并在事件流里说明。
+   */
+  reasoningEffort: '' | 'low' | 'medium' | 'high';
   // P2-04: 踩点剪辑（beat-sync）——音色驱动的需求表单入口
   cutOnBeat: boolean;
   beatBpm: number | null;
@@ -79,6 +84,7 @@ interface ProjectState {
   setMaterialSourceIds: (ids: string[]) => void;
   setDubSegments: (segments: Array<{ start: number; end: number; text: string }> | null) => void;
   setDryRun: (v: boolean) => void;
+  setReasoningEffort: (v: '' | 'low' | 'medium' | 'high') => void;
   setCutOnBeat: (v: boolean) => void;
   setShotFloorPolicy: (v: string) => void;
   setShotCapPolicy: (v: string) => void;
@@ -116,6 +122,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   materialSourceIds: [],
   dubSegments: null,
   dryRun: false,
+  reasoningEffort: '',
   cutOnBeat: false,
   beatBpm: null,
   shotFloorPolicy: 'default',
@@ -148,6 +155,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setMaterialSourceIds: (ids) => set({ materialSourceIds: ids }),
   setDubSegments: (segments) => set({ dubSegments: segments }),
   setDryRun: (v) => set({ dryRun: v }),
+  setReasoningEffort: (v) => set({ reasoningEffort: v }),
   setCutOnBeat: (v) => set({ cutOnBeat: v }),
   setBeatBpm: (v) => set({ beatBpm: v }),
   setShotFloorPolicy: (v) => set({ shotFloorPolicy: v }),

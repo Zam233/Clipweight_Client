@@ -144,6 +144,9 @@ export function AgentPanel() {
 
 function RequirementsView() {
   const status = useAgentStore((s) => s.requirementsStatus);
+  // B5：推理强度（存在 projectStore，切标签/刷新不丢）
+  const reasoningEffort = useProjectStore((s) => s.reasoningEffort);
+  const setReasoningEffort = useProjectStore((s) => s.setReasoningEffort);
   const messages = useAgentStore((s) => s.requirementsMessages);
   const addMessage = useAgentStore((s) => s.addRequirementsMessage);
   const setStatus = useAgentStore((s) => s.setRequirementsStatus);
@@ -563,6 +566,8 @@ function RequirementsView() {
           ...(st.shotCapPolicy && st.shotCapPolicy !== 'default'
             ? { shot_cap_policy: st.shotCapPolicy }
             : {}),
+          // B5：推理强度（空 = 不下发，跟随模型配置）
+          ...(st.reasoningEffort ? { reasoning_effort: st.reasoningEffort } : {}),
         },
         // 批B：携带当前项目——成品时间线自动保存回项目（否则 60s 后丢失）
         st.projectId ?? undefined,
@@ -687,6 +692,32 @@ function RequirementsView() {
       {/* B17: 管线运行/规划生成期间隐藏输入；完成/失败后恢复 */}
       {messages.length > 0 && !['pipeline_running', 'planning'].includes(status) && (
         <div className="p-3 border-t border-outline-variant/20 shrink-0">
+          {/* B5（2026-10-28 PRD）：推理强度入口。'' = 不下发（跟随模型配置）；
+              选了但 provider 不支持时，后端记 degradation 并在任务事件流里显示"已忽略" */}
+          <div className="mb-2 flex items-center gap-2">
+            <label className="text-caption text-on-surface-variant/70" htmlFor="reasoning-effort">
+              推理强度
+            </label>
+            <select
+              id="reasoning-effort"
+              data-testid="reasoning-effort"
+              className="rounded-cw-sm border border-outline-variant/40 bg-surface-container px-2 py-1 text-caption text-on-surface"
+              value={reasoningEffort}
+              onChange={(e) => setReasoningEffort(
+                e.target.value as '' | 'low' | 'medium' | 'high',
+              )}
+            >
+              <option value="">跟随模型配置</option>
+              <option value="low">低</option>
+              <option value="medium">中</option>
+              <option value="high">高</option>
+            </select>
+            {reasoningEffort !== '' && (
+              <span className="text-caption text-on-surface-variant/60">
+                不支持该参数的模型会忽略（见执行日志降级说明）
+              </span>
+            )}
+          </div>
           {/* R6：意图确认卡 —— 有未答问题/解析失败时先让用户看清"将改动什么"再执行 */}
           {intentPending && (
             <div className="mb-2">
