@@ -127,6 +127,11 @@ export interface TaskEvent {
   ts: string;
   message: string;
   detail: Record<string, unknown>;
+  /** trace 信封（B12）：结果事件用 causation_id 指回它对应的调用事件 `seq:<n>` */
+  causation_id?: string;
+  trace_id?: string;
+  run_id?: string;
+  span?: string;
 }
 
 export interface CreateTaskBody {

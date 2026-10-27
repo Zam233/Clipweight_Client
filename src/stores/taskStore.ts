@@ -12,6 +12,8 @@
 import { create } from 'zustand';
 
 import { taskApi } from '@/services/api/task';
+// 复用同一份任务事件规整（含 causation_id 等 trace 信封字段），避免 hydration 丢线索
+import { toTaskEvent } from '@/features/task/useTaskEvents';
 import type { PlanStep, Task, TaskEvent, TaskListItem } from '@/types/task';
 
 export const MAX_TASK_EVENTS = 400;
@@ -137,7 +139,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   hydrateEvents: async (taskId, sinceSeq = 0) => {
     try {
       const res = await taskApi.events(taskId, sinceSeq);
-      for (const event of res.items) get().applyEvent(event);
+      for (const event of res.items) get().applyEvent(toTaskEvent(event) ?? event);
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
     }

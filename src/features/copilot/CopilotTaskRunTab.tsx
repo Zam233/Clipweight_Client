@@ -91,30 +91,63 @@ function ModelTurnRows({ events }: { events: Ev }) {
   );
 }
 
-/** 工具调用：把 tool_call 与紧随其后的 tool_result 配对，显示状态与耗时。 */
+/**
+ * 工具调用：把 tool_call 与**它自己**的 tool_result 配对。
+ *
+ * B12/N6：旧实现按工具名配对，同名工具并发时（例如两个 `local_probe` 同时跑）
+ * 会把 A 的结果挂到 B 上、把 B 的耗时算给 A。现在优先用 `causation_id`
+ * （后端对 tool_result 写的是 `seq:<调用事件序号>`），没有该字段的老数据才回落到
+ * 按名字 FIFO 配对，并在行上标 `paired=causation|name`，让"猜的"看得出来。
+ */
 export function pairToolCalls(events: Ev) {
-  const pending = new Map<string, { seq: number; tool: string; args?: unknown }>();
-  const rows: { seq: number; tool: string; status: string; ms?: number; error?: string }[] = [];
+  const callsBySeq = new Map<number, { tool: string; args?: unknown }>();
+  const pendingByName = new Map<string, number[]>();
+  const rows: {
+    seq: number;
+    tool: string;
+    status: string;
+    ms?: number;
+    error?: string;
+    paired: 'causation' | 'name';
+  }[] = [];
+
   for (const e of events) {
     const detail = (e.detail || {}) as Record<string, unknown>;
     if (e.type === 'tool_call') {
       const tool = String(detail.tool || e.message || '');
-      pending.set(tool, { seq: e.seq, tool, args: detail.args });
+      callsBySeq.set(e.seq, { tool, args: detail.args });
+      const queue = pendingByName.get(tool) ?? [];
+      queue.push(e.seq);
+      pendingByName.set(tool, queue);
       continue;
     }
-    if (e.type === 'tool_result') {
-      const tool = String(detail.tool || '');
-      const call = pending.get(tool);
-      if (!call) continue;
-      pending.delete(tool);
-      rows.push({
-        seq: call.seq,
-        tool,
-        status: String(detail.status || ''),
-        ms: typeof detail.duration_ms === 'number' ? detail.duration_ms : undefined,
-        error: detail.error ? String(detail.error) : undefined,
-      });
+    if (e.type !== 'tool_result') continue;
+    const tool = String(detail.tool || '');
+    const causation = String(e.causation_id || '');
+    let callSeq: number | undefined;
+    let paired: 'causation' | 'name' = 'causation';
+    if (causation.startsWith('seq:')) {
+      const target = Number(causation.slice(4));
+      if (Number.isFinite(target) && callsBySeq.has(target)) callSeq = target;
     }
+    if (callSeq === undefined) {
+      const queue = pendingByName.get(tool) ?? [];
+      callSeq = queue.shift();
+      paired = 'name';
+    } else {
+      const queue = pendingByName.get(tool) ?? [];
+      const idx = queue.indexOf(callSeq);
+      if (idx >= 0) queue.splice(idx, 1);
+    }
+    if (callSeq === undefined) continue;
+    rows.push({
+      seq: callSeq,
+      tool: (callsBySeq.get(callSeq)?.tool || tool),
+      status: String(detail.status || ''),
+      ms: typeof detail.duration_ms === 'number' ? detail.duration_ms : undefined,
+      error: detail.error ? String(detail.error) : undefined,
+      paired,
+    });
   }
   return rows;
 }
@@ -127,7 +160,7 @@ function ToolCallRows({ events }: { events: Ev }) {
       <p className="mb-1 text-label-sm text-on-surface-variant">工具调用</p>
       <ul className="space-y-1">
         {rows.map((r) => (
-          <li key={r.seq} className="flex items-baseline gap-2 text-caption">
+          <li key={r.seq} className="flex items-baseline gap-2 text-caption" data-paired={r.paired}>
             <span className="w-36 shrink-0 truncate font-mono text-on-surface-variant">{r.tool}</span>
             <span
               className={r.status === 'ok' ? 'shrink-0 text-primary' : 'shrink-0 text-error'}
@@ -139,6 +172,10 @@ function ToolCallRows({ events }: { events: Ev }) {
               <span className="shrink-0 text-on-surface-variant/60">{r.ms}ms</span>
             )}
             {r.error && <span className="truncate text-error/80">{r.error}</span>}
+            {r.paired === 'name' && (
+              // 老事件没有 causation_id：按名字配的，可能是并发的同名调用
+              <span className="shrink-0 text-on-surface-variant/40">按名配对</span>
+            )}
           </li>
         ))}
       </ul>

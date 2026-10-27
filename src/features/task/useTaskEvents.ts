@@ -21,12 +21,19 @@ export function toTaskEvent(raw: unknown): TaskEvent | null {
   if (!raw || typeof raw !== 'object') return null;
   const ev = raw as Partial<TaskEvent>;
   if (typeof ev.seq !== 'number' || typeof ev.type !== 'string') return null;
+  // B12/N6：causation_id 是「结果事件指回调用事件」的唯一可靠线索（`seq:<n>`）。
+  // 旧实现靠工具名配对，同名工具并发时会串台。
+  const causation = typeof ev.causation_id === 'string' ? ev.causation_id : '';
   return {
     seq: ev.seq,
     type: ev.type,
     ts: String(ev.ts || ''),
     message: String(ev.message || ''),
     detail: (ev.detail as Record<string, unknown>) || {},
+    ...(causation ? { causation_id: causation } : {}),
+    ...(typeof ev.run_id === 'string' && ev.run_id ? { run_id: ev.run_id } : {}),
+    ...(typeof ev.trace_id === 'string' && ev.trace_id ? { trace_id: ev.trace_id } : {}),
+    ...(typeof ev.span === 'string' && ev.span ? { span: ev.span } : {}),
   };
 }
 
