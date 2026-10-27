@@ -122,8 +122,8 @@ describe('useTaskEvents', () => {
 describe('PlanPanel', () => {
   it('未配置单价时明说只能统计 token（不许假装 $0）', () => {
     render(<PlanPanel task={makeTask()} />);
-    expect(screen.getByText(/预估成本/)).toBeTruthy();
-    // 第二步 est 为 null → 整体仍按已知部分算，文案里出现金额
+    // B10：假设态下成本是「假设成本」（不是已发生的花费）
+    expect(screen.getByText(/假设成本/)).toBeTruthy();
     expect(moneyText(null)).toBe('未配置单价');
   });
 
@@ -134,10 +134,36 @@ describe('PlanPanel', () => {
     expect(screen.getByText(/未配置模型单价/)).toBeTruthy();
   });
 
-  it('点「按计划执行」触发 onStart；已开始后按钮禁用', () => {
+  it('B10：默认按「初始假设」展示，不把 Plan 当执行进度', () => {
+    const task = makeTask();
+    task.plan!.hypothesis_only = true;
+    render(<PlanPanel task={task} />);
+
+    expect(screen.getByText(/初始假设/)).toBeTruthy();
+    expect(screen.getByText(/仅供参考，不是执行进度/)).toBeTruthy();
+    expect(screen.getByTestId('plan-hypothesis-note').textContent).toContain('可能不按这里走');
+    // pending 步骤标「设想」而不是进度状态
+    expect(screen.getAllByText('设想').length).toBe(2);
+    expect(screen.getByLabelText('初始假设').getAttribute('data-hypothesis')).toBe('true');
+  });
+
+  it('B10：老计划（hypothesis_only=false）保留「按计划执行」语义', () => {
+    const task = makeTask();
+    task.plan!.hypothesis_only = false;
     const onStart = vi.fn();
-    render(<PlanPanel task={makeTask()} onStart={onStart} />);
+    render(<PlanPanel task={task} onStart={onStart} />);
+
+    expect(screen.getByText(/^计划（/)).toBeTruthy();
+    expect(screen.queryByTestId('plan-hypothesis-note')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /按计划执行/ }));
+    expect(onStart).toHaveBeenCalled();
+  });
+
+  it('假设态下开始按钮说明"按现场推进"；已开始后禁用', () => {
+    const onStart = vi.fn();
+    render(<PlanPanel task={makeTask({ plan: { ...makeTask().plan!, hypothesis_only: true } })}
+      onStart={onStart} />);
+    fireEvent.click(screen.getByRole('button', { name: /开始（按现场推进）/ }));
     expect(onStart).toHaveBeenCalled();
 
     cleanup();

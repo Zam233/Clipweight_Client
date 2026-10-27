@@ -1,10 +1,12 @@
 /**
- * 计划面板（路线 C / C4）—— 用户看到的"第一步"。
+ * 计划面板（路线 C / C4）。
  *
- * Q3 已裁定：默认 `plan_only=true`，所以这个面板就是确认页。它必须回答三件事：
- * 1. 打算做什么（每步 + 为什么）；
- * 2. 要花多少钱（**单价未配置时不许假装是 $0**，要说"只记 token"）；
- * 3. 有没有卡点（依赖不可用/跳过）。
+ * B10（2026-10-28 PRD / 缺口 N2）：主 agent 化之后 Plan **只是初始假设**
+ * （后端 `hypothesis_only=true`）。真实执行由 tool_loop 按现场决定，步骤状态
+ * 可能永远停在 pending。所以：
+ * - `hypothesis_only !== false` → 按「初始假设」展示：不显示执行进度条、不把
+ *   pending 说成"待执行"，明确告诉用户"按现场决定，可能不按这里走"；
+ * - 老数据（`hypothesis_only === false`）→ 保留原来的计划/确认语义。
  */
 
 import { AlertTriangle, Check, Loader2, Play, SkipForward, X } from 'lucide-react';
@@ -61,18 +63,39 @@ export function PlanPanel({ task, busy, onStart, onReplan, className }: Props) {
   }
   const est = estimateOf(plan);
   const started = ['running', 'done', 'failed', 'paused'].includes(task.status);
+  // 只有后端明确说"不是假设"（老数据）才按执行进度展示
+  const hypothesis = plan.hypothesis_only !== false;
 
   return (
-    <section className={cn('space-y-3', className)} aria-label="执行计划">
+    <section
+      className={cn('space-y-3', className)}
+      aria-label={hypothesis ? '初始假设' : '执行计划'}
+      data-hypothesis={hypothesis ? 'true' : 'false'}
+    >
       <header className="flex items-center gap-2 flex-wrap">
         <h3 className="text-body-sm font-semibold text-on-surface">
-          计划（{plan.steps.length} 步）
+          {hypothesis ? '初始假设' : '计划'}（{plan.steps.length} 步）
         </h3>
+        <Badge variant={hypothesis ? 'info' : 'default'}>
+          {hypothesis ? '仅供参考，不是执行进度' : `计划 v${plan.version}`}
+        </Badge>
         {plan.version > 1 && <Badge variant="info">已改过 {plan.version - 1} 次</Badge>}
         <span className="text-caption text-on-surface-variant ml-auto">
-          {est.known ? `预估成本 ${moneyText(est.total)}` : '未配置模型单价，只能统计 token'}
+          {est.known
+            ? `${hypothesis ? '假设' : '预估'}成本 ${moneyText(est.total)}`
+            : '未配置模型单价，只能统计 token'}
         </span>
       </header>
+
+      {hypothesis && (
+        <p
+          className="text-caption text-on-surface-variant rounded-cw-sm bg-surface-container px-2.5 py-2"
+          data-testid="plan-hypothesis-note"
+        >
+          主 agent 会边做边判断：实际步骤由现场情况决定，可能不按这里走。
+          想看真实发生了什么，请对照执行日志与子 agent 运行记录。
+        </p>
+      )}
 
       {plan.rationale && (
         <p className="text-caption text-on-surface-variant">{plan.rationale}</p>
@@ -94,17 +117,21 @@ export function PlanPanel({ task, busy, onStart, onReplan, className }: Props) {
                 </span>
                 <span className="text-body-sm text-on-surface">{stepLabel(step)}</span>
                 <Badge variant="default">{KIND_CN[step.kind] ?? step.kind}</Badge>
-                <Badge
-                  variant={
-                    step.status === 'failed'
-                      ? 'error'
-                      : step.status === 'done'
-                        ? 'success'
-                        : 'default'
-                  }
-                >
-                  {STEP_STATUS_CN[step.status] ?? step.status}
-                </Badge>
+                {hypothesis && step.status === 'pending' ? (
+                  <Badge variant="default">设想</Badge>
+                ) : (
+                  <Badge
+                    variant={
+                      step.status === 'failed'
+                        ? 'error'
+                        : step.status === 'done'
+                          ? 'success'
+                          : 'default'
+                    }
+                  >
+                    {STEP_STATUS_CN[step.status] ?? step.status}
+                  </Badge>
+                )}
                 {step.attempt > 1 && (
                   <span className="text-caption text-on-surface-variant">
                     第 {step.attempt} 次
@@ -140,13 +167,13 @@ export function PlanPanel({ task, busy, onStart, onReplan, className }: Props) {
           disabled={busy || started || task.status === 'cancelled'}
         >
           <Play className="w-3.5 h-3.5 mr-1" />
-          {started ? '已开始' : '按计划执行'}
+          {started ? '已开始' : hypothesis ? '开始（按现场推进）' : '按计划执行'}
         </Button>
         <Button size="sm" variant="outline" onClick={onReplan} disabled={busy || started}>
           重新规划
         </Button>
         <span className="text-caption text-on-surface-variant">
-          只在点「按计划执行」之后才会真的花钱
+          只在点开始之后才会真的花钱
         </span>
       </div>
     </section>

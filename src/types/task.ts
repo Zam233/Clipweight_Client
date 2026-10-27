@@ -67,6 +67,12 @@ export interface Plan {
   rationale: string;
   est_total_cost_usd: number | null;
   created_at: string;
+  /**
+   * 主 agent 化之后 Plan 只是「初始假设」：真实执行由 tool_loop 按现场决定，
+   * 步骤状态可能永远停在 pending。UI 必须按假设展示，不能当成执行进度条
+   * （2026-10-28 PRD B10 / 缺口 N2）。后端默认 true。
+   */
+  hypothesis_only?: boolean;
 }
 
 export interface TaskLimits {
