@@ -53,7 +53,11 @@ function StageRows({ events }: { events: ReturnType<typeof useTaskStore.getState
 
 type Ev = ReturnType<typeof useTaskStore.getState>['events'];
 
-/** 模型轮次：`thinking` + `intent` + `narration` 都算"它在想/在说"，按到达顺序合并。 */
+/** 模型轮次：`thinking` + `intent` + `narration` 都算"它在想/在说"，按到达顺序合并。
+ *
+ * B2（2026-10-28 PRD）：工具调用**之前**的 narration（`detail.kind === "preamble"`）
+ * 标成「动手前」，用户能看清"它先说要做这个，然后才调工具"。
+ */
 function ModelTurnRows({ events }: { events: Ev }) {
   const turns = React.useMemo(
     () => events.filter((e) => ['intent', 'narration', 'thinking'].includes(e.type)).slice(-6),
@@ -64,12 +68,23 @@ function ModelTurnRows({ events }: { events: Ev }) {
     <div className="border-b border-outline-variant/20 px-3 py-2" data-testid="model-turn-rows">
       <p className="mb-1 text-label-sm text-on-surface-variant">模型轮次</p>
       <ul className="space-y-1">
-        {turns.map((e) => (
-          <li key={e.seq} className="flex items-baseline gap-2 text-caption">
-            <span className="w-16 shrink-0 text-on-surface-variant/70">{e.type}</span>
-            <span className="truncate text-on-surface-variant/90">{e.message}</span>
-          </li>
-        ))}
+        {turns.map((e) => {
+          const detail = (e.detail || {}) as Record<string, unknown>;
+          const isPreamble = e.type === 'narration' && detail.kind === 'preamble';
+          return (
+            <li
+              key={e.seq}
+              className="flex items-baseline gap-2 text-caption"
+              data-event-type={e.type}
+              data-preamble={isPreamble ? 'true' : undefined}
+            >
+              <span className="w-16 shrink-0 text-on-surface-variant/70">
+                {isPreamble ? '动手前' : e.type}
+              </span>
+              <span className="truncate text-on-surface-variant/90">{e.message}</span>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

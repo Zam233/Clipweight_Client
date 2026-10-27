@@ -18,6 +18,7 @@ const { mocks } = vi.hoisted(() => ({
     getThumbnailUrl: vi.fn(),
     typeMakerList: vi.fn(),
     listSources: vi.fn(),
+    assetUpload: vi.fn(),
     healthCheck: vi.fn(),
     predictScript: vi.fn(),
     healthStatus: vi.fn(),
@@ -41,7 +42,7 @@ vi.mock('@/services/api', () => ({
     getThumbnailUrl: mocks.getThumbnailUrl,
     create: vi.fn(),
   },
-  assetApi: { listSources: mocks.listSources },
+  assetApi: { listSources: mocks.listSources, upload: mocks.assetUpload },
   typeMakerApi: { list: mocks.typeMakerList },
   voiceApi: { list: vi.fn(() => Promise.resolve([])) },
   pipelineApi: { predictScript: mocks.predictScript },
@@ -369,6 +370,47 @@ describe('配音上传入口（默认可用）', () => {
     });
     await waitFor(() => expect(screen.getByText(/字幕切分预览/)).toBeTruthy());
     expect(screen.getByText(/字幕切分预览/).textContent).toContain('3 段');
+  });
+
+  it('B9：同内容配音重传 → 显示「已存在，已复用」而不是报错', async () => {
+    // jsdom 不加载音频元数据：Audio 立刻走 onerror（时长回退 0），blob URL 打桩
+    class FakeAudio {
+      preload = '';
+      duration = 0;
+      onloadedmetadata: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_v: string) { queueMicrotask(() => this.onerror?.()); }
+    }
+    const audioSpy = vi.spyOn(window, 'Audio').mockImplementation(() => new FakeAudio() as unknown as HTMLAudioElement);
+    // jsdom 完全没有 URL.createObjectURL/revokeObjectURL（不是“未实现”而是不存在）
+    Object.defineProperty(URL, 'createObjectURL', { value: vi.fn(() => 'blob:fake'), configurable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), configurable: true });
+    try {
+      mocks.assetUpload.mockResolvedValue({
+        asset_id: 'asset_1',
+        filename: 'voice.mp3',
+        file_path: 'J:/lib/files/asset_1.mp3',
+        media_type: 'audio',
+        duration_sec: 12,
+        deduplicated: true,
+        status: 'reused',
+        used_count: 2,
+      });
+      const { container } = render(<HomePage />);
+      await gotoCreate();
+      const input = container.querySelector('input[accept=".wav,.mp3,.m4a,.mp4"]') as HTMLInputElement;
+      expect(input).toBeTruthy();
+      const file = new File([new Uint8Array([1, 2, 3])], 'voice.mp3', { type: 'audio/mpeg' });
+      fireEvent.change(input, { target: { files: [file] } });
+
+      expect(await screen.findByTestId('audio-upload-note')).toBeTruthy();
+      expect(screen.getByTestId('audio-upload-note').textContent).toBe('已存在，已复用');
+      // 复用仍算成功：文件名/时长已落入已选配音
+      expect(screen.getByText('voice.mp3')).toBeTruthy();
+      expect(mocks.assetUpload).toHaveBeenCalledTimes(1);
+    } finally {
+      audioSpy.mockRestore();
+    }
   });
 });
 

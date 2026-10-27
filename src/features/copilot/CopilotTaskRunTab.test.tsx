@@ -16,6 +16,9 @@ const events: TaskEvent[] = [
   // B9：统一 AgentRun 事件（子 agent 筹码的数据源从轮询改成这些事件）
   { seq: 6, type: 'agent_run_start', ts: '', message: '派出 stage/material', detail: { run_id: 'run_1', kind: 'stage', stage: 'material' } },
   { seq: 7, type: 'agent_run_update', ts: '', message: '等待人工审核', detail: { run_id: 'run_1', status: 'needs_review', risk: 'high' } },
+  // B2：主 agent 动手前的叙述（narration + detail.kind=preamble）先于 tool_call 到达
+  { seq: 7.5, type: 'narration', ts: '', message: '我先派 material 找素材，因为时间线要靠它',
+    detail: { kind: 'preamble', round: 1, before_tool: ['delegate_agent'], tool_count: 1 } },
   // 工具调用与结果要能配对（状态 + 耗时 + 错误）
   { seq: 8, type: 'tool_call', ts: '', message: 'delegate_agent', detail: { tool: 'delegate_agent', args: {} } },
   { seq: 9, type: 'tool_result', ts: '', message: 'delegate_agent → ok', detail: { tool: 'delegate_agent', status: 'ok', duration_ms: 120, brief: '候选 20 条' } },
@@ -80,6 +83,18 @@ describe('CopilotTaskRunTab', () => {
     render(<CopilotTaskRunTab taskId="task_x" />);
     const rows = screen.getByTestId('model-turn-rows');
     expect(rows.textContent).toContain('准备调用 material');
+  });
+
+  it('B2：动手前的叙述标成「动手前」，并排在对应工具调用之前', () => {
+    render(<CopilotTaskRunTab taskId="task_x" />);
+    const rows = screen.getByTestId('model-turn-rows');
+    expect(rows.textContent).toContain('我先派 material 找素材');
+    const preamble = rows.querySelector('[data-preamble="true"]');
+    expect(preamble).toBeTruthy();
+    expect(preamble?.textContent).toContain('动手前');
+    // 工具调用卡片在模型轮次之后（DOM 顺序 = 先说要做什么，再看到调用）
+    const toolRows = screen.getByTestId('tool-call-rows');
+    expect(rows.compareDocumentPosition(toolRows) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('工具调用卡片把 call 与 result 配对（状态 + 耗时 + 错误）', () => {

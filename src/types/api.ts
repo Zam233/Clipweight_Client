@@ -98,6 +98,12 @@ export interface AssetUploadResponse {
   file_path?: string;
   media_type?: string;
   duration_sec?: number;
+  /** B9：同内容（sha256）重传命中既有素材 → 200 复用，非错误 */
+  deduplicated?: boolean;
+  /** ok / missing / violated / reused（reused = 本次命中去重复用） */
+  status?: string;
+  used_count?: number;
+  error?: string;
 }
 
 export interface MaterialSearchRequest {

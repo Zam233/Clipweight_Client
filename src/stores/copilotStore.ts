@@ -1,18 +1,19 @@
 /**
- * 副驾驶标签（PRD master-agent §19.2 / 需求 8）
+ * 副驾驶标签（PRD master-agent §19.2 / 需求 8；2026-10-28 PRD B1 统一单层标签）
  *
  * 规则（逐条可测，见 CopilotTabBar/copilotStore 测试）：
- * 1. `requirements` 永远是第一个、且**不可关闭**（不渲染关闭按钮，closeTab 是 no-op）；
+ * 1. `requirements` 永远是第一个、`logs`（执行日志）紧随其后，两者都**不可关闭**；
  * 2. 关掉当前激活标签 → 焦点回落到 `requirements`；
  * 3. 同 id 重复添加只聚焦，不新增；
  * 4. 上限 8 个，超出返回 false（调用方提示"先关掉一个"）；
- * 5. 按 projectId 持久化到 localStorage，刷新后恢复。
+ * 5. 按 projectId 持久化到 localStorage，刷新后恢复（旧数据缺 logs 时绑定时补上）。
  */
 import { create } from 'zustand';
 import { loadPref, savePref } from '@/services/storage/localPrefs';
 
 export type CopilotTabKind =
   | 'requirements'
+  | 'logs'
   | 'task-run'
   | 'subagent'
   | 'stage'
@@ -41,6 +42,16 @@ export const REQUIREMENTS_TAB: CopilotTab = {
   title: '需求对话',
   closable: false,
 };
+/** B1：执行日志提升为固定标签，与需求对话、任务运行同级（不再藏在 AgentPanel 内部）。 */
+export const LOGS_TAB: CopilotTab = {
+  id: 'logs',
+  kind: 'logs',
+  title: '执行日志',
+  closable: false,
+};
+/** 固定标签（顺序即渲染顺序，不可关闭、不可重排到末尾之前）。 */
+export const FIXED_TABS: readonly CopilotTab[] = [REQUIREMENTS_TAB, LOGS_TAB];
+
 
 const PREFS_KEY = 'cw_copilot_tabs';
 
@@ -65,17 +76,18 @@ function writeAll(data: Persisted): void {
   }
 }
 
-/** 保证 requirements 恒在首位且不可关闭（防御脏数据）。 */
+/** 保证固定标签（需求对话 + 执行日志）恒在首位且不可关闭（防御脏数据/旧持久化）。 */
 export function normalizeTabs(tabs: CopilotTab[]): CopilotTab[] {
-  const rest = (tabs ?? []).filter((t) => t && t.id && t.id !== REQUIREMENTS_TAB.id);
+  const fixedIds = new Set(FIXED_TABS.map((t) => t.id));
+  const rest = (tabs ?? []).filter((t) => t && t.id && !fixedIds.has(t.id));
   const seen = new Set<string>();
   const deduped: CopilotTab[] = [];
   for (const t of rest) {
     if (seen.has(t.id)) continue;
     seen.add(t.id);
-    deduped.push({ ...t, closable: t.kind === 'requirements' ? false : t.closable !== false });
+    deduped.push({ ...t, closable: t.closable !== false });
   }
-  return [REQUIREMENTS_TAB, ...deduped].slice(0, MAX_TABS);
+  return [...FIXED_TABS, ...deduped].slice(0, MAX_TABS);
 }
 
 interface CopilotState {
@@ -99,7 +111,7 @@ function persist(state: CopilotState): void {
 
 export const useCopilotStore = create<CopilotState>((set, get) => ({
   projectId: '',
-  tabs: [REQUIREMENTS_TAB],
+  tabs: [...FIXED_TABS],
   activeId: REQUIREMENTS_TAB.id,
 
   bindProject: (projectId: string) => {
@@ -131,7 +143,7 @@ export const useCopilotStore = create<CopilotState>((set, get) => ({
   },
 
   closeTab: (id: string) => {
-    if (id === REQUIREMENTS_TAB.id) return; // 需求对话不可关
+    if (FIXED_TABS.some((t) => t.id === id)) return; // 需求对话 / 执行日志不可关
     const state = get();
     const idx = state.tabs.findIndex((t) => t.id === id);
     if (idx < 0) return;

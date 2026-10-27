@@ -188,6 +188,8 @@ export function HomePage() {
   }, [audio, autoDubPref, voicePick]);
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
+  // B9：同内容配音重传 → 后端 200 复用（deduplicated=true），提示而非报错
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
   const [launchErr, setLaunchErr] = useState<string | null>(null);
   // 工作区（PRD workspace-prd-2026-10-24）：04 步开关 + 已创建路径
@@ -407,6 +409,7 @@ export function HomePage() {
 
   const pickAudio = async (file: File) => {    setUploading(true);
     setUploadErr(null);
+    setUploadNote(null);
     try {
       // 客户端检测真实音频时长（不依赖后端 ffprobe——Windows 常缺 ffprobe 会返回 0，
       // 导致时长退化为文案估算值，进而使时间轴远短于配音实际长度）
@@ -415,6 +418,8 @@ export function HomePage() {
       const path = res.file_path ?? res.path ?? '';
       const duration = clientDuration || res.duration_sec || 0;
       setAudio({ path, name: res.filename ?? file.name, duration });
+      // 复用既有素材（sha256 命中）不是失败：明确告知，避免用户以为上传没生效
+      if (res.deduplicated) setUploadNote('已存在，已复用');
     } catch (e) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
         ?? (e instanceof Error ? e.message : '上传失败');
@@ -1093,7 +1098,7 @@ export function HomePage() {
                           </div>
                         </div>
                         <span className="font-mono text-caption text-track-audio shrink-0">{fmtDur(audio.duration)}</span>
-                        <button onClick={() => setAudio(null)}
+                        <button onClick={() => { setAudio(null); setUploadNote(null); }}
                           className="p-1 rounded-cw-xs text-on-surface-variant hover:text-error cursor-pointer shrink-0">
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -1110,6 +1115,11 @@ export function HomePage() {
                       </button>
                     )}
                     {uploadErr && <p className="text-caption text-error mt-1.5">{uploadErr}</p>}
+                    {uploadNote && (
+                      <p className="text-caption text-track-audio mt-1.5" data-testid="audio-upload-note">
+                        {uploadNote}
+                      </p>
+                    )}
 
                     {autoDubPref && !voicePick && !audio && (
                       <p className="text-caption text-on-surface-variant/70 mt-1.5">

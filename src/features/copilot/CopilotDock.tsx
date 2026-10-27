@@ -1,13 +1,16 @@
 /**
- * 副驾驶容器（PRD §19.2 / 需求 8、9）
+ * 副驾驶容器（PRD §19.2 / 需求 8；2026-10-28 PRD B1 统一单层标签）
  *
- * 右侧面板从"直接渲染 AgentPanel"改成"标签容器"：
- * - `requirements` → 复用现有 AgentPanel（内部不改，降低回归面）；
- * - `task-run` / `subagent` / `stage` / `workspace` / `docs` → F2–F4 逐步接入，
- *   现在明确显示"待接入"，**不假装已经能用**。
+ * 右侧面板只有**一排**标签：
+ * - `requirements` → 需求对话宿主（RequirementsPane，无自身标题行/标签）；
+ * - `logs`        → 执行日志面板（LogPanel），与需求对话同级；
+ * - `task-run` / `subagent` / `stage` / `workspace` / `docs` → F2–F4 逐步接入。
+ *
+ * 注意：Dock 只挂载当前激活标签的内容，SSE 订阅仍在各自的 store/provider 中，
+ * 不在此处重复订阅。
  */
 import React from 'react';
-import { AgentPanel } from '@/features/agent/AgentPanel';
+import { LogPanel, RequirementsPane } from '@/features/agent/AgentPanel';
 import { WorkspaceMaterialsPanel } from '@/features/workspace/WorkspaceMaterialsPanel';
 import { CopilotTabBar } from './CopilotTabBar';
 import { CopilotTaskRunTab } from './CopilotTaskRunTab';
@@ -33,7 +36,9 @@ export function CopilotDock() {
   const body = (() => {
     switch (active?.kind) {
       case 'requirements':
-        return <AgentPanel />;
+        return <RequirementsPane />;
+      case 'logs':
+        return <LogPanel />;
       case 'workspace':
         return active.payload?.projectId ? (
           <WorkspaceMaterialsPanel projectId={active.payload.projectId} compact />

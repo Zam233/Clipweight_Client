@@ -45,8 +45,8 @@ const toIntentCardData = (payload: IntentPreviewPayload): IntentPreview => ({
   hardProblems: payload.problems ?? [],
 });
 import {
-  Bot, Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
-  MessageSquareText, ChevronDown, ChevronRight, X, Paperclip, RefreshCw, Copy, Square,
+  Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
+  ChevronDown, ChevronRight, X, Paperclip, RefreshCw, Copy, Square,
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<PipelinePhase, string> = {
@@ -97,47 +97,30 @@ function formatMsgTime(ts: string | undefined): string {
 }
 
 
-export function AgentPanel() {
-  const [tab, setTab] = useState<'requirements' | 'logs'>('requirements');
+/**
+ * 需求对话宿主（无标题行、无内部标签）。
+ *
+ * 2026-10-28 PRD B1：全局只保留一排标签（CopilotTabBar）。原先 AgentPanel 自带的
+ * 「Agent 副驾驶」标题行 + 内部「需求对话 / 执行日志」二选一标签已删除——它会与
+ * 副驾驶标签栏叠成两层。现在这里只负责 requirements 标签需要的东西：离线横幅、
+ * 需求视图、底部输入、时间轴差异浮层。
+ */
+export function RequirementsPane() {
   const agentTimeline = useAgentStore((s) => s.agentTimeline);
   const setAgentTimeline = useAgentStore((s) => s.setAgentTimeline);
   // G5: 后端心跳——离线时显示横幅，区分"未连接"与"请求失败"
   const backend = useBackendHealth();
 
   return (
-    <div className="flex flex-col h-full bg-surface-container-low">
+    <div className="flex flex-col h-full bg-surface-container-low" data-testid="requirements-pane">
       {backend === 'offline' && (
         <div className="px-3 py-1 text-caption font-medium text-warning bg-warning/10 border-b border-warning/30 shrink-0">
           后端离线 — 当前为离线演示模式
         </div>
       )}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-outline-variant/30 shrink-0">
-        <div className="w-6 h-6 rounded-cw-full bg-primary-container flex items-center justify-center">
-          <Bot className="w-3.5 h-3.5 text-on-primary-container" />
-        </div>
-        <span className="text-label font-medium text-on-surface-variant uppercase tracking-wide">
-          Agent 副驾驶
-        </span>
-        <span className="ml-auto w-2 h-2 rounded-cw-full bg-track-audio animate-pulse" title="在线" />
-      </div>
-
-      <div className="flex border-b border-outline-variant/30 shrink-0">
-        <button onClick={() => setTab('requirements')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-label font-medium border-b-2 transition-colors cursor-pointer ${
-            tab === 'requirements' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'
-          }`}>
-          <MessageSquareText className="w-3.5 h-3.5" /> 需求对话
-        </button>
-        <button onClick={() => setTab('logs')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-label font-medium border-b-2 transition-colors cursor-pointer ${
-            tab === 'logs' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'
-          }`}>
-          <ListChecks className="w-3.5 h-3.5" /> 执行日志
-        </button>
-      </div>
 
       <div className="flex-1 overflow-hidden min-h-0">
-        {tab === 'requirements' ? <RequirementsView /> : <LogPanel />}
+        <RequirementsView />
       </div>
 
       <BottomBar />
@@ -149,6 +132,14 @@ export function AgentPanel() {
       )}
     </div>
   );
+}
+
+/**
+ * 兼容壳：外部（EditorPage / 测试 / 旧扩展）仍可 `<AgentPanel />`，
+ * 但它不再有自己的标题行与标签——标签统一由 CopilotTabBar 提供。
+ */
+export function AgentPanel() {
+  return <RequirementsPane />;
 }
 
 function RequirementsView() {
@@ -799,7 +790,8 @@ function RequirementsView() {
   );
 }
 
-function LogPanel() {
+/** 执行日志面板（B1：由副驾驶 `logs` 标签直接渲染，不再藏在 AgentPanel 内部）。 */
+export function LogPanel() {
   const logEntries = useAgentStore((s) => s.logEntries);
   const toggleExpand = useAgentStore((s) => s.toggleLogExpand);
   const clearLogs = useAgentStore((s) => s.clearLogs);
@@ -820,7 +812,7 @@ function LogPanel() {
   const groups = useMemo(() => (grouped ? buildGroups(logEntries) : null), [grouped, logEntries]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" data-testid="log-panel">
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-outline-variant/20 shrink-0">
         <span className="text-caption text-on-surface-variant font-mono">
           {logEntries.length} 条
