@@ -24,7 +24,7 @@ const { api } = vi.hoisted(() => ({
 
 vi.mock('@/services/api/task', () => ({ taskApi: api }));
 
-import { MAX_TASK_EVENTS, useTaskStore } from './taskStore';
+import {  MAX_TASK_EVENTS, useTaskStore , terminalStatusOf } from './taskStore';
 import type { Task, TaskEvent } from '@/types/task';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -218,5 +218,33 @@ describe('动作', () => {
     await useTaskStore.getState().hydrateEvents('task_1');
     expect(useTaskStore.getState().events).toHaveLength(2);
     expect(useTaskStore.getState().task!.plan!.steps[0].status).toBe('done');
+  });
+});
+
+describe('terminalStatusOf', () => {
+  it('正式跑完 = done', () => {
+    expect(terminalStatusOf('tool_loop_completed')).toBe('done');
+    expect(terminalStatusOf('plan_completed')).toBe('done');   // 兼容旧值
+    expect(terminalStatusOf('task_completed')).toBe('done');
+  });
+
+  it('预览跑完 = done（不是失败）', () => {
+    expect(terminalStatusOf('dry_run_preview')).toBe('done');
+  });
+
+  it('触闸 / 循环失败 / 无模型 = failed', () => {
+    expect(terminalStatusOf('gate:工具调用数达到上限 60')).toBe('failed');
+    expect(terminalStatusOf('tool_loop_error:model_final')).toBe('failed');
+    expect(terminalStatusOf('tool_loop_unavailable:no_llm_credential')).toBe('failed');
+    expect(terminalStatusOf('缺少可渲染时间线（final_timeline 为空）')).toBe('failed');
+  });
+
+  it('取消与暂停单独区分', () => {
+    expect(terminalStatusOf('cancelled')).toBe('cancelled');
+    expect(terminalStatusOf('paused')).toBe('paused');
+  });
+
+  it('空原因不冒充成功', () => {
+    expect(terminalStatusOf('')).toBe('failed');
   });
 });

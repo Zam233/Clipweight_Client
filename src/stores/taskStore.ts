@@ -47,6 +47,18 @@ const EMPTY = {
 };
 
 /** 事件 → plan/step 状态推导（前端不向"后端已算好的状态"二次确认，双份状态必然漂移）。 */
+/** `task_end.detail.reason` → 前端 status（口径与后端 TaskFinish.reason 对齐）。 */
+export function terminalStatusOf(reason: string): Task['status'] {
+  const r = String(reason || '');
+  if (r === 'cancelled' || r === 'cancel') return 'cancelled';
+  if (r === 'paused') return 'paused';
+  // 成功：正式跑完 / 预览跑完（预览是"如实完成了一次预览"，不是失败）
+  if (r === 'tool_loop_completed' || r === 'plan_completed'
+      || r === 'dry_run_preview' || r === 'task_completed') return 'done';
+  // 其余（gate:* / tool_loop_error:* / tool_loop_unavailable:* / 守门未过）都是失败
+  return 'failed';
+}
+
 function _foldPlan(task: Task, event: TaskEvent): Task | null {
   const detail = event.detail || {};
   const plan = task.plan;
@@ -141,11 +153,12 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       const folded = _foldPlan(task, event);
       nextTask = folded ?? task;
       if (event.type === 'task_end') {
+        // 收尾口径（modern agent）：后端已不再用 plan_completed 这一个名字。
+        // 现网会发 tool_loop_completed / dry_run_preview / cancelled / gate:* / tool_loop_error:*，
+        // 只有"没跑成"的那几类才算失败——否则成功任务在 UI 上显示失败（P0）。
         nextTask = {
           ...(nextTask as Task),
-          status: String(event.detail?.reason || '') === 'plan_completed'
-            ? 'done'
-            : 'failed',
+          status: terminalStatusOf(String(event.detail?.reason || '')),
           finish: {
             conclusion: event.message,
             completed: (event.detail?.completed as string[]) || [],
