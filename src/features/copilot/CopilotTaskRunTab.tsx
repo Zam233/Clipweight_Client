@@ -11,6 +11,7 @@ import { EventFeed } from '@/features/task/EventFeed';
 import { PlanPanel } from '@/features/task/PlanPanel';
 import { TaskArtifacts } from '@/features/task/TaskArtifacts';
 import { TaskToolbar } from '@/features/task/TaskToolbar';
+import { supervisorApi } from '@/services/api';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { RunningSubagents } from './RunningSubagents';
 
@@ -145,28 +146,99 @@ function ToolCallRows({ events }: { events: Ev }) {
   );
 }
 
-/** 授权请求：等授权**不是失败**，必须单独显示，否则用户以为任务挂了。 */
-function ApprovalRows({ events }: { events: Ev }) {
+/**
+ * 授权请求：等授权**不是失败**，必须单独显示，否则用户以为任务挂了。
+ *
+ * B11（2026-10-28 PRD / 缺口 N4）：旧实现只有一行日志——用户看得到"待授权"却
+ * **没有提交入口**，任务就永久停在 paused。现在每条 `approval_request` 直接给出
+ * 「授权 / 拒绝」，命中高风险时要求二次确认（与后端两级确认一致）；提交结果以
+ * 可读文案回显，失败如实说明（不假装已授权）。
+ */
+function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
+  const [busyId, setBusyId] = React.useState('');
+  const [note, setNote] = React.useState<Record<string, string>>({});
+
   const rows = React.useMemo(
     () => events.filter((e) => e.type === 'approval_request' || e.type === 'approval_result'),
     [events],
   );
   if (!rows.length) return null;
+
+  const submit = async (approvalId: string, risk: string, approve: boolean) => {
+    if (!approvalId || !taskId) return;
+    const highRisk = risk === 'high' || risk === 'critical';
+    if (approve && highRisk && !window.confirm(
+      `这条操作被判定为 ${risk} 风险，确认授权？`,
+    )) return;
+    setBusyId(approvalId);
+    try {
+      if (approve) {
+        await supervisorApi.approveExec(
+          taskId, approvalId, highRisk, risk === 'critical',
+        );
+        setNote((n) => ({ ...n, [approvalId]: '已授权' }));
+      } else {
+        await supervisorApi.rejectExec(taskId, approvalId);
+        setNote((n) => ({ ...n, [approvalId]: '已拒绝' }));
+      }
+    } catch (e) {
+      setNote((n) => ({
+        ...n,
+        [approvalId]: `提交失败：${(e as Error)?.message || '未知错误'}`,
+      }));
+    } finally {
+      setBusyId('');
+    }
+  };
+
   return (
     <div className="border-b border-outline-variant/20 px-3 py-2" data-testid="approval-rows">
       <p className="mb-1 text-label-sm text-on-surface-variant">授权</p>
       <ul className="space-y-1">
         {rows.map((e) => {
           const detail = (e.detail || {}) as Record<string, unknown>;
+          const approvalId = String(detail.approval_id || '');
+          const risk = String(detail.risk || '');
+          const pending = e.type === 'approval_request' && !detail.status;
           return (
-            <li key={e.seq} className="flex items-baseline gap-2 text-caption">
+            <li key={e.seq} className="flex flex-wrap items-baseline gap-2 text-caption">
               <span className="w-16 shrink-0 text-on-surface-variant/70">
                 {e.type === 'approval_request' ? '待授权' : '结果'}
               </span>
               <span className="truncate">{e.message}</span>
-              {detail.risk ? (
-                <span className="shrink-0 text-error/80">risk={String(detail.risk)}</span>
+              {risk ? (
+                <span className="shrink-0 text-error/80">risk={risk}</span>
               ) : null}
+              {pending && approvalId && (
+                <span className="ml-auto flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    data-approval-approve={approvalId}
+                    disabled={busyId === approvalId}
+                    className="rounded-cw-xs border border-outline-variant/50 px-2 py-0.5 text-primary hover:border-primary disabled:opacity-50"
+                    onClick={() => void submit(approvalId, risk, true)}
+                  >
+                    授权
+                  </button>
+                  <button
+                    type="button"
+                    data-approval-reject={approvalId}
+                    disabled={busyId === approvalId}
+                    className="rounded-cw-xs border border-outline-variant/50 px-2 py-0.5 text-on-surface-variant hover:border-error hover:text-error disabled:opacity-50"
+                    onClick={() => void submit(approvalId, risk, false)}
+                  >
+                    拒绝
+                  </button>
+                </span>
+              )}
+              {note[approvalId] && (
+                <span
+                  className="shrink-0 text-on-surface-variant/70"
+                  data-approval-note={approvalId}
+                >
+                  {note[approvalId]}
+                </span>
+              )}
             </li>
           );
         })}
@@ -219,7 +291,7 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
       <StageRows events={events} />
       <ModelTurnRows events={events} />
       <ToolCallRows events={events} />
-      <ApprovalRows events={events} />
+      <ApprovalRows events={events} taskId={taskId} />
 
       <div className="min-h-0 flex-1 overflow-auto px-1 py-1">
         <EventFeed events={events} />
