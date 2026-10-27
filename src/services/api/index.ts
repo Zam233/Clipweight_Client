@@ -33,3 +33,5 @@ export { workspaceApi } from './workspace';
 export type {
   ScanReport, WorkspaceDoc, WorkspaceMaterial, WorkspaceReport, WorkspaceStatus,
 } from './workspace';
+export { evalApi } from './eval';
+export type { EvalReportPayload, EvalReportSummary } from './eval';

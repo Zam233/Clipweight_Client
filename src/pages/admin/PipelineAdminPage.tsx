@@ -3,6 +3,7 @@ import { ConsoleShell, ConsoleHeading, StatusPill } from './ConsoleShell';
 import { pipelineApi } from '@/services/api';
 import { TaskListSection } from '@/features/task/TaskListSection';
 import { TypeConformancePanel } from '@/features/pipeline/TypeConformancePanel';
+import { EvalPanel } from '@/features/pipeline/EvalPanel';
 import { cn } from '@/lib/utils';
 import {
   Activity, Gauge, Coins, Timer, ChevronDown, ChevronRight,
@@ -51,6 +52,8 @@ export function PipelineAdminPage() {
   const expandedRef = useRef<string | null>(null);
   // A10: 队列任务概览（running/pending/recovered）
   const [queueInfo, setQueueInfo] = useState<{ running: number; pending: number; recovered: number } | null>(null);
+  // closeout B10：评估面板（golden 真跑报告）
+  const [tab, setTab] = useState<'runs' | 'eval'>('runs');
   // E5: retry 后延迟刷新的定时器托管（原实现裸 setTimeout，卸载后仍 setState）
   const retryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => () => {
@@ -144,6 +147,26 @@ export function PipelineAdminPage() {
 
       {/* 路线 C：任务列表（老 runs 视图仍保留，直到 C7 退役） */}
       <TaskListSection />
+
+      <div className="mb-3 flex items-center gap-1" data-testid="admin-tabs">
+        {(['runs', 'eval'] as const).map((key) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={cn(
+              'rounded-cw-sm px-3 py-1 text-label-sm cursor-pointer',
+              tab === key
+                ? 'bg-primary/15 text-on-surface'
+                : 'text-on-surface-variant hover:text-on-surface',
+            )}
+          >
+            {key === 'runs' ? '运行记录' : '评估'}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'eval' ? <EvalPanel /> : null}
 
       {error && (
         <div className="flex items-center justify-between mb-5 max-w-[900px] bg-error/10 border border-error/30 rounded-cw-md px-4 py-2.5">

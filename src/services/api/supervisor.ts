@@ -99,16 +99,23 @@ export const supervisorApi = {
 
   // ── B7–B9 端点（子代理 / 执行 / 授权 / worker 审核）──
 
-  /** 子代理树（PRD F12）。 */
+  /**
+   * 子代理树（supervisor worker，PRD F12）。
+   *
+   * 走**规范路径** `/api/supervisor/{id}/subagents`；`/api/pipeline/...` 那条是历史命名
+   * （老管线已删除，容易让人误以为已死），后端保留为别名待前端切完即删。
+   * 返回形状固定 `{ count, nodes, tree }`，UI 只读 `tree`。
+   */
   async getSubagents(pipelineId: string): Promise<SubagentsResponse> {
     const { data } = await getApiClient().get<SubagentsResponse>(
-      `/api/pipeline/${pipelineId}/subagents`,
+      `/api/supervisor/${pipelineId}/subagents`,
     );
     return data;
   },
 
   async cancelSubagent(pipelineId: string, subagentId: string): Promise<void> {
-    await getApiClient().post(`/api/pipeline/${pipelineId}/subagents/${subagentId}/cancel`);
+    // 与 getSubagents 同步迁到规范路径（旧 /api/pipeline/... 路由已下线）
+    await getApiClient().post(`/api/supervisor/${pipelineId}/subagents/${subagentId}/cancel`);
   },
 
   /** 执行日志（PRD F11）。 */

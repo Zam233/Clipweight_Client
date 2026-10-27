@@ -24,7 +24,8 @@ export function CopilotSubagentTab({ taskId, subagentId }: { taskId?: string; su
       try {
         const res = await supervisorApi.getSubagents(taskId);
         if (!alive) return;
-        const list = ((res as { subagents?: Node[]; nodes?: Node[] }).subagents
+        // 形状固定 `{ tree }`：别再猜 subagents/nodes 三个键
+        const list = ((res as { tree?: Node[]; nodes?: Node[] }).tree
           ?? (res as { nodes?: Node[] }).nodes ?? []) as Node[];
         setNode(list.find((n) => n.id === subagentId) ?? null);
       } catch (e) {
