@@ -38,7 +38,7 @@ const AGENT_COLORS: Record<string, string> = {
  * PipelineAdminPage — observability console: aggregate stats, run queue, and
  * a Gantt-style span trace per run showing each Agent's wall time.
  *
- * Data comes from the real backend (GET /api/pipeline/runs + /api/pipeline/trace/{id}).
+ * 数据源：Task 列表（GET /api/task，主视图）+ 老管线历史（GET /api/pipeline/runs，只读回看）。
  * When the backend is offline we surface an error banner — never fake data.
  */
 export function PipelineAdminPage() {
@@ -206,8 +206,11 @@ export function PipelineAdminPage() {
           Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-20 bg-surface-container rounded-cw-md animate-pulse" />)
         ) : runs.length === 0 ? (
           <div className="bg-surface-container border border-dashed border-outline-variant/40 rounded-cw-md px-5 py-10 text-center">
-            <p className="text-body-sm text-on-surface-variant">暂无运行记录</p>
-            <p className="text-caption text-on-surface-variant/60 mt-1 font-mono">GET /api/pipeline/runs 返回空列表 — 运行一次管线后此处会显示真实记录。</p>
+            <p className="text-body-sm text-on-surface-variant">暂无老管线运行记录</p>
+            <p className="text-caption text-on-surface-variant/60 mt-1 font-mono">
+              老 6 阶段管线已下线：新创作都在上方「任务」列表里（GET /api/task）。
+              这里只保留切换前历史记录的只读回看。
+            </p>
           </div>
         ) : (
           runs.map((run) => {
