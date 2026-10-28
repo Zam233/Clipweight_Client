@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
 import { typeMakerApi } from '@/services/api';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import { Plus, Copy, Trash2, Pencil, Film, Eye, X } from 'lucide-react';
-import type { TypePreviewResult } from '@/services/api/typeMaker';
+import {
+  Plus, Copy, Trash2, Pencil, Film, Eye, X, SlidersHorizontal, ScanSearch,
+} from 'lucide-react';
+import type { GenreCheckResult, TypePreviewResult } from '@/services/api/typeMaker';
+import { TypeSpecEditor } from '@/features/settings/TypeSpecEditor';
 
 interface VideoType {
   id: string;
@@ -32,6 +35,14 @@ export function TypeMakerPage() {
   const [previewFor, setPreviewFor] = useState<{ id: string; name: string } | null>(null);
   const [previewResult, setPreviewResult] = useState<TypePreviewResult | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [specFor, setSpecFor] = useState<string | null>(null);
+  // V17：类型同一性复核（POST /api/type-maker/{id}/genre-check）
+  const [genreFor, setGenreFor] = useState<{ id: string; name: string } | null>(null);
+  const [genreTimeline, setGenreTimeline] = useState(SAMPLE_TIMELINE_JSON);
+  const [genreUseJudge, setGenreUseJudge] = useState(false);
+  const [genreResult, setGenreResult] = useState<GenreCheckResult | null>(null);
+  const [genreError, setGenreError] = useState('');
+  const [genreLoading, setGenreLoading] = useState(false);
 
   const reload = async () => {
     try {
@@ -91,6 +102,35 @@ export function TypeMakerPage() {
       setPreviewResult({ valid: false, errors: ['预览失败：后端不可达'], shot_params: null as never, sample_translation: {} });
     } finally {
       setPreviewLoading(false);
+    }
+  };
+
+  /** V17：类型同一性复核——把一段时间线 POST 给后端判"这像不像该类型"。 */
+  const runGenreCheck = async () => {
+    if (!genreFor) return;
+    setGenreLoading(true);
+    setGenreError('');
+    setGenreResult(null);
+    let timeline: unknown;
+    try {
+      timeline = JSON.parse(genreTimeline);
+    } catch {
+      setGenreError('时间线不是合法 JSON');
+      setGenreLoading(false);
+      return;
+    }
+    try {
+      const result = await typeMakerApi.genreCheck(genreFor.id, {
+        timeline,
+        ...(genreUseJudge ? { enable_genre_judge: true } : {}),
+      });
+      setGenreResult(result);
+    } catch (err) {
+      // 400 语义：时间线结构非法——把后端 detail 原样带出来，不吞异常
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setGenreError(detail ? `复核失败：${detail}` : '复核失败：后端不可达');
+    } finally {
+      setGenreLoading(false);
     }
   };
 
@@ -157,6 +197,12 @@ export function TypeMakerPage() {
               onEdit={() => (editing === t.id ? commitEdit(t) : setEditing(t.id))}
               onDuplicate={() => duplicate(t)}
               onPreview={() => runPreview(t)}
+              onSpec={() => setSpecFor(t.id)}
+              onGenre={() => {
+                setGenreFor({ id: t.id, name: t.name });
+                setGenreResult(null);
+                setGenreError('');
+              }}
               onRemove={() => setConfirmDelete(t.id)}
               onChange={(patch) => setTypes((ts) => ts.map((x) => (x.id === t.id ? { ...x, ...patch } : x)))} />
           ))
@@ -219,15 +265,140 @@ export function TypeMakerPage() {
           </div>
         </div>
       )}
+      {/* V17：类型同一性复核（L1 指标恒开；LLM 裁判需显式勾选，D7 默认关） */}
+      {genreFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => { setGenreFor(null); setGenreResult(null); }}>
+          <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-surface-container border border-outline-variant/40 rounded-cw-lg p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()} data-testid="genre-check-modal">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-title-sm font-semibold text-on-surface">类型复核 · {genreFor.name}</h3>
+              <button onClick={() => { setGenreFor(null); setGenreResult(null); }}
+                className="p-1 rounded-cw-xs text-on-surface-variant hover:text-on-surface cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-caption text-on-surface-variant mb-2 leading-relaxed">
+              把一段时间线贴进来，后端按该类型声明的 <span className="font-mono">signature_traits</span> 判
+              「这是不是这个类型的片子」。指标判定恒开；LLM 复核（判"指标全过但形态不对"）默认关。
+            </p>
+
+            <label className="flex items-center gap-2 mb-2 cursor-pointer select-none">
+              <input type="checkbox" checked={genreUseJudge}
+                onChange={(e) => setGenreUseJudge(e.target.checked)}
+                data-testid="genre-check-use-judge" className="cursor-pointer" />
+              <span className="text-label-sm text-on-surface">用 LLM 复核（更慢、更准；D7 默认关）</span>
+            </label>
+
+            <textarea
+              value={genreTimeline}
+              onChange={(e) => setGenreTimeline(e.target.value)}
+              data-testid="genre-check-timeline"
+              spellCheck={false}
+              rows={8}
+              className="w-full bg-surface rounded-cw-xs p-2.5 text-caption font-mono text-on-surface outline-none border border-outline-variant/40 focus:border-primary"
+            />
+            <div className="flex items-center gap-2 mt-2.5">
+              <Button size="sm" onClick={runGenreCheck} disabled={genreLoading}>
+                <ScanSearch className="w-3.5 h-3.5" /> {genreLoading ? '复核中…' : '开始复核'}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setGenreTimeline(SAMPLE_TIMELINE_JSON)}>
+                载入示例时间线
+              </Button>
+            </div>
+
+            {genreError && (
+              <div className="mt-3 bg-error/10 border border-error/30 rounded-cw-sm px-3 py-2"
+                data-testid="genre-check-error">
+                <span className="font-mono text-caption text-error">{genreError}</span>
+              </div>
+            )}
+
+            {genreResult && (
+              <div className="mt-4 space-y-3" data-testid="genre-check-result">
+                <div className={cn('rounded-cw-xs px-3 py-2 text-label-sm border',
+                  genreResult.ok
+                    ? 'bg-success/10 text-success border-success/30'
+                    : 'bg-error/10 text-error border-error/30')}>
+                  {genreResult.ok ? '✓ ' : '✗ '}{genreResult.summary}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 font-mono text-caption">
+                  <Spec label="类型" value={genreResult.type_id} />
+                  <Spec label="声明指标" value={String(genreResult.traits_declared)} />
+                  <Spec label="LLM 裁判" value={judgeLabel(genreResult.judge)} />
+                  <Spec label="冲突" value={String(genreResult.mismatches.length)} />
+                </div>
+
+                {genreResult.traits.length > 0 && (
+                  <div>
+                    <p className="text-label text-on-surface-variant mb-1">逐条指标</p>
+                    <ul className="space-y-1">
+                      {genreResult.traits.map((trait) => (
+                        <li key={trait.name} className="flex items-start gap-2 text-caption">
+                          <span className={trait.passed ? 'text-success' : 'text-error'}>
+                            {trait.passed ? '✓' : '✗'}
+                          </span>
+                          <span className="font-mono text-on-surface">
+                            {trait.name}={formatNum(trait.value)}
+                          </span>
+                          <span className="text-on-surface-variant">
+                            （{trait.mode} {formatNum(trait.threshold)}，{trait.enforce}）
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {(genreResult.mismatches.length > 0 || genreResult.warnings.length > 0) && (
+                  <div>
+                    <p className="text-label text-on-surface-variant mb-1">判定说明</p>
+                    <ul className="space-y-1 text-caption text-on-surface">
+                      {genreResult.mismatches.map((item) => (
+                        <li key={item} className="text-error">• {item}</li>
+                      ))}
+                      {genreResult.warnings.map((item) => (
+                        <li key={item} className="text-on-surface-variant">• {item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {genreResult.judge === 'mismatch' && (
+                  <div className="bg-surface rounded-cw-xs p-2.5 text-caption" data-testid="genre-judge-detail">
+                    <p className="text-label text-on-surface-variant mb-1">LLM 裁判证据</p>
+                    <pre className="font-mono text-on-surface overflow-x-auto whitespace-pre-wrap">
+                      {JSON.stringify(genreResult.judge_detail, null, 2)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* F-01：类型规范编辑器（提示词槽位 + 参数规则 + 指标） */}
+      {specFor && (
+        <TypeSpecEditor
+          typeId={specFor}
+          onClose={() => setSpecFor(null)}
+          onSaved={reload}
+        />
+      )}
+
     </ConsoleShell>
   );
 }
 
 function TypeCard({
-  type, editing, onEdit, onDuplicate, onPreview, onRemove, onChange,
+  type, editing, onEdit, onDuplicate, onPreview, onSpec, onGenre, onRemove, onChange,
 }: {
   type: VideoType; editing: boolean; onEdit: () => void; onDuplicate: () => void;
-  onPreview: () => void; onRemove: () => void; onChange: (patch: Partial<VideoType>) => void;
+  onPreview: () => void; onSpec: () => void; onGenre: () => void; onRemove: () => void;
+  onChange: (patch: Partial<VideoType>) => void;
 }) {
   // rhythm bars derived from cut interval (lower interval = denser)
   const density = Math.max(1, Math.min(8, Math.round(8 - type.cut_interval_ms / 2000)));
@@ -245,6 +416,10 @@ function TypeCard({
           </span>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-short3">
             <IconBtn title="预览" onClick={onPreview}><Eye className="w-3.5 h-3.5" /></IconBtn>
+            {/* V17：类型同一性复核——贴时间线干跑"这像不像该类型" */}
+            <IconBtn title="类型复核" onClick={onGenre}><ScanSearch className="w-3.5 h-3.5" /></IconBtn>
+            {/* F-01：类型规范编辑（提示词/规则/指标），内置类型只读预览规范 */}
+            <IconBtn title="规范" onClick={onSpec}><SlidersHorizontal className="w-3.5 h-3.5" /></IconBtn>
             {/* P2-26: 内置类型不可编辑（后端 404）——隐藏编辑入口，改由「复制」派生 */}
             {!type.builtin && (
               <IconBtn title="编辑" onClick={onEdit}><Pencil className="w-3.5 h-3.5" /></IconBtn>
@@ -295,8 +470,76 @@ function TypeCard({
   );
 }
 
-function Spec({ label, value }: { label: string; value: string }) {
-  return (
+/** 裁判结论的展示文案（后端只会给这三个值，别的不猜）。 */
+function judgeLabel(judge: string): string {
+  if (judge === 'passed') return '已复核 · 符合';
+  if (judge === 'mismatch') return '已复核 · 错配';
+  return '未复核（D7 默认关）';
+}
+
+function formatNum(value: number): string {
+  if (!Number.isFinite(value)) return '—';
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+/**
+ * 复核用的示例时间线：8 个 3s 镜头 + 每镜一句字幕（MV 形态）。
+ * 只是**贴合素材**的样例，不写入任何地方；作者可以整段替换成自己的时间线。
+ */
+const SAMPLE_TIMELINE_JSON = JSON.stringify(
+  {
+    id: 'tl_genre_check_sample',
+    width: 1080,
+    height: 1920,
+    fps: 30,
+    duration_sec: 24,
+    tracks: [
+      {
+        id: 'v',
+        name: '视频',
+        kind: 'video',
+        index: 0,
+        clips: Array.from({ length: 8 }, (_, i) => ({
+          id: `c${i}`,
+          kind: 'video',
+          asset_id: `a${i}`,
+          track_id: 'v',
+          start_sec: i * 3,
+          duration_sec: 3,
+          source_offset_sec: 0,
+          speed: 1,
+          volume: 1,
+          opacity: 1,
+          keyframes: [],
+        })),
+      },
+      {
+        id: 'cap',
+        name: '字幕',
+        kind: 'caption',
+        index: 1,
+        clips: Array.from({ length: 8 }, (_, i) => ({
+          id: `t${i}`,
+          kind: 'caption',
+          asset_id: '',
+          track_id: 'cap',
+          start_sec: i * 3,
+          duration_sec: 3,
+          source_offset_sec: 0,
+          speed: 1,
+          volume: 1,
+          opacity: 1,
+          keyframes: [],
+          text: `第 ${i + 1} 句歌词`,
+        })),
+      },
+    ],
+  },
+  null,
+  2,
+);
+
+function Spec({ label, value }: { label: string; value: string }) {  return (
     <div className="bg-surface rounded-cw-xs py-1.5 px-1">
       <p className="text-caption text-on-surface-variant">{label}</p>
       <p className="text-label-sm font-mono text-on-surface mt-0.5">{value}</p>

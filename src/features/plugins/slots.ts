@@ -130,8 +130,8 @@ export function evalVisibleWhen(
   switch (op) {
     case '===': return value === literal;
     case '!==': return value !== literal;
-    case '==': return value == literal; // eslint-disable-line eqeqeq
-    case '!=': return value != literal; // eslint-disable-line eqeqeq
+    case '==': return value == literal;
+    case '!=': return value != literal;
     default: return false;
   }
 }

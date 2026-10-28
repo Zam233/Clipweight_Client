@@ -1,23 +1,28 @@
-import { useState, useRef, useCallback } from 'react';
+﻿import { useState, useRef, useCallback } from 'react';
+import { useNavigate } from '@tanstack/react-router';
+import { applyProceedResult } from './proceedResult';
 import { useAgentStore } from '@/stores/agentStore';
 import { requirementsApi } from '@/services/api';
-import { savePipelineId } from '@/services/storage/pipelineSession';
 import { useProjectStore } from '@/stores/projectStore';
 import { Button } from '@/components/ui';
 import { Markdown } from '@/components/shared/Markdown';
 import { resolveMessageAttachments } from './requirementsAttachments';
 import { uid } from '@/lib/utils';
+import { PlanReviewPanel, type PlanView } from '@/features/plan/PlanReviewPanel';
 import { MessageSquare, ThumbsDown, ThumbsUp, X, Send, Check, Loader2, ChevronLeft } from 'lucide-react';
 
 interface ReviewPanelProps {
   brief?: NonNullable<ReturnType<typeof useAgentStore.getState>['creativeBrief']> | null;
   planMarkdown?: string;
+  /** F-06：结构化规划（有则渲染双栏确认视图；无则保持旧的 markdown 只读视图） */
+  planView?: PlanView | null;
   onBack: () => void;
 }
 
 type AnnType = 'comment' | 'dislike' | 'like';
 
-export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
+export function ReviewPanel({ brief, planMarkdown, planView, onBack }: ReviewPanelProps) {
+  const navigate = useNavigate();
   const addAnnotation = useAgentStore((s) => s.addAnnotation);
   const removeAnnotation = useAgentStore((s) => s.removeAnnotation);
   const annotations = useAgentStore((s) => s.annotations);
@@ -142,11 +147,15 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
             ...(st.cutOnBeat && st.beatBpm ? { cut_on_beat: true, bpm: st.beatBpm } : {}),
           },
           st.projectId ?? undefined,
-        ) as { pipeline_id?: string };
-        if (res.pipeline_id) {
-          useAgentStore.getState().setPipelineId(res.pipeline_id);
-          // 批B：持久化 pipeline id——刷新后 BottomBar 才能恢复 SSE 追踪
-          savePipelineId(res.pipeline_id);
+        ) as { pipeline_id?: string; task_id?: string; workspace_root?: string };
+        // 双轨（PRD workspace-prd §6.2）：agent_mode=on 时后端返回 task_id，
+        // 必须跳 /task/{id} 走 Task 事件流；否则才挂老管线 SSE。
+        const target = applyProceedResult(res);
+        if (target?.mode === 'task') {
+          useAgentStore.getState().updatePhase('structure', 5);
+          // PRD §19.3：不跳页——任务在编辑器右侧的「任务运行」标签里就地跑（applyProceedResult 已开标签）
+        } else if (target) {
+          useAgentStore.getState().setPipelineId(target.id);
           useAgentStore.getState().updatePhase('structure', 5);
         }
       } else {
@@ -254,6 +263,15 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
               {brief.asset_ratio && (
                 <div><span className="text-on-surface-variant">素材/动画占比：</span>实拍 {brief.asset_ratio.footage} · MG {brief.asset_ratio.mg}</div>
               )}
+            </div>
+          )}
+          {planView && (
+            <div className="mb-4">
+              <PlanReviewPanel
+                plan={planView}
+                brief={(brief as unknown as Record<string, unknown>) ?? undefined}
+                readOnly
+              />
             </div>
           )}
           {planMarkdown && <Markdown text={planMarkdown} />}

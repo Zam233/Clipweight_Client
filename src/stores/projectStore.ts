@@ -20,16 +20,41 @@ interface ProjectState {
   audioPath: string;
   audioDurationSec: number;
 
+  /** 工作区（PRD workspace-prd-2026-10-24）：项目唯一产物根 */
+  workspaceRoot: string;
+  workspaceAutoIndex: boolean;
+  workspaceVisionIndex: boolean;
+
   requirementsTopic: string;
   requirementsScript: string;
   requirementsAudioDuration: number;
+  /** F-04：创作页的「视频提示词」（自由文本，随任务下发） */
+  creativePrompt: string;
+  /** F-04：提示词里的「不要什么」（映射到类型 anti_patterns / avoid） */
+  creativeAvoid: string[];
   materialSourceIds: string[];
   dubSegments: Array<{ start: number; end: number; text: string }> | null;
   /** P8: dry-run 预览模式 — 管线只生成粗剪时间线，不执行动画/音频/质检 */
   dryRun: boolean;
+  /**
+   * 推理强度（2026-10-28 PRD B5）：'' = 不下发（跟随模型配置）；
+   * low/medium/high = 显式请求；provider 不支持时后端记降级并在事件流里说明。
+   */
+  reasoningEffort: '' | 'low' | 'medium' | 'high';
   // P2-04: 踩点剪辑（beat-sync）——音色驱动的需求表单入口
   cutOnBeat: boolean;
   beatBpm: number | null;
+  /**
+   * D23 镜头节奏策略：`default`（跟随类型节奏——低于下限合并、高于上限切分，
+   * 两者都保总时长）/ off / record / extend / loop。
+   * 默认 `default` = **不显式下发**，由后端按它自己的默认（merge + split）执行。
+   */
+  shotFloorPolicy: string;
+  /**
+   * D23 上界策略：`default`（不下发，后端 split）/ off / record。
+   * 超过 `max_shot_ms` 的场景切成多镜，总时长不变（V35 的落地机制）。
+   */
+  shotCapPolicy: string;
 
   // Actions
   setProjectId: (id: string | null) => void;
@@ -48,13 +73,21 @@ interface ProjectState {
   setSplitMode: (v: string) => void;
   setAudioPath: (v: string) => void;
   setAudioDurationSec: (v: number) => void;
+  setWorkspaceRoot: (v: string) => void;
+  setWorkspaceAutoIndex: (v: boolean) => void;
+  setWorkspaceVisionIndex: (v: boolean) => void;
   setRequirementsTopic: (v: string) => void;
   setRequirementsScript: (v: string) => void;
   setRequirementsAudioDuration: (v: number) => void;
+  setCreativePrompt: (v: string) => void;
+  setCreativeAvoid: (v: string[]) => void;
   setMaterialSourceIds: (ids: string[]) => void;
   setDubSegments: (segments: Array<{ start: number; end: number; text: string }> | null) => void;
   setDryRun: (v: boolean) => void;
+  setReasoningEffort: (v: '' | 'low' | 'medium' | 'high') => void;
   setCutOnBeat: (v: boolean) => void;
+  setShotFloorPolicy: (v: string) => void;
+  setShotCapPolicy: (v: string) => void;
   setBeatBpm: (v: number | null) => void;
   resetProject: () => void;
 }
@@ -77,15 +110,23 @@ export const useProjectStore = create<ProjectState>((set) => ({
   splitMode: 'period',
   audioPath: '',
   audioDurationSec: 0,
+  workspaceRoot: '',
+  workspaceAutoIndex: true,
+  workspaceVisionIndex: true,
 
   requirementsTopic: '',
   requirementsScript: '',
   requirementsAudioDuration: 0,
+  creativePrompt: '',
+  creativeAvoid: [],
   materialSourceIds: [],
   dubSegments: null,
   dryRun: false,
+  reasoningEffort: '',
   cutOnBeat: false,
   beatBpm: null,
+  shotFloorPolicy: 'default',
+  shotCapPolicy: 'default',
 
   setProjectId: (id) => set({ projectId: id }),
   setProjectName: (name) => set({ projectName: name }),
@@ -103,14 +144,22 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setSplitMode: (v) => set({ splitMode: v }),
   setAudioPath: (v) => set({ audioPath: v }),
   setAudioDurationSec: (v) => set({ audioDurationSec: v }),
+  setWorkspaceRoot: (v) => set({ workspaceRoot: v }),
+  setWorkspaceAutoIndex: (v) => set({ workspaceAutoIndex: v }),
+  setWorkspaceVisionIndex: (v) => set({ workspaceVisionIndex: v }),
   setRequirementsTopic: (v) => set({ requirementsTopic: v }),
   setRequirementsScript: (v) => set({ requirementsScript: v }),
   setRequirementsAudioDuration: (v) => set({ requirementsAudioDuration: v }),
+  setCreativePrompt: (v) => set({ creativePrompt: v }),
+  setCreativeAvoid: (v) => set({ creativeAvoid: v }),
   setMaterialSourceIds: (ids) => set({ materialSourceIds: ids }),
   setDubSegments: (segments) => set({ dubSegments: segments }),
   setDryRun: (v) => set({ dryRun: v }),
+  setReasoningEffort: (v) => set({ reasoningEffort: v }),
   setCutOnBeat: (v) => set({ cutOnBeat: v }),
   setBeatBpm: (v) => set({ beatBpm: v }),
+  setShotFloorPolicy: (v) => set({ shotFloorPolicy: v }),
+  setShotCapPolicy: (v) => set({ shotCapPolicy: v }),
   resetProject: () =>
     set({
       projectId: null,
@@ -128,6 +177,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
       splitMode: 'period',
       audioPath: '',
       audioDurationSec: 0,
+      workspaceRoot: '',
+      workspaceAutoIndex: true,
+      workspaceVisionIndex: true,
       requirementsTopic: '',
       requirementsScript: '',
       requirementsAudioDuration: 0,

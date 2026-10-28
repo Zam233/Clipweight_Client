@@ -158,6 +158,10 @@ test.describe('C6 自然语言时间线编辑 (agent edit)', () => {
     const overlay = diffOverlay(page);
     await page.screenshot({ path: 'e2e/artifacts/agent-edit-03-overlay-visible.png' });
 
+    // 忽略是破坏性操作（丢弃管线产出），产品侧有 window.confirm 二次确认；
+    // Playwright 默认 dismiss 对话框 → confirm 返回 false、覆盖层不关。
+    // 这里显式接受确认，才能真正验证"关闭后时间线不变"。
+    page.once('dialog', (dialog) => { void dialog.accept(); });
     // 关闭按钮仅含 X 图标（无文本），覆盖层内唯一带 lucide-x 的按钮
     await overlay.locator('button:has(svg.lucide-x)').click();
     await expect(overlay).not.toBeVisible();

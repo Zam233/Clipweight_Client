@@ -105,6 +105,10 @@ vi.mock('@/services/media/mediaManager', () => ({
     onChange: vi.fn(() => () => {}),
     hasRealMedia: vi.fn(() => false),
     captureThumbnail: vi.fn(() => Promise.resolve(null)),
+    // 视频 clip 平铺缩略图：renderers.drawVideoClip 无条件调用该 API，
+    // mock 缺这一项会在每次渲染打一条 "is not a function" 噪声
+    getCachedThumbnailAt: vi.fn(() => null),
+    ensureThumbnail: vi.fn(),
     getCachedWaveform: vi.fn(() => null),
     ensureWaveform: vi.fn(),
   },

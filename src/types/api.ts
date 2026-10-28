@@ -7,9 +7,22 @@ import type { PipelineRequest, PipelineState } from './pipeline';
 import type { Persona } from './persona';
 
 // ── Health ──
+/**
+ * `GET /health` 的真实形状（见后端 `clipwright/main.py::health`）。
+ * 除了 status/service，后端还逐项探测 mongodb / llm / ffmpeg / hyperframes 与渲染
+ * 队列积压——这些字段过去在前端类型里完全没有，等于把诊断信息整块丢掉。
+ * 各值语义：`ok` / `no_key` / `not_found` / `checking` / `disconnected` / `error`。
+ */
 export interface HealthResponse {
   status: string;
   service: string;
+  mongodb?: string;
+  llm?: string;
+  ffmpeg?: string;
+  hyperframes?: string;
+  queue?: string;
+  queue_pending?: number;
+  queue_running?: number;
 }
 
 // ── Project ──
@@ -85,6 +98,12 @@ export interface AssetUploadResponse {
   file_path?: string;
   media_type?: string;
   duration_sec?: number;
+  /** B9：同内容（sha256）重传命中既有素材 → 200 复用，非错误 */
+  deduplicated?: boolean;
+  /** ok / missing / violated / reused（reused = 本次命中去重复用） */
+  status?: string;
+  used_count?: number;
+  error?: string;
 }
 
 export interface MaterialSearchRequest {
@@ -120,6 +139,8 @@ export interface RenderRequest {
   output_path: string;
   audio_file_path?: string;
   bgm_file_path?: string;
+  /** V32 负时间片头：画面先起 N 秒、音频延后同样时长（0/缺省 = 无片头，上限 15） */
+  preroll_sec?: number;
   settings: ExportSettings;
 }
 

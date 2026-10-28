@@ -39,9 +39,14 @@ const WebhooksPage = lazyPage(() => import('./pages/admin/WebhooksPage'), 'Webho
 const FontsPage = lazyPage(() => import('./pages/admin/FontsPage'), 'FontsPage');
 const MgPreviewPage = lazyPage(() => import('./pages/admin/MgPreviewPage'), 'MgPreviewPage');
 const SubtitleToolsPage = lazyPage(() => import('./pages/admin/SubtitleToolsPage'), 'SubtitleToolsPage');
+// PRD B4：脚本工具页（后端 /api/pipeline/script-tools 早有，前端此前无入口）
+const ScriptToolsPage = lazyPage(() => import('./pages/admin/ScriptToolsPage'), 'ScriptToolsPage');
+// PRD B8：定时调度页（后端 /api/scheduler 早有，前端此前无入口）
+const SchedulerPage = lazyPage(() => import('./pages/admin/SchedulerPage'), 'SchedulerPage');
 const BackendConfigPage = lazyPage(() => import('./pages/admin/BackendConfigPage'), 'BackendConfigPage');
 const PreprocessPage = lazyPage(() => import('./pages/admin/PreprocessPage'), 'PreprocessPage');
 const PipelineAdminPage = lazyPage(() => import('./pages/admin/PipelineAdminPage'), 'PipelineAdminPage');
+const SupervisorAdminPage = lazyPage(() => import('./pages/admin/SupervisorAdminPage'), 'SupervisorAdminPage');
 const VoicePage = lazyPage(() => import('./pages/VoicePage'), 'VoicePage');
 const ProjectsPage = lazyPage(() => import('./pages/ProjectsPage'), 'ProjectsPage');
 const LoginPage = lazyPage(() => import('./pages/LoginPage'), 'LoginPage');
@@ -218,6 +223,24 @@ const toolsRoute = createRoute({
   errorComponent: RouteErrorFallback,
 });
 
+/** PRD B4：脚本工具页（改写/扩写/缩写，只读预览） */
+const scriptToolsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/script-tools',
+  beforeLoad: requireAdmin,
+  component: ScriptToolsPage,
+  errorComponent: RouteErrorFallback,
+});
+
+/** PRD B8：定时调度页 */
+const schedulerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/scheduler',
+  beforeLoad: requireAdmin,
+  component: SchedulerPage,
+  errorComponent: RouteErrorFallback,
+});
+
 const pluginsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/plugins',
@@ -315,6 +338,14 @@ const pipelineAdminRoute = createRoute({
   errorComponent: RouteErrorFallback,
 });
 
+const supervisorAdminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/supervisor',
+  beforeLoad: requireAdmin,
+  component: SupervisorAdminPage,
+  errorComponent: RouteErrorFallback,
+});
+
 const voiceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/voice',
@@ -344,6 +375,9 @@ const marketRoute = createRoute({
   errorComponent: RouteErrorFallback,
 });
 
+// ── 路线 C：任务工作台（C4）────────────────────────────
+// 启动页（/task）已按产品决定下线：主 Agent 入口改由「新建制作 → 主 Agent」承载。
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   editorRoute,
@@ -358,6 +392,8 @@ const routeTree = rootRoute.addChildren([
   providersRoute,
   backendConfigRoute,
   toolsRoute,
+  scriptToolsRoute,
+  schedulerRoute,
   pluginsRoute,
   typeMakerRoute,
   typeCatalogRoute,
@@ -370,6 +406,7 @@ const routeTree = rootRoute.addChildren([
   subtitleToolsRoute,
   preprocessRoute,
   pipelineAdminRoute,
+  supervisorAdminRoute,
   voiceRoute,
   projectsRoute,
   loginRoute,

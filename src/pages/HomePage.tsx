@@ -4,19 +4,23 @@ import { useProjectStore } from '@/stores/projectStore';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
 import { safePluginPath } from '@/features/plugins/slots';
 import { clearRequirementsDraft } from '@/stores/agentStore';
-import { useBackendHealth } from './useBackendHealth';
+import {
+  useBackendHealthDetail,
+  buildHealthComponents,
+} from './useBackendHealth';
 import {
   healthApi, personaApi, projectApi, assetApi, typeMakerApi, pipelineApi,
-  voiceApi,
+  voiceApi, workspaceApi,
   getApiClient,
 } from '@/services/api';
+import { WorkspaceMaterialsPanel } from '@/features/workspace/WorkspaceMaterialsPanel';
 import type { VoiceRecord } from '@/types/voice';
 import { accountApi } from '@/services/api/account';
 import { useAuthStore } from '@/stores/authStore';
 import { Button, Badge } from '@/components/ui';
 import {
   Film, Settings, ArrowRight, Plus, Bot, ListChecks,
-  PenLine, PackageCheck, Clock, Layers, Wand2, Mic, Image as ImageIcon,
+  PenLine, PackageCheck, Clock, Layers, Wand2, Mic,
   Upload, X, Check, Loader2, AudioLines,
   Scissors, FileText, FolderOpen, Clapperboard, Store, LayoutTemplate,
   Home, Shapes, User, Puzzle, Sparkles, Coins, Zap, LogOut, LogIn,
@@ -24,6 +28,8 @@ import {
 } from 'lucide-react';
 import { ProjectCard, type ProjectCardData } from '@/components/shared/ProjectCard';
 import { TemplateGallery } from '@/components/shared/TemplateGallery';
+import { ChatForgeDrawer } from '@/features/chatforge/ChatForgeDrawer';
+import { CreativePromptField } from '@/features/creation/CreativePromptField';
 import { fmtDur, relTime, uid } from '@/lib/utils';
 import { toast } from '@/stores/toastStore';
 // 首页四个 tab 与独立页曾经各写一套（能力不同、字段不同、必然漂移）。
@@ -122,7 +128,13 @@ export function HomePage() {
   }, [accessToken]);
 
   const [guardNotice, setGuardNotice] = useState<string | null>(null);
-  const backend = useBackendHealth();
+  // 组件级健康：一次轮询同时给出连接状态与各组件状态（避免两个轮询器）。
+  const healthState = useBackendHealthDetail();
+  const backend = healthState.status;
+  const healthComponents = useMemo(
+    () => buildHealthComponents(healthState.detail),
+    [healthState.detail],
+  );
   const [dataMode, setDataMode] = useState<'live' | 'demo'>('demo');
   // 人格/类型列表只服务于「创作」表单的下拉选项——展示由共享面板（PersonaGalleryPanel /
   // TypeCatalogPanel）各拉各的，这里不再兼任展示职责，也不再塞演示数据。
@@ -135,6 +147,10 @@ export function HomePage() {
   const [personaId, setPersonaId] = useState('');
   const [pluginId, setPluginId] = useState('knowledge_longform');
   const [mode, setMode] = useState<'voiceover' | 'visual'>('voiceover');
+  // F-04：不再让用户二选一——有配音时按台词节奏编排，否则按画面与文案匹配
+  const [creativePrompt, setCreativePrompt] = useState('');
+  const [creativeAvoid, setCreativeAvoid] = useState<string[]>([]);
+  const [chatOpen, setChatOpen] = useState(false);
   const [splitMode, setSplitMode] = useState<'period' | 'punctuation'>('period');
   // P1-26: 首页直接选音色——旧实现音色只能经 /voice 页传递到新项目，管线
   // 拿到空 voice_id 时音频 Agent 不生成旁白
@@ -160,14 +176,42 @@ export function HomePage() {
     return () => { alive = false; };
   }, []);
   const [audio, setAudio] = useState<DubAudio | null>(null);
+
+  // F-04 + 本轮修复：编排路径自动派生。
+  // 有上传配音 → voiceover；没上传但「自动配音 + 已选音色」→ voiceover（TTS 生成旁白，
+  // 字幕按 TTS 实测时间对齐）；两者都没有才是 visual（纯画面）。
+  // 旧实现只看 audio，而上传按钮又藏在 voiceover 分支里 —— 没有音频就永远是 visual，
+  // 上传按钮永不出现，用户根本没有上传入口。
+  useEffect(() => {
+    const canTts = autoDubPref && Boolean(voicePick);
+    setMode(audio || canTts ? 'voiceover' : 'visual');
+  }, [audio, autoDubPref, voicePick]);
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
+  // B9：同内容配音重传 → 后端 200 复用（deduplicated=true），提示而非报错
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
   const [launchErr, setLaunchErr] = useState<string | null>(null);
+  // PRD B4：选题建议（后端 topic-suggest）
+  const [suggesting, setSuggesting] = useState(false);
+  const [topicIdeas, setTopicIdeas] = useState<Array<{ title: string; reason: string }>>([]);
+  const [topicSuggestErr, setTopicSuggestErr] = useState<string | null>(null);
+  // 工作区（PRD workspace-prd-2026-10-24）：04 步开关 + 已创建路径
+  const [wsRoot, setWsRoot] = useState('');
+  // PRD §17.8：工作区父目录可选（后端 GET /api/workspace/roots 给白名单）
+  const [wsRootChoices, setWsRootChoices] = useState<Array<{ path: string; writable: boolean; default: boolean }>>([]);
+  const [wsRootChoice, setWsRootChoice] = useState('');
+  const [wsAutoIndex, setWsAutoIndex] = useState(true);
+  const [wsVision, setWsVision] = useState(true);
+  const projectId = useProjectStore((s) => s.projectId);
   // A3: 模板画廊弹层
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   // P8: dry-run 预览模式（只生成粗剪时间线）
   const [dryRun, setDryRun] = useState(false);
+  // D23 已拍板：默认 `default` = 不下发，跟随后端 merge（低于下限合并）+ split
+  // （高于上限切分），两者都保总时长；其余档位仅供取证/救急。
+  const [shotFloorPolicy, setShotFloorPolicy] = useState('default');
+  const [shotCapPolicy, setShotCapPolicy] = useState('default');
   const [materialSources, setMaterialSources] = useState<MatSource[]>([]);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -179,9 +223,26 @@ export function HomePage() {
     summary?: string;
   } | null>(null);
 
-  // G6: 防抖调用 predict-script（800ms），失败静默（不影响启动）
+  // PRD §19.6：载入可选工作区父目录（失败静默：只显示默认根）
   useEffect(() => {
-    if (backend !== 'online' || script.trim().length < 50) {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await workspaceApi.roots();
+        if (!alive) return;
+        const items = res?.roots ?? [];
+        setWsRootChoices(items);
+        const preferred = items.find((r) => r.default && r.writable) ?? items.find((r) => r.writable);
+        if (preferred) setWsRootChoice((prev) => prev || preferred.path);
+      } catch {
+        /* 后端未启动/端点不可用：不阻塞首页 */
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // G6: 防抖调用 predict-script（800ms），失败静默（不影响启动）
+  useEffect(() => {    if (backend !== 'online' || script.trim().length < 50) {
       setPrediction(null);
       return;
     }
@@ -281,6 +342,21 @@ export function HomePage() {
     [script, splitMode],
   );
 
+  // 切分后每段的估算时间窗（按字数比例摊到配音时长）。
+  // 预览用：真实成片里 AudioAgent 会用配音实测时间重建字幕（上传配音走
+  // STT 对齐，自动配音走 TTS 句级时间戳），所以这里只标"估算"。
+  const captionTimes = useMemo(() => {
+    const weights = captions.map((c) => Math.max(1, c.length));
+    const total = weights.reduce((a, b) => a + b, 0) || 1;
+    const dur = audio?.duration || 0;
+    let acc = 0;
+    return weights.map((w) => {
+      const start = dur ? (acc / total) * dur : 0;
+      acc += w;
+      return { start, end: dur ? (acc / total) * dur : 0 };
+    });
+  }, [captions, audio?.duration]);
+
   const estDuration = useMemo(() => {
     if (audio?.duration) return audio.duration;
     if (script.trim()) return Math.max(30, Math.min(1800, script.trim().length / 5));
@@ -290,7 +366,10 @@ export function HomePage() {
   const stepDone = {
     script: Boolean(topic.trim() || script.trim()),
     style: Boolean(personaId || pluginId),
-    dub: mode === 'visual' ? true : Boolean(audio),
+    // 有上传配音，或「自动配音 + 已选音色」才算这一步完成；纯画面模式不需要配音
+    dub: mode === 'visual' ? true : Boolean(audio) || Boolean(voicePick),
+    // 工作区是可选步骤：默认值即可启动（开关会随会话下发）
+    workspace: true,
   };
 
   // 图一：每次表单变化时重新预估 CREADIT 消耗（登录态）
@@ -301,7 +380,7 @@ export function HomePage() {
       accountApi.creditEstimate({
         pipeline: true,
         dry_run: dryRun,
-        voice: mode === 'voiceover' && !!audio,
+        voice: mode === 'voiceover' && (!!audio || !!voicePick),
         asset_count: selectedSources.length > 0 ? 1 : 0,
       }, accessToken)
         .then((r) => { if (alive) setCreditEstimate(r.total); })
@@ -334,6 +413,7 @@ export function HomePage() {
 
   const pickAudio = async (file: File) => {    setUploading(true);
     setUploadErr(null);
+    setUploadNote(null);
     try {
       // 客户端检测真实音频时长（不依赖后端 ffprobe——Windows 常缺 ffprobe 会返回 0，
       // 导致时长退化为文案估算值，进而使时间轴远短于配音实际长度）
@@ -342,12 +422,36 @@ export function HomePage() {
       const path = res.file_path ?? res.path ?? '';
       const duration = clientDuration || res.duration_sec || 0;
       setAudio({ path, name: res.filename ?? file.name, duration });
+      // 复用既有素材（sha256 命中）不是失败：明确告知，避免用户以为上传没生效
+      if (res.deduplicated) setUploadNote('已存在，已复用');
     } catch (e) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
         ?? (e instanceof Error ? e.message : '上传失败');
       setUploadErr(detail);
     } finally {
       setUploading(false);
+    }
+  };
+
+  /** PRD B4：向后端要几条候选选题（只填候选，不覆盖用户已写的标题） */
+  const suggestTopics = async () => {
+    setSuggesting(true);
+    setTopicSuggestErr(null);
+    try {
+      const res = await pipelineApi.topicSuggest({ category: pluginId, count: 5 });
+      if (!res.topics.length) {
+        setTopicSuggestErr('后端没有返回选题建议（LLM 与内置库都不可用）');
+        setTopicIdeas([]);
+      } else {
+        setTopicIdeas(res.topics);
+      }
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        ?? (e instanceof Error ? e.message : '生成选题建议失败');
+      setTopicSuggestErr(detail);
+      setTopicIdeas([]);
+    } finally {
+      setSuggesting(false);
     }
   };
 
@@ -367,11 +471,20 @@ export function HomePage() {
     st.setRequirementsAudioDuration(estDuration);
     st.setScriptText(script.trim());
     st.setVideoMode(mode);
+    // F-04：提示词随任务下发（进入 requirements 草稿，供需求阶段消费）
+    st.setCreativePrompt(creativePrompt.trim());
+    st.setCreativeAvoid(creativeAvoid);
     st.setSplitMode(splitMode);
     st.setAudioPath(audio?.path || '');
     st.setAudioDurationSec(audio?.duration || 0);
     st.setMaterialSourceIds(selectedSources);
+    // 工作区：开关随会话下发；root 等创建成功后回填（见下面 projectApi.create 之后）
+    st.setWorkspaceAutoIndex(wsAutoIndex);
+    st.setWorkspaceVisionIndex(wsVision);
+    st.setWorkspaceRoot('');
     st.setDryRun(dryRun); // P8: 传递 dry-run 预览模式
+    st.setShotFloorPolicy(shotFloorPolicy); // D23: 镜头下限策略
+    st.setShotCapPolicy(shotCapPolicy); // D23: 镜头上限策略（V35 切分）
     try {
       const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
       if (prefs.voiceId) st.setVoiceId(prefs.voiceId);
@@ -397,6 +510,24 @@ export function HomePage() {
             plugin_id: pluginId || undefined,
           });
           st.setProjectId(project.id);
+          // 工作区（PRD workspace-prd-2026-10-24）：项目一建好就创建，编辑器里的
+          // 04 步/素材面板与 proceed 双轨都按同一个 project_id 取；失败不阻断启动。
+          try {
+            const ws = await workspaceApi.create({
+              project_id: project.id,
+              name: topic.trim() || project.id,
+              auto_index: wsAutoIndex,
+              vision: wsVision,
+              // 只在用户明确选了父目录时传；留空=后端默认根
+              ...(wsRootChoice ? { root: wsRootChoice } : {}),
+            });
+            if (ws?.root) {
+              setWsRoot(ws.root);
+              st.setWorkspaceRoot(ws.root);
+            }
+          } catch (e) {
+            console.warn('[HomePage] 工作区创建失败（不阻断启动）:', e);
+          }
           // 仅在项目创建成功后清除旧 draft，失败则保留草稿
           clearRequirementsDraft();
           navigate({ to: '/editor/$projectId', params: { projectId: project.id } });
@@ -701,9 +832,13 @@ export function HomePage() {
                 把你的选题，
                 <span className="text-primary">剪</span>成一支视频。
               </h1>
-              <p className="text-body text-on-surface-variant mb-7 max-w-[480px]">
+              <p className="text-body text-on-surface-variant mb-4 max-w-[480px]">
                 稿件 → 风格 → 配音 → 启动。Agent 负责结构化与体力活，你负责审美与微调。
               </p>
+
+              {/* 路线 C 入口已按产品决定下线：主 Agent 改由「新建制作」承载
+                  （一句话出片按钮、/task 启动页与 /task/$id 详情页均已删除；任务在编辑器副驾驶里跑，
+                  新建制作走主 Agent 后跳这里看计划与步骤）。 */}
 
               <div className="bg-surface-container border border-outline-variant/40 rounded-cw-lg overflow-hidden shadow-2xl shadow-black/40">
                 {/* console header — Material You tonal banner */}
@@ -747,7 +882,40 @@ export function HomePage() {
                           <X className="w-3.5 h-3.5" />
                         </button>
                       )}
+                      {/* PRD B4：选题建议（后端 /api/pipeline/topic-suggest；只填候选，不覆盖已写内容） */}
+                      <button
+                        type="button"
+                        data-testid="topic-suggest"
+                        disabled={suggesting}
+                        onClick={() => void suggestTopics()}
+                        className="shrink-0 px-2 py-1 rounded-cw-xs text-caption text-primary hover:bg-primary/10
+                          disabled:opacity-50 cursor-pointer"
+                      >
+                        {suggesting ? '生成中…' : '选题建议'}
+                      </button>
                     </div>
+                    {topicIdeas.length > 0 && (
+                      <div className="mb-2.5 rounded-cw-sm border border-outline-variant/40 bg-surface px-3 py-2" data-testid="topic-ideas">
+                        <p className="mb-1 text-caption text-on-surface-variant/70">候选选题（点击填入标题，可再编辑）</p>
+                        <ul className="space-y-1">
+                          {topicIdeas.map((t) => (
+                            <li key={t.title}>
+                              <button
+                                type="button"
+                                onClick={() => { setTopic(t.title); setTopicIdeas([]); }}
+                                className="w-full text-left text-body-sm text-on-surface hover:text-primary cursor-pointer"
+                              >
+                                {t.title}
+                                {t.reason && <span className="ml-1 text-caption text-on-surface-variant/60">— {t.reason}</span>}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {topicSuggestErr && (
+                      <p className="mb-2 text-caption text-error" data-testid="topic-suggest-err">{topicSuggestErr}</p>
+                    )}
                     <textarea
                       value={script}
                       onChange={(e) => setScript(e.target.value)}
@@ -873,26 +1041,14 @@ export function HomePage() {
                     stat={audio ? `${audio.name} · ${fmtDur(audio.duration)}` : undefined}
                   >
                     <div className="flex items-center gap-3 mb-3">
-                      <div className="flex bg-surface rounded-cw-sm border border-outline-variant/40 p-0.5">
-                        <button
-                          onClick={() => setMode('voiceover')}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-cw-xs text-label-sm transition-colors cursor-pointer ${
-                            mode === 'voiceover' ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:text-on-surface'
-                          }`}
-                        >
-                          <Mic className="w-3 h-3" /> 配音驱动
-                        </button>
-                        <button
-                          onClick={() => setMode('visual')}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-cw-xs text-label-sm transition-colors cursor-pointer ${
-                            mode === 'visual' ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:text-on-surface'
-                          }`}
-                        >
-                          <ImageIcon className="w-3 h-3" /> 视觉驱动
-                        </button>
+                      <div className="flex-1 bg-surface/40 rounded-cw-sm border border-outline-variant/40 p-2.5">
+                        <p className="text-caption text-on-surface-variant">
+                          配音可上传也可不上传：上传后字幕按配音实测时间对齐；不上传时用自动配音生成旁白（可关闭），
+                          字幕同样按旁白时间对齐。两者都关闭则为纯画面模式。
+                        </p>
                       </div>
 
-                      {mode === 'voiceover' && voices.length > 0 && (
+                      {voices.length > 0 && (
                         <select
                           value={voicePick}
                           onChange={(e) => {
@@ -910,7 +1066,7 @@ export function HomePage() {
                           className="px-2 py-1.5 rounded-cw-xs bg-surface border border-outline-variant/40 text-label-sm text-on-surface cursor-pointer"
                           title="选择克隆音色（可在「语音克隆」页制作）"
                         >
-                          <option value="">默认音色（自动）</option>
+                          <option value="">不指定音色</option>
                           {voices.map((v) => (
                             <option key={v.id} value={v.voice_id}>{v.voice_name}（{v.provider}）</option>
                           ))}
@@ -943,8 +1099,7 @@ export function HomePage() {
                         />
                       )}
 
-                      {mode === 'voiceover' && (
-                        <label className="flex items-center gap-1.5 px-1 text-label-sm text-on-surface-variant cursor-pointer select-none" title="关闭后不自动生成旁白（适合纯画面/B-roll 视频）">
+                      <label className="flex items-center gap-1.5 px-1 text-label-sm text-on-surface-variant cursor-pointer select-none" title="关闭后不自动生成旁白（适合纯画面/B-roll 视频）；开启需先选择音色">
                           <input
                             type="checkbox"
                             checked={autoDubPref}
@@ -964,10 +1119,8 @@ export function HomePage() {
                           />
                           自动配音
                         </label>
-                      )}
 
-                      {mode === 'voiceover' && (
-                        <div className="flex bg-surface rounded-cw-sm border border-outline-variant/40 p-0.5">
+                      <div className="flex bg-surface rounded-cw-sm border border-outline-variant/40 p-0.5">
                           <button
                             onClick={() => setSplitMode('period')}
                             className={`px-2.5 py-1.5 rounded-cw-xs text-label-sm transition-colors cursor-pointer ${
@@ -985,87 +1138,170 @@ export function HomePage() {
                             按标点切分
                           </button>
                         </div>
-                      )}
                     </div>
 
-                    {mode === 'voiceover' && (
-                      <>
-                        <input
-                          ref={audioInputRef} type="file" accept=".wav,.mp3,.m4a,.mp4" className="hidden"
-                          onChange={(e) => { const f = e.target.files?.[0]; if (f) pickAudio(f); e.target.value = ''; }}
-                        />
-                        {audio ? (
-                          <div className="flex items-center gap-3 bg-track-audio/8 border border-track-audio/40 rounded-cw-sm px-3 py-2.5">
-                            <AudioLines className="w-4 h-4 text-track-audio shrink-0" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-body-sm text-on-surface truncate">{audio.name}</p>
-                              <div className="flex items-end gap-0.5 h-3 mt-1">
-                                {Array.from({ length: 32 }).map((_, i) => (
-                                  <i key={i} className="flex-1 rounded-t-[1px] bg-track-audio/70"
-                                    style={{ height: `${20 + 70 * Math.abs(Math.sin(i * 1.7))}%` }} />
-                                ))}
-                              </div>
-                            </div>
-                            <span className="font-mono text-caption text-track-audio shrink-0">{fmtDur(audio.duration)}</span>
-                            <button onClick={() => setAudio(null)}
-                              className="p-1 rounded-cw-xs text-on-surface-variant hover:text-error cursor-pointer shrink-0">
-                              <X className="w-3.5 h-3.5" />
-                            </button>
+                    <input
+                      ref={audioInputRef} type="file" accept=".wav,.mp3,.m4a,.mp4" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) pickAudio(f); e.target.value = ''; }}
+                    />
+                    {audio ? (
+                      <div className="flex items-center gap-3 bg-track-audio/8 border border-track-audio/40 rounded-cw-sm px-3 py-2.5">
+                        <AudioLines className="w-4 h-4 text-track-audio shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-body-sm text-on-surface truncate">{audio.name}</p>
+                          <div className="flex items-end gap-0.5 h-3 mt-1">
+                            {Array.from({ length: 32 }).map((_, i) => (
+                              <i key={i} className="flex-1 rounded-t-[1px] bg-track-audio/70"
+                                style={{ height: `${20 + 70 * Math.abs(Math.sin(i * 1.7))}%` }} />
+                            ))}
                           </div>
-                        ) : (
-                          <button
-                            onClick={() => audioInputRef.current?.click()}
-                            disabled={uploading}
-                            className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-outline-variant/40 hover:border-track-audio/60
-                              rounded-cw-sm py-3 text-label-sm text-on-surface-variant hover:text-track-audio transition-colors cursor-pointer disabled:opacity-60"
-                          >
-                            {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                            {uploading ? '上传中…' : '上传配音文件（wav / mp3 / m4a）'}
-                          </button>
-                        )}
-                        {uploadErr && <p className="text-caption text-error mt-1.5">{uploadErr}</p>}
+                        </div>
+                        <span className="font-mono text-caption text-track-audio shrink-0">{fmtDur(audio.duration)}</span>
+                        <button onClick={() => { setAudio(null); setUploadNote(null); }}
+                          className="p-1 rounded-cw-xs text-on-surface-variant hover:text-error cursor-pointer shrink-0">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => audioInputRef.current?.click()}
+                        disabled={uploading}
+                        className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-outline-variant/40 hover:border-track-audio/60
+                          rounded-cw-sm py-3 text-label-sm text-on-surface-variant hover:text-track-audio transition-colors cursor-pointer disabled:opacity-60"
+                      >
+                        {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                        {uploading ? '上传中…' : '上传配音文件（wav / mp3 / m4a）· 也可不上传，用自动配音'}
+                      </button>
+                    )}
+                    {uploadErr && <p className="text-caption text-error mt-1.5">{uploadErr}</p>}
+                    {uploadNote && (
+                      <p className="text-caption text-track-audio mt-1.5" data-testid="audio-upload-note">
+                        {uploadNote}
+                      </p>
+                    )}
 
-                        {captions.length > 0 && (
-                          <div className="mt-3">
-                            <p className="flex items-center gap-1.5 text-caption text-on-surface-variant mb-1.5">
-                              <Scissors className="w-3 h-3 text-track-caption" />
-                              字幕切分预览 · {captions.length} 段
-                            </p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {captions.slice(0, 6).map((c, i) => (
-                                <span key={i}
-                                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-cw-xs bg-surface-container-high border border-outline-variant/30
-                                    text-caption text-on-surface-variant caption-chip"
-                                  style={{ animationDelay: `${i * 40}ms` }}
-                                >
-                                  <b className="font-mono text-track-caption">{String(i + 1).padStart(2, '0')}</b>
-                                  <span className="max-w-[180px] truncate">{c}</span>
-                                </span>
-                              ))}
-                              {captions.length > 6 && (
-                                <span className="px-2 py-1 rounded-cw-xs text-caption text-on-surface-variant/60 font-mono">
-                                  +{captions.length - 6} 段
+                    {autoDubPref && !voicePick && !audio && (
+                      <p className="text-caption text-on-surface-variant/70 mt-1.5">
+                        自动配音需要先选择音色；未选音色时按「画面优先」处理，不生成旁白。也可以直接上传配音文件。
+                      </p>
+                    )}
+
+                    {captions.length > 0 && (
+                      <div className="mt-3">
+                        <p className="flex items-center gap-1.5 text-caption text-on-surface-variant mb-1.5">
+                          <Scissors className="w-3 h-3 text-track-caption" />
+                          字幕切分预览 · {captions.length} 段
+                          {audio ? '（起点按配音时长估算，成片按实测时间对齐）' : ''}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {captions.slice(0, 6).map((c, i) => (
+                            <span key={i}
+                              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-cw-xs bg-surface-container-high border border-outline-variant/30
+                                text-caption text-on-surface-variant caption-chip"
+                              style={{ animationDelay: `${i * 40}ms` }}
+                            >
+                              <b className="font-mono text-track-caption">{String(i + 1).padStart(2, '0')}</b>
+                              <span className="max-w-[180px] truncate">{c}</span>
+                              {audio && (
+                                <span className="font-mono text-caption text-on-surface-variant/60 shrink-0">
+                                  {fmtDur(captionTimes[i]?.start ?? 0)}
                                 </span>
                               )}
-                            </div>
-                          </div>
-                        )}
-                      </>
+                            </span>
+                          ))}
+                          {captions.length > 6 && (
+                            <span className="px-2 py-1 rounded-cw-xs text-caption text-on-surface-variant/60 font-mono">
+                              +{captions.length - 6} 段
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     )}
 
                     {mode === 'visual' && (
                       <p className="text-caption text-on-surface-variant/70 leading-relaxed">
-                        视觉驱动模式：文案每一行视为一个场景描述，由素材 Agent 检索匹配画面。
+                        画面优先模式：文案每一行视为一个场景描述，由素材 Agent 检索匹配画面。
                       </p>
                     )}
                   </ConsoleStep>
+
+                  {/* ── 04 工作区（PRD workspace-prd-2026-10-24）── */}
+                  {/* 项目的一切产物（工程文件/素材/下载/成片/缓存）都落在这里；
+                      materials/ 是唯一用户写入区：系统下载与你手动丢进去的文件都在那儿，
+                      新文件会被后端自动索引 + 视觉解读。 */}
+                  <ConsoleStep no="04" title="工作区" en="WORKSPACE" done={stepDone.workspace}
+                    stat={wsRoot || undefined}>
+                    <div className="space-y-2.5">
+                      <p className="text-caption text-on-surface-variant">
+                        项目产物统一保存到工作区：工程文件、素材、下载、成片、缓存都在同一个目录，可整体备份。
+                        把视频/图片/音乐直接放进 <code className="font-mono">materials/</code>，
+                        系统会发现并自动索引（含视觉解读）。
+                      </p>
+                      <div className="flex flex-wrap items-center gap-4">
+                        <label className="flex items-center gap-1.5 text-label-sm text-on-surface-variant cursor-pointer select-none"
+                          title="轮询 materials/ 发现新素材（默认开）">
+                          <input type="checkbox" checked={wsAutoIndex}
+                            onChange={(e) => { setWsAutoIndex(e.target.checked); useProjectStore.getState().setWorkspaceAutoIndex(e.target.checked); }}
+                            className="accent-primary cursor-pointer" />
+                          自动索引新素材
+                        </label>
+                        <label className="flex items-center gap-1.5 text-label-sm text-on-surface-variant cursor-pointer select-none"
+                          title="对未索引素材做标签/描述；默认本地 CLIP（零 API 费用），选 llm 才按次计费">
+                          <input type="checkbox" checked={wsVision}
+                            onChange={(e) => { setWsVision(e.target.checked); useProjectStore.getState().setWorkspaceVisionIndex(e.target.checked); }}
+                            className="accent-primary cursor-pointer" />
+                          视觉解读
+                        </label>
+                        {wsRootChoices.length > 0 && (
+                          <label className="flex items-center gap-1.5 text-label-sm text-on-surface-variant">
+                            保存位置
+                            <select
+                              aria-label="工作区父目录"
+                              data-testid="ws-root-select"
+                              className="rounded-cw-sm border border-outline-variant/40 bg-surface-container px-1.5 py-1 text-caption"
+                              value={wsRootChoice}
+                              onChange={(e) => setWsRootChoice(e.target.value)}
+                            >
+                              {wsRootChoices.map((r) => (
+                                <option key={r.path} value={r.path} disabled={!r.writable}>
+                                  {r.path}{r.writable ? '' : '（不可写）'}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                        {wsRoot && (
+                          <span className="text-caption text-on-surface-variant/80 font-mono break-all">
+                            {wsRoot}
+                          </span>
+                        )}
+                      </div>
+                      {projectId ? (
+                        <WorkspaceMaterialsPanel projectId={projectId} compact />
+                      ) : (
+                        <p className="text-caption text-on-surface-variant/60">
+                          启动制作后会按项目名创建：<code className="font-mono">workspaces/&lt;项目名&gt;-&lt;id&gt;/</code>
+                          （materials/ 可随时打开丢素材）。
+                        </p>
+                      )}
+                    </div>
+                  </ConsoleStep>
+
+                  {/* ── 03.5 创作提示词（F-04）── */}
+                  <CreativePromptField
+                    value={creativePrompt}
+                    avoid={creativeAvoid}
+                    onChange={setCreativePrompt}
+                    onAvoidChange={setCreativeAvoid}
+                    onOpenChat={() => setChatOpen(true)}
+                  />
 
                   {/* ── 04 启动 ── */}
                   <div className="border-t border-outline-variant/25 pt-4">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-4 font-mono text-caption text-on-surface-variant">
                       <span className="flex items-center gap-1"><FileText className="w-3 h-3" />{captions.length || '—'} 段字幕</span>
                       <span className="flex items-center gap-1"><Clock className="w-3 h-3" />≈ {fmtDur(estDuration)}</span>
-                      <span className="flex items-center gap-1"><Mic className="w-3 h-3" />{mode === 'voiceover' ? (audio ? '已上传配音' : '无配音') : '视觉驱动'}</span>
+                      <span className="flex items-center gap-1"><Mic className="w-3 h-3" />{mode === 'voiceover' ? (audio ? '已上传配音' : '无配音') : '画面优先'}</span>
                       <span className="flex items-center gap-1"><Layers className="w-3 h-3" />{plugins.find((p) => p.id === pluginId)?.name ?? pluginId}</span>
                     </div>
                     {launchErr && (
@@ -1098,6 +1334,36 @@ export function HomePage() {
                         className="accent-primary w-3.5 h-3.5"
                       />
                       仅预览（dry-run）— 只生成粗剪时间线，跳过动画/音频/质检，快速出规划
+                    </label>
+                    {/* D23: 镜头节奏策略（下限合并 / 上限切分，都保总时长） */}
+                    <label className="mt-2 flex items-center gap-2 text-label-sm text-on-surface-variant select-none">
+                      <span className="shrink-0">镜头下限</span>
+                      <select
+                        value={shotFloorPolicy}
+                        onChange={(e) => setShotFloorPolicy(e.target.value)}
+                        className="bg-surface rounded-cw-xs px-2 py-1 text-label-sm text-on-surface outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                        data-testid="shot-floor-policy"
+                      >
+                        <option value="default">跟随类型节奏（合并达标，保总时长）</option>
+                        <option value="record">仅记录冲突（C2）</option>
+                        <option value="extend">拉长画面到下限</option>
+                        <option value="loop">循环填充（渲染待支持）</option>
+                        <option value="off">不处理</option>
+                      </select>
+                    </label>
+                    {/* D23 上界：超过 max_shot_ms 的场景切分成多镜（V35 靠它落地） */}
+                    <label className="mt-1.5 flex items-center gap-2 text-label-sm text-on-surface-variant select-none">
+                      <span className="shrink-0">镜头上限</span>
+                      <select
+                        value={shotCapPolicy}
+                        onChange={(e) => setShotCapPolicy(e.target.value)}
+                        className="bg-surface rounded-cw-xs px-2 py-1 text-label-sm text-on-surface outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                        data-testid="shot-cap-policy"
+                      >
+                        <option value="default">跟随类型节奏（超长切分，保总时长）</option>
+                        <option value="record">仅记录冲突（C3）</option>
+                        <option value="off">不处理</option>
+                      </select>
                     </label>
                   </div>
                 </div>
@@ -1156,6 +1422,33 @@ export function HomePage() {
                     ? '未检测到后端。编辑器仍可独立使用，Agent 功能将以演示数据运行。'
                     : 'Persona 引擎、六 Agent 管线与渲染队列已就绪。'}
                 </p>
+                {/* 组件级健康：后端 /health 逐项探测 mongodb / llm / ffmpeg /
+                    hyperframes / 队列，前端此前只读 status 把这些全丢了。
+                    只在拿到响应且在线时展示（离线时组件状态无意义，不编造）。 */}
+                {backend === 'online' && healthComponents.length > 0 && (
+                  <div className="mt-2.5 flex flex-wrap gap-1.5" data-testid="health-components">
+                    {healthComponents.map((item) => (
+                      <span
+                        key={item.key}
+                        data-testid={`health-component-${item.key}`}
+                        title={`${item.label}: ${item.value}`}
+                        className={`inline-flex items-center gap-1 rounded-cw-full px-2 py-0.5 text-caption border ${
+                          item.tone === 'ok'
+                            ? 'text-track-audio border-track-audio/30 bg-track-audio/10'
+                            : item.tone === 'warn'
+                              ? 'text-track-text border-track-text/30 bg-track-text/10'
+                              : item.tone === 'error'
+                                ? 'text-error border-error/30 bg-error/10'
+                                : 'text-on-surface-variant border-outline-variant/30 bg-surface'
+                        }`}
+                      >
+                        <i className="w-1.5 h-1.5 rounded-full bg-current" />
+                        {item.label}
+                        <span className="opacity-70">{item.valueLabel}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </section>
@@ -1189,6 +1482,24 @@ export function HomePage() {
         onClose={() => setTemplateGalleryOpen(false)}
         onApplyProject={(projectId) => navigate({ to: '/editor/$projectId', params: { projectId } })}
       />
+
+      {/* F-04/F-05：右侧对话按钮打开的 ChatForge 抽屉 */}
+      {chatOpen && (
+        <ChatForgeDrawer
+          context={{
+            type: pluginId,
+            topic: topic.trim(),
+            has_audio: Boolean(audio),
+            existing_prompt: creativePrompt,
+            existing_avoid: creativeAvoid,
+          }}
+          onApply={({ prompt, avoid }) => {
+            setCreativePrompt(prompt);
+            setCreativeAvoid(avoid);
+          }}
+          onClose={() => setChatOpen(false)}
+        />
+      )}
     </div>
   );
 }

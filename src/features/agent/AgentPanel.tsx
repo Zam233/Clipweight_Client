@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { useNavigate } from '@tanstack/react-router';
+import { applyProceedResult } from './proceedResult';
 import { useAgentStore, loadRequirementsDraft, clearRequirementsDraft } from '@/stores/agentStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSelectionStore } from '@/stores/selectionStore';
@@ -9,7 +11,7 @@ import { IntentCard, type IntentPreview } from './IntentCard';
 import { resolveMessageAttachments } from './requirementsAttachments';
 import { pipelineApi, requirementsApi, personaApi } from '@/services/api';
 import { fetchSseToken, withSseToken } from '@/services/api/sse';
-import { savePipelineId, loadPipelineId, clearPipelineId } from '@/services/storage/pipelineSession';
+import { loadPipelineId, clearPipelineId } from '@/services/storage/pipelineSession';
 import { useBackendHealth } from '@/pages/useBackendHealth';
 import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
@@ -43,8 +45,8 @@ const toIntentCardData = (payload: IntentPreviewPayload): IntentPreview => ({
   hardProblems: payload.problems ?? [],
 });
 import {
-  Bot, Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
-  MessageSquareText, ChevronDown, ChevronRight, X, Paperclip, RefreshCw, Copy, Square,
+  Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
+  ChevronDown, ChevronRight, X, Paperclip, RefreshCw, Copy, Square,
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<PipelinePhase, string> = {
@@ -95,47 +97,30 @@ function formatMsgTime(ts: string | undefined): string {
 }
 
 
-export function AgentPanel() {
-  const [tab, setTab] = useState<'requirements' | 'logs'>('requirements');
+/**
+ * 需求对话宿主（无标题行、无内部标签）。
+ *
+ * 2026-10-28 PRD B1：全局只保留一排标签（CopilotTabBar）。原先 AgentPanel 自带的
+ * 「Agent 副驾驶」标题行 + 内部「需求对话 / 执行日志」二选一标签已删除——它会与
+ * 副驾驶标签栏叠成两层。现在这里只负责 requirements 标签需要的东西：离线横幅、
+ * 需求视图、底部输入、时间轴差异浮层。
+ */
+export function RequirementsPane() {
   const agentTimeline = useAgentStore((s) => s.agentTimeline);
   const setAgentTimeline = useAgentStore((s) => s.setAgentTimeline);
   // G5: 后端心跳——离线时显示横幅，区分"未连接"与"请求失败"
   const backend = useBackendHealth();
 
   return (
-    <div className="flex flex-col h-full bg-surface-container-low">
+    <div className="flex flex-col h-full bg-surface-container-low" data-testid="requirements-pane">
       {backend === 'offline' && (
         <div className="px-3 py-1 text-caption font-medium text-warning bg-warning/10 border-b border-warning/30 shrink-0">
           后端离线 — 当前为离线演示模式
         </div>
       )}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-outline-variant/30 shrink-0">
-        <div className="w-6 h-6 rounded-cw-full bg-primary-container flex items-center justify-center">
-          <Bot className="w-3.5 h-3.5 text-on-primary-container" />
-        </div>
-        <span className="text-label font-medium text-on-surface-variant uppercase tracking-wide">
-          Agent 副驾驶
-        </span>
-        <span className="ml-auto w-2 h-2 rounded-cw-full bg-track-audio animate-pulse" title="在线" />
-      </div>
-
-      <div className="flex border-b border-outline-variant/30 shrink-0">
-        <button onClick={() => setTab('requirements')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-label font-medium border-b-2 transition-colors cursor-pointer ${
-            tab === 'requirements' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'
-          }`}>
-          <MessageSquareText className="w-3.5 h-3.5" /> 需求对话
-        </button>
-        <button onClick={() => setTab('logs')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-label font-medium border-b-2 transition-colors cursor-pointer ${
-            tab === 'logs' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'
-          }`}>
-          <ListChecks className="w-3.5 h-3.5" /> 执行日志
-        </button>
-      </div>
 
       <div className="flex-1 overflow-hidden min-h-0">
-        {tab === 'requirements' ? <RequirementsView /> : <LogPanel />}
+        <RequirementsView />
       </div>
 
       <BottomBar />
@@ -149,8 +134,19 @@ export function AgentPanel() {
   );
 }
 
+/**
+ * 兼容壳：外部（EditorPage / 测试 / 旧扩展）仍可 `<AgentPanel />`，
+ * 但它不再有自己的标题行与标签——标签统一由 CopilotTabBar 提供。
+ */
+export function AgentPanel() {
+  return <RequirementsPane />;
+}
+
 function RequirementsView() {
   const status = useAgentStore((s) => s.requirementsStatus);
+  // B5：推理强度（存在 projectStore，切标签/刷新不丢）
+  const reasoningEffort = useProjectStore((s) => s.reasoningEffort);
+  const setReasoningEffort = useProjectStore((s) => s.setReasoningEffort);
   const messages = useAgentStore((s) => s.requirementsMessages);
   const addMessage = useAgentStore((s) => s.addRequirementsMessage);
   const setStatus = useAgentStore((s) => s.setRequirementsStatus);
@@ -159,9 +155,13 @@ function RequirementsView() {
   const setSession = useAgentStore((s) => s.setRequirementsSession);
   const setPipelineId = useAgentStore((s) => s.setPipelineId);
   const updatePhase = useAgentStore((s) => s.updatePhase);
+  const navigate = useNavigate();
   const setReviewMode = useAgentStore((s) => s.setReviewMode);
   const [topic, setTopic] = useState('');
   const [input, setInput] = useState('');
+  // PRD §19.4：思考内容（SSE reasoning 帧逐块追加；没有就不显示）
+  const [liveReasoning, setLiveReasoning] = useState('');
+  const [reasoningOpen, setReasoningOpen] = useState(false);
   const [manualBusy, setBusy] = useState(false);
   // Auto-start (from HomePage launch) runs in EditorPage via useRequirementsAutoStart;
   // reflect its busy flag here so the UI shows progress even though it's store-driven.
@@ -257,6 +257,9 @@ function RequirementsView() {
           auto_dub: st.autoDub,
           voice_id: st.voiceId || undefined,
           dub_segments: st.dubSegments?.length ? st.dubSegments : undefined,
+          // F-04：创作页提示词随需求会话下发（L1，优先于类型默认风格）
+          creative_prompt: st.creativePrompt || undefined,
+          creative_avoid: st.creativeAvoid.length > 0 ? st.creativeAvoid : undefined,
         },
       });
       setSession(res.session_id);
@@ -551,16 +554,34 @@ function RequirementsView() {
         {
           dry_run: st.dryRun,
           ...(st.cutOnBeat && st.beatBpm ? { cut_on_beat: true, bpm: st.beatBpm } : {}),
+          // F-04：提示词直达管线（需求阶段已消费；这里再兜一次，保证 proceed 也带）
+          ...(st.creativePrompt ? { creative_prompt: st.creativePrompt } : {}),
+          ...(st.creativeAvoid.length > 0 ? { creative_avoid: st.creativeAvoid } : {}),
+          // D23：镜头节奏策略。`default` = 不下发，跟随后端默认（merge + split
+          // 都保总时长）；off/record/extend/loop 是显式覆盖，用于取证或救急。
+          ...(st.shotFloorPolicy && st.shotFloorPolicy !== 'default'
+            ? { shot_floor_policy: st.shotFloorPolicy }
+            : {}),
+          // 上界切分（V35）：只在显式选择时下发，默认交给后端 split
+          ...(st.shotCapPolicy && st.shotCapPolicy !== 'default'
+            ? { shot_cap_policy: st.shotCapPolicy }
+            : {}),
+          // B5：推理强度（空 = 不下发，跟随模型配置）
+          ...(st.reasoningEffort ? { reasoning_effort: st.reasoningEffort } : {}),
         },
         // 批B：携带当前项目——成品时间线自动保存回项目（否则 60s 后丢失）
         st.projectId ?? undefined,
-      ) as { pipeline_id?: string };
-      if (res.pipeline_id) {
-        // 设置 pipelineId + 运行相位，BottomBar 的 effect 会自动挂接 SSE 追踪
-        setPipelineId(res.pipeline_id);
+      ) as { pipeline_id?: string; task_id?: string; workspace_root?: string };
+      // 双轨（PRD workspace-prd §6.2）：task_id 存在即主 Agent 任务，跳详情页走 Task 事件流
+      const target = applyProceedResult(res);
+      if (target?.mode === 'task') {
+        setStatus('pipeline_running');
         updatePhase('structure', 5);
-        // 持久化到 sessionStorage：页面刷新后 BottomBar 挂载时可恢复并自动重连 SSE
-        savePipelineId(res.pipeline_id);
+        // PRD §19.3：不跳页——任务在编辑器右侧的「任务运行」标签里就地跑（applyProceedResult 已开标签）
+      } else if (target) {
+        // 设置 pipelineId + 运行相位，BottomBar 的 effect 会自动挂接 SSE 追踪
+        setPipelineId(target.id);
+        updatePhase('structure', 5);
       }
     } catch {
       setStatus('plan_ready');
@@ -639,8 +660,31 @@ function RequirementsView() {
         ))}
 
         {busy && !messages.some((m) => m.streaming) && (
-          <div className="flex items-center gap-2 text-label-sm text-on-surface-variant px-3">
-            <Loader2 className="w-3 h-3 animate-spin text-primary" /> 正在思考…
+          <div className="px-3 text-label-sm text-on-surface-variant">
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-3 h-3 animate-spin text-primary" />
+              {liveReasoning ? (
+                <button
+                  type="button"
+                  data-testid="live-thinking-toggle"
+                  className="hover:text-on-surface"
+                  onClick={() => setReasoningOpen((v) => !v)}
+                  aria-expanded={reasoningOpen}
+                >
+                  正在思考{reasoningOpen ? ' ▴' : ' ▾'}
+                </button>
+              ) : (
+                <span>正在思考…</span>
+              )}
+            </div>
+            {reasoningOpen && liveReasoning && (
+              <pre
+                data-testid="live-reasoning"
+                className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-cw-sm bg-surface-container p-2 text-caption"
+              >
+                {liveReasoning}
+              </pre>
+            )}
           </div>
         )}
       </div>
@@ -648,6 +692,32 @@ function RequirementsView() {
       {/* B17: 管线运行/规划生成期间隐藏输入；完成/失败后恢复 */}
       {messages.length > 0 && !['pipeline_running', 'planning'].includes(status) && (
         <div className="p-3 border-t border-outline-variant/20 shrink-0">
+          {/* B5（2026-10-28 PRD）：推理强度入口。'' = 不下发（跟随模型配置）；
+              选了但 provider 不支持时，后端记 degradation 并在任务事件流里显示"已忽略" */}
+          <div className="mb-2 flex items-center gap-2">
+            <label className="text-caption text-on-surface-variant/70" htmlFor="reasoning-effort">
+              推理强度
+            </label>
+            <select
+              id="reasoning-effort"
+              data-testid="reasoning-effort"
+              className="rounded-cw-sm border border-outline-variant/40 bg-surface-container px-2 py-1 text-caption text-on-surface"
+              value={reasoningEffort}
+              onChange={(e) => setReasoningEffort(
+                e.target.value as '' | 'low' | 'medium' | 'high',
+              )}
+            >
+              <option value="">跟随模型配置</option>
+              <option value="low">低</option>
+              <option value="medium">中</option>
+              <option value="high">高</option>
+            </select>
+            {reasoningEffort !== '' && (
+              <span className="text-caption text-on-surface-variant/60">
+                不支持该参数的模型会忽略（见执行日志降级说明）
+              </span>
+            )}
+          </div>
           {/* R6：意图确认卡 —— 有未答问题/解析失败时先让用户看清"将改动什么"再执行 */}
           {intentPending && (
             <div className="mb-2">
@@ -751,7 +821,8 @@ function RequirementsView() {
   );
 }
 
-function LogPanel() {
+/** 执行日志面板（B1：由副驾驶 `logs` 标签直接渲染，不再藏在 AgentPanel 内部）。 */
+export function LogPanel() {
   const logEntries = useAgentStore((s) => s.logEntries);
   const toggleExpand = useAgentStore((s) => s.toggleLogExpand);
   const clearLogs = useAgentStore((s) => s.clearLogs);
@@ -772,7 +843,7 @@ function LogPanel() {
   const groups = useMemo(() => (grouped ? buildGroups(logEntries) : null), [grouped, logEntries]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" data-testid="log-panel">
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-outline-variant/20 shrink-0">
         <span className="text-caption text-on-surface-variant font-mono">
           {logEntries.length} 条

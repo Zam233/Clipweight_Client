@@ -66,7 +66,7 @@ export function PreferencesPanel({
     setMatLoading(false);
   };
 
-  useEffect(() => { if (materialSources) void loadMatSources(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [materialSources]);
+  useEffect(() => { if (materialSources) void loadMatSources(); }, [materialSources]);
 
   const checkHealth = async () => {
     setHealth('checking');

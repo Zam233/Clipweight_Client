@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { ConsoleShell, ConsoleHeading, StatusPill } from './ConsoleShell';
 import { pipelineApi } from '@/services/api';
+import { TaskListSection } from '@/features/task/TaskListSection';
+import { TypeConformancePanel } from '@/features/pipeline/TypeConformancePanel';
+import { EvalPanel } from '@/features/pipeline/EvalPanel';
 import { cn } from '@/lib/utils';
 import {
   Activity, Gauge, Coins, Timer, ChevronDown, ChevronRight,
-  RefreshCw, FileJson, Loader2, Layers, AlertTriangle,
+  RefreshCw, FileJson, Loader2, Layers, AlertTriangle, Cpu,
 } from 'lucide-react';
 
 interface Span { agent: string; start: number; dur: number; status: 'ok' | 'fail' | 'retry'; }
@@ -16,6 +20,14 @@ interface PipelineRun {
   agents: Span[];
   startedAt: string;
   llmCost?: number;
+  /** V38 用量总账：token 按 Agent 汇总，render_sec 是渲染耗时（wall-clock） */
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+    calls?: number;
+    render_sec?: number;
+  };
 }
 interface TraceView { loading: boolean; events: unknown[] | null; error?: string; }
 
@@ -28,10 +40,15 @@ const AGENT_COLORS: Record<string, string> = {
  * PipelineAdminPage — observability console: aggregate stats, run queue, and
  * a Gantt-style span trace per run showing each Agent's wall time.
  *
- * Data comes from the real backend (GET /api/pipeline/runs + /api/pipeline/trace/{id}).
+ * 数据源：Task 列表（GET /api/task，主视图）+ 老管线历史（GET /api/pipeline/runs，**只读**回看）。
  * When the backend is offline we surface an error banner — never fake data.
+ *
+ * PRD B1（2026-10-29）：老管线的「重试」与「启动」都已在后端退役（`/api/pipeline/retry/*`、
+ * `/api/pipeline/run-async` 在 `agent_mode!=on` 时返回 410）。页面上的重试按钮点了必然失败，
+ * 属于假入口，已移除；顶部改为「历史只读」标记 + 新任务入口指引。
  */
 export function PipelineAdminPage() {
+  const navigate = useNavigate();
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,12 +58,8 @@ export function PipelineAdminPage() {
   const expandedRef = useRef<string | null>(null);
   // A10: 队列任务概览（running/pending/recovered）
   const [queueInfo, setQueueInfo] = useState<{ running: number; pending: number; recovered: number } | null>(null);
-  // E5: retry 后延迟刷新的定时器托管（原实现裸 setTimeout，卸载后仍 setState）
-  const retryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-  useEffect(() => () => {
-    retryTimersRef.current.forEach(clearTimeout);
-    retryTimersRef.current = [];
-  }, []);
+  // closeout B10：评估面板（golden 真跑报告）
+  const [tab, setTab] = useState<'runs' | 'eval'>('runs');
 
   const loadRuns = async () => {
     setLoading(true);
@@ -90,37 +103,22 @@ export function PipelineAdminPage() {
   const completed = runs.filter((r) => r.status === 'completed');
   const runsWithCost = runs.filter((r) => r.llmCost !== undefined);
   const totalCost = runsWithCost.reduce((s, r) => s + (r.llmCost ?? 0), 0);
+  // V38：token 总账（后端 usage.total_tokens）；没有记录就显示 "—"，不编造
+  const totalTokens = runs.reduce((sum, r) => sum + (r.usage?.total_tokens ?? 0), 0);
   const stats = {
     total: runs.length,
     successRate: runs.length ? Math.round((completed.length / runs.length) * 100) : 0,
     avgSec: completed.length ? (completed.reduce((s, r) => s + r.durationMs, 0) / completed.length / 1000).toFixed(1) : '0',
     // G9: 真实成本（后端记录 llm_cost）；不可得时显示 "—"，不造假值
     llmCost: runsWithCost.length > 0 ? totalCost.toFixed(2) : null,
-  };
-  // G9: 重试状态
-  const [retryingId, setRetryingId] = useState<string | null>(null);
-  const [retryErr, setRetryErr] = useState<string | null>(null);
-
-  const retryRun = async (run: PipelineRun) => {
-    const failedAgent = run.agents.find((s) => s.status === 'fail')?.agent ?? 'edit';
-    setRetryingId(run.id);
-    setRetryErr(null);
-    try {
-      await pipelineApi.retry(run.id, failedAgent);
-      // 3s 后轮询刷新状态（B3 retry 为异步）；E5: 定时器托管防卸载后 setState
-      retryTimersRef.current.push(setTimeout(() => { void loadRuns(); }, 3000));
-    } catch (e) {
-      setRetryErr(`重试失败：${(e as { message?: string })?.message ?? '未知错误'}`);
-    } finally {
-      setRetryingId(null);
-    }
+    totalTokens: totalTokens > 0 ? totalTokens.toLocaleString() : null,
   };
 
   return (
     <ConsoleShell>
       <div className="flex items-start justify-between gap-4">
-        <ConsoleHeading kicker="Observability / Pipeline" title="管线监控"
-          desc="追踪每次管线执行的 Agent 耗时分布、成功率与 LLM 成本，定位慢节点与失败重试。" />
+        <ConsoleHeading kicker="Observability / Execution" title="执行诊断"
+          desc="主 Agent 任务与历史管线的执行诊断：Agent 耗时分布、阶段成败、LLM 成本。老管线已下线（只读保留历史记录）。" />
         <button onClick={loadRuns} disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-cw-sm border border-outline-variant/30 bg-surface-container
             text-label-sm text-on-surface-variant hover:text-on-surface hover:border-outline/60 transition-colors disabled:opacity-50 cursor-pointer shrink-0">
@@ -128,6 +126,57 @@ export function PipelineAdminPage() {
           刷新
         </button>
       </div>
+
+      {/* PRD B1：老管线已退役——这里的记录只读回看，新任务走 Task */}
+      <div
+        data-testid="legacy-readonly-banner"
+        className="mb-5 max-w-[900px] rounded-cw-md border border-outline-variant/30 bg-surface-container px-4 py-3"
+      >
+        <p className="flex items-center gap-2 text-label-sm text-on-surface">
+          <span className="rounded-cw-xs bg-outline-variant/20 px-1.5 py-0.5 font-mono text-caption text-on-surface-variant">
+            历史只读
+          </span>
+          老 6 阶段管线已下线：这里只展示切换前的运行记录，<b className="font-medium">不能启动或重试</b>。
+        </p>
+        <p className="mt-1 text-caption text-on-surface-variant">
+          新任务请走「新建制作」→ 需求确认 → 主 Agent 任务（
+          <code className="font-mono">POST /api/requirements/proceed</code>
+          {' '}或{' '}
+          <code className="font-mono">POST /api/task</code>
+          ）。
+        </p>
+        <button
+          type="button"
+          data-testid="goto-new-production"
+          onClick={() => navigate({ to: '/' })}
+          className="mt-2 rounded-cw-sm bg-primary/15 px-2.5 py-1 text-label-sm text-primary hover:bg-primary/25 cursor-pointer"
+        >
+          去「新建制作」开始新任务
+        </button>
+      </div>
+
+      {/* 路线 C：任务列表（老 runs 视图仍保留，直到 C7 退役） */}
+      <TaskListSection />
+
+      <div className="mb-3 flex items-center gap-1" data-testid="admin-tabs">
+        {(['runs', 'eval'] as const).map((key) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={cn(
+              'rounded-cw-sm px-3 py-1 text-label-sm cursor-pointer',
+              tab === key
+                ? 'bg-primary/15 text-on-surface'
+                : 'text-on-surface-variant hover:text-on-surface',
+            )}
+          >
+            {key === 'runs' ? '运行记录' : '评估'}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'eval' ? <EvalPanel /> : null}
 
       {error && (
         <div className="flex items-center justify-between mb-5 max-w-[900px] bg-error/10 border border-error/30 rounded-cw-md px-4 py-2.5">
@@ -138,16 +187,6 @@ export function PipelineAdminPage() {
         </div>
       )}
 
-      {retryErr && (
-        <div className="flex items-center justify-between mb-5 max-w-[900px] bg-error/10 border border-error/30 rounded-cw-md px-4 py-2.5">
-          <span className="text-label-sm text-error flex items-center gap-2">
-            <Activity className="w-3.5 h-3.5" />{retryErr}
-          </span>
-          <button onClick={() => setRetryErr(null)} className="text-label-sm text-error hover:text-error/80 cursor-pointer">关闭</button>
-        </div>
-      )}
-
-      {/* A10: 队列任务状态条 */}
       {queueInfo && (
         <div className="flex items-center gap-4 mb-5 max-w-[900px] bg-surface-container border border-outline-variant/30 rounded-cw-md px-4 py-2.5">
           <span className="flex items-center gap-1.5 text-label-sm text-on-surface-variant">
@@ -175,6 +214,13 @@ export function PipelineAdminPage() {
         <StatCard icon={Gauge} label="成功率" value={`${stats.successRate}%`} sub="pass rate" color="#34D399" />
         <StatCard icon={Timer} label="平均耗时" value={stats.avgSec} sub="seconds" color="#FBBF24" />
         <StatCard icon={Coins} label="LLM 成本" value={stats.llmCost ? `¥${stats.llmCost}` : '—'} sub="actual" color="#A855F7" />
+        <StatCard
+          icon={Cpu}
+          label="LLM 用量"
+          value={stats.totalTokens ? `${stats.totalTokens}` : '—'}
+          sub={stats.totalTokens ? 'tokens（V38 入账）' : '暂无用量记录'}
+          color="#00E5FF"
+        />
       </div>
 
       {/* run queue with gantt traces */}
@@ -183,8 +229,11 @@ export function PipelineAdminPage() {
           Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-20 bg-surface-container rounded-cw-md animate-pulse" />)
         ) : runs.length === 0 ? (
           <div className="bg-surface-container border border-dashed border-outline-variant/40 rounded-cw-md px-5 py-10 text-center">
-            <p className="text-body-sm text-on-surface-variant">暂无运行记录</p>
-            <p className="text-caption text-on-surface-variant/60 mt-1 font-mono">GET /api/pipeline/runs 返回空列表 — 运行一次管线后此处会显示真实记录。</p>
+            <p className="text-body-sm text-on-surface-variant">暂无老管线运行记录</p>
+            <p className="text-caption text-on-surface-variant/60 mt-1 font-mono">
+              老 6 阶段管线已下线：新创作都在上方「任务」列表里（GET /api/task）。
+              这里只保留切换前历史记录的只读回看。
+            </p>
           </div>
         ) : (
           runs.map((run) => {
@@ -201,21 +250,18 @@ export function PipelineAdminPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-body-sm font-medium text-on-surface truncate">{run.topic}</p>
                     <p className="font-mono text-caption text-on-surface-variant mt-0.5">{run.id} · {run.startedAt}</p>
+                    {run.usage?.total_tokens ? (
+                      <p className="font-mono text-caption text-primary/80 mt-0.5" data-testid="run-usage">
+                        {run.usage.total_tokens.toLocaleString()} tokens
+                        {run.usage.calls ? ` · ${run.usage.calls} 次调用` : ''}
+                        {run.usage.render_sec ? ` · 渲染 ${run.usage.render_sec}s` : ''}
+                      </p>
+                    ) : null}
                   </div>
                   <span className="font-mono text-caption text-on-surface-variant shrink-0">{(run.durationMs / 1000).toFixed(1)}s</span>
                   <StatusPill ok={run.status === 'completed'}
                     label={run.status === 'completed' ? 'DONE' : run.status === 'running' ? 'RUN' : 'FAIL'} />
-                  {run.status === 'failed' && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); void retryRun(run); }}
-                      disabled={retryingId === run.id}
-                      className="ml-1 shrink-0 px-2.5 py-1 rounded-cw-xs bg-primary/15 text-primary text-label-sm
-                        hover:bg-primary/25 transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1"
-                    >
-                      {retryingId === run.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                      重试
-                    </button>
-                  )}
+                  {/* PRD B1：失败记录不再提供「重试」——后端 retry 已返回 410 */}
                 </button>
 
                 {/* gantt trace */}
@@ -270,10 +316,14 @@ export function PipelineAdminPage() {
                       ) : trace?.error ? (
                         <p className="text-caption text-warning font-mono">{trace.error}</p>
                       ) : (
-                        <pre className="bg-surface rounded-cw-sm border border-outline-variant/30 px-3 py-2.5 font-mono text-caption
+                        <>
+                          {/* F-03：类型符合度（读 trace 里的 prompt_resolution 事件） */}
+                          <TypeConformancePanel events={trace?.events} />
+                          <pre className="mt-2 bg-surface rounded-cw-sm border border-outline-variant/30 px-3 py-2.5 font-mono text-caption
                           text-track-audio leading-relaxed max-h-72 overflow-auto whitespace-pre-wrap">
                           {JSON.stringify(trace?.events ?? [], null, 2)}
                         </pre>
+                        </>
                       )}
                     </div>
                   </div>
@@ -320,6 +370,7 @@ function normalize(data: unknown): PipelineRun[] {
         durationMs: Number(o.duration_ms ?? 0),
         startedAt: String(o.started_at ?? ''),
         agents: Array.isArray(o.agents) ? (o.agents as Span[]) : [],
+        usage: (o.usage && typeof o.usage === 'object') ? (o.usage as PipelineRun['usage']) : undefined,
         llmCost: Number.isFinite(llmCost) ? llmCost : undefined,
       };
     });

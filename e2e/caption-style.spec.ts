@@ -99,13 +99,24 @@ test.describe('字幕样式整层级联 (caption style cascade)', () => {
     // Panel now shows clip-c2.
     await expect(page.getByText('clip-c2', { exact: true })).toBeVisible();
 
-    // 4) Style inputs for clip-c2 reflect the values set on clip-c1 — read the
-    //    UI, not the store. clip-c2 started at glow_width=0 / #000000, so this
-    //    only passes if the layer-wide cascade actually synced it.
-    await expect(glowWidth).toHaveValue('12');
-    await expect(glowColor).toHaveValue('#00ff00');
+    // 4) P2-05 起：单选只改当前片段（允许单条覆盖），因此 clip-c2 仍保持自己的值。
+    //    这条断言正是该决策的守卫——旧行为（单条也整轨级联）会让这条失败。
+    await expect(glowWidth).toHaveValue('0');
+    await expect(glowColor).toHaveValue('#000000');
 
-    // 5) No uncaught page errors throughout the whole flow.
+    // 5) 多选（Ctrl+点击另一条）时，改样式才是整轨级联：两条都同步成一份。
+    await page.mouse.click(c1.x, c1.y);
+    await page.mouse.click(c2.x, c2.y, { modifiers: ['Control'] });
+    await expect(page.getByText('2 个片段', { exact: false })).toBeVisible({ timeout: 3000 }).catch(() => {});
+    await glowWidth.fill('7');
+    await glowWidth.press('Enter');
+
+    // 单独看 clip-c2：多选级联后应同步为 7
+    await page.mouse.click(c2.x, c2.y);
+    await expect(page.getByText('clip-c2', { exact: true })).toBeVisible();
+    await expect(glowWidth).toHaveValue('7');
+
+    // 6) No uncaught page errors throughout the whole flow.
     expect(errors).toEqual([]);
   });
 

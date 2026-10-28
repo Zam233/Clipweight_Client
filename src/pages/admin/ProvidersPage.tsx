@@ -4,11 +4,12 @@ import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import {
   providersApi, providersForKind, buildSourcePayload, KIND_ROLES, ROLE_LABELS,
+  validateGeneration, GENERATION_LIMITS,
   type AvailableProviders, type ProviderKind, type ProviderModel, type ProviderRole,
-  type ProviderSource, type RoleBindings,
+  type ProviderSource, type RoleBindings, type ModelGeneration,
 } from '@/services/api/providers';
 import {
-  Plus, Trash2, RefreshCw, Loader2, Save, KeyRound, Star, StarOff, Pencil, Check, X, Activity,
+  Plus, Trash2, RefreshCw, Loader2, Save, KeyRound, Star, StarOff, Pencil, Check, X, Activity, SlidersHorizontal,
 } from 'lucide-react';
 
 const TABS: { kind: ProviderKind; label: string; hint: string }[] = [
@@ -71,6 +72,10 @@ export function ProvidersPage() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [editingModel, setEditingModel] = useState('');
+  /** B6：模型列表探测四态（idle = 还没点过） */
+  const [fetchState, setFetchState] = useState<'idle' | 'loading' | 'ok' | 'empty' | 'error'>('idle');
+  /** B4：正在编辑生成参数的模型 id（空 = 全部收起） */
+  const [editingGeneration, setEditingGeneration] = useState('');
   const [newModel, setNewModel] = useState('');
 
   const reload = useCallback(async () => {
@@ -155,16 +160,26 @@ export function ProvidersPage() {
     if (!selectedId) { setError('请先保存源，再获取模型列表'); return; }
     setBusy('fetch');
     setError('');
+    setFetchState('loading');
     try {
-      const { models, note } = await providersApi.fetchModels(selectedId);
-      if (models.length) {
+      // B6：四态（loading/ok/empty/error）。只有 ok 才覆盖清单；
+      // 失败保留已有模型，且**不**提示"已获取"。
+      const { status, models, note, errorCode } = await providersApi.fetchModels(selectedId);
+      if (status === 'ok' && models.length) {
+        setFetchState('ok');
         setForm((f) => ({ ...f, models }));
         setNotice(`已获取 ${models.length} 个模型`);
+        await reload();
       } else {
-        setNotice(note ?? 'provider 未返回模型列表，可添加自定义模型');
+        setFetchState(status === 'error' ? 'error' : 'empty');
+        const hint = note || (status === 'unsupported'
+          ? 'provider 不支持自动获取模型列表，请用「自定义模型」手动添加'
+          : 'provider 未返回模型列表，可添加自定义模型');
+        setNotice(errorCode ? `${hint}（${errorCode}）` : hint);
+        // 不清空 form.models / 不 reload：保留用户已存的模型与手动配置
       }
-      await reload();
     } catch (e) {
+      setFetchState('error');
       setError(e instanceof Error ? e.message : '获取模型列表失败');
     } finally {
       setBusy('');
@@ -214,6 +229,41 @@ export function ProvidersPage() {
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : '重命名失败');
+    }
+  };
+
+  /** B4：逐模型生成参数编辑（空串 = 不提交该键；非法值 inline 报错且不落库） */
+  const [genDraft, setGenDraft] = useState<Record<string, Partial<Record<keyof ModelGeneration, string>>>>({});
+  const [genErrors, setGenErrors] = useState<Record<string, string>>({});
+
+  const saveGeneration = async (model: ProviderModel) => {
+    if (!selectedId) return;
+    const draft = genDraft[model.id] ?? {};
+    const { value, errors } = validateGeneration(draft);
+    if (Object.keys(errors).length) {
+      setGenErrors((e) => ({
+        ...e,
+        [model.id]: Object.values(errors).join('；'),
+      }));
+      return;
+    }
+    setGenErrors((e) => { const next = { ...e }; delete next[model.id]; return next; });
+    setBusy(`gen-${model.id}`);
+    try {
+      const updated = await providersApi.upsertModel(selectedId, {
+        ...model,
+        generation: value,
+      });
+      setForm((f) => ({ ...f, models: updated.models ?? f.models }));
+      setEditingGeneration('');
+      await reload();
+    } catch (e) {
+      setGenErrors((prev) => ({
+        ...prev,
+        [model.id]: e instanceof Error ? e.message : '保存生成参数失败',
+      }));
+    } finally {
+      setBusy('');
     }
   };
 
@@ -461,6 +511,16 @@ export function ProvidersPage() {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-body-sm font-semibold text-on-surface">模型清单</h3>
               <span className="flex items-center gap-2">
+                <span
+                  className="text-caption text-on-surface-variant/70"
+                  data-testid="fetch-state"
+                  data-state={fetchState}
+                >
+                  {fetchState === 'loading' && '正在获取…'}
+                  {fetchState === 'ok' && '已获取'}
+                  {fetchState === 'empty' && '未获取到模型（保留现有清单）'}
+                  {fetchState === 'error' && '获取失败（保留现有清单）'}
+                </span>
                 <Button size="sm" variant="outline" onClick={() => void fetchModels()} disabled={busy === 'fetch'}>
                   {busy === 'fetch' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                   获取模型列表
@@ -479,7 +539,8 @@ export function ProvidersPage() {
                 <li className="py-3 text-caption text-on-surface-variant/70">暂无模型（先获取或自定义添加）</li>
               )}
               {form.models.map((m) => (
-                <li key={m.id} className="py-2 flex items-center gap-2">
+                <li key={m.id} className="py-2">
+                  <div className="flex items-center gap-2">
                   <button type="button" aria-label={`启用 ${m.id}`} onClick={() => void toggleModel(m)}
                     className="text-on-surface-variant hover:text-primary">
                     {(m.enabled ?? true)
@@ -509,6 +570,21 @@ export function ProvidersPage() {
                         (m.enabled ?? true) ? 'text-on-surface' : 'text-on-surface-variant/50 line-through')}>
                         {m.id}{m.name && m.name !== m.id ? ` (${m.name})` : ''}
                       </span>
+                      {/* B4：逐模型生成参数（temperature/top_p/max_tokens） */}
+                      <Button size="icon-sm" variant="ghost" aria-label={`生成参数 ${m.id}`}
+                        onClick={() => {
+                          setEditingGeneration((cur) => (cur === m.id ? '' : m.id));
+                          setGenDraft((d) => ({
+                            ...d,
+                            [m.id]: {
+                              temperature: m.generation?.temperature?.toString() ?? '',
+                              top_p: m.generation?.top_p?.toString() ?? '',
+                              max_tokens: m.generation?.max_tokens?.toString() ?? '',
+                            },
+                          }));
+                        }}>
+                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                      </Button>
                       <Button size="icon-sm" variant="ghost" aria-label={`编辑 ${m.id}`}
                         onClick={() => setEditingModel(m.id)}>
                         <Pencil className="w-3.5 h-3.5" />
@@ -518,6 +594,56 @@ export function ProvidersPage() {
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </>
+                  )}
+                  </div>
+                  {editingGeneration === m.id && (
+                    <div className="mt-2 pl-6" data-testid={`generation-${m.id}`}>
+                      <p className="mb-1 text-caption text-warning" data-testid={`generation-caveat-${m.id}`}>
+                        保存值 ≠ 一定生效：provider 若声明不支持该参数，请求时会被忽略，
+                        并在任务事件流里记一条 degradation（可在「任务运行 → 降级」里看到）。
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {(Object.keys(GENERATION_LIMITS) as Array<keyof ModelGeneration>).map((key) => (
+                          <label key={key} className="flex items-center gap-1 text-caption text-on-surface-variant">
+                            <span className="font-mono">{GENERATION_LIMITS[key].label}</span>
+                            <input
+                              className={cn(INPUT, 'w-24')}
+                              inputMode="decimal"
+                              aria-label={`${GENERATION_LIMITS[key].label} ${m.id}`}
+                              placeholder={String(key === 'max_tokens' ? 4096 : key === 'temperature' ? 0.7 : 1)}
+                              value={genDraft[m.id]?.[key] ?? ''}
+                              onChange={(e) => setGenDraft((d) => ({
+                                ...d,
+                                [m.id]: { ...(d[m.id] ?? {}), [key]: e.target.value },
+                              }))}
+                            />
+                          </label>
+                        ))}
+                        <Button size="sm" variant="outline" disabled={busy === `gen-${m.id}`}
+                          onClick={() => void saveGeneration(m)}>
+                          <Check className="w-3.5 h-3.5" /> 保存参数
+                        </Button>
+                        <Button size="sm" variant="ghost"
+                          onClick={() => {
+                            setEditingGeneration('');
+                            setGenErrors((e) => { const next = { ...e }; delete next[m.id]; return next; });
+                          }}>
+                          取消
+                        </Button>
+                      </div>
+                      {genErrors[m.id] && (
+                        <p className="mt-1 text-caption text-error" data-testid={`generation-error-${m.id}`}>
+                          {genErrors[m.id]}
+                        </p>
+                      )}
+                      {m.generation && !genErrors[m.id] && (
+                        <p className="mt-1 text-caption text-on-surface-variant/70">
+                          已配置：{Object.entries(m.generation)
+                            .map(([k, v]) => `${k}=${v}`).join(' · ')}
+                          <span className="ml-1 text-on-surface-variant/50">（配置值；是否真正下发见任务事件流的降级记录）</span>
+                        </p>
+                      )}
+                    </div>
                   )}
                 </li>
               ))}

@@ -313,6 +313,10 @@ export interface ProductionPlan {
   markdown_content?: string;
   scenes?: unknown[];
   toc?: { level: number; title: string; anchor: string }[];
+  /** F-06：结构化规划（plan-first 产物；legacy 规划也放这里，带 legacy 标记） */
+  plan?: Record<string, unknown>;
+  /** A-18：由现有场景反向生成的规划 */
+  legacy?: boolean;
 }
 
 export interface RequirementMessage {
