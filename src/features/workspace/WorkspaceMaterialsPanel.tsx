@@ -55,22 +55,22 @@ export function mergeEvents(prev: WorkspaceEvent[], incoming: WorkspaceEvent[]):
   return merged.slice(-MAX_PROGRESS);
 }
 
-export interface ScanFailure { rel: string; reason: string }
+export interface ScanFailure { rel: string; reason: string; sha256?: string }
 
 /**
  * 从扫描报告 + 事件 detail 里收集失败项。
  *
  * 后端**没有**单文件重试端点（只有整批 scan / upload），所以这里只做可见性：
- * 用户能看到"哪个文件、为什么失败"，再决定是否整批重扫。
+ * 用户能看到"哪个文件（sha256 前 8 位）、为什么失败"，再决定是否整批重扫。
  */
 export function collectFailures(
-  report: { items?: Array<{ rel: string; status?: string; vision?: string }> } | null,
+  report: { items?: Array<{ rel: string; status?: string; vision?: string; sha256?: string }> } | null,
   events: WorkspaceEvent[],
 ): ScanFailure[] {
   const out = new Map<string, ScanFailure>();
   for (const item of report?.items ?? []) {
     if (item.status === 'failed') {
-      out.set(item.rel, { rel: item.rel, reason: item.vision || '索引失败' });
+      out.set(item.rel, { rel: item.rel, reason: item.vision || '索引失败', sha256: item.sha256 });
     }
   }
   for (const ev of events) {
@@ -299,6 +299,7 @@ export function WorkspaceMaterialsPanel({ projectId, compact = false }: {
           <ul className="mt-1 space-y-0.5">
             {failures.slice(0, 20).map((f) => (
               <li key={f.rel} className="font-mono text-caption text-on-surface-variant break-all">
+                {f.sha256 && <span className="mr-1 text-on-surface-variant/50">{f.sha256.slice(0, 8)}</span>}
                 {f.rel} — {f.reason}
               </li>
             ))}

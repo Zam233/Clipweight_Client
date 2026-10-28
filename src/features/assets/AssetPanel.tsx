@@ -44,6 +44,8 @@ export function AssetPanel() {
   const refreshCounter = useAssetStore((s) => s.refreshCounter);
   const [loadError, setLoadError] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
+  // PRD B10：上传结果提示（含"已存在，已复用"）——toast 会消失，这里留一行常驻
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   const projectId = useProjectStore((s) => s.projectId);
@@ -128,7 +130,11 @@ export function AssetPanel() {
       await loadAssets();
     } catch { /* 列表刷新失败不影响已上传 */ }
     if (reused > 0) {
+      // PRD B10：复用也要在**页面内**可见（toast 会消失），并提供稳定的测试锚点
+      setUploadNote(`${reused} 个文件已存在，已复用`);
       toast(`${reused} 个文件已存在，已复用`, 'info');
+    } else {
+      setUploadNote(null);
     }
     if (fallbackFiles.length > 0) {
       setDemoMode(true);
@@ -237,6 +243,17 @@ export function AssetPanel() {
             <div className="h-full bg-primary transition-all duration-medium2" style={{ width: `${uploadProgress}%` }} />
           </div>
         </div>
+      )}
+
+      {/* PRD B10：复用提示常驻一行（deduplicated=true 不是错误） */}
+      {uploadNote && (
+        <p
+          className="px-3 py-1.5 text-caption text-primary shrink-0"
+          data-testid="asset-upload-note"
+          data-dedup="true"
+        >
+          {uploadNote}
+        </p>
       )}
 
       {(demoMode || loadError) && (
