@@ -21,7 +21,12 @@ export interface PipelineRunRecord {
 }
 
 export const pipelineApi = {
-  /** Run pipeline async, returns pipeline_id immediately */
+  /**
+   * @deprecated PRD B1（2026-10-29）：**已退役**。后端 `/api/pipeline/run-async`
+   * 只在 `agent_mode=on` 时转成 Task，其余情况返回 410。新任务请走
+   * `requirementsApi.proceed`（`POST /api/requirements/proceed`）或 `taskApi.create`
+   * （`POST /api/task`）。此方法仅为老外部调用方保留签名，新 UI 不得使用。
+   */
   async runAsync(request: PipelineRequest) {
     const { data } = await getApiClient().post('/api/pipeline/run-async', request);
     return data as { pipeline_id: string; status: string };
@@ -71,7 +76,12 @@ export const pipelineApi = {
     };
   },
 
-  /** Retry from failed agent */
+  /**
+   * @deprecated PRD B1（2026-10-29）：**已退役**。后端 `/api/pipeline/retry/{id}/{agent}`
+   * 返回 410（执行引擎已在 M3 物理删除，依赖闭包由 `replan_closure` 计算）。
+   * 恢复任务请走主 Agent 任务：`POST /api/task/{id}/resume`，或让主 agent
+   * 重新 `delegate_agent` 失败的那个阶段。此方法仅为老外部调用方保留签名。
+   */
   async retry(pipelineId: string, agentName: string) {
     const { data } = await getApiClient().post(
       `/api/pipeline/retry/${pipelineId}/${agentName}`,

@@ -8,6 +8,7 @@ const { mocks } = vi.hoisted(() => ({
     getRunRecords: vi.fn(),
     getTraceJson: vi.fn(),
     retry: vi.fn(),
+    runAsyncCalled: false,
     getTasks: vi.fn(),
   },
 }));
@@ -18,6 +19,8 @@ vi.mock('@/services/api', () => ({
     getRunRecords: mocks.getRunRecords,
     getTraceJson: mocks.getTraceJson,
     retry: mocks.retry,
+    // PRD B1：已退役入口——若页面仍调用它，测试要能发现
+    runAsync: vi.fn(() => { mocks.runAsyncCalled = true; return Promise.resolve({}); }),
     getTasks: mocks.getTasks,
   },
 }));
@@ -46,6 +49,7 @@ const RUNS = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.runAsyncCalled = false;
   mocks.getRunRecords.mockResolvedValue(RUNS);
   mocks.getTraceJson.mockResolvedValue([]);
   mocks.retry.mockResolvedValue({ status: 'retrying' });
@@ -85,24 +89,26 @@ describe('G9: PipelineAdminPage 真实成本 + 重试', () => {
     expect(screen.getAllByTestId('run-usage')).toHaveLength(1);
   });
 
-  it('失败 run 显示重试按钮 → 点击调用 retry(id, agent) 并刷新', async () => {
+  it('PRD B1：失败记录不再显示重试按钮（后端 retry 已返回 410）', async () => {
     render(<PipelineAdminPage />);
-    const btn = await screen.findByText('重试');
-    expect(btn).toBeTruthy();
-
-    fireEvent.click(btn);
-    expect(mocks.retry).toHaveBeenCalledWith('pl_b', 'material');
-
-    // 3s 后重新拉取记录（真实定时器 + 长等待）
-    await waitFor(() => expect(mocks.getRunRecords).toHaveBeenCalledTimes(2), { timeout: 6000 });
+    await screen.findByText('话题B');
+    expect(screen.queryByText('重试')).toBeNull();
   });
 
-  it('重试失败 → 显示错误提示', async () => {
-    mocks.retry.mockRejectedValue(new Error('backend down'));
+  it('PRD B1：历史只读横幅 + 新任务入口指引', async () => {
     render(<PipelineAdminPage />);
-    const btn = await screen.findByText('重试');
-    fireEvent.click(btn);
-    await waitFor(() => expect(screen.getByText(/重试失败/)).toBeTruthy());
+    const banner = await screen.findByTestId('legacy-readonly-banner');
+    expect(banner.textContent).toContain('历史只读');
+    expect(banner.textContent).toContain('不能启动或重试');
+    expect(banner.textContent).toContain('/api/requirements/proceed');
+    expect(banner.textContent).toContain('/api/task');
+    // 新任务入口可点（跳转到新建制作）
+    const goto = screen.getByTestId('goto-new-production');
+    expect(goto.textContent).toContain('新建制作');
+    fireEvent.click(goto);
+    // 关键：旧启动接口不再被任何 UI 路径触发
+    expect(mocks.retry).not.toHaveBeenCalled();
+    expect(mocks.runAsyncCalled ?? false).toBe(false);
   });
 
   it('A10: 队列状态条显示 running/pending，有中断项时提示 recovered', async () => {

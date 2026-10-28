@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { ConsoleShell, ConsoleHeading, StatusPill } from './ConsoleShell';
 import { pipelineApi } from '@/services/api';
 import { TaskListSection } from '@/features/task/TaskListSection';
@@ -39,10 +40,15 @@ const AGENT_COLORS: Record<string, string> = {
  * PipelineAdminPage — observability console: aggregate stats, run queue, and
  * a Gantt-style span trace per run showing each Agent's wall time.
  *
- * 数据源：Task 列表（GET /api/task，主视图）+ 老管线历史（GET /api/pipeline/runs，只读回看）。
+ * 数据源：Task 列表（GET /api/task，主视图）+ 老管线历史（GET /api/pipeline/runs，**只读**回看）。
  * When the backend is offline we surface an error banner — never fake data.
+ *
+ * PRD B1（2026-10-29）：老管线的「重试」与「启动」都已在后端退役（`/api/pipeline/retry/*`、
+ * `/api/pipeline/run-async` 在 `agent_mode!=on` 时返回 410）。页面上的重试按钮点了必然失败，
+ * 属于假入口，已移除；顶部改为「历史只读」标记 + 新任务入口指引。
  */
 export function PipelineAdminPage() {
+  const navigate = useNavigate();
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,12 +60,6 @@ export function PipelineAdminPage() {
   const [queueInfo, setQueueInfo] = useState<{ running: number; pending: number; recovered: number } | null>(null);
   // closeout B10：评估面板（golden 真跑报告）
   const [tab, setTab] = useState<'runs' | 'eval'>('runs');
-  // E5: retry 后延迟刷新的定时器托管（原实现裸 setTimeout，卸载后仍 setState）
-  const retryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-  useEffect(() => () => {
-    retryTimersRef.current.forEach(clearTimeout);
-    retryTimersRef.current = [];
-  }, []);
 
   const loadRuns = async () => {
     setLoading(true);
@@ -113,24 +113,6 @@ export function PipelineAdminPage() {
     llmCost: runsWithCost.length > 0 ? totalCost.toFixed(2) : null,
     totalTokens: totalTokens > 0 ? totalTokens.toLocaleString() : null,
   };
-  // G9: 重试状态
-  const [retryingId, setRetryingId] = useState<string | null>(null);
-  const [retryErr, setRetryErr] = useState<string | null>(null);
-
-  const retryRun = async (run: PipelineRun) => {
-    const failedAgent = run.agents.find((s) => s.status === 'fail')?.agent ?? 'edit';
-    setRetryingId(run.id);
-    setRetryErr(null);
-    try {
-      await pipelineApi.retry(run.id, failedAgent);
-      // 3s 后轮询刷新状态（B3 retry 为异步）；E5: 定时器托管防卸载后 setState
-      retryTimersRef.current.push(setTimeout(() => { void loadRuns(); }, 3000));
-    } catch (e) {
-      setRetryErr(`重试失败：${(e as { message?: string })?.message ?? '未知错误'}`);
-    } finally {
-      setRetryingId(null);
-    }
-  };
 
   return (
     <ConsoleShell>
@@ -142,6 +124,34 @@ export function PipelineAdminPage() {
             text-label-sm text-on-surface-variant hover:text-on-surface hover:border-outline/60 transition-colors disabled:opacity-50 cursor-pointer shrink-0">
           {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
           刷新
+        </button>
+      </div>
+
+      {/* PRD B1：老管线已退役——这里的记录只读回看，新任务走 Task */}
+      <div
+        data-testid="legacy-readonly-banner"
+        className="mb-5 max-w-[900px] rounded-cw-md border border-outline-variant/30 bg-surface-container px-4 py-3"
+      >
+        <p className="flex items-center gap-2 text-label-sm text-on-surface">
+          <span className="rounded-cw-xs bg-outline-variant/20 px-1.5 py-0.5 font-mono text-caption text-on-surface-variant">
+            历史只读
+          </span>
+          老 6 阶段管线已下线：这里只展示切换前的运行记录，<b className="font-medium">不能启动或重试</b>。
+        </p>
+        <p className="mt-1 text-caption text-on-surface-variant">
+          新任务请走「新建制作」→ 需求确认 → 主 Agent 任务（
+          <code className="font-mono">POST /api/requirements/proceed</code>
+          {' '}或{' '}
+          <code className="font-mono">POST /api/task</code>
+          ）。
+        </p>
+        <button
+          type="button"
+          data-testid="goto-new-production"
+          onClick={() => navigate({ to: '/' })}
+          className="mt-2 rounded-cw-sm bg-primary/15 px-2.5 py-1 text-label-sm text-primary hover:bg-primary/25 cursor-pointer"
+        >
+          去「新建制作」开始新任务
         </button>
       </div>
 
@@ -177,16 +187,6 @@ export function PipelineAdminPage() {
         </div>
       )}
 
-      {retryErr && (
-        <div className="flex items-center justify-between mb-5 max-w-[900px] bg-error/10 border border-error/30 rounded-cw-md px-4 py-2.5">
-          <span className="text-label-sm text-error flex items-center gap-2">
-            <Activity className="w-3.5 h-3.5" />{retryErr}
-          </span>
-          <button onClick={() => setRetryErr(null)} className="text-label-sm text-error hover:text-error/80 cursor-pointer">关闭</button>
-        </div>
-      )}
-
-      {/* A10: 队列任务状态条 */}
       {queueInfo && (
         <div className="flex items-center gap-4 mb-5 max-w-[900px] bg-surface-container border border-outline-variant/30 rounded-cw-md px-4 py-2.5">
           <span className="flex items-center gap-1.5 text-label-sm text-on-surface-variant">
@@ -261,17 +261,7 @@ export function PipelineAdminPage() {
                   <span className="font-mono text-caption text-on-surface-variant shrink-0">{(run.durationMs / 1000).toFixed(1)}s</span>
                   <StatusPill ok={run.status === 'completed'}
                     label={run.status === 'completed' ? 'DONE' : run.status === 'running' ? 'RUN' : 'FAIL'} />
-                  {run.status === 'failed' && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); void retryRun(run); }}
-                      disabled={retryingId === run.id}
-                      className="ml-1 shrink-0 px-2.5 py-1 rounded-cw-xs bg-primary/15 text-primary text-label-sm
-                        hover:bg-primary/25 transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1"
-                    >
-                      {retryingId === run.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                      重试
-                    </button>
-                  )}
+                  {/* PRD B1：失败记录不再提供「重试」——后端 retry 已返回 410 */}
                 </button>
 
                 {/* gantt trace */}
