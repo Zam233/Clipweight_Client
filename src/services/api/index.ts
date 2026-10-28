@@ -31,7 +31,8 @@ export type {
 } from './backendConfig';
 export { workspaceApi } from './workspace';
 export type {
-  ScanReport, WorkspaceDoc, WorkspaceMaterial, WorkspaceReport, WorkspaceStatus,
+  ScanReport, WorkspaceDoc, WorkspaceEvent, WorkspaceEventsBatch, WorkspaceMaterial,
+  WorkspaceReport, WorkspaceStatus,
 } from './workspace';
 export { evalApi } from './eval';
 export type { EvalReportPayload, EvalReportSummary } from './eval';

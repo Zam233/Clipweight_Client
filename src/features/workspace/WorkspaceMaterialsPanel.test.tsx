@@ -9,6 +9,9 @@ const { mocks } = vi.hoisted(() => ({
     materials: vi.fn(),
     scan: vi.fn(),
     upload: vi.fn(),
+    events: vi.fn(),
+    eventsStreamUrl: vi.fn(() => 'http://api.test/api/workspace/p1/events/stream?since=0'),
+    close: vi.fn(),
   },
 }));
 
@@ -18,7 +21,14 @@ vi.mock('@/services/api', () => ({
     materials: mocks.materials,
     scan: mocks.scan,
     upload: mocks.upload,
+    // PRD B2：面板现在会回填 /events 并在扫描时订阅 SSE
+    events: mocks.events,
+    eventsStreamUrl: mocks.eventsStreamUrl,
   },
+}));
+
+vi.mock('@/services/api/sseStream', () => ({
+  connectSseStream: () => ({ close: mocks.close, reconnect: vi.fn() }),
 }));
 
 describe('WorkspaceMaterialsPanel', () => {
@@ -40,6 +50,7 @@ describe('WorkspaceMaterialsPanel', () => {
     mocks.scan.mockResolvedValue({
       scanned: 3, changed: 1, new: 1, deduped: 0, indexed: 1, deferred: 0, failed: 0,
     });
+    mocks.events.mockResolvedValue({ project_id: 'p1', events: [], last_seq: 0 });
   });
 
   afterEach(() => cleanup());

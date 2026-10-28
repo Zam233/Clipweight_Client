@@ -1,4 +1,5 @@
 import { getApiClient } from './client';
+import { apiBase } from './sse';
 
 /**
  * 工作区（PRD docs/workspace-prd-2026-10-24.md）
@@ -6,6 +7,27 @@ import { getApiClient } from './client';
  * 一个项目 = 一个目录：工程文件、素材、下载、成片、缓存都在里面。
  * `materials/` 是用户唯一写入区（系统下载也落这里），新文件会被自动索引 + 视觉解读。
  */
+
+/**
+ * 工作区事件（扫描/索引进度）。
+ *
+ * 后端形状（`clipwright/services/workspace.py::add_event`）：
+ * `{seq, ts, level, message, detail}`；seq 单调递增，用作增量游标。
+ */
+export interface WorkspaceEvent {
+  seq: number;
+  /** 秒级时间戳（后端用 time.time()，不是 ISO 字符串） */
+  ts: number;
+  level: string;
+  message: string;
+  detail: Record<string, unknown>;
+}
+
+export interface WorkspaceEventsBatch {
+  project_id: string;
+  events: WorkspaceEvent[];
+  last_seq: number;
+}
 
 export interface WorkspaceCounts {
   total: number;
@@ -157,10 +179,33 @@ export const workspaceApi = {
     return data;
   },
 
-  /** SSE：扫描/索引进度（与 pipeline trace 同构：seq 游标 + data: 帧） */
-  eventsUrl(projectId: string, since = 0): string {
-    const base = getApiClient().defaults.baseURL ?? '';
-    return `${base}/api/workspace/${encodeURIComponent(projectId)}/events?since=${since}`;
+  /**
+   * 工作区事件（JSON，立即返回）——用于首屏回填与断线后补齐。
+   *
+   * PRD B2：`/events` 是**快照**端点（后端注释：拆两个端点就是为了避免普通 GET 挂死），
+   * 持续进度必须订阅 `eventsStreamUrl()` 那条 SSE。
+   */
+  async events(projectId: string, since = 0): Promise<WorkspaceEventsBatch> {
+    const { data } = await getApiClient().get(
+      `/api/workspace/${encodeURIComponent(projectId)}/events`,
+      { params: { since } },
+    );
+    const batch = (data ?? {}) as Partial<WorkspaceEventsBatch>;
+    return {
+      project_id: String(batch.project_id ?? projectId),
+      events: Array.isArray(batch.events) ? batch.events : [],
+      last_seq: Number(batch.last_seq ?? since) || 0,
+    };
+  },
+
+  /**
+   * 工作区事件流（SSE，`seq` 游标 + `data:` 帧）。
+   *
+   * 旧实现 `eventsUrl()` 拼的是 JSON 端点、且全仓 0 处调用（死方法），
+   * 这里换成真正的 stream URL；`since` 用于断线续传。
+   */
+  eventsStreamUrl(projectId: string, since = 0): string {
+    return `${apiBase()}/api/workspace/${encodeURIComponent(projectId)}/events/stream?since=${since}`;
   },
 
   /** 子 agent 报告索引（PRD §19.6 docs 标签数据源） */
