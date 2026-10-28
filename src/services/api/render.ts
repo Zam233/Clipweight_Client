@@ -107,4 +107,39 @@ export const renderApi = {
     const { data } = await getApiClient().get<{ presets: Record<string, Partial<ExportPreset>> }>('/api/render/presets');
     return data?.presets ?? {};
   },
+
+  // ── PRD B8（2026-10-29 / G6）：后端早已有、前端一直没有的两条运维能力 ──
+
+  /**
+   * 渲染后端清单（内建 + 插件贡献）：`{backends, requested, effective, remote_render_url}`。
+   * 排障时能一眼看出"为什么回退到了本机"。
+   */
+  async getBackends(): Promise<{
+    backends: Array<Record<string, unknown>>;
+    requested: string;
+    effective: string;
+    remote_render_url: boolean;
+  }> {
+    const { data } = await getApiClient().get('/api/render/backends');
+    const payload = (data ?? {}) as {
+      backends?: unknown[]; requested?: string; effective?: string; remote_render_url?: boolean;
+    };
+    return {
+      backends: Array.isArray(payload.backends) ? payload.backends as Array<Record<string, unknown>> : [],
+      requested: String(payload.requested ?? ''),
+      effective: String(payload.effective ?? ''),
+      remote_render_url: Boolean(payload.remote_render_url),
+    };
+  },
+
+  /** 清理过期渲染产物（**破坏性**：真删 renders/ 下的文件，调用方必须二次确认） */
+  async cleanupArtifacts(days = 30): Promise<{ status: string; removed: number; older_than_days: number }> {
+    const { data } = await getApiClient().delete('/api/render/artifacts', { params: { days } });
+    const payload = (data ?? {}) as { status?: string; removed?: number; older_than_days?: number };
+    return {
+      status: String(payload.status ?? ''),
+      removed: Number(payload.removed ?? 0),
+      older_than_days: Number(payload.older_than_days ?? days),
+    };
+  },
 };

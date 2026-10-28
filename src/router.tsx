@@ -41,6 +41,8 @@ const MgPreviewPage = lazyPage(() => import('./pages/admin/MgPreviewPage'), 'MgP
 const SubtitleToolsPage = lazyPage(() => import('./pages/admin/SubtitleToolsPage'), 'SubtitleToolsPage');
 // PRD B4：脚本工具页（后端 /api/pipeline/script-tools 早有，前端此前无入口）
 const ScriptToolsPage = lazyPage(() => import('./pages/admin/ScriptToolsPage'), 'ScriptToolsPage');
+// PRD B8：定时调度页（后端 /api/scheduler 早有，前端此前无入口）
+const SchedulerPage = lazyPage(() => import('./pages/admin/SchedulerPage'), 'SchedulerPage');
 const BackendConfigPage = lazyPage(() => import('./pages/admin/BackendConfigPage'), 'BackendConfigPage');
 const PreprocessPage = lazyPage(() => import('./pages/admin/PreprocessPage'), 'PreprocessPage');
 const PipelineAdminPage = lazyPage(() => import('./pages/admin/PipelineAdminPage'), 'PipelineAdminPage');
@@ -230,6 +232,15 @@ const scriptToolsRoute = createRoute({
   errorComponent: RouteErrorFallback,
 });
 
+/** PRD B8：定时调度页 */
+const schedulerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/scheduler',
+  beforeLoad: requireAdmin,
+  component: SchedulerPage,
+  errorComponent: RouteErrorFallback,
+});
+
 const pluginsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/plugins',
@@ -382,6 +393,7 @@ const routeTree = rootRoute.addChildren([
   backendConfigRoute,
   toolsRoute,
   scriptToolsRoute,
+  schedulerRoute,
   pluginsRoute,
   typeMakerRoute,
   typeCatalogRoute,
