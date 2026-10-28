@@ -55,6 +55,12 @@ export function CopilotDocsTab({ projectId }: { projectId: string }) {
     setContent(doc.content);
   };
 
+  /** PRD B9：报告/文档要能回链到具体产物（路径可见 + 可复制），而不是只有正文 */
+  const copyPath = (path: string) => { void navigator.clipboard?.writeText(path); };
+  const openPath = openSeq != null
+    ? reports.find((r) => r.seq === openSeq)?.path ?? ''
+    : docs.find((d) => d.name === openDoc)?.path ?? '';
+
   if (!projectId) {
     return <div className="p-3 text-caption text-on-surface-variant">尚未绑定项目。</div>;
   }
@@ -105,6 +111,22 @@ export function CopilotDocsTab({ projectId }: { projectId: string }) {
           </button>
         ))}
       </div>
+
+      {openPath && (
+        <div className="flex items-center gap-2 border-b border-outline-variant/20 px-3 py-1">
+          <code className="min-w-0 flex-1 truncate font-mono text-caption text-on-surface-variant/70" data-testid="docs-open-path">
+            {openPath}
+          </code>
+          <button
+            type="button"
+            data-testid="docs-copy-path"
+            className="shrink-0 rounded-cw-xs border border-outline-variant/40 px-2 py-0.5 text-caption text-on-surface-variant hover:border-outline hover:text-on-surface cursor-pointer"
+            onClick={() => copyPath(openPath)}
+          >
+            复制路径
+          </button>
+        </div>
+      )}
 
       <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap px-3 py-2 text-caption text-on-surface">
         {content || (openSeq || openDoc ? '' : '点上面的条目看内容（只读）。')}

@@ -37,37 +37,55 @@ export function EvalPanel() {
   const [payload, setPayload] = useState<EvalReportPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // PRD B9：首屏走 /api/eval/latest（404 = 正常空态，与"接口挂了"分开）
+  const [latestEmpty, setLatestEmpty] = useState(false);
+  const [latestName, setLatestName] = useState('');
 
   const loadList = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setLatestEmpty(false);
     try {
+      // 先给首屏：最近一份（没有就是 404 → null）
+      const latest = await evalApi.latest();
+      if (latest) {
+        setLatestName(latest.name);
+        setPayload(latest.payload);
+        setLatestEmpty(false);
+      } else {
+        setLatestEmpty(true);
+      }
       const res = await evalApi.listReports();
       setItems(res.items || []);
-      if (!selected && res.items?.length) setSelected(res.items[0].name);
+      if (!latest && res.items?.length) setSelected(res.items[0].name);
     } catch (e) {
       setItems([]);
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [selected]);
+  }, []);
 
   useEffect(() => { void loadList(); }, [loadList]);
 
   useEffect(() => {
-    if (!selected) { setPayload(null); return undefined; }
+    if (!selected) {
+      // 没选具体报告时保留 latest 的首屏 payload（别把它清掉）；
+      // 只有连 latest 都没有时才清空。
+      if (!latestName) setPayload(null);
+      return undefined;
+    }
     let alive = true;
     void (async () => {
       try {
         const res = await evalApi.getReport(selected);
         if (alive) setPayload(res.payload);
-      } catch (e) {
+      } catch {
         if (alive) setPayload(null);
       }
     })();
     return () => { alive = false; };
-  }, [selected]);
+  }, [selected, latestName]);
 
   const metrics = payload?.metrics || {};
   const runs = payload?.raw_runs || [];
@@ -97,8 +115,16 @@ export function EvalPanel() {
       )}
 
       {!items.length && !loading ? (
-        <div className="rounded-cw-md border border-dashed border-outline-variant/40 px-4 py-6 text-center">
-          <p className="text-body-sm text-on-surface-variant">还没有评估报告</p>
+        <div
+          className="rounded-cw-md border border-dashed border-outline-variant/40 px-4 py-6 text-center"
+          data-testid="eval-empty"
+        >
+          <p className="text-body-sm text-on-surface-variant">
+            {latestEmpty ? '还没有跑过评估（最近一份报告不存在）' : '还没有评估报告'}
+          </p>
+          <p className="mt-1 text-caption text-on-surface-variant/60">
+            这是正常空态，不是接口故障。生成一份报告：
+          </p>
           <p className="mt-1 font-mono text-caption text-on-surface-variant/60">
             python -m clipwright.services.golden_eval --topic g04_meme_burst --runs 3
           </p>

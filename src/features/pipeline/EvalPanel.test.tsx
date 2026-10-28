@@ -36,6 +36,9 @@ const reportPayload = {
 
 vi.mock('@/services/api', () => ({
   evalApi: {
+    // PRD B9：面板首屏先调 latest（404→null 表示"没有报告"）；这里给 null，
+    // 让列表/选中路径保持原有用例语义。
+    latest: vi.fn(async () => null),
     listReports: vi.fn(async () => listPayload),
     getReport: vi.fn(async () => ({ name: listPayload.items[0].name, payload: reportPayload })),
   },
@@ -67,7 +70,10 @@ describe('EvalPanel', () => {
     const api = await import('@/services/api');
     vi.mocked(api.evalApi.listReports).mockResolvedValueOnce({ count: 0, items: [] });
     render(<EvalPanel />);
-    await waitFor(() => expect(screen.getByText(/还没有评估报告/)).toBeTruthy());
+    // PRD B9：空态文案有两种（latest 404 = 还没跑过 / 列表为空），都要能引导生成
+    await waitFor(() =>
+      expect(screen.getByTestId('eval-empty').textContent).toMatch(/还没有.*评估/),
+    );
     expect(screen.getByText(/golden_eval --topic/)).toBeTruthy();
   });
 });

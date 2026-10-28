@@ -57,4 +57,25 @@ export const evalApi = {
     );
     return data;
   },
+
+  /**
+   * 最近一份报告（PRD B9 / G13）：`GET /api/eval/latest`。
+   *
+   * 后端"没有报告"时返回 **404**（`clipwright/api/eval.py:79-87`），那是**正常空态**，
+   * 不是错误——所以这里把 404 映射成 `null`，其它错误照常抛出，让面板能区分
+   * "还没跑过评估" 与 "接口/网络挂了"。
+   */
+  async latest(): Promise<{ name: string; payload: EvalReportPayload } | null> {
+    try {
+      const { data } = await getApiClient().get('/api/eval/latest');
+      const payload = (data ?? {}) as { name?: string; payload?: EvalReportPayload };
+      // 后端直接返回报告 payload（可能不含 name）——两种形状都接住
+      const body = (payload.payload ?? (data as EvalReportPayload)) ?? {};
+      return { name: String(payload.name ?? 'latest'), payload: body as EvalReportPayload };
+    } catch (e) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (status === 404) return null;
+      throw e;
+    }
+  },
 };

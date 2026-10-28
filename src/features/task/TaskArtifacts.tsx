@@ -86,6 +86,23 @@ export function TaskArtifacts({ taskId, enabled = true }: Props) {
           这条任务还没有可编辑的时间线（管线未产出，或还没执行到出片那一步）。
         </p>
       )}
+      {snap.output_path && (
+        // PRD B9：产物路径要能直接复制（后端返回什么就显示什么，不拼接本地路径）
+        <div className="flex items-center gap-2 text-caption text-on-surface-variant">
+          <span className="font-mono text-caption text-on-surface-variant/70">产物路径</span>
+          <code className="min-w-0 flex-1 truncate font-mono text-caption text-on-surface" data-testid="artifact-path">
+            {snap.output_path}
+          </code>
+          <button
+            type="button"
+            data-testid="artifact-path-copy"
+            className="shrink-0 rounded-cw-xs border border-outline-variant/40 px-2 py-0.5 text-caption hover:border-outline cursor-pointer"
+            onClick={() => { void navigator.clipboard?.writeText(snap.output_path); }}
+          >
+            复制
+          </button>
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={() => void openInEditor()} disabled={busy || !snap.has_timeline}>
           <FolderOpen className="w-3.5 h-3.5 mr-1" /> 在编辑器中打开
