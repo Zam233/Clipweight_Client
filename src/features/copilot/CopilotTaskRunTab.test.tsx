@@ -97,6 +97,16 @@ describe('CopilotTaskRunTab', () => {
     expect(rows.compareDocumentPosition(toolRows) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('B6：真实进展区独立成块，并声明 Plan 只是初始假设', () => {
+    render(<CopilotTaskRunTab taskId="task_x" />);
+    const heading = screen.getByTestId('real-progress-heading');
+    expect(heading.textContent).toContain('真实进展（来自事件）');
+    expect(heading.textContent).toContain('初始假设');
+    // 阶段行属于真实进展区（在标题之后）
+    const stageRows = screen.getByTestId('stage-rows');
+    expect(heading.compareDocumentPosition(stageRows) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('工具调用卡片把 call 与 result 配对（状态 + 耗时 + 错误）', () => {
     render(<CopilotTaskRunTab taskId="task_x" />);
     const rows = screen.getByTestId('tool-call-rows');

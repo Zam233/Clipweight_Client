@@ -326,7 +326,17 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
       </div>
 
       <ThinkingDisclosure events={events} />
+      {/* PRD B6：Plan 是「初始假设」，真实进展只认事件——两块在视觉上分开 */}
       {task && <PlanPanel task={task} busy={busy} />}
+      <p
+        className="border-b border-outline-variant/20 bg-surface-container/40 px-3 py-1 text-label-sm text-on-surface"
+        data-testid="real-progress-heading"
+      >
+        真实进展（来自事件）
+        <span className="ml-2 text-caption text-on-surface-variant/70">
+          上方 Plan 只是初始假设，不追踪进度
+        </span>
+      </p>
       <StageRows events={events} />
       <ModelTurnRows events={events} />
       <ToolCallRows events={events} />

@@ -103,13 +103,29 @@ describe('toTaskEvent', () => {
 });
 
 describe('useTaskEvents', () => {
-  it('订阅 task 事件流并喂给 store', () => {
-    useTaskStore.setState({ task: makeTask() });
+  it('订阅 task 事件流并喂给 store（老计划 hypothesis_only=false 时仍折叠步骤状态）', () => {
+    const task = makeTask();
+    task.plan!.hypothesis_only = false; // PRD B6：只有"非假设"的老计划才追踪步骤进度
+    useTaskStore.setState({ task });
     renderHook(() => useTaskEvents('task_1', true));
     expect(connectSseStream).toHaveBeenCalledTimes(1);
     stream.onMessage?.({ seq: 1, type: 'step_start', detail: { step_id: 's1', attempt: 1 } });
     expect(useTaskStore.getState().events).toHaveLength(1);
     expect(useTaskStore.getState().task!.plan!.steps[0].status).toBe('running');
+  });
+
+  it('PRD B6：假设态 Plan 不因进度事件改动（事件仍入 store）', () => {
+    const task = makeTask();
+    task.plan!.hypothesis_only = true;
+    useTaskStore.setState({ task });
+    renderHook(() => useTaskEvents('task_1', true));
+
+    stream.onMessage?.({ seq: 1, type: 'step_start', detail: { step_id: 's1', attempt: 1 } });
+    stream.onMessage?.({ seq: 2, type: 'step_end', detail: { step_id: 's1', status: 'done' } });
+
+    const st = useTaskStore.getState();
+    expect(st.events).toHaveLength(2);                       // 事件照收（真实进展要看事件）
+    expect(st.task!.plan!.steps[0].status).toBe('pending');  // 假设不被进度污染
   });
 
   it('enabled=false 或空 id 不订阅', () => {

@@ -55,6 +55,9 @@ function makeTask(overrides: Partial<Task> = {}): Task {
       ],
       version: 1, rationale: '固定两步', est_total_cost_usd: null,
       created_at: '2026-10-17T00:00:00Z',
+      // PRD B6：这批用例测的是"老计划会折叠进度"，显式标成非假设；
+      // 假设态不折叠由 task-ui.test.tsx 的 B6 用例单独覆盖。
+      hypothesis_only: false,
     },
     limits: { max_turns: 30, max_tool_calls: 80, max_wall_sec: 3600, budget_usd: null },
     usage: { turns: 0, tool_calls: 0, tokens: 0, cost_usd: 0, wall_sec: 0 },

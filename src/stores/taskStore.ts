@@ -73,6 +73,13 @@ function _foldPlan(task: Task, event: TaskEvent): Task | null {
   const plan = task.plan;
   if (!plan) return null;
 
+  // PRD B6（2026-10-29 / G7）：主 agent 化之后 Plan 只是**初始假设**（后端
+  // `hypothesis_only=true`，默认）。真实执行由 tool_loop 现场决定，步骤状态可能永远
+  // 停在 pending；再用 step_*/tool_result 去改它，等于把"设想"渲染成"执行进度"。
+  // 所以：假设态下只有 plan/replan（假设本身被改写）会更新，进度类事件一律不碰。
+  const hypothesis = plan.hypothesis_only !== false;
+  if (hypothesis && !['plan', 'replan'].includes(event.type)) return null;
+
   if (event.type === 'plan' && Array.isArray(detail.steps)) {
     return { ...task, plan: { ...plan, steps: detail.steps as PlanStep[] } };
   }
