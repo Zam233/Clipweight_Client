@@ -192,6 +192,10 @@ export function HomePage() {
   const [uploadNote, setUploadNote] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
   const [launchErr, setLaunchErr] = useState<string | null>(null);
+  // PRD B4：选题建议（后端 topic-suggest）
+  const [suggesting, setSuggesting] = useState(false);
+  const [topicIdeas, setTopicIdeas] = useState<Array<{ title: string; reason: string }>>([]);
+  const [topicSuggestErr, setTopicSuggestErr] = useState<string | null>(null);
   // 工作区（PRD workspace-prd-2026-10-24）：04 步开关 + 已创建路径
   const [wsRoot, setWsRoot] = useState('');
   // PRD §17.8：工作区父目录可选（后端 GET /api/workspace/roots 给白名单）
@@ -426,6 +430,28 @@ export function HomePage() {
       setUploadErr(detail);
     } finally {
       setUploading(false);
+    }
+  };
+
+  /** PRD B4：向后端要几条候选选题（只填候选，不覆盖用户已写的标题） */
+  const suggestTopics = async () => {
+    setSuggesting(true);
+    setTopicSuggestErr(null);
+    try {
+      const res = await pipelineApi.topicSuggest({ category: pluginId, count: 5 });
+      if (!res.topics.length) {
+        setTopicSuggestErr('后端没有返回选题建议（LLM 与内置库都不可用）');
+        setTopicIdeas([]);
+      } else {
+        setTopicIdeas(res.topics);
+      }
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        ?? (e instanceof Error ? e.message : '生成选题建议失败');
+      setTopicSuggestErr(detail);
+      setTopicIdeas([]);
+    } finally {
+      setSuggesting(false);
     }
   };
 
@@ -856,7 +882,40 @@ export function HomePage() {
                           <X className="w-3.5 h-3.5" />
                         </button>
                       )}
+                      {/* PRD B4：选题建议（后端 /api/pipeline/topic-suggest；只填候选，不覆盖已写内容） */}
+                      <button
+                        type="button"
+                        data-testid="topic-suggest"
+                        disabled={suggesting}
+                        onClick={() => void suggestTopics()}
+                        className="shrink-0 px-2 py-1 rounded-cw-xs text-caption text-primary hover:bg-primary/10
+                          disabled:opacity-50 cursor-pointer"
+                      >
+                        {suggesting ? '生成中…' : '选题建议'}
+                      </button>
                     </div>
+                    {topicIdeas.length > 0 && (
+                      <div className="mb-2.5 rounded-cw-sm border border-outline-variant/40 bg-surface px-3 py-2" data-testid="topic-ideas">
+                        <p className="mb-1 text-caption text-on-surface-variant/70">候选选题（点击填入标题，可再编辑）</p>
+                        <ul className="space-y-1">
+                          {topicIdeas.map((t) => (
+                            <li key={t.title}>
+                              <button
+                                type="button"
+                                onClick={() => { setTopic(t.title); setTopicIdeas([]); }}
+                                className="w-full text-left text-body-sm text-on-surface hover:text-primary cursor-pointer"
+                              >
+                                {t.title}
+                                {t.reason && <span className="ml-1 text-caption text-on-surface-variant/60">— {t.reason}</span>}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {topicSuggestErr && (
+                      <p className="mb-2 text-caption text-error" data-testid="topic-suggest-err">{topicSuggestErr}</p>
+                    )}
                     <textarea
                       value={script}
                       onChange={(e) => setScript(e.target.value)}

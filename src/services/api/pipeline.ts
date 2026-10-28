@@ -131,4 +131,67 @@ export const pipelineApi = {
   getTraceStreamUrl(pipelineId: string): string {
     return `${apiBase()}/api/pipeline/trace/stream/${pipelineId}`;
   },
+
+  // ── PRD B4（2026-10-29 / G14）：后端已有、前端此前没有客户端的三条能力 ──
+  //
+  // 注意边界：这三条属于**旧 pipeline 侧的兼容能力**，不是新创作主路径
+  // （主路径仍是 requirements/proceed → Task）。所以 UI 只做"显式入口 + 只读预览"，
+  // 批量提交必须二次确认，脚本工具结果绝不自动写入时间线。
+
+  /**
+   * 批量启动管线（单批上限 10）。每条独立入队/计费；单条失败不影响其余。
+   * 返回 `{results: [{ok, topic, pipeline_id?...}], ...}`。
+   */
+  async runBatch(requests: Array<Record<string, unknown>>): Promise<{
+    results: Array<{ ok: boolean; topic?: string; pipeline_id?: string; error?: string }>;
+    [key: string]: unknown;
+  }> {
+    const { data } = await getApiClient().post('/api/pipeline/run-batch', { requests });
+    const payload = (data ?? {}) as { results?: unknown[] };
+    return {
+      ...(payload as Record<string, unknown>),
+      results: Array.isArray(payload.results)
+        ? (payload.results as Array<{ ok: boolean; topic?: string; pipeline_id?: string; error?: string }>)
+        : [],
+    };
+  },
+
+  /**
+   * 脚本工具：改写 / 扩写 / 缩写（LLM）。
+   * 返回 `{mode, result, fallback?, note?}`；`fallback=true` 表示 LLM 不可用、返回原文。
+   */
+  async scriptTools(body: {
+    mode: 'rewrite' | 'expand' | 'summarize';
+    script_text: string;
+    style?: string;
+    max_length?: number;
+  }): Promise<{ mode: string; result: string; fallback?: boolean; note?: string }> {
+    const { data } = await getApiClient().post('/api/pipeline/script-tools', body);
+    const payload = (data ?? {}) as Record<string, unknown>;
+    return {
+      mode: String(payload.mode ?? body.mode),
+      result: String(payload.result ?? ''),
+      fallback: Boolean(payload.fallback),
+      note: payload.note ? String(payload.note) : undefined,
+    };
+  },
+
+  /** 选题建议（LLM + 可选 trending，启发式回退）：返回 `[{title, reason}]`。 */
+  async topicSuggest(body: { category?: string; count?: number; use_web?: boolean } = {}): Promise<{
+    topics: Array<{ title: string; reason: string }>;
+  }> {
+    const { data } = await getApiClient().post('/api/pipeline/topic-suggest', {
+      category: body.category ?? '',
+      count: body.count ?? 5,
+      use_web: body.use_web ?? false,
+    });
+    const payload = (data ?? {}) as { topics?: unknown[] };
+    const topics = Array.isArray(payload.topics)
+      ? payload.topics
+        .map((t) => t as { title?: unknown; reason?: unknown })
+        .map((t) => ({ title: String(t.title ?? ''), reason: String(t.reason ?? '') }))
+        .filter((t) => t.title)
+      : [];
+    return { topics };
+  },
 };

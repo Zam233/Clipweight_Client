@@ -39,6 +39,8 @@ const WebhooksPage = lazyPage(() => import('./pages/admin/WebhooksPage'), 'Webho
 const FontsPage = lazyPage(() => import('./pages/admin/FontsPage'), 'FontsPage');
 const MgPreviewPage = lazyPage(() => import('./pages/admin/MgPreviewPage'), 'MgPreviewPage');
 const SubtitleToolsPage = lazyPage(() => import('./pages/admin/SubtitleToolsPage'), 'SubtitleToolsPage');
+// PRD B4：脚本工具页（后端 /api/pipeline/script-tools 早有，前端此前无入口）
+const ScriptToolsPage = lazyPage(() => import('./pages/admin/ScriptToolsPage'), 'ScriptToolsPage');
 const BackendConfigPage = lazyPage(() => import('./pages/admin/BackendConfigPage'), 'BackendConfigPage');
 const PreprocessPage = lazyPage(() => import('./pages/admin/PreprocessPage'), 'PreprocessPage');
 const PipelineAdminPage = lazyPage(() => import('./pages/admin/PipelineAdminPage'), 'PipelineAdminPage');
@@ -219,6 +221,15 @@ const toolsRoute = createRoute({
   errorComponent: RouteErrorFallback,
 });
 
+/** PRD B4：脚本工具页（改写/扩写/缩写，只读预览） */
+const scriptToolsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/script-tools',
+  beforeLoad: requireAdmin,
+  component: ScriptToolsPage,
+  errorComponent: RouteErrorFallback,
+});
+
 const pluginsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/plugins',
@@ -370,6 +381,7 @@ const routeTree = rootRoute.addChildren([
   providersRoute,
   backendConfigRoute,
   toolsRoute,
+  scriptToolsRoute,
   pluginsRoute,
   typeMakerRoute,
   typeCatalogRoute,

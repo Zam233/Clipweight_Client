@@ -21,6 +21,7 @@ const { mocks } = vi.hoisted(() => ({
     assetUpload: vi.fn(),
     healthCheck: vi.fn(),
     predictScript: vi.fn(),
+    topicSuggest: vi.fn(),
     healthStatus: vi.fn(),
     healthDetail: vi.fn(),
     toast: vi.fn(),
@@ -45,7 +46,7 @@ vi.mock('@/services/api', () => ({
   assetApi: { listSources: mocks.listSources, upload: mocks.assetUpload },
   typeMakerApi: { list: mocks.typeMakerList },
   voiceApi: { list: vi.fn(() => Promise.resolve([])) },
-  pipelineApi: { predictScript: mocks.predictScript },
+  pipelineApi: { predictScript: mocks.predictScript, topicSuggest: mocks.topicSuggest },
   // 04 工作区（PRD workspace-prd）：项目建好后会创建；失败不阻断启动
   workspaceApi: {
     create: vi.fn(async () => ({ root: 'J:/tmp/ws', exists: true })),
@@ -124,6 +125,7 @@ beforeEach(() => {
   mocks.healthStatus.mockReturnValue('offline');
   mocks.healthDetail.mockReturnValue(null);
   mocks.predictScript.mockResolvedValue({});
+  mocks.topicSuggest.mockResolvedValue({ topics: [] });
   mocks.pluginList.mockResolvedValue([]);
   mocks.pluginHealth.mockResolvedValue({ overall: 'ok', plugins: [], errors_total: 0 });
   mocks.pluginContributions.mockResolvedValue({ contributions: [], total: 0 });
@@ -208,6 +210,35 @@ async function gotoCreate() {
   fireEvent.click(screen.getByRole('button', { name: /^开始创作/ }));
   await screen.findByPlaceholderText(/粘贴口播文案/);
 }
+
+describe('PRD B4: 选题建议', () => {
+  it('点「选题建议」调 topicSuggest 并渲染候选；点候选填入标题', async () => {
+    mocks.topicSuggest.mockResolvedValue({
+      topics: [{ title: '散热设计深度解析', reason: '新机热度高' }],
+    });
+    render(<HomePage />);
+    await gotoCreate();
+
+    fireEvent.click(screen.getByTestId('topic-suggest'));
+    await waitFor(() => expect(mocks.topicSuggest).toHaveBeenCalled());
+
+    const ideas = await screen.findByTestId('topic-ideas');
+    expect(ideas.textContent).toContain('散热设计深度解析');
+    // 点候选 → 标题被填入输入框
+    fireEvent.click(screen.getByText('散热设计深度解析'));
+    const input = screen.getByPlaceholderText(/视频选题/) as HTMLInputElement;
+    expect(input.value).toBe('散热设计深度解析');
+  });
+
+  it('后端报错 → 可读错误而不是静默', async () => {
+    mocks.topicSuggest.mockRejectedValue({ response: { data: { detail: 'LLM 配额用尽' } } });
+    render(<HomePage />);
+    await gotoCreate();
+    fireEvent.click(screen.getByTestId('topic-suggest'));
+    expect(await screen.findByTestId('topic-suggest-err')).toBeTruthy();
+    expect(screen.getByTestId('topic-suggest-err').textContent).toContain('LLM 配额用尽');
+  });
+});
 
 describe('G6: script intelligence prediction', () => {
   it('长文稿 + 后端在线 → 渲染推荐卡片', async () => {
