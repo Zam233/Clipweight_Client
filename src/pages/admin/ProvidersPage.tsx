@@ -598,6 +598,10 @@ export function ProvidersPage() {
                   </div>
                   {editingGeneration === m.id && (
                     <div className="mt-2 pl-6" data-testid={`generation-${m.id}`}>
+                      <p className="mb-1 text-caption text-warning" data-testid={`generation-caveat-${m.id}`}>
+                        保存值 ≠ 一定生效：provider 若声明不支持该参数，请求时会被忽略，
+                        并在任务事件流里记一条 degradation（可在「任务运行 → 降级」里看到）。
+                      </p>
                       <div className="flex flex-wrap items-center gap-2">
                         {(Object.keys(GENERATION_LIMITS) as Array<keyof ModelGeneration>).map((key) => (
                           <label key={key} className="flex items-center gap-1 text-caption text-on-surface-variant">
@@ -634,8 +638,9 @@ export function ProvidersPage() {
                       )}
                       {m.generation && !genErrors[m.id] && (
                         <p className="mt-1 text-caption text-on-surface-variant/70">
-                          当前生效：{Object.entries(m.generation)
+                          已配置：{Object.entries(m.generation)
                             .map(([k, v]) => `${k}=${v}`).join(' · ')}
+                          <span className="ml-1 text-on-surface-variant/50">（配置值；是否真正下发见任务事件流的降级记录）</span>
                         </p>
                       )}
                     </div>

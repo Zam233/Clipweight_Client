@@ -26,12 +26,17 @@ const events: TaskEvent[] = [
   { seq: 11, type: 'tool_result', ts: '', message: 'frame_check → error', detail: { tool: 'frame_check', status: 'error', error: '缺输入' } },
   // 等授权不是失败，必须单独可见
   { seq: 12, type: 'approval_request', ts: '', message: '工具 run_shell 等待授权', detail: { risk: 'high', approval_id: 'ap_1' } },
+  // B7：后端 note_degradation 会如实记录"参数被忽略"
+  { seq: 13, type: 'degradation', ts: '', message: '已忽略 reasoning_effort',
+    detail: { scope: 'reasoning_effort', detail: '模型 openai/m1 不支持 reasoning_effort，已忽略 high。', impact: '使用 provider 默认推理强度' } },
 ];
 
 vi.mock('@/features/task/useTaskEvents', () => ({ useTaskEvents: () => undefined }));
+// B7：用量区块需要 task 非空——用可变引用，默认 null 保持既有用例行为
+const store = { task: null as Record<string, unknown> | null };
 vi.mock('@/stores/taskStore', () => ({
   useTaskStore: (sel: (s: Record<string, unknown>) => unknown) => sel({
-    task: null, events, loading: false,
+    task: store.task, events, loading: false,
     pause: vi.fn(), resume: vi.fn(), cancel: vi.fn(), inject: vi.fn(),
   }),
 }));
@@ -60,6 +65,7 @@ describe('ThinkingDisclosure', () => {
 describe('CopilotTaskRunTab', () => {
   beforeEach(() => {
     localStorage.clear();
+    store.task = null;
     useCopilotStore.setState({ projectId: 'p1', tabs: [REQUIREMENTS_TAB], activeId: REQUIREMENTS_TAB.id });
   });
   afterEach(cleanup);
@@ -105,6 +111,29 @@ describe('CopilotTaskRunTab', () => {
     // 阶段行属于真实进展区（在标题之后）
     const stageRows = screen.getByTestId('stage-rows');
     expect(heading.compareDocumentPosition(stageRows) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('B7：用量区块显示未知成本次数（不能当成 0）', () => {
+    store.task = {
+      status: 'running', finish: null,
+      usage: { turns: 4, tool_calls: 6, tokens: 1234, cost_usd: 0, wall_sec: 12, unknown_cost_calls: 2 },
+    };
+    render(<CopilotTaskRunTab taskId="task_x" />);
+
+    const usage = screen.getByTestId('usage-rows');
+    expect(usage.textContent).toContain('1,234');
+    expect(usage.textContent).toContain('—');           // 没有已知成本时显示占位而不是 $0
+    const unknown = screen.getByTestId('unknown-cost');
+    expect(unknown.textContent).toContain('未知成本 2 次');
+    expect(unknown.textContent).toContain('不能当 0');
+  });
+
+  it('B7：降级与忽略单独成块（配置值≠生效值的证据）', () => {
+    render(<CopilotTaskRunTab taskId="task_x" />);
+    const rows = screen.getByTestId('degradation-rows');
+    expect(rows.textContent).toContain('reasoning_effort');
+    expect(rows.textContent).toContain('已忽略 high');
+    expect(rows.textContent).toContain('使用 provider 默认推理强度');
   });
 
   it('工具调用卡片把 call 与 result 配对（状态 + 耗时 + 错误）', () => {

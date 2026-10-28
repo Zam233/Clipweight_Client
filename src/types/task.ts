@@ -95,6 +95,12 @@ export interface TaskUsage {
   tokens: number;
   cost_usd: number;
   wall_sec: number;
+  /**
+   * PRD B7（2026-10-29 / G11）：后端 `TaskUsage.unknown_cost_calls`（`schema/task.py:157`）——
+   * 「成本未知」的调用次数。这些调用**没被计入 `cost_usd`**，所以 UI 不能只显示金额，
+   * 否则用户会把"未知"读成 0。
+   */
+  unknown_cost_calls?: number;
 }
 
 export interface TaskFinish {

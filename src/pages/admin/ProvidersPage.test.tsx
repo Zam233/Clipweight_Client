@@ -181,6 +181,17 @@ describe('ProvidersPage（模型提供商）', () => {
     }));
   });
 
+  it('B7：生成参数区明说「保存值 ≠ 一定生效」，并把已配置标注为配置值', async () => {
+    mocks.upsertModel.mockResolvedValue({ models: [] });
+    render(<ProvidersPage />);
+    fireEvent.click(await screen.findByTestId('source-src_a'));
+    fireEvent.click(screen.getByLabelText('生成参数 deepseek-chat'));
+
+    const caveat = screen.getByTestId('generation-caveat-deepseek-chat');
+    expect(caveat.textContent).toContain('保存值 ≠ 一定生效');
+    expect(caveat.textContent).toContain('degradation');
+  });
+
   it('B4：逐模型生成参数保存后随 upsertModel 提交', async () => {
     mocks.upsertModel.mockResolvedValue({
       models: [{ id: 'deepseek-chat', name: 'deepseek-chat', enabled: true,

@@ -50,6 +50,41 @@ function StageRows({ events }: { events: ReturnType<typeof useTaskStore.getState
 
 type Ev = ReturnType<typeof useTaskStore.getState>['events'];
 
+/**
+ * 用量与成本（PRD B7 / G11）。
+ *
+ * 关键点：后端 `cost_usd` **不包含**"成本未知"的调用（`unknown_cost_calls`）。
+ * 只显示金额会让用户把未知读成 0，所以未知次数必须显式写出来。
+ */
+function UsageRows({ usage, unknownCostCalls }: {
+  usage: { turns: number; tool_calls: number; tokens: number; cost_usd: number; wall_sec: number };
+  unknownCostCalls: number;
+}) {
+  const hasCost = usage.cost_usd > 0;
+  return (
+    <div
+      className="border-b border-outline-variant/20 px-3 py-2 text-caption"
+      data-testid="usage-rows"
+    >
+      <p className="mb-1 text-label-sm text-on-surface-variant">用量</p>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-on-surface-variant">
+        <span>模型往返 <b className="font-mono text-on-surface">{usage.turns}</b></span>
+        <span>工具调用 <b className="font-mono text-on-surface">{usage.tool_calls}</b></span>
+        <span>tokens <b className="font-mono text-on-surface">{usage.tokens.toLocaleString()}</b></span>
+        <span>
+          成本 <b className="font-mono text-on-surface">{hasCost ? `$${usage.cost_usd.toFixed(4)}` : '—'}</b>
+          {!hasCost && <span className="ml-1 text-on-surface-variant/60">（未配置单价或暂无计费）</span>}
+        </span>
+        {unknownCostCalls > 0 && (
+          <span className="text-error" data-testid="unknown-cost">
+            未知成本 {unknownCostCalls} 次（这些调用未计入金额，不能当 0）
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** 模型轮次：`thinking` + `intent` + `narration` 都算"它在想/在说"，按到达顺序合并。
  *
  * B2（2026-10-28 PRD）：工具调用**之前**的 narration（`detail.kind === "preamble"`）
@@ -286,6 +321,46 @@ function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
   );
 }
 
+/**
+ * 降级与忽略（PRD B7 / G17）。
+ *
+ * 后端 `note_degradation(kind, detail, scope, impact)` 会把「不支持的参数被忽略」
+ * 「模型降级」等如实记进 `degradation` 事件。Provider 页只展示**配置值**，真正
+ * 是否生效要看这里——两处刻意分开，避免把"保存了"当成"生效了"。
+ */
+function DegradationRows({ events }: { events: Ev }) {
+  const rows = React.useMemo(
+    () => events
+      .map((e) => parseTaskEvent(e))
+      .filter((p) => p.kind === 'degradation')
+      .slice(-6),
+    [events],
+  );
+  if (!rows.length) return null;
+  return (
+    <div className="border-b border-outline-variant/20 px-3 py-2" data-testid="degradation-rows">
+      <p className="mb-1 text-label-sm text-warning">
+        降级与忽略（{rows.length}）
+      </p>
+      <ul className="space-y-0.5">
+        {rows.map((p) => {
+          const raw = p.raw as Record<string, unknown>;
+          const detail = String(raw.detail ?? p.message ?? '');
+          const scope = String(raw.scope ?? raw.kind ?? '');
+          const impact = String(raw.impact ?? '');
+          return (
+            <li key={p.seq} className="text-caption text-on-surface-variant" data-degradation-seq={p.seq}>
+              {scope && <span className="mr-1 font-mono text-warning/80">{scope}</span>}
+              {detail}
+              {impact && <span className="ml-1 text-on-surface-variant/60">（{impact}）</span>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
   useTaskEvents(taskId || null, Boolean(taskId));
   const task = useTaskStore((s) => s.task);
@@ -325,6 +400,13 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
         )}
       </div>
 
+      {task && (
+        <UsageRows
+          usage={task.usage}
+          unknownCostCalls={task.usage.unknown_cost_calls ?? 0}
+        />
+      )}
+
       <ThinkingDisclosure events={events} />
       {/* PRD B6：Plan 是「初始假设」，真实进展只认事件——两块在视觉上分开 */}
       {task && <PlanPanel task={task} busy={busy} />}
@@ -341,6 +423,7 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
       <ModelTurnRows events={events} />
       <ToolCallRows events={events} />
       <ApprovalRows events={events} taskId={taskId} />
+      <DegradationRows events={events} />
 
       <div className="min-h-0 flex-1 overflow-auto px-1 py-1">
         <EventFeed events={events} />
