@@ -115,13 +115,13 @@ Pipeline 输出的核心数据结构。前端编辑器与后端 Agent 共享此 
 
 | 端点 | 说明 |
 |------|------|
-| `POST /api/pipeline/run-async` | 异步启动管线（唯一入口；动态路由 + 并行执行 + 自愈循环），通过 SSE 实时追踪 |
+| `POST /api/pipeline/run-async` | **已退役**（PRD B12）：`agent_mode=on` 时转成主 Agent 任务（返回体仍带 `pipeline_id`），其余情况返回 **410**。新任务请用 `POST /api/requirements/proceed` 或 `POST /api/task` |
 | `GET /api/pipeline/runs?limit=50` | 列出最近的管线运行记录（按时间倒序） |
 | `GET /api/pipeline/status/{pipeline_id}` | 查询管线状态 |
 | `GET /api/pipeline/result/{pipeline_id}` | 获取异步执行结果（含时间线 JSON） |
 | `GET /api/pipeline/trace/{pipeline_id}` | 获取管线事件轨迹 |
 | `GET /api/pipeline/trace/stream/{pipeline_id}` | SSE 流：实时追踪管线执行事件 |
-| `POST /api/pipeline/retry/{pipeline_id}/{agent_name}` | 从失败的 Agent 重试（B3：重放前置成功结果，仅重跑目标 + 下游） |
+| `POST /api/pipeline/retry/{pipeline_id}/{agent_name}` | **已退役**（PRD B12）：返回 **410**；恢复任务请用 `POST /api/task/{id}/resume`（终态任务会被 409 拒绝），或让主 agent 重新 `delegate_agent` 该阶段 |
 | `POST /api/pipeline/predict-script` | 分析文稿并推荐配置（请求体：`PredictScriptRequest`）。返回字数、句数、估算时长、推荐 Persona、推荐类型插件、情绪基调、关键主题 |
 | `POST /api/pipeline/predict-material` | 分析素材文件并推荐使用方式（请求体：`PredictMaterialRequest`）。返回时长、分辨率、方向、是否有视频/音频、用途建议 |
 
