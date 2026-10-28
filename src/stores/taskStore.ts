@@ -51,14 +51,21 @@ const EMPTY = {
 /** 事件 → plan/step 状态推导（前端不向"后端已算好的状态"二次确认，双份状态必然漂移）。 */
 /** `task_end.detail.reason` → 前端 status（口径与后端 TaskFinish.reason 对齐）。 */
 export function terminalStatusOf(reason: string): Task['status'] {
-  const r = String(reason || '');
+  const r = String(reason || '').trim();
   if (r === 'cancelled' || r === 'cancel') return 'cancelled';
   if (r === 'paused') return 'paused';
   // 成功：正式跑完 / 预览跑完（预览是"如实完成了一次预览"，不是失败）
   if (r === 'tool_loop_completed' || r === 'plan_completed'
       || r === 'dry_run_preview' || r === 'task_completed') return 'done';
-  // 其余（gate:* / tool_loop_error:* / tool_loop_unavailable:* / 守门未过）都是失败
-  return 'failed';
+  // 已知失败口径：触闸中止 / 循环报错 / provider 不可用 / 收尾守门没过 / 空原因
+  if (r === '' || r.startsWith('gate:') || r.startsWith('step_failed')
+      || r.startsWith('tool_loop_error') || r.startsWith('tool_loop_unavailable')
+      || r === 'validation_failed' || r.includes('缺少可渲染时间线')) return 'failed';
+  // Kernel 把未捕获异常的类型名当 reason（`TimeoutError` / `ValueError` …）
+  if (/Error$|Exception$|Timeout$/.test(r)) return 'failed';
+  // PRD B5：不认识的终态原因不再伪装成 failed——后端加了新 reason 时
+  // UI 显示"后端终态：<reason>"，而不是让用户以为这一轮真的失败了。
+  return 'unknown_terminal';
 }
 
 function _foldPlan(task: Task, event: TaskEvent): Task | null {

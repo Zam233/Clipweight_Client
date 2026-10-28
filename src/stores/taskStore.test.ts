@@ -247,4 +247,12 @@ describe('terminalStatusOf', () => {
   it('空原因不冒充成功', () => {
     expect(terminalStatusOf('')).toBe('failed');
   });
+
+  it('PRD B5：不认识的后端终态原因不再伪装成 failed', () => {
+    expect(terminalStatusOf('some_future_reason')).toBe('unknown_terminal');
+    expect(terminalStatusOf('budget_exhausted_v2')).toBe('unknown_terminal');
+    // 异常类型名仍然算失败（Kernel 把 type(exc).__name__ 当 reason）
+    expect(terminalStatusOf('TimeoutError')).toBe('failed');
+    expect(terminalStatusOf('RuntimeError')).toBe('failed');
+  });
 });

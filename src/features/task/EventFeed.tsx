@@ -25,10 +25,17 @@ interface Props {
   className?: string;
 }
 
-const _NOISY = new Set(['checkpoint']);
+/**
+ * PRD B5（2026-10-29 / G9）：`checkpoint` **不再整行丢弃**。
+ *
+ * 之前它被放进噪声集合直接过滤，于是"这个任务从哪个检查点恢复过"这件事在 UI 上完全消失。
+ * 现在改为**默认折叠**（行还在、内容要点开），既不刷屏也不丢事实。
+ */
+const _DEFAULT_COLLAPSED = new Set(['checkpoint']);
 /** 这些事件的 detail 值得展开（结构化 info 而不是噪声） */
 const _EXPANDABLE = new Set([
   'doc_write', 'report', 'context_loaded', 'degradation', 'inject', 'plan', 'replan',
+  'checkpoint',
 ]);
 /** 这些事件带产物路径，要能直接看到/复制 */
 const _PATH_KEYS = ['path', 'report_path', 'artifact_path', 'script_path'];
@@ -46,7 +53,9 @@ function _pathOf(detail: Record<string, unknown>): string {
 function EventRow({ event }: { event: TaskEvent }) {
   const [open, setOpen] = useState(false);
   const detail = (event.detail || {}) as Record<string, unknown>;
-  const expandable = _EXPANDABLE.has(event.type) && Object.keys(detail).length > 0;
+  // checkpoint 即使 detail 为空也要能展开（否则默认折叠后内容永远看不到）
+  const expandable = (_EXPANDABLE.has(event.type) && Object.keys(detail).length > 0)
+    || _DEFAULT_COLLAPSED.has(event.type);
   const path = _pathOf(detail);
 
   return (
@@ -73,7 +82,8 @@ function EventRow({ event }: { event: TaskEvent }) {
         {eventLabel(event.type)}
       </span>
       <span className="min-w-0 flex-1 text-on-surface break-words">
-        {event.message}
+        {/* checkpoint 默认折叠：行不丢，内容点开才看 */}
+        {(!_DEFAULT_COLLAPSED.has(event.type) || open) && event.message}
         {path && (
           <button
             type="button"
@@ -113,7 +123,8 @@ function EventRow({ event }: { event: TaskEvent }) {
 }
 
 export function EventFeed({ events, className }: Props) {
-  const visible = events.filter((e) => !_NOISY.has(e.type));
+  // PRD B5：不再过滤任何事件类型（checkpoint 改为折叠展示）；store 已按上限有界
+  const visible = events;
   if (visible.length === 0) {
     return (
       <p className="text-caption text-on-surface-variant py-3">

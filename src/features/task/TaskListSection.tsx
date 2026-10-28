@@ -19,6 +19,8 @@ import { statusLabel } from '@/features/task/labels';
 function variantOf(status: string) {
   if (status === 'done') return 'success' as const;
   if (status === 'failed') return 'error' as const;
+  // PRD B5：后端终态但前端未适配 → 警告色（不是"失败"，也不是"成功"）
+  if (status === 'unknown_terminal') return 'warning' as const;
   if (status === 'running') return 'info' as const;
   return 'default' as const;
 }

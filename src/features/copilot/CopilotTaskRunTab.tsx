@@ -11,6 +11,7 @@ import { EventFeed } from '@/features/task/EventFeed';
 import { PlanPanel } from '@/features/task/PlanPanel';
 import { TaskArtifacts } from '@/features/task/TaskArtifacts';
 import { TaskToolbar } from '@/features/task/TaskToolbar';
+import { parseTaskEvent } from '@/features/task/eventSchema';
 import { supervisorApi } from '@/services/api';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { RunningSubagents } from './RunningSubagents';
@@ -18,19 +19,14 @@ import { RunningSubagents } from './RunningSubagents';
 function StageRows({ events }: { events: ReturnType<typeof useTaskStore.getState>['events'] }) {
   const stages = React.useMemo(() => {
     const map = new Map<string, { stage: string; status: string; summary?: string; cost?: number }>();
+    // PRD B5：字段经 parser 读取（不再各处 `detail as Record` 猜键）
     for (const ev of events) {
-      const detail = (ev.detail || {}) as Record<string, unknown>;
-      const stage = String(detail.stage || '');
+      const parsed = parseTaskEvent(ev);
+      if (parsed.kind !== 'step_start' && parsed.kind !== 'step_end') continue;
+      const { stage, status, summary, cost_usd } = parsed.stage;
       if (!stage) continue;
-      if (ev.type === 'step_start') map.set(stage, { stage, status: 'running' });
-      if (ev.type === 'step_end') {
-        map.set(stage, {
-          stage,
-          status: String(detail.status || ''),
-          summary: detail.summary ? String(detail.summary) : undefined,
-          cost: typeof detail.cost_usd === 'number' ? detail.cost_usd : undefined,
-        });
-      }
+      if (parsed.kind === 'step_start') map.set(stage, { stage, status: 'running' });
+      else map.set(stage, { stage, status: status ?? '', summary, cost: cost_usd });
     }
     return Array.from(map.values());
   }, [events]);
@@ -61,7 +57,10 @@ type Ev = ReturnType<typeof useTaskStore.getState>['events'];
  */
 function ModelTurnRows({ events }: { events: Ev }) {
   const turns = React.useMemo(
-    () => events.filter((e) => ['intent', 'narration', 'thinking'].includes(e.type)).slice(-6),
+    () => events
+      .map((e) => ({ event: e, parsed: parseTaskEvent(e) }))
+      .filter((x) => ['intent', 'narration', 'thinking'].includes(x.event.type))
+      .slice(-6),
     [events],
   );
   if (!turns.length) return null;
@@ -69,9 +68,9 @@ function ModelTurnRows({ events }: { events: Ev }) {
     <div className="border-b border-outline-variant/20 px-3 py-2" data-testid="model-turn-rows">
       <p className="mb-1 text-label-sm text-on-surface-variant">模型轮次</p>
       <ul className="space-y-1">
-        {turns.map((e) => {
-          const detail = (e.detail || {}) as Record<string, unknown>;
-          const isPreamble = e.type === 'narration' && detail.kind === 'preamble';
+        {turns.map(({ event: e, parsed }) => {
+          const isPreamble = e.type === 'narration'
+            && parsed.kind === 'narration' && parsed.turn.kind === 'preamble';
           return (
             <li
               key={e.seq}
@@ -112,17 +111,17 @@ export function pairToolCalls(events: Ev) {
   }[] = [];
 
   for (const e of events) {
-    const detail = (e.detail || {}) as Record<string, unknown>;
-    if (e.type === 'tool_call') {
-      const tool = String(detail.tool || e.message || '');
-      callsBySeq.set(e.seq, { tool, args: detail.args });
+    const parsed = parseTaskEvent(e);
+    if (parsed.kind === 'tool_call') {
+      const tool = parsed.tool.tool || e.message || '';
+      callsBySeq.set(e.seq, { tool, args: parsed.tool.args });
       const queue = pendingByName.get(tool) ?? [];
       queue.push(e.seq);
       pendingByName.set(tool, queue);
       continue;
     }
-    if (e.type !== 'tool_result') continue;
-    const tool = String(detail.tool || '');
+    if (parsed.kind !== 'tool_result') continue;
+    const tool = parsed.tool.tool;
     const causation = String(e.causation_id || '');
     let callSeq: number | undefined;
     let paired: 'causation' | 'name' = 'causation';
@@ -143,9 +142,9 @@ export function pairToolCalls(events: Ev) {
     rows.push({
       seq: callSeq,
       tool: (callsBySeq.get(callSeq)?.tool || tool),
-      status: String(detail.status || ''),
-      ms: typeof detail.duration_ms === 'number' ? detail.duration_ms : undefined,
-      error: detail.error ? String(detail.error) : undefined,
+      status: parsed.tool.status ?? '',
+      ms: parsed.tool.duration_ms,
+      error: parsed.tool.error,
       paired,
     });
   }
@@ -233,10 +232,13 @@ function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
       <p className="mb-1 text-label-sm text-on-surface-variant">授权</p>
       <ul className="space-y-1">
         {rows.map((e) => {
-          const detail = (e.detail || {}) as Record<string, unknown>;
-          const approvalId = String(detail.approval_id || '');
-          const risk = String(detail.risk || '');
-          const pending = e.type === 'approval_request' && !detail.status;
+          const parsed = parseTaskEvent(e);
+          if (parsed.kind !== 'approval_request' && parsed.kind !== 'approval_result') {
+            return null;
+          }
+          const approvalId = parsed.approval.approval_id ?? '';
+          const risk = parsed.approval.risk ?? '';
+          const pending = parsed.kind === 'approval_request' && !parsed.approval.status;
           return (
             <li key={e.seq} className="flex flex-wrap items-baseline gap-2 text-caption">
               <span className="w-16 shrink-0 text-on-surface-variant/70">
@@ -303,7 +305,7 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
   }
 
   const status = task?.status ?? 'running';
-  const terminal = ['done', 'failed', 'cancelled'].includes(status);
+  const terminal = ['done', 'failed', 'cancelled', 'unknown_terminal'].includes(status);
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="task-run-tab">

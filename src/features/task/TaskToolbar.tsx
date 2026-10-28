@@ -23,7 +23,9 @@ interface Props {
 export function TaskToolbar({ status, busy, onPause, onResume, onCancel, onInject }: Props) {
   const [text, setText] = useState('');
   const running = status === 'running' || status === 'planning';
-  const terminal = status === 'done' || status === 'failed' || status === 'cancelled';
+  // PRD B5：unknown_terminal 也算终态（后端给了新 reason，任务已经结束）
+  const terminal = status === 'done' || status === 'failed'
+    || status === 'cancelled' || status === 'unknown_terminal';
 
   return (
     <div className="space-y-2">

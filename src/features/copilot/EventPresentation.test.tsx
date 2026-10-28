@@ -75,11 +75,24 @@ describe('B12 / N7：EventFeed 不再二次截断', () => {
     expect(screen.getByTestId('event-feed-cap').textContent).toContain(String(MAX_TASK_EVENTS));
   });
 
-  it('checkpoint 仍然被隐藏（噪声）', () => {
+  it('checkpoint 内容默认折叠（不算"隐藏"，行还在）', () => {
     render(<EventFeed events={[ev(1, 'checkpoint', { a: 1 }, { message: 'ckpt' }),
       ev(2, 'tool_result', { tool: 'x', status: 'ok' }, { message: '真实记录' })]} />);
     expect(screen.queryByText('ckpt')).toBeNull();
     expect(screen.getByText('真实记录')).toBeTruthy();
+  });
+
+  it('PRD B5：checkpoint 不再被丢弃，改为默认折叠（行在、内容点开才看）', () => {
+    render(<EventFeed events={[ev(1, 'checkpoint', { stage: 'checksum', bytes: 12 },
+      { message: '检查点已保存' })]} />);
+    // 行存在（不再整行过滤）
+    const row = document.querySelector('[data-event-type="checkpoint"]');
+    expect(row).toBeTruthy();
+    // 内容默认折叠
+    expect(screen.queryByText('检查点已保存')).toBeNull();
+    // 点开可见，且 detail 也能展开
+    fireEvent.click(screen.getByRole('button', { name: /详情/ }));
+    expect(screen.getByText('检查点已保存')).toBeTruthy();
   });
 });
 

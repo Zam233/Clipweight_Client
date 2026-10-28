@@ -23,6 +23,8 @@ export const STATUS_CN: Record<TaskStatus, string> = {
   done: '已完成',
   failed: '未完成',
   cancelled: '已取消',
+  // PRD B5：后端给了前端还不认识的终态原因——如实说"后端终态"，不冒充失败
+  unknown_terminal: '后端终态（待适配）',
 };
 
 export const STEP_STATUS_CN: Record<StepStatus, string> = {

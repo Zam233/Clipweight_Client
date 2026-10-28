@@ -201,11 +201,11 @@ describe('TaskToolbar', () => {
 });
 
 describe('EventFeed', () => {
-  it('渲染调用记录并跳过 checkpoint 噪声', () => {
+  it('渲染调用记录；checkpoint 行保留但内容默认折叠（PRD B5）', () => {
     render(
       <EventFeed
         events={[
-          { seq: 1, type: 'checkpoint', ts: '', message: '存档', detail: {} },
+          { seq: 1, type: 'checkpoint', ts: '', message: '检查点已保存', detail: {} },
           { seq: 2, type: 'tool_call', ts: '', message: 'media_probe', detail: {} },
           { seq: 3, type: 'tool_result', ts: '', message: 'media_probe → ok', detail: {} },
         ]}
@@ -213,7 +213,11 @@ describe('EventFeed', () => {
     );
     expect(screen.getByText('调用能力')).toBeTruthy();
     expect(screen.getByText('调用结果')).toBeTruthy();
-    expect(screen.queryByText('存档')).toBeNull();
+    // 内容默认折叠（不刷屏），但行还在、可点开看到
+    expect(screen.queryByText('检查点已保存')).toBeNull();
+    expect(document.querySelector('[data-event-type="checkpoint"]')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /详情/ }));
+    expect(screen.getByText('检查点已保存')).toBeTruthy();
   });
 
   it('空态给明确说明', () => {

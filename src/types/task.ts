@@ -12,7 +12,13 @@ export type TaskStatus =
   | 'paused'
   | 'done'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  /**
+   * PRD B5（2026-10-29 / G10）：后端 `task_end.reason` 出现前端不认识的值时用这个状态，
+   * 而不是一律塞进 `failed`。UI 显示「后端终态：<reason>」，用户能区分"真的失败"
+   * 与"前端还没适配的新终态"。
+   */
+  | 'unknown_terminal';
 
 export type StepStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped';
 
