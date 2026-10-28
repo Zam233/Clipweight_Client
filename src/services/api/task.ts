@@ -55,9 +55,40 @@ export const taskApi = {
     return data;
   },
 
-  async resume(taskId: string): Promise<{ status: string }> {
-    const { data } = await getApiClient().post(`/api/task/${taskId}/resume`);
-    return data;
+  /**
+   * 继续任务（PRD B11 / G8）。
+   *
+   * 后端对**终态任务**返回 409 + `{reason:"task_terminal", status, message}`；
+   * 这里把它转成结构化结果而不是抛裸错误，让调用方能禁用按钮并原样展示原因。
+   * 其它错误（404/500/网络）继续抛出。
+   */
+  async resume(taskId: string): Promise<{
+    status: string;
+    resumed?: boolean;
+    refused?: boolean;
+    reason?: string;
+    message?: string;
+    terminalStatus?: string;
+  }> {
+    try {
+      const { data } = await getApiClient().post(`/api/task/${taskId}/resume`);
+      return data;
+    } catch (e) {
+      const resp = (e as { response?: { status?: number; data?: { detail?: unknown } } })?.response;
+      const detail = resp?.data?.detail;
+      if (resp?.status === 409 && detail && typeof detail === 'object') {
+        const d = detail as { reason?: string; status?: string; message?: string };
+        return {
+          status: 'refused',
+          resumed: false,
+          refused: true,
+          reason: d.reason ?? 'task_terminal',
+          message: d.message ?? '任务已结束，无法继续',
+          terminalStatus: d.status,
+        };
+      }
+      throw e;
+    }
   },
 
   async cancel(taskId: string): Promise<{ status: string }> {

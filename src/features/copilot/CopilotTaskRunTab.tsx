@@ -366,10 +366,20 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
   const task = useTaskStore((s) => s.task);
   const events = useTaskStore((s) => s.events);
   const busy = useTaskStore((s) => s.loading);
+  const error = useTaskStore((s) => s.error);
   const pause = useTaskStore((s) => s.pause);
   const resume = useTaskStore((s) => s.resume);
   const cancel = useTaskStore((s) => s.cancel);
   const inject = useTaskStore((s) => s.inject);
+  // PRD B11：「查看结果」滚到产物区（终态任务不重新跑，只让人看结论）
+  const [showArtifacts, setShowArtifacts] = React.useState(false);
+  const artifactsRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (showArtifacts) {
+      setShowArtifacts(false);
+      artifactsRef.current?.scrollIntoView?.({ block: 'start' });
+    }
+  }, [showArtifacts]);
 
   if (!taskId) {
     return (
@@ -392,7 +402,12 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
           onResume={() => void resume(taskId)}
           onCancel={() => void cancel(taskId)}
           onInject={(text) => void inject(taskId, text)}
+          onViewResult={() => setShowArtifacts(true)}
         />
+        {/* PRD B11：resume 被后端拒绝（终态）时，原因来自 store.error——显示在工具条下方 */}
+        {error && (
+          <p className="mt-1 text-caption text-error" data-testid="task-error">{error}</p>
+        )}
         {task?.finish?.conclusion && (
           <p className="mt-1 text-caption text-on-surface-variant" data-testid="task-conclusion">
             {task.finish.conclusion}
@@ -430,7 +445,9 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
       </div>
 
       <RunningSubagents taskId={taskId} active={!terminal} />
-      <TaskArtifacts taskId={taskId} enabled={terminal} />
+      <div ref={artifactsRef}>
+        <TaskArtifacts taskId={taskId} enabled={terminal} />
+      </div>
     </div>
   );
 }

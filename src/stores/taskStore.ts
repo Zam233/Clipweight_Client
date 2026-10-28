@@ -210,7 +210,13 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 
   resume: async (taskId) => {
     try {
-      await taskApi.resume(taskId);
+      const res = await taskApi.resume(taskId);
+      // PRD B11：终态任务被后端拒绝（409 → refused）。这不是"网络错误"，
+      // 而是明确结论——如实写进 error 让工具条/运行页都能显示，并且不重载状态。
+      if (res?.refused) {
+        set({ error: res.message || '任务已结束，无法继续' });
+        return;
+      }
       await get().load(taskId);
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
