@@ -103,6 +103,28 @@ export const renderApi = {
   },
 
   /** List export presets */
+  /** 动画渲染用哪个浏览器（chrome-headless-shell 是否已安装） */
+  async getBrowser(): Promise<{
+    headless_shell: {
+      installed: boolean;
+      path: string;
+      version?: string;
+      installing: boolean;
+      install_dir?: string;
+      last_result?: { ok: boolean | null; message: string };
+    };
+    mode: string;
+  }> {
+    const { data } = await getApiClient().get('/api/render/browser');
+    return data;
+  },
+
+  /** 一键安装 chrome-headless-shell（后台安装，轮询 getBrowser 看进度） */
+  async installBrowser(): Promise<{ ok: boolean | null; message: string }> {
+    const { data } = await getApiClient().post('/api/render/browser/install');
+    return data;
+  },
+
   async getPresets() {
     const { data } = await getApiClient().get<{ presets: Record<string, Partial<ExportPreset>> }>('/api/render/presets');
     return data?.presets ?? {};

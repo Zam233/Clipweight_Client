@@ -24,6 +24,7 @@ export type SlotName =
   | 'props.section'        // 属性面板分区（按 clip kind 过滤）
   | 'export.preset'        // 导出预设
   | 'settings.section'     // 设置页分区
+  | 'app.overlay'          // 全局浮层（插件声明式提示/引导，如可安装依赖）
   | 'shortcut';            // 快捷键
 
 export const SLOT_NAMES: readonly SlotName[] = [
@@ -39,6 +40,7 @@ export const SLOT_NAMES: readonly SlotName[] = [
   'props.section',
   'export.preset',
   'settings.section',
+  'app.overlay',
   'shortcut',
 ] as const;
 
