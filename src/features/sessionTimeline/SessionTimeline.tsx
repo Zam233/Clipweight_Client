@@ -28,7 +28,11 @@ import {
   itemText,
   type SessionTimelineItem,
 } from '@/features/sessionTimeline/types';
-import { loadEarlier, useSessionTimeline } from '@/features/sessionTimeline/useSessionTimeline';
+import {
+  loadEarlier,
+  useRetrySessionTimeline,
+  useSessionTimeline,
+} from '@/features/sessionTimeline/useSessionTimeline';
 
 const WINDOW = 120;
 
@@ -140,7 +144,89 @@ function ApprovalButtons({ taskId, approvalId, risk }: {
   );
 }
 
-function Row({ item }: { item: SessionTimelineItem }) {
+/** 问题条目上的作答入口（选项 + 可选自由文本）。提交走 requirementsApi.answer。 */
+function QuestionActions({
+  questionId, options, allowFreeText, onAnswer,
+}: {
+  questionId: string;
+  options: { id?: string; label?: string; detail?: string }[];
+  allowFreeText: boolean;
+  onAnswer?: (a: { questionId: string; optionId?: string | null; text?: string | null }) => Promise<void>;
+}) {
+  const [busy, setBusy] = React.useState(false);
+  const [freeText, setFreeText] = React.useState('');
+  const [note, setNote] = React.useState('');
+  if (!onAnswer || !questionId) return null;
+
+  const submit = async (optionId?: string | null, text?: string | null) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onAnswer({ questionId, optionId: optionId ?? null, text: text ?? null });
+      setNote('已提交');
+    } catch (e) {
+      setNote(`提交失败：${(e as Error)?.message || '未知错误'}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5"
+      data-testid="session-question-actions">
+      {options.map((opt) => {
+        const id = String(opt.id ?? '');
+        return (
+          <button
+            key={id || String(opt.label ?? '')}
+            type="button"
+            disabled={busy}
+            data-question-option={id}
+            title={opt.detail || ''}
+            className="rounded-cw-xs border border-primary/40 px-2 py-0.5 text-primary hover:bg-primary/10 disabled:opacity-50"
+            onClick={() => void submit(id, null)}
+          >
+            {opt.label || id}
+          </button>
+        );
+      })}
+      {allowFreeText && (
+        <>
+          <input
+            value={freeText}
+            onChange={(e) => setFreeText(e.target.value)}
+            placeholder="自己说…"
+            data-testid="session-question-free-text"
+            className="w-40 rounded-cw-xs border border-outline-variant/40 bg-surface-container px-2 py-0.5 text-caption text-on-surface outline-none focus:border-primary"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && freeText.trim()) {
+                void submit(null, freeText.trim());
+              }
+            }}
+          />
+          <button
+            type="button"
+            disabled={busy || !freeText.trim()}
+            data-testid="session-question-submit"
+            className="rounded-cw-xs border border-outline-variant/40 px-2 py-0.5 text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
+            onClick={() => void submit(null, freeText.trim())}
+          >
+            提交
+          </button>
+        </>
+      )}
+      {note && <span className="text-on-surface-variant/80">{note}</span>}
+    </div>
+  );
+}
+
+function Row({
+  item, answeredQids, onAnswer,
+}: {
+  item: SessionTimelineItem;
+  answeredQids: Set<string>;
+  onAnswer?: (a: { questionId: string; optionId?: string | null; text?: string | null }) => Promise<void>;
+}) {
   switch (item.type) {
     case 'thinking':
       return <ThinkingRow item={item} />;
@@ -196,12 +282,31 @@ function Row({ item }: { item: SessionTimelineItem }) {
     case 'approval':
       return <ApprovalRow item={item} />;
     case 'question': {
-      const question = String(item.meta?.question ?? itemText(item) ?? '');
+      const obj = itemObject(item);
+      const qid = String(item.meta?.question_id ?? obj.question_id ?? '');
+      const question = String(item.meta?.question ?? obj.question ?? itemText(item) ?? '');
+      const answered = qid ? answeredQids.has(qid) : false;
+      const options = Array.isArray(obj.options)
+        ? (obj.options as { id?: string; label?: string; detail?: string }[])
+        : [];
+      const allowFreeText = obj.allow_free_text === true
+        || item.meta?.allow_free_text === true;
       return (
-        <div className="px-2 py-0.5 text-caption" data-testid="session-item-question"
-          data-seq={item.seq}>
-          <span className="mr-1 text-warning">待答</span>
-          <span className="text-on-surface">{question}</span>
+        <div className="px-2 py-1 text-caption" data-testid="session-item-question"
+          data-seq={item.seq} data-answered={answered ? '1' : '0'}>
+          <div>
+            <span className="mr-1 text-warning">{answered ? '已答' : '待答'}</span>
+            <span className="text-on-surface">{question}</span>
+          </div>
+          {/* 条目上直接能拍板：不再逼用户去面板下方的旧问题卡（T3.3） */}
+          {!answered && (
+            <QuestionActions
+              questionId={qid}
+              options={options}
+              allowFreeText={allowFreeText}
+              onAnswer={onAnswer}
+            />
+          )}
         </div>
       );
     }
@@ -251,6 +356,40 @@ const LINK_CN: Record<SessionLinkState, string> = {
   idle: '', loading: '同步中…', live: '', retry: '重连中…', down: '实时流已断开',
 };
 
+/** 四支空态：把"同步中 / 旧会话已迁移 / 真没记录 / 接口坏了"分开说（T2） */
+function EmptyState({
+  link, error, backfilled, onRetry,
+}: {
+  link: SessionLinkState; error: string; backfilled: number; onRetry: () => void;
+}) {
+  // 1) 还在同步
+  if (link === 'loading' || link === 'idle') {
+    return <span data-empty="loading">正在同步会话记录…</span>;
+  }
+  // 2) 接口/实时流坏了——必须说清楚，不能说是"没有内容"
+  if (link === 'down') {
+    return (
+      <span data-empty="error">
+        时间线不可用{error ? `（${error}）` : ''}，
+        <button type="button" className="ml-1 text-primary underline"
+          data-testid="session-timeline-retry" onClick={onRetry}>
+          重试
+        </button>
+      </span>
+    );
+  }
+  // 3) 旧会话刚被迁移：说出"迁了多少、更早的为什么没有"
+  if (backfilled > 0) {
+    return (
+      <span data-empty="backfilled">
+        已从历史消息迁移 {backfilled} 条记录（更早的已随会话压缩，无法恢复）。
+      </span>
+    );
+  }
+  // 4) 真没记录
+  return <span data-empty="empty">这个会话还没有记录：发一条消息就会有内容。</span>;
+}
+
 export interface SessionTimelineProps {
   sessionId: string;
   className?: string;
@@ -260,16 +399,40 @@ export interface SessionTimelineProps {
   renderReport?: (item: SessionTimelineItem) => React.ReactNode;
   /** 规划书卡（`plan`） */
   renderPlan?: (item: SessionTimelineItem) => React.ReactNode;
+  /** 本轮是否在跑（决定是否显示忙碌行） */
+  busy?: boolean;
+  /** 忙碌行文案（"正在思考…"/"正在生成制作规划书…"） */
+  busyLabel?: string;
+  /** 思考能力说明（模型不提供 / 流式回退）：只在没有 thinking 条目时显示 */
+  reasoningNote?: string;
+  /** 问题条目上的作答回调 */
+  onAnswerQuestion?: (
+    a: { questionId: string; optionId?: string | null; text?: string | null },
+  ) => Promise<void>;
 }
 
 export function SessionTimeline({
   sessionId, className, renderContent, renderReport, renderPlan,
+  busy, busyLabel, reasoningNote, onAnswerQuestion,
 }: SessionTimelineProps) {
   useSessionTimeline(sessionId);
+  const retry = useRetrySessionTimeline(sessionId);
   const bucket = useSessionTimelineStore((s) => s.bySession[sessionId] ?? EMPTY_BUCKET);
   const link = useSessionTimelineStore((s) => s.link[sessionId] ?? 'idle');
+  const error = useSessionTimelineStore((s) => s.lastError[sessionId] ?? '');
+  const backfilled = useSessionTimelineStore((s) => s.backfilled[sessionId] ?? 0);
   const hasMore = useSessionTimelineStore((s) => s.hasMore[sessionId] ?? false);
   const items = React.useMemo(() => itemsOf(bucket), [bucket]);
+  // 哪些问题已经被答过：看有没有同 question_id 的 answer 条目（服务端写的，不靠本地状态）
+  const answeredQids = React.useMemo(() => {
+    const set = new Set<string>();
+    for (const i of items) {
+      if (i.type !== 'answer') continue;
+      const qid = String(i.meta?.question_id ?? '');
+      if (qid) set.add(qid);
+    }
+    return set;
+  }, [items]);
 
   const [visible, setVisible] = React.useState(WINDOW);
   const [loadingOlder, setLoadingOlder] = React.useState(false);
@@ -298,7 +461,7 @@ export function SessionTimeline({
     return (
       <div className={cn('px-3 py-6 text-center text-caption text-on-surface-variant/60', className)}
         data-testid="session-timeline-empty">
-        {link === 'loading' ? '正在同步会话记录…' : '还没有可显示的内容。'}
+        <EmptyState link={link} error={error} backfilled={backfilled} onRetry={retry} />
       </div>
     );
   }
@@ -365,11 +528,24 @@ export function SessionTimeline({
         }
         return (
           <div key={key}>
-            <Row item={item} />
+            <Row item={item} answeredQids={answeredQids} onAnswer={onAnswerQuestion} />
             <StateBadge item={item} />
           </div>
         );
       })}
+      {/* 忙碌行：用户发出去到首个条目到达之间不能毫无反应（T3.1）。
+          只在"本轮还没有流式条目"时出现，避免和真实的思考/正文条目重复。 */}
+      {busy && !items.some((i) => i.state === 'streaming') && (
+        <div className="flex items-center gap-2 px-2 py-1 text-caption text-on-surface-variant"
+          data-testid="session-busy-row">
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary" />
+          <span>{busyLabel || '正在处理…'}</span>
+          {reasoningNote && (
+            <span className="text-on-surface-variant/60"
+              data-testid="session-reasoning-note">· {reasoningNote}</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

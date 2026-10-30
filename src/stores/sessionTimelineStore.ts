@@ -22,6 +22,14 @@ export type SessionLinkState = 'idle' | 'loading' | 'live' | 'retry' | 'down';
 
 export type SessionBucket = Record<number, SessionTimelineItem>;
 
+/**
+ * 每会话前端保留的条目上限。
+ *
+ * 服务端有 5000 条归档策略，但浏览器没必要同时持有那么多（长会话滚动会卡）。
+ * 超了从前端桶里丢**最老**的，服务端仍在——向前翻页能再取回来。
+ */
+export const MAX_ITEMS_PER_SESSION = 3000;
+
 interface SessionTimelineState {
   /** sessionId → (seq → item) */
   bySession: Record<string, SessionBucket>;
@@ -33,14 +41,21 @@ interface SessionTimelineState {
   archivedUntil: Record<string, number>;
   /** sessionId → 连接状态（"重连中"要如实显示，不假装一切正常） */
   link: Record<string, SessionLinkState>;
+  /** sessionId → 上次失败原因（空态要能说出"为什么没有内容"） */
+  lastError: Record<string, string>;
+  /** sessionId → 本次首屏拉取回填了几条（存量会话迁移，T1） */
+  backfilled: Record<string, number>;
+  /** sessionId → 重试计数（+1 触发订阅 hook 重跑：关旧流、重新拉、重连） */
+  retryTick: Record<string, number>;
 
   hydrate: (
     sessionId: string,
     items: SessionTimelineItem[],
-    opts?: { latestSeq?: number; hasMore?: boolean; archivedUntil?: number },
+    opts?: { latestSeq?: number; hasMore?: boolean; archivedUntil?: number; backfilled?: number },
   ) => void;
   applyFrame: (sessionId: string, frame: SessionTimelineFrame) => void;
-  setLink: (sessionId: string, link: SessionLinkState) => void;
+  setLink: (sessionId: string, link: SessionLinkState, error?: string) => void;
+  retry: (sessionId: string) => void;
   reset: (sessionId?: string) => void;
 }
 
@@ -63,6 +78,17 @@ function upsert(bucket: SessionBucket, item: SessionTimelineItem): SessionBucket
       content: item.content === undefined ? prev.content : item.content,
     },
   };
+}
+
+/** 超过上限时丢最老的若干条（服务端仍在，翻页可取回）。 */
+function capBucket(bucket: SessionBucket): SessionBucket {
+  const seqs = Object.keys(bucket).map(Number);
+  if (seqs.length <= MAX_ITEMS_PER_SESSION) return bucket;
+  seqs.sort((a, b) => a - b);
+  const drop = seqs.length - MAX_ITEMS_PER_SESSION;
+  const next: SessionBucket = { ...bucket };
+  for (let i = 0; i < drop; i += 1) delete next[seqs[i]];
+  return next;
 }
 
 function sortBucket(bucket: SessionBucket): SessionTimelineItem[] {
@@ -90,6 +116,9 @@ export const useSessionTimelineStore = create<SessionTimelineState>((set) => ({
   hasMore: {},
   archivedUntil: {},
   link: {},
+  lastError: {},
+  backfilled: {},
+  retryTick: {},
 
   hydrate: (sessionId, items, opts = {}) => set((s) => {
     const bucket: SessionBucket = { ...(s.bySession[sessionId] ?? {}) };
@@ -99,13 +128,18 @@ export const useSessionTimelineStore = create<SessionTimelineState>((set) => ({
     }
     const latest = Math.max(s.latestSeq[sessionId] ?? 0, opts.latestSeq ?? 0, maxSeqOf(bucket));
     return {
-      bySession: { ...s.bySession, [sessionId]: bucket },
+      bySession: { ...s.bySession, [sessionId]: capBucket(bucket) },
       latestSeq: { ...s.latestSeq, [sessionId]: latest },
       hasMore: { ...s.hasMore, [sessionId]: opts.hasMore ?? s.hasMore[sessionId] ?? false },
       archivedUntil: {
         ...s.archivedUntil,
         [sessionId]: opts.archivedUntil ?? s.archivedUntil[sessionId] ?? 0,
       },
+      backfilled: {
+        ...s.backfilled,
+        [sessionId]: opts.backfilled ?? s.backfilled[sessionId] ?? 0,
+      },
+      lastError: { ...s.lastError, [sessionId]: '' },
     };
   }),
 
@@ -121,7 +155,7 @@ export const useSessionTimelineStore = create<SessionTimelineState>((set) => ({
         }
         const latest = Math.max(prevLatest, frame.latest_seq ?? 0, maxSeqOf(bucket));
         return {
-          bySession: { ...s.bySession, [sessionId]: bucket },
+          bySession: { ...s.bySession, [sessionId]: capBucket(bucket) },
           latestSeq: { ...s.latestSeq, [sessionId]: latest },
           hasMore: { ...s.hasMore, [sessionId]: !!frame.has_more },
           archivedUntil: { ...s.archivedUntil, [sessionId]: frame.archived_until_seq ?? 0 },
@@ -133,7 +167,7 @@ export const useSessionTimelineStore = create<SessionTimelineState>((set) => ({
         const item = frame.item;
         if (!item || typeof item.seq !== 'number') return s;
         return {
-          bySession: { ...s.bySession, [sessionId]: upsert(bucket, item) },
+          bySession: { ...s.bySession, [sessionId]: capBucket(upsert(bucket, item)) },
           latestSeq: { ...s.latestSeq, [sessionId]: Math.max(prevLatest, item.seq) },
         };
       }
@@ -150,19 +184,33 @@ export const useSessionTimelineStore = create<SessionTimelineState>((set) => ({
     }
   }),
 
-  setLink: (sessionId, link) => set((s) => ({
+  setLink: (sessionId, link, error) => set((s) => ({
     link: { ...s.link, [sessionId]: link },
+    lastError: { ...s.lastError, [sessionId]: error ?? (link === 'live' ? '' : s.lastError[sessionId] ?? '') },
+  })),
+
+  retry: (sessionId) => set((s) => ({
+    retryTick: { ...s.retryTick, [sessionId]: (s.retryTick[sessionId] ?? 0) + 1 },
+    lastError: { ...s.lastError, [sessionId]: '' },
+    link: { ...s.link, [sessionId]: 'loading' },
   })),
 
   reset: (sessionId) => set((s) => {
     if (!sessionId) {
-      return { bySession: {}, latestSeq: {}, hasMore: {}, archivedUntil: {}, link: {} };
+      return {
+        bySession: {}, latestSeq: {}, hasMore: {}, archivedUntil: {},
+        link: {}, lastError: {}, backfilled: {}, retryTick: {},
+      };
     }
     const { [sessionId]: _d, ...rest } = s.bySession;
     const { [sessionId]: _l, ...latest } = s.latestSeq;
     const { [sessionId]: _h, ...hasMore } = s.hasMore;
     const { [sessionId]: _a, ...arch } = s.archivedUntil;
     const { [sessionId]: _k, ...link } = s.link;
-    return { bySession: rest, latestSeq: latest, hasMore, archivedUntil: arch, link };
+    const { [sessionId]: _e, ...lastError } = s.lastError;
+    const { [sessionId]: _b, ...backfilled } = s.backfilled;
+    const { [sessionId]: _t, ...retryTick } = s.retryTick;
+    return { bySession: rest, latestSeq: latest, hasMore, archivedUntil: arch, link,
+             lastError, backfilled, retryTick };
   }),
 }));

@@ -19,6 +19,7 @@ import { TaskQuestionCard } from '@/features/task/TaskQuestionCard';
 import { ThinkingDisclosure } from '@/features/copilot/ThinkingDisclosure';
 import { SessionTimeline } from '@/features/sessionTimeline/SessionTimeline';
 import { isSessionTimelineEnabled } from '@/features/sessionTimeline/flag';
+import { useSessionTimelineStore } from '@/stores/sessionTimelineStore';
 import {
   itemRole,
   itemText,
@@ -312,6 +313,17 @@ function RequirementsView() {
   }, []);
 
   useEffect(() => { void refreshQuestions(requirementsSessionId); }, [requirementsSessionId, refreshQuestions]);
+
+  // 切换/新建会话时清掉上一个会话的前端条目（服务端仍在，不会丢数据）——
+  // 否则长会话的桶会一直挂在内存里（T4）
+  const prevSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevSessionRef.current;
+    if (prev && prev !== requirementsSessionId) {
+      useSessionTimelineStore.getState().reset(prev);
+    }
+    prevSessionRef.current = requirementsSessionId;
+  }, [requirementsSessionId]);
 
   // 任何路径结束后都补一次会话事件（包含 autoStart 的非 AgentPanel 发起）：
   // 否则首轮思考虽已落盘，界面上的「历史思考」块永远不出现。
@@ -878,7 +890,9 @@ function RequirementsView() {
         data-testid="requirements-scroll"
         data-scroll-mode={unified ? 'inner' : 'outer'}
       >
-        {messages.length === 0 && (
+        {/* 只有"还没有会话"时才出这张开场卡：单流视图的开场白是时间线上的一个条目，
+            两块一起出就是同一句话出现两次（T3.5） */}
+        {!requirementsSessionId && messages.length === 0 && (
           <div className="bg-agent-bubble/40 border border-primary-container/40 rounded-cw-md p-3">
             <div className="flex items-center gap-2 mb-2">
               <Sparkles className="w-4 h-4 text-primary" />
@@ -908,7 +922,7 @@ function RequirementsView() {
           </div>
         )}
 
-        {hasEarlierMessages && messages.length > 0 && (
+        {!unified && hasEarlierMessages && messages.length > 0 && (
           <button
             type="button"
             data-testid="requirements-load-earlier"
@@ -924,6 +938,16 @@ function RequirementsView() {
           <div data-testid="requirements-unified-stream" className="min-h-0 flex-1">
             <SessionTimeline
               sessionId={requirementsSessionId}
+              busy={busy}
+              busyLabel={busyLabel}
+              reasoningNote={reasoningState === 'unsupported'
+                ? (reasoningMeta.reason === 'phase_not_streaming'
+                  ? '该阶段无思考流（不是模型不提供）'
+                  : '该模型不提供思考内容')
+                : reasoningState === 'fallback'
+                  ? '思考内容不可用（流式已回退）'
+                  : ''}
+              onAnswerQuestion={async (a) => { await answerRequirementQuestion(a); }}
               renderContent={(it) => {
                 // 气泡渲染仍走同一个 RequirementsBubble：Markdown / 时间戳 / 打字光标
                 // 不会因为换了数据源而丢失。id 用 seq——它就是条目的稳定身份。
@@ -1033,7 +1057,8 @@ function RequirementsView() {
       )}
 
       {/* M5c：agent 主动提问 → 问题卡（回答后 agent 继续；刷新后从会话事件重建） */}
-      {questions.length > 0 && (
+      {/* 单流视图里问题是时间线的一个条目（条目上就能作答），不再重复出问题卡（T3.3） */}
+      {!unified && questions.length > 0 && (
         <div className="shrink-0 border-t border-outline-variant/20 px-3 py-2" data-testid="requirements-question-host">
           <TaskQuestionCard
             events={questionEvents}
@@ -1045,7 +1070,9 @@ function RequirementsView() {
       )}
 
       {/* B17: 管线运行/规划生成期间隐藏输入；完成/失败后恢复 */}
-      {messages.length > 0 && !['pipeline_running', 'planning'].includes(status) && (
+      {/* 输入框门控看'有没有会话'，不看 messages：单流视图的 messages 只是旧视图遗留数据，
+          用它做门控会让刷新后的会话整块输入区消失（T3.5） */}
+      {requirementsSessionId && !['pipeline_running', 'planning'].includes(status) && (
         <div className="p-3 border-t border-outline-variant/20 shrink-0">
           {/* B5（2026-10-28 PRD）：推理强度入口。'' = 不下发（跟随模型配置）；
               选了但 provider 不支持时，后端记 degradation 并在任务事件流里显示"已忽略" */}
