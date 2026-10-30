@@ -149,19 +149,33 @@ function UsageRows({ usage, limits, unknownCostCalls }: {
  * 标成「动手前」，用户能看清"它先说要做这个，然后才调工具"。
  */
 function ModelTurnRows({ events }: { events: Ev }) {
+  // 旧实现 `slice(-6)`：只留最后 6 条——长任务里"它一开始是怎么想的"直接消失。
+  // 现在全量保留，只做窗口化（默认最近 40 条，可逐段往回加载）。
+  const [visible, setVisible] = React.useState(40);
   const turns = React.useMemo(
     () => events
       .map((e) => ({ event: e, parsed: parseTaskEvent(e) }))
-      .filter((x) => ['intent', 'narration', 'thinking'].includes(x.event.type))
-      .slice(-6),
+      .filter((x) => ['intent', 'narration', 'thinking'].includes(x.event.type)),
     [events],
   );
   if (!turns.length) return null;
+  const shown = turns.slice(Math.max(0, turns.length - visible)).reverse();
+  const rest = turns.length - shown.length;
   return (
     <div className="border-b border-outline-variant/20 px-3 py-2" data-testid="model-turn-rows">
-      <p className="mb-1 text-label-sm text-on-surface-variant">模型轮次</p>
+      <p className="mb-1 text-label-sm text-on-surface-variant">模型轮次（{turns.length} 条）</p>
+      {rest > 0 && (
+        <button
+          type="button"
+          data-testid="model-turns-load-more"
+          className="mb-1 text-caption text-primary hover:underline"
+          onClick={() => setVisible((v) => v * 2)}
+        >
+          加载更早的 {Math.min(rest, visible)} 条（还有 {rest} 条）
+        </button>
+      )}
       <ul className="space-y-1">
-        {turns.map(({ event: e, parsed }) => {
+        {shown.map(({ event: e, parsed }) => {
           const isPreamble = e.type === 'narration'
             && parsed.kind === 'narration' && parsed.turn.kind === 'preamble';
           return (
@@ -244,24 +258,192 @@ export function pairToolCalls(events: Ev) {
   return rows;
 }
 
+/** 一行"调用"：主 agent 工具、子 agent 工具、Skill 统一成这个形状。 */
+export interface CallRow {
+  key: string;
+  seq: number;
+  tool: string;
+  status: string;
+  ms?: number;
+  error?: string;
+  paired: 'causation' | 'name';
+  /** `main` = 主 agent；`subagent` = 派出去的子 agent；`skill` = 走 SkillRegistry 的技能 */
+  origin: 'main' | 'subagent' | 'skill';
+  agent?: string;
+  stage?: string;
+  run_id?: string;
+  seq_in_run?: number;
+  source?: string;
+  deduped?: boolean;
+  remaining_turns?: number;
+}
+
+/**
+ * 合并三路调用行（PRD §19.3「思考流与工具全部可见」）。
+ *
+ * 旧实现只渲染主 agent 的 `tool_call`/`tool_result` 配对，并 `slice(-8)` 砍到 8 行——
+ * 子 agent 内部调用、Skill 调用、运行时补派（`source=kernel`）全都看不到，长任务还会
+ * 把早期调用整段吞掉。现在三路合并 + 按 seq 排序，一行不丢；渲染侧用窗口化分页
+ * （见 `ToolCallRows`）而不是截断，用户能一直往回翻。
+ */
+export function mergeCallRows(events: Ev): CallRow[] {
+  const callDetail = new Map<number, Record<string, unknown>>();
+  /** 结果侧标记（deduped / source）挂在 tool_result 上，配对后要合到调用行 */
+  const resultDetail = new Map<number, Record<string, unknown>>();
+  for (const e of events) {
+    if (e.type !== 'tool_call' && e.type !== 'tool_result') continue;
+    const p = parseTaskEvent(e);
+    if (p.kind !== 'tool_call' && p.kind !== 'tool_result') continue;
+    const bag = p.tool as unknown as Record<string, unknown>;
+    if (e.type === 'tool_call') { callDetail.set(e.seq, bag); continue; }
+    const causation = String(e.causation_id || '');
+    if (causation.startsWith('seq:')) {
+      const target = Number(causation.slice(4));
+      if (Number.isFinite(target)) resultDetail.set(target, bag);
+    }
+  }
+  const rows: CallRow[] = pairToolCalls(events).map((r) => {
+    // 注意：parseTaskEvent 会把缺省字段填成 undefined，直接 spread 会把调用侧的
+    // source/deduped 覆盖回 undefined——只合并真正有值的字段。
+    const d: Record<string, unknown> = { ...(callDetail.get(r.seq) ?? {}) };
+    for (const [k, v] of Object.entries(resultDetail.get(r.seq) ?? {})) {
+      if (v !== undefined && v !== null && v !== '') d[k] = v;
+    }
+    return {
+      ...r,
+      key: `m${r.seq}`,
+      origin: d.kind === 'skill' ? ('skill' as const) : ('main' as const),
+      source: d.source as string | undefined,
+      deduped: d.deduped as boolean | undefined,
+      remaining_turns: d.remaining_turns as number | undefined,
+    };
+  });
+
+  for (const e of events) {
+    if (e.type !== 'subagent_tool') continue;
+    const parsed = parseTaskEvent(e);
+    if (parsed.kind !== 'subagent_tool') continue;
+    const d = parsed.tool;
+    rows.push({
+      key: `s${e.seq}`,
+      seq: e.seq,
+      tool: d.tool || e.message || '',
+      status: d.status ?? '',
+      ms: d.duration_ms,
+      error: d.error,
+      paired: 'causation',
+      origin: d.kind === 'skill' ? 'skill' : 'subagent',
+      agent: d.agent,
+      stage: d.stage,
+      run_id: d.run_id,
+      seq_in_run: d.seq_in_run,
+      source: d.source,
+      deduped: d.deduped,
+      remaining_turns: d.remaining_turns,
+    });
+  }
+
+  rows.sort((a, b) => a.seq - b.seq);
+  return rows;
+}
+
+type OriginFilter = 'all' | 'main' | 'subagent' | 'skill';
+
+/** 首屏行数；之后每次「加载更多」翻倍——不截断，但也不把上千行一次塞进 DOM。 */
+const CALLS_PAGE = 60;
+
 function ToolCallRows({ events }: { events: Ev }) {
-  const rows = React.useMemo(() => pairToolCalls(events).slice(-8), [events]);
-  if (!rows.length) return null;
+  const all = React.useMemo(() => mergeCallRows(events), [events]);
+  const [filter, setFilter] = React.useState<OriginFilter>('all');
+  const [visible, setVisible] = React.useState(CALLS_PAGE);
+
+  const counts = React.useMemo(() => ({
+    main: all.filter((r) => r.origin === 'main').length,
+    subagent: all.filter((r) => r.origin === 'subagent').length,
+    skill: all.filter((r) => r.origin === 'skill').length,
+    failed: all.filter((r) => r.status && r.status !== 'ok').length,
+  }), [all]);
+
+  const rows = React.useMemo(
+    () => (filter === 'all' ? all : all.filter((r) => r.origin === filter)),
+    [all, filter],
+  );
+  // 事件只增不减，过滤切换后窗口回到首屏，避免"切回来只剩几行"
+  React.useEffect(() => { setVisible(CALLS_PAGE); }, [filter]);
+
+  if (!all.length) return null;
+  // 最新在前：日志型界面每秒都在追加，把最新一行放在顶部；「加载更早的」往后翻历史。
+  const shown = rows.slice(Math.max(0, rows.length - visible)).reverse();
+  const rest = rows.length - shown.length;
+
   return (
     <div className="border-b border-outline-variant/20 px-3 py-2" data-testid="tool-call-rows">
-      <p className="mb-1 text-label-sm text-on-surface-variant">工具调用</p>
+      <div className="mb-1 flex flex-wrap items-center gap-2">
+        <p className="text-label-sm text-on-surface-variant">
+          工具调用（{all.length} 次
+          {counts.failed ? ` · 失败 ${counts.failed}` : ''}）
+        </p>
+        <div className="flex flex-wrap gap-1" data-testid="tool-call-filters">
+          {([
+            ['all', `全部 ${all.length}`],
+            ['main', `主 agent ${counts.main}`],
+            ['subagent', `子 agent ${counts.subagent}`],
+            ['skill', `技能 ${counts.skill}`],
+          ] as const).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              data-origin-filter={k}
+              aria-pressed={filter === k}
+              className={`rounded-cw-sm px-1.5 py-0.5 text-caption ${
+                filter === k
+                  ? 'bg-primary/15 text-primary'
+                  : 'text-on-surface-variant/70 hover:text-on-surface'
+              }`}
+              onClick={() => setFilter(k)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       <ul className="space-y-1">
-        {rows.map((r) => (
-          <li key={r.seq} className="flex items-baseline gap-2 text-caption" data-paired={r.paired}>
-            <span className="w-36 shrink-0 truncate font-mono text-on-surface-variant">{r.tool}</span>
+        {shown.map((r) => (
+          <li
+            key={r.key}
+            className="flex items-baseline gap-2 text-caption"
+            data-paired={r.paired}
+            data-origin={r.origin}
+            data-source={r.source}
+          >
+            <span className="w-10 shrink-0 text-on-surface-variant/60" data-origin-tag={r.origin}>
+              {r.origin === 'skill' ? '技能' : r.origin === 'subagent' ? '子' : '主'}
+            </span>
+            <span className="w-32 shrink-0 truncate font-mono text-on-surface-variant">{r.tool}</span>
+            {r.agent && (
+              <span className="shrink-0 truncate text-on-surface-variant/60">
+                @{r.agent}
+                {typeof r.seq_in_run === 'number' ? `#${r.seq_in_run}` : ''}
+              </span>
+            )}
             <span
               className={r.status === 'ok' ? 'shrink-0 text-primary' : 'shrink-0 text-error'}
               data-tool-status={r.status}
             >
-              {r.status}
+              {r.status || '—'}
             </span>
             {typeof r.ms === 'number' && (
               <span className="shrink-0 text-on-surface-variant/60">{r.ms}ms</span>
+            )}
+            {r.source === 'kernel' && (
+              // 运行时补派（用户没提、模型没调）：必须说明是谁加的
+              <span className="shrink-0 text-tertiary/80">运行时补派</span>
+            )}
+            {r.deduped && (
+              <span className="shrink-0 text-on-surface-variant/50">复用上次结果</span>
+            )}
+            {typeof r.remaining_turns === 'number' && (
+              <span className="shrink-0 text-on-surface-variant/50">剩 {r.remaining_turns} 回合</span>
             )}
             {r.error && <span className="truncate text-error/80">{r.error}</span>}
             {r.paired === 'name' && (
@@ -271,6 +453,16 @@ function ToolCallRows({ events }: { events: Ev }) {
           </li>
         ))}
       </ul>
+      {rest > 0 && (
+        <button
+          type="button"
+          data-testid="tool-calls-load-more"
+          className="mt-1 text-caption text-primary hover:underline"
+          onClick={() => setVisible((v) => v + CALLS_PAGE * 2)}
+        >
+          加载更早的 {Math.min(rest, CALLS_PAGE * 2)} 条（还有 {rest} 条）
+        </button>
+      )}
     </div>
   );
 }

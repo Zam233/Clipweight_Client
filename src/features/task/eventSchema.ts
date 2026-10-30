@@ -74,6 +74,8 @@ export interface ToolDetail {
   agent?: string;
   stage?: string;
   run_id?: string;
+  /** 该子 agent 本次运行内的第几次调用（1 起；主 agent 为 undefined） */
+  seq_in_run?: number;
 }
 
 /** 阶段（step_*） */
@@ -272,6 +274,7 @@ export function parseTaskEvent(event: TaskEvent): ParsedEvent {
           agent: str(raw.agent),
           stage: str(raw.stage),
           run_id: str(raw.run_id),
+          seq_in_run: num(raw.seq_in_run),
         },
       };
     case 'subagent_progress':

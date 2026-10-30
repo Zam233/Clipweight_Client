@@ -15,10 +15,12 @@ import { loadPipelineId, clearPipelineId } from '@/services/storage/pipelineSess
 import { useBackendHealth } from '@/pages/useBackendHealth';
 import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
+import { TaskQuestionCard } from '@/features/task/TaskQuestionCard';
 import { uid } from '@/lib/utils';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline, Clip, ClipKind } from '@/types/timeline';
 import type { RequirementsStatus, CreativeBrief, ProductionPlan } from '@/types/persona';
+import type { TaskEvent, TaskQuestionItem } from '@/types/task';
 
 /** R6/R7：`/intent` 响应里前端真正需要的字段（后端结构见 requirementsApi.intent） */
 type IntentPreviewPayload = {
@@ -162,12 +164,54 @@ function RequirementsView() {
   // PRD §19.4：思考内容（SSE reasoning 帧逐块追加；没有就不显示）
   const [liveReasoning, setLiveReasoning] = useState('');
   const [reasoningOpen, setReasoningOpen] = useState(false);
+  // M5c（PRD §15.5）：需求会话的 ask_user 问答——问题与事件都走 /api/requirements
+  const [questions, setQuestions] = useState<TaskQuestionItem[]>([]);
+  const [questionEvents, setQuestionEvents] = useState<TaskEvent[]>([]);
   const [manualBusy, setBusy] = useState(false);
   // Auto-start (from HomePage launch) runs in EditorPage via useRequirementsAutoStart;
   // reflect its busy flag here so the UI shows progress even though it's store-driven.
   const autoBusy = useAgentStore((s) => s.requirementsBusy);
   const busy = manualBusy || autoBusy;
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const requirementsSessionId = useAgentStore((s) => s.requirementsSessionId);
+
+  /** M5c：拉问题与事件（刷新/重连后重建问题卡，不依赖任务 API） */
+  const refreshQuestions = useCallback(async (sid: string | null) => {
+    if (!sid) { setQuestions([]); setQuestionEvents([]); return; }
+    try {
+      const [qs, evs] = await Promise.all([
+        requirementsApi.questions(sid, 'all'),
+        requirementsApi.sessionEvents(sid, 0, 200),
+      ]);
+      setQuestions(qs?.items ?? []);
+      setQuestionEvents(evs?.items ?? []);
+    } catch {
+      // 后端不可用（离线/演示）时不挡对话：问题卡不出现，但也不假装有答案
+    }
+  }, []);
+
+  useEffect(() => { void refreshQuestions(requirementsSessionId); }, [requirementsSessionId, refreshQuestions]);
+
+  /** 回答需求会话问题 → 后端带答案继续 → 回显新回复并刷新问题状态 */
+  const answerRequirementQuestion = useCallback(async (
+    ans: { questionId: string; optionId?: string | null; text?: string | null },
+  ) => {
+    const sid = useAgentStore.getState().requirementsSessionId;
+    if (!sid) throw new Error('会话不存在，请重新开始对话');
+    const res = await requirementsApi.answer(sid, {
+      question_id: ans.questionId,
+      option_id: ans.optionId ?? null,
+      text: ans.text ?? null,
+    }) as { reply?: unknown; status?: unknown };
+    if (typeof res?.reply === 'string' && res.reply) {
+      addMessage({
+        id: uid('m'), role: 'assistant', content: res.reply,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    if (typeof res?.status === 'string') setStatus(res.status as Parameters<typeof setStatus>[0]);
+    await refreshQuestions(sid);
+  }, [addMessage, setStatus, refreshQuestions]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   // G7: 参考文件上传——无会话时提示先开始会话
@@ -283,6 +327,8 @@ function RequirementsView() {
   const sendChat = async (sessionId: string, message: string) => {
     addMessage({ id: uid('m'), role: 'user', content: message, timestamp: new Date().toISOString() });
     setBusy(true);
+    // 每轮提问重新累积思考（上一轮的 reasoning 不能挂到这一轮下面）
+    setLiveReasoning('');
     cancelInFlight();
     chatAbortRef.current = new AbortController();
     const signal = chatAbortRef.current.signal;
@@ -321,6 +367,21 @@ function RequirementsView() {
           );
         }
         else if (chunk.type === 'delta' && typeof chunk.data === 'string') pushDelta(chunk.data);
+        // PRD §19.4：provider 给了 reasoning 就逐块上屏（旧实现声明了 liveReasoning
+        // 却从不赋值，折叠条永远是空——"思考过程可见"实际没兑现）。
+        // 后端不发 reasoning 时这里一帧都收不到，折叠条不出现，不假装思考。
+        else if (chunk.type === 'reasoning' && typeof chunk.data === 'string' && chunk.data) {
+          setLiveReasoning((prev) => (prev + chunk.data).slice(0, 200_000));
+        }
+        // M5c：agent 提问 → 立刻出问题卡（等用户回答才继续）
+        else if (chunk.type === 'question' && chunk.data && typeof chunk.data === 'object') {
+          const q = chunk.data as TaskQuestionItem;
+          if (q.question_id) {
+            setQuestions((prev) => (prev.some((x) => x.question_id === q.question_id)
+              ? prev.map((x) => (x.question_id === q.question_id ? { ...x, ...q } : x))
+              : [...prev, q]));
+          }
+        }
       }, signal);
       if (Object.keys(res).length === 0) {
         res = await requirementsApi.chat({ session_id: sessionId, message }, signal);
@@ -659,7 +720,8 @@ function RequirementsView() {
           </div>
         ))}
 
-        {busy && !messages.some((m) => m.streaming) && (
+        {/* 有 reasoning 时即使正文已在流式，也继续显示思考条（思考与正文并行可见） */}
+        {busy && (!messages.some((m) => m.streaming) || !!liveReasoning) && (
           <div className="px-3 text-label-sm text-on-surface-variant">
             <div className="flex items-center gap-2">
               <Loader2 className="w-3 h-3 animate-spin text-primary" />
@@ -688,6 +750,18 @@ function RequirementsView() {
           </div>
         )}
       </div>
+
+      {/* M5c：agent 主动提问 → 问题卡（回答后 agent 继续；刷新后从会话事件重建） */}
+      {questions.length > 0 && (
+        <div className="shrink-0 border-t border-outline-variant/20 px-3 py-2" data-testid="requirements-question-host">
+          <TaskQuestionCard
+            events={questionEvents}
+            questions={questions.filter((q) => (q.status ?? 'pending') === 'pending')}
+            askerLabel="需求 agent"
+            onSubmit={answerRequirementQuestion}
+          />
+        </div>
+      )}
 
       {/* B17: 管线运行/规划生成期间隐藏输入；完成/失败后恢复 */}
       {messages.length > 0 && !['pipeline_running', 'planning'].includes(status) && (

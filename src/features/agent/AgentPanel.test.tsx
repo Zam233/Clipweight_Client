@@ -30,6 +30,10 @@ vi.mock('@/services/api', () => ({
     intent: vi.fn().mockResolvedValue({ intent: '', resolution: {}, problems: [] }),
     intentApply: vi.fn().mockResolvedValue({ applied: false, blocked: true, report: { problems: [] }, problems: [] }),
     upload: vi.fn().mockResolvedValue({ file_name: 'ref.txt', content_preview: 'x' }),
+    // M5c：默认没有待答问题/事件，行为等价于旧路径
+    questions: vi.fn().mockResolvedValue({ session_id: 's', items: [], status: 'all' }),
+    sessionEvents: vi.fn().mockResolvedValue({ session_id: 's', items: [], has_more: false, latest_seq: 0 }),
+    answer: vi.fn().mockResolvedValue({ status: 'gathering', reply: '好，按你选的走' }),
   },
   personaApi: {
     listIds: vi.fn().mockResolvedValue([]), // M13
@@ -580,6 +584,85 @@ describe('轮69: SSE delta 流式消费', () => {
     expect(useAgentStore.getState().requirementsBusy).toBe(false);
   });
 
+  it('PRD §19.4：reasoning 帧累积上屏，正文流式中思考条仍可见', async () => {
+    const api = await import('@/services/api');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const streamChat = vi.fn(async (
+      _sid: string,
+      _msg: string,
+      onChunk?: (c: { type: string; data: unknown }) => void,
+    ) => {
+      onChunk?.({ type: 'reasoning', data: '先确认' });
+      onChunk?.({ type: 'reasoning', data: '选题边界，' });
+      onChunk?.({ type: 'delta', data: '好的' });
+      await gate;
+      onChunk?.({ type: 'reasoning', data: '再决定是否要素材。' });
+      return { reply: '好的，先定选题', status: 'gathering' };
+    });
+    (api.requirementsApi as unknown as { streamChat: typeof streamChat }).streamChat = streamChat;
+
+    useAgentStore.setState({
+      requirementsSessionId: 'sess_r',
+      requirementsStatus: 'gathering',
+      requirementsMessages: [
+        { id: 'm0', role: 'assistant', content: '请描述选题', timestamp: new Date().toISOString() },
+      ],
+    });
+    render(<AgentPanel />);
+    const ta = screen.getByPlaceholderText('继续与需求 Agent 对话…（Shift+Enter 换行）');
+    fireEvent.change(ta, { target: { value: '做一期数码评测' } });
+    fireEvent.keyDown(ta, { key: 'Enter' });
+
+    // 正文已在流式（有 streaming 气泡），思考条依然在——不能因为开始吐字就把思考藏起来
+    await waitFor(() => {
+      expect(useAgentStore.getState().requirementsMessages.some((m) => m.streaming)).toBe(true);
+      expect(screen.getByTestId('live-thinking-toggle')).toBeTruthy();
+    });
+    fireEvent.click(screen.getByTestId('live-thinking-toggle'));
+    expect(screen.getByTestId('live-reasoning').textContent).toBe('先确认选题边界，');
+
+    release();
+    await waitFor(() => expect(useAgentStore.getState().requirementsBusy).toBe(false));
+  });
+
+  it('第二轮提问清空上一轮思考（不把旧 reasoning 挂到新问题下）', async () => {
+    const api = await import('@/services/api');
+    let round = 0;
+    const streamChat = vi.fn(async (
+      _sid: string,
+      _msg: string,
+      onChunk?: (c: { type: string; data: unknown }) => void,
+    ) => {
+      round += 1;
+      onChunk?.({ type: 'reasoning', data: round === 1 ? '第一轮思考' : '第二轮思考' });
+      onChunk?.({ type: 'delta', data: `回复${round}` });
+      return { reply: `回复${round}`, status: 'gathering' };
+    });
+    (api.requirementsApi as unknown as { streamChat: typeof streamChat }).streamChat = streamChat;
+
+    useAgentStore.setState({
+      requirementsSessionId: 'sess_r2',
+      requirementsStatus: 'gathering',
+      requirementsMessages: [
+        { id: 'm0', role: 'assistant', content: '请描述选题', timestamp: new Date().toISOString() },
+      ],
+    });
+    render(<AgentPanel />);
+    const ta = screen.getByPlaceholderText('继续与需求 Agent 对话…（Shift+Enter 换行）');
+    for (const text of ['第一问', '第二问']) {
+      fireEvent.change(ta, { target: { value: text } });
+      fireEvent.keyDown(ta, { key: 'Enter' });
+      await waitFor(() => expect(useAgentStore.getState().requirementsBusy).toBe(false));
+    }
+    // 第二轮结束后思考条内容只剩第二轮（旧实现在这里会拼成"第一轮思考第二轮思考"）
+    const toggle = screen.queryByTestId('live-thinking-toggle');
+    if (toggle) {
+      fireEvent.click(toggle);
+      expect(screen.getByTestId('live-reasoning').textContent).toBe('第二轮思考');
+    }
+  });
+
   it('流式失败时打字气泡转为错误文案且 streaming 复位', async () => {
     const api = await import('@/services/api');
     const streamChat = vi.fn(async (
@@ -846,5 +929,100 @@ describe('B5：推理强度入口（reasoning_effort）', () => {
 
     fireEvent.change(screen.getByTestId('reasoning-effort'), { target: { value: '' } });
     expect(useProjectStore.getState().reasoningEffort).toBe('');
+  });
+});
+
+describe('M5c：需求会话 ask_user 问答卡', () => {
+  const api = () => import('@/services/api') as unknown as Promise<{
+    requirementsApi: {
+      questions: ReturnType<typeof vi.fn>;
+      sessionEvents: ReturnType<typeof vi.fn>;
+      answer: ReturnType<typeof vi.fn>;
+      streamChat: (sid: string, msg: string,
+        onChunk?: (c: { type: string; data: unknown }) => void) => Promise<Record<string, unknown>>;
+    };
+  }>;
+
+  const pendingQuestion = {
+    question_id: 'q_req_1',
+    question: '成片风格要哪一种？',
+    options: [
+      { id: 'a', label: '冷静科技' },
+      { id: 'b', label: '活泼综艺' },
+    ],
+    allow_free_text: true,
+    status: 'pending',
+  };
+
+  function seed(id = 'req_q') {
+    // 前序 R6 用例会留下选中素材（输入框占位符随选中态变化），这里显式清干净
+    useSelectionStore.setState({ selectedClipIds: [], selectedTrackId: null });
+    useAgentStore.setState({
+      requirementsSessionId: id,
+      requirementsStatus: 'gathering',
+      requirementsBusy: false,
+      requirementsMessages: [
+        { id: 'm0', role: 'assistant', content: '请描述选题', timestamp: new Date().toISOString() },
+      ],
+    });
+  }
+
+  it('刷新后从 /questions 重建问题卡，回答后回显 agent 续跑结果', async () => {
+    const r = await api();
+    r.requirementsApi.questions.mockResolvedValue({ session_id: 'req_q', items: [pendingQuestion], status: 'all' });
+    r.requirementsApi.sessionEvents.mockResolvedValue({ session_id: 'req_q', items: [], has_more: false, latest_seq: 0 });
+    r.requirementsApi.answer.mockResolvedValue({ status: 'gathering', reply: '好，按冷静科技风格推进' });
+    seed();
+    render(<AgentPanel />);
+
+    const host = await screen.findByTestId('requirements-question-host');
+    expect(host.textContent).toContain('需求 agent 在等你回答');
+    expect(host.textContent).toContain('成片风格要哪一种？');
+
+    // 回答：走需求会话自己的 answer 路由（不是任务 API）
+    r.requirementsApi.questions.mockResolvedValue({ session_id: 'req_q', items: [], status: 'all' });
+    fireEvent.click(screen.getByText('冷静科技'));
+    await waitFor(() => expect(r.requirementsApi.answer).toHaveBeenCalledTimes(1));
+    const body = r.requirementsApi.answer.mock.calls[0];
+    expect(body[0]).toBe('req_q');
+    expect(body[1].question_id).toBe('q_req_1');
+    expect(body[1].option_id).toBe('a');
+
+    // agent 继续：新回复上屏，问题卡在待答列表清空后消失
+    await waitFor(() => {
+      expect(useAgentStore.getState().requirementsMessages.some(
+        (m) => m.content === '好，按冷静科技风格推进',
+      )).toBe(true);
+    });
+    await waitFor(() => expect(screen.queryByTestId('requirements-question-host')).toBeNull());
+  });
+
+  it('SSE question 帧到达即出卡（不等 result）', async () => {
+    const r = await api();
+    r.requirementsApi.questions.mockResolvedValue({ session_id: 'req_s', items: [], status: 'all' });
+    r.requirementsApi.sessionEvents.mockResolvedValue({ session_id: 'req_s', items: [], has_more: false, latest_seq: 0 });
+    r.requirementsApi.streamChat = async (_sid, _msg, onChunk) => {
+      onChunk?.({ type: 'question', data: pendingQuestion });
+      return { status: 'waiting_user', reply: '先说清风格' };
+    };
+    seed('req_s');
+    render(<AgentPanel />);
+
+    const ta = screen.getByPlaceholderText('继续与需求 Agent 对话…（Shift+Enter 换行）');
+    fireEvent.change(ta, { target: { value: '做一期数码评测' } });
+    fireEvent.keyDown(ta, { key: 'Enter' });
+
+    const host = await screen.findByTestId('requirements-question-host');
+    expect(host.textContent).toContain('成片风格要哪一种？');
+  });
+
+  it('拉取失败时不假装有问题，也不打断对话', async () => {
+    const r = await api();
+    r.requirementsApi.questions.mockRejectedValue(new Error('offline'));
+    r.requirementsApi.sessionEvents.mockRejectedValue(new Error('offline'));
+    seed('req_off');
+    render(<AgentPanel />);
+    expect(screen.queryByTestId('requirements-question-host')).toBeNull();
+    expect(screen.getByPlaceholderText('继续与需求 Agent 对话…（Shift+Enter 换行）')).toBeTruthy();
   });
 });

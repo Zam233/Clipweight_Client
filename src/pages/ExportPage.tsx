@@ -6,12 +6,13 @@ import { useProjectStore } from '@/stores/projectStore';
 import { renderApi, projectApi, assetApi, toolApi } from '@/services/api';
 import { connectSseStream, type SseStreamHandle } from '@/services/api/sseStream';
 import { toast } from '@/stores/toastStore';
-import { createEmptyTimeline } from '@/types/timeline';
+import { createEmptyTimeline, type Timeline } from '@/types/timeline';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge } from '@/components/ui';
 import { uid, formatTimecode } from '@/lib/utils';
 import { resolveContainerExt, type ExportPresetDef } from './exportPreset';
 import { clampPreroll, prerollPayload } from '@/services/api/preroll';
+import { fingerprintLabel, timelineChanged, timelineFingerprint } from './exportSnapshot';
 import type { ExportSettings, RenderProgress } from '@/types/api';
 import {
   Download, Clapperboard, Gauge, Cpu, Film, Loader2, CheckCircle2,
@@ -53,6 +54,9 @@ interface QueueItem extends RenderProgress {
   /** 重试所需的原始提交参数（U14） */
   retrySettings?: ExportSettings;
   retryFilename?: string;
+  /** 提交时的时间线快照 + 指纹：重试跑快照（可比较），不是跑"现在的"时间线 */
+  retryTimeline?: Timeline;
+  retryFingerprint?: string;
 }
 
 /**
@@ -269,17 +273,21 @@ export function ExportPage() {
     const ext = resolveContainerExt(presetId, presetDef);
     const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
     const filename = `${safeName}_${settings.width}x${settings.height}_${stamp}.${ext}`;
+    // 提交时冻结时间线：重试要跑"当时提交的那份"，否则改完时间线再点重试
+    // 会让人以为在重试，其实跑的是新内容（旧实现就是这么干的）
+    const snapshot = useTimelineStore.getState().exportTimeline();
     const item: QueueItem = {
       task_id: taskId, status: 'pending', progress: 0,
       label: projectName, presetName: presetDef?.name ?? '自定义',
       startedAt: new Date().toLocaleTimeString(), filename,
       retrySettings: { ...settings }, retryFilename: filename,
+      retryTimeline: snapshot, retryFingerprint: timelineFingerprint(snapshot),
     };
     setQueue((q) => [item, ...q]);
 
     try {
       const res = await renderApi.submitQueue({
-        timeline: useTimelineStore.getState().exportTimeline(),
+        timeline: snapshot,
         output_path: `renders/${filename}`,
         settings,
         // W11: BGM 素材源（用户从素材库选择；无则后端走无 BGM 路径）
@@ -322,14 +330,30 @@ export function ExportPage() {
     }
   };
 
-  // U14: 使用原始提交参数重新提交渲染任务
-  const retryRender = async (taskId: string) => {
+  /**
+   * U14 / PRD §20：重试拆成两条路。
+   *
+   * - `snapshot`：用提交时冻结的时间线重跑（真正意义上的"重试"，结果可比较）；
+   * - `current`：时间线已被改过，跑当前版本——这不是重试，是重新提交，按钮文案要说清。
+   */
+  const retryRender = async (taskId: string, mode: 'snapshot' | 'current' = 'snapshot') => {
     const item = queue.find((it) => it.task_id === taskId);
     if (!item?.retrySettings || !item.retryFilename) return;
+    const live = useTimelineStore.getState().exportTimeline();
+    const snapshot = item.retryTimeline;
+    let timelineToRun: Timeline;
+    if (mode === 'current') {
+      timelineToRun = live;
+    } else if (snapshot) {
+      timelineToRun = snapshot;
+    } else {
+      // 老队列项没有快照：如实按当前时间线跑，但文案已经标明是"当前时间线"
+      timelineToRun = live;
+    }
     updateQueue(taskId, { status: 'pending', progress: 0, detail: undefined, phase: undefined, simulated: undefined });
     try {
       const res = await renderApi.submitQueue({
-        timeline: useTimelineStore.getState().exportTimeline(),
+        timeline: timelineToRun,
         output_path: `renders/${item.retryFilename}`,
         settings: item.retrySettings,
       });
@@ -674,10 +698,15 @@ export function ExportPage() {
           ) : (
             <div className="space-y-2.5">
               {queue.map((item) => (
-                <QueueCard key={item.task_id} item={item} onRetry={() => retryRender(item.task_id)}
-                    onCancel={() => renderApi.cancel(item.task_id)
-                      .then(() => updateQueue(item.task_id, { status: 'cancelled', detail: '已取消' }))
-                      .catch(() => toast('取消失败 — 后端不可达', 'error'))} />
+                <QueueCard
+                  key={item.task_id}
+                  item={item}
+                  currentFingerprint={timelineFingerprint(timeline)}
+                  onRetry={(mode) => retryRender(item.task_id, mode)}
+                  onCancel={() => renderApi.cancel(item.task_id)
+                    .then(() => updateQueue(item.task_id, { status: 'cancelled', detail: '已取消' }))
+                    .catch(() => toast('取消失败 — 后端不可达', 'error'))}
+                />
               ))}
             </div>
           )}
@@ -687,8 +716,16 @@ export function ExportPage() {
   );
 }
 
-function QueueCard({ item, onRetry, onCancel }: { item: QueueItem; onRetry?: () => void; onCancel?: () => void }) {
+function QueueCard({ item, onRetry, onCancel, currentFingerprint }: {
+  item: QueueItem;
+  onRetry?: (mode: 'snapshot' | 'current') => void;
+  onCancel?: () => void;
+  /** 当前时间线指纹：与提交时不同 → 多给一个「用当前时间线提交」 */
+  currentFingerprint?: string;
+}) {
   const active = item.status === 'rendering' || item.status === 'pending';
+  const changed = !!item.retryFingerprint && !!currentFingerprint
+    && timelineChanged(item.retryFingerprint, currentFingerprint);
   return (
     <div className={`bg-surface-container border rounded-cw-md p-3.5 transition-colors duration-short3 ${
       item.status === 'completed' ? 'border-track-audio/40'
@@ -790,18 +827,44 @@ function QueueCard({ item, onRetry, onCancel }: { item: QueueItem; onRetry?: () 
           </button>
         )}
         {item.status === 'failed' && onRetry && (
-          <button
-            onClick={onRetry}
-            className="flex items-center gap-1 px-2 py-1 rounded-cw-sm border border-error/40 bg-error/10 text-caption font-medium text-error hover:bg-error/20 transition-colors cursor-pointer"
-            title="使用相同参数重新提交渲染"
-          >
-            <RotateCcw className="w-3 h-3" /> 重试
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onRetry('snapshot')}
+              className="flex items-center gap-1 px-2 py-1 rounded-cw-sm border border-error/40 bg-error/10 text-caption font-medium text-error hover:bg-error/20 transition-colors cursor-pointer"
+              title={item.retryFingerprint
+                ? `用提交时的快照重新渲染（快照指纹 ${item.retryFingerprint}）`
+                : '用相同参数重新提交渲染'}
+              data-testid="export-retry-snapshot"
+            >
+              <RotateCcw className="w-3 h-3" /> 重试本次提交
+            </button>
+            {changed && (
+              <button
+                onClick={() => onRetry('current')}
+                className="flex items-center gap-1 px-2 py-1 rounded-cw-sm border border-outline-variant/50 bg-surface-container-high text-caption font-medium text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
+                title={`时间线已改动（当前指纹 ${currentFingerprint}），这不是重试而是重新提交`}
+                data-testid="export-retry-current"
+              >
+                用当前时间线重新提交
+              </button>
+            )}
+          </div>
         )}
       </div>
       {/* 失败详情（U14） */}
       {item.status === 'failed' && item.detail && (
         <p className="mt-1.5 text-caption text-error">{item.detail}</p>
+      )}
+      {/* 时间线指纹：让"重试跑的是哪一版"可核对，而不是嘴上说说 */}
+      {item.retryFingerprint && (
+        <p className="mt-1 text-caption text-on-surface-variant/60" data-testid="export-fingerprint">
+          提交快照 {fingerprintLabel(item.retryFingerprint)}
+          {changed && currentFingerprint && (
+            <span className="text-error/80">
+              {' '}· 时间线已改动（当前 {fingerprintLabel(currentFingerprint)}）
+            </span>
+          )}
+        </p>
       )}
       {/* progress bar */}
       <div className="mt-2.5 h-1.5 bg-surface rounded-cw-full overflow-hidden">

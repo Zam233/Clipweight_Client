@@ -30,6 +30,8 @@ interface Props {
   events?: TaskEvent[];
   /** 直接给待答问题（例如从 /questions 拉回来的），与 events 合并去重 */
   questions?: TaskQuestionItem[];
+  /** 标题里"谁在问"：任务侧=主 agent，需求会话=需求 agent（M5c） */
+  askerLabel?: string;
   className?: string;
 }
 
@@ -69,7 +71,7 @@ function fromEvents(events: TaskEvent[]): TaskQuestionItem[] {
   return out.filter((q) => !answered.has(q.question_id));
 }
 
-export function TaskQuestionCard({ taskId, onSubmit, events = [], questions = [], className }: Props) {
+export function TaskQuestionCard({ taskId, onSubmit, events = [], questions = [], askerLabel = '主 agent', className }: Props) {
   const [remote, setRemote] = useState<TaskQuestionItem[]>([]);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState('');
@@ -150,7 +152,7 @@ export function TaskQuestionCard({ taskId, onSubmit, events = [], questions = []
       aria-label="待回答的问题"
     >
       <p className="mb-1 flex items-center gap-1 text-label-sm text-warning">
-        <HelpCircle className="w-3.5 h-3.5" /> 主 agent 在等你回答（{shown.length}）
+        <HelpCircle className="w-3.5 h-3.5" /> {askerLabel} 在等你回答（{shown.length}）
       </p>
       <ul className="space-y-1.5">
         {shown.map((q) => {

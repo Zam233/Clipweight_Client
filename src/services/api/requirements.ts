@@ -1,6 +1,7 @@
 import { getApiClient } from './client';
 import { apiBase, fetchSseToken, withSseToken } from './sse';
 import type { RequirementsInitRequest, RequirementsChatRequest } from '@/types/api';
+import type { TaskEvent, TaskQuestionItem } from '@/types/task';
 
 export const requirementsApi = {
   /** Initialize a requirements session */
@@ -167,6 +168,47 @@ export const requirementsApi = {
   async getSession(sessionId: string) {
     const { data } = await getApiClient().get(`/api/requirements/session/${sessionId}`);
     return data;
+  },
+
+  /**
+   * M5c：需求会话的问题列表（PRD §15.5）。
+   *
+   * 需求会话**不走任务 API**：问题归属会话，路由也在 `/api/requirements`。
+   * `status=pending` 只要待答（校准用），`all` 给全部（刷新后重建卡片）。
+   */
+  async questions(sessionId: string, status: 'pending' | 'all' = 'all') {
+    const { data } = await getApiClient().get(
+      `/api/requirements/${sessionId}/questions`,
+      { params: { status } },
+    );
+    return data as { session_id: string; items: TaskQuestionItem[]; status: string };
+  },
+
+  /** 回答需求会话的问题；后端会让 agent 带着答案继续。 */
+  async answer(
+    sessionId: string,
+    body: { question_id: string; option_id?: string | null; text?: string | null },
+  ) {
+    const { data } = await getApiClient().post(
+      `/api/requirements/${sessionId}/answer`,
+      body,
+      { timeout: 600_000 },
+    );
+    return data;
+  },
+
+  /** 会话事件（question/answer）：刷新/重连按 seq 补齐。 */
+  async sessionEvents(sessionId: string, sinceSeq = 0, limit = 200) {
+    const { data } = await getApiClient().get(
+      `/api/requirements/${sessionId}/events`,
+      { params: { since_seq: sinceSeq, limit } },
+    );
+    return data as {
+      session_id: string;
+      items: TaskEvent[];
+      has_more: boolean;
+      latest_seq: number;
+    };
   },
 
   /** Get production plan */

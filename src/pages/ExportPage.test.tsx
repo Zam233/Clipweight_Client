@@ -184,6 +184,65 @@ describe('U14: failure detail + retry', () => {
   });
 });
 
+describe('PRD §20：重试拆分为「本次提交快照」与「当前时间线」', () => {
+  /** 提交 + 让它失败，返回 rerender（用来在改动时间线后重渲染） */
+  async function submitAndFail() {
+    timelineState.timeline = { ...NONEMPTY_TIMELINE };
+    mocks.submitQueue.mockResolvedValue({ task_id: 'render_real_1' });
+    const utils = render(<ExportPage />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /加入渲染队列/ }));
+    await waitFor(() => expect(mocks.submitQueue).toHaveBeenCalledTimes(1));
+    const es = FakeEventSource.instances.find((i) => i.url.includes('render_real_1'))!;
+    act(() => { es.emit({ type: 'failed', detail: '编码器崩溃' }); });
+    await waitFor(() => expect(screen.getByText('编码器崩溃')).toBeTruthy());
+    return utils;
+  }
+
+  it('时间线未改动时只给一个「重试本次提交」，并显示快照指纹', async () => {
+    await submitAndFail();
+    expect(screen.getByTestId('export-retry-snapshot')).toBeTruthy();
+    expect(screen.queryByTestId('export-retry-current')).toBeNull();
+    const fp = screen.getByTestId('export-fingerprint');
+    expect(fp.textContent).toContain('提交快照');
+    expect(fp.textContent).not.toContain('时间线已改动');
+  });
+
+  it('提交后改过时间线：多出「用当前时间线重新提交」，并标明当前指纹不同', async () => {
+    const { rerender } = await submitAndFail();
+    timelineState.timeline = { ...NONEMPTY_TIMELINE, duration_sec: 99 } as typeof timelineState.timeline;
+    rerender(<ExportPage />);
+
+    expect(screen.getByTestId('export-retry-current')).toBeTruthy();
+    const fp = screen.getByTestId('export-fingerprint');
+    expect(fp.textContent).toContain('时间线已改动');
+  });
+
+  it('快照重试跑的是提交时那份时间线（不偷偷带上后来的改动）', async () => {
+    const { rerender } = await submitAndFail();
+    timelineState.timeline = { ...NONEMPTY_TIMELINE, duration_sec: 99 } as typeof timelineState.timeline;
+    rerender(<ExportPage />);
+
+    mocks.submitQueue.mockResolvedValue({ task_id: 'render_real_2' });
+    fireEvent.click(screen.getByTestId('export-retry-snapshot'));
+    await waitFor(() => expect(mocks.submitQueue).toHaveBeenCalledTimes(2));
+    const second = mocks.submitQueue.mock.calls[1][0] as { timeline: { duration_sec: number } };
+    expect(second.timeline.duration_sec).toBe(NONEMPTY_TIMELINE.duration_sec);
+  });
+
+  it('「用当前时间线重新提交」跑的是改后的时间线（用户明知不是重试）', async () => {
+    const { rerender } = await submitAndFail();
+    timelineState.timeline = { ...NONEMPTY_TIMELINE, duration_sec: 99 } as typeof timelineState.timeline;
+    rerender(<ExportPage />);
+
+    mocks.submitQueue.mockResolvedValue({ task_id: 'render_real_3' });
+    fireEvent.click(screen.getByTestId('export-retry-current'));
+    await waitFor(() => expect(mocks.submitQueue).toHaveBeenCalledTimes(2));
+    const second = mocks.submitQueue.mock.calls[1][0] as { timeline: { duration_sec: number } };
+    expect(second.timeline.duration_sec).toBe(99);
+  });
+});
+
 describe('U15: preset merge + empty-timeline size', () => {
   it('keeps internal icon when a colliding backend preset omits it, without duplicates', async () => {
     mocks.getPresets.mockResolvedValue({
