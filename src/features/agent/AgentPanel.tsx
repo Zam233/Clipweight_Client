@@ -733,10 +733,12 @@ function RequirementsView() {
                   onClick={() => setReasoningOpen((v) => !v)}
                   aria-expanded={reasoningOpen}
                 >
-                  正在思考{reasoningOpen ? ' ▴' : ' ▾'}
+                  正在思考（{liveReasoning.length.toLocaleString()} 字）
+                  {reasoningOpen ? ' ▴' : ' ▾'}
                 </button>
               ) : (
-                <span>正在思考…</span>
+                // 没有 reasoning 就是没有：不做一个点了没反应的假按钮
+                <span data-testid="live-thinking-pending">正在生成…</span>
               )}
             </div>
             {reasoningOpen && liveReasoning && (

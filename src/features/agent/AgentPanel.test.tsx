@@ -626,41 +626,72 @@ describe('轮69: SSE delta 流式消费', () => {
     await waitFor(() => expect(useAgentStore.getState().requirementsBusy).toBe(false));
   });
 
-  it('第二轮提问清空上一轮思考（不把旧 reasoning 挂到新问题下）', async () => {
-    const api = await import('@/services/api');
-    let round = 0;
-    const streamChat = vi.fn(async (
-      _sid: string,
-      _msg: string,
-      onChunk?: (c: { type: string; data: unknown }) => void,
-    ) => {
-      round += 1;
-      onChunk?.({ type: 'reasoning', data: round === 1 ? '第一轮思考' : '第二轮思考' });
-      onChunk?.({ type: 'delta', data: `回复${round}` });
-      return { reply: `回复${round}`, status: 'gathering' };
-    });
-    (api.requirementsApi as unknown as { streamChat: typeof streamChat }).streamChat = streamChat;
-
+  it('没有 reasoning 且正文已在流式时，不渲染任何"思考"控件（不给假按钮）', async () => {
+    const r = await import('@/services/api') as unknown as {
+      requirementsApi: { streamChat: (sid: string, msg: string,
+        onChunk?: (c: { type: string; data: unknown }) => void) => Promise<Record<string, unknown>> };
+    };
+    let release!: () => void;
+    const gate = new Promise<void>((res) => { release = res; });
+    r.requirementsApi.streamChat = async (_sid, _msg, onChunk) => {
+      onChunk?.({ type: 'delta', data: '好的' });
+      await gate;
+      return { reply: '好的', status: 'gathering' };
+    };
     useAgentStore.setState({
-      requirementsSessionId: 'sess_r2',
+      requirementsSessionId: 'sess_noreason',
       requirementsStatus: 'gathering',
+      requirementsBusy: false,
       requirementsMessages: [
         { id: 'm0', role: 'assistant', content: '请描述选题', timestamp: new Date().toISOString() },
       ],
     });
     render(<AgentPanel />);
     const ta = screen.getByPlaceholderText('继续与需求 Agent 对话…（Shift+Enter 换行）');
-    for (const text of ['第一问', '第二问']) {
-      fireEvent.change(ta, { target: { value: text } });
-      fireEvent.keyDown(ta, { key: 'Enter' });
-      await waitFor(() => expect(useAgentStore.getState().requirementsBusy).toBe(false));
-    }
-    // 第二轮结束后思考条内容只剩第二轮（旧实现在这里会拼成"第一轮思考第二轮思考"）
-    const toggle = screen.queryByTestId('live-thinking-toggle');
-    if (toggle) {
-      fireEvent.click(toggle);
-      expect(screen.getByTestId('live-reasoning').textContent).toBe('第二轮思考');
-    }
+    fireEvent.change(ta, { target: { value: '做一期数码评测' } });
+    fireEvent.keyDown(ta, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(useAgentStore.getState().requirementsMessages.some((m) => m.streaming)).toBe(true);
+    });
+    // 正文已经在流式、又没有思考内容 → 整块不渲染：既没有可点按钮，也没有"正在思考…"死文案
+    expect(screen.queryByTestId('live-thinking-toggle')).toBeNull();
+    expect(screen.queryByTestId('live-thinking-pending')).toBeNull();
+    release();
+    await waitFor(() => expect(useAgentStore.getState().requirementsBusy).toBe(false));
+  });
+
+  it('还没开始吐字也没有 reasoning 时，显示中性的"正在生成…"而不是可点的"正在思考"', async () => {
+    const r = await import('@/services/api') as unknown as {
+      requirementsApi: { streamChat: (sid: string, msg: string,
+        onChunk?: (c: { type: string; data: unknown }) => void) => Promise<Record<string, unknown>> };
+    };
+    let release!: () => void;
+    const gate = new Promise<void>((res) => { release = res; });
+    r.requirementsApi.streamChat = async (_sid, _msg, onChunk) => {
+      onChunk?.({ type: 'status', data: 'typing' });
+      await gate;
+      return { reply: '好的', status: 'gathering' };
+    };
+    useAgentStore.setState({
+      requirementsSessionId: 'sess_pending',
+      requirementsStatus: 'gathering',
+      requirementsBusy: false,
+      requirementsMessages: [
+        { id: 'm0', role: 'assistant', content: '请描述选题', timestamp: new Date().toISOString() },
+      ],
+    });
+    render(<AgentPanel />);
+    const ta = screen.getByPlaceholderText('继续与需求 Agent 对话…（Shift+Enter 换行）');
+    fireEvent.change(ta, { target: { value: '做一期数码评测' } });
+    fireEvent.keyDown(ta, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('live-thinking-pending').textContent).toContain('正在生成');
+    });
+    expect(screen.queryByTestId('live-thinking-toggle')).toBeNull();
+    release();
+    await waitFor(() => expect(useAgentStore.getState().requirementsBusy).toBe(false));
   });
 
   it('流式失败时打字气泡转为错误文案且 streaming 复位', async () => {
