@@ -1118,3 +1118,35 @@ ease-out-elastic / ease-out-bounce
 **仍待后端确认**：D1′ 落库载体（Mongo / `reports/` 落盘，PRD 要求至少不丢 pending 与收据）、需求会话事件读取契约、`waiting_user` 与前端 `TaskToolbar` 的按钮映射细节（本轮已定：显示问题卡、禁用「继续」）。
 
 **已定（2026-10-30）**：`progress` 事件采纳（总数 29）；`waiting_user` 走「活进程拒绝 resume / 重启后回落 paused 放行」；思考与工具全部可见。
+
+## 执行记录（2026-10-30 · 第 9 轮 · M4 可见性 / M5c 需求问答 / 导出重试拆分）
+
+对齐本 PRD 的 §13（思考流与工具可见）、§15.5–15.7（需求会话问答）、§20（导出重试）与 §9 的 M3 尾巴。
+
+- **§13 思考与工具全部可见（M4 前端）**
+  - `AgentPanel` 真正消费 SSE `reasoning` 帧：旧实现声明了 `liveReasoning` 却从不赋值，
+    「正在思考 ▾」实际永远是空的；现在逐块累积（上限 20 万字）、每轮提问清空，
+    且**正文已经开始流式时思考条仍然可见**（`busy && (无 streaming 消息 || 有 reasoning)`）。
+  - `ThinkingDisclosure` 改增量累积：旧实现每次渲染把全部片段重新 `join` 一遍，长任务是 O(n²)；
+    现在按 seq 只拼接新增片段，首帧指纹（seq+首条文本）变化或 seq 后退时整体重建——
+    换了任务不会把上一轮思考接在下面；到 40 万字上限时明说不再追加，不静默吞。
+  - `ToolCallRows` 三路合并（主 agent 的 `tool_call`/`tool_result` 配对 + `subagent_tool` + Skill），
+    并**删除 `slice(-8)`**：来源筛选（全部/主 agent/子 agent/技能）与计数、`kernel` 补派、
+    `deduped` 复用、`remaining_turns` 逐行标注；窗口化首屏 60 行 + 「加载更早的」逐段翻到底
+    （不截断，也不把上千行一次塞进 DOM）。`ModelTurnRows` 取消 `slice(-6)` 并同样窗口化。
+  - `eventSchema` 补 `ToolDetail.seq_in_run`，子 agent 行显示 `@agent#序号`。
+- **§15.5–15.7 需求会话问答（M5c）**
+  - `requirementsApi` 增 `questions(sid, status)` / `answer(sid, body)` / `sessionEvents(sid, sinceSeq)`，
+    全部挂在 `/api/requirements/...`——**需求会话不访问任务事件 API**。
+  - `AgentPanel` 挂 `TaskQuestionCard`（`askerLabel="需求 agent"`）：刷新/重连先从 `/questions`+`/events`
+    重建卡片，SSE `question` 帧到达即刻出卡；回答后回显 agent 续跑的新回复并刷新待答列表；
+    拉取失败时不假装有问题，也不打断对话。`TaskQuestionCard` 新增 `askerLabel` 参数（默认主 agent）。
+- **§20 导出重试拆分（M3 尾巴）**
+  - 提交时冻结时间线快照 + FNV-1a 指纹（`exportSnapshot.ts`）；失败卡片只给「重试本次提交」（跑快照），
+    时间线改过才额外给「用当前时间线重新提交」，并把「提交快照 xxxxxxxx · 当前 yyyyyyyy」显示出来。
+    旧实现永远跑当前时间线却叫重试——改完时间线再点重试，等于偷偷换了内容还说是重试。
+- **验证**：`tsc --noEmit` 干净；`vitest` **136 文件 / 1171 例**全绿（新增
+  `CopilotToolTransparency.test.tsx` 8 例、`exportSnapshot.test.ts` 7 例、`AgentPanel.test.tsx` M5c 3 例 +
+  reasoning 2 例与导出重试 4 例）；后端同轮 `pytest` 4925 passed。
+- **未完成**：M6（动画提示词 v2）未开始；`TaskToolTrace` 已有后端 `limit/offset` 分页，
+  本轮未再加虚拟滚动。
