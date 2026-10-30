@@ -50,6 +50,11 @@ export const STATUS_ACTIONS: Record<TaskStatus, StatusAction> = {
   paused: {
     label: '已暂停', hint: '暂停不是结束：点「继续」会从检查点接着跑', resume: true, cancel: true, inject: true,
   },
+  waiting_user: {
+    label: '等待你的回答',
+    hint: '主 agent 提了问题，回答后才会继续；「继续」不会替你跳过问题',
+    cancel: true,
+  },
   done: {
     label: '已完成', hint: '任务已结束，不能继续；要重做请新建任务', view: true,
   },

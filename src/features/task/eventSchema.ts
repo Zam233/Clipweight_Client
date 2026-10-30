@@ -6,7 +6,7 @@
  * `detail as Record<string, unknown>` 再猜字段名，后端改名叫 `stage`→`phase` 时
  * 静默变成空白——所以这里做成**集中式 parser**，并用跨仓契约测试锁住键集合：
  * `tests/test_event_contract.py` 断言后端 `EVENT_TYPES` 与本文件的
- * `EVENT_TYPE_KEYS` 集合完全相等（数量 24）。
+ * `EVENT_TYPE_KEYS` 集合完全相等（数量 29）。
  *
  * 设计约束：
  * 1. **只补默认值、不丢字段**：未知键原样保留在 `raw` 里，方便排查；
@@ -44,6 +44,10 @@ export const EVENT_TYPE_KEYS = [
   // 子 agent 透明化（后端 2026-10-29）：子 agent 的工具调用与长阶段分段进度
   'subagent_tool',
   'subagent_progress',
+  // 反思流 / 主动询问 / 进度播报（后端 2026-10-30，PRD §13/§14/§15）
+  'question',
+  'answer',
+  'progress',
 ] as const satisfies readonly TaskEventType[];
 
 export type KnownEventKind = (typeof EVENT_TYPE_KEYS)[number];
@@ -113,6 +117,42 @@ export interface ContextDetail {
   root?: string;
 }
 
+/** ask_user 的提问（PRD §15） */
+export interface QuestionDetail {
+  question_id?: string;
+  question?: string;
+  options?: Array<{ id: string; label: string; detail?: string }>;
+  allow_free_text?: boolean;
+  default_option_id?: string | null;
+  timeout_sec?: number;
+  deadline_at?: number;
+  context_refs?: string[];
+  status?: string;
+}
+
+/** 用户/超时默认项的回答 */
+export interface AnswerDetail {
+  question_id?: string;
+  option_id?: string | null;
+  text?: string | null;
+  source?: string;
+  answered_at?: string;
+}
+
+/** Kernel 进度播报（PRD §14） */
+export interface StageProgressDetail {
+  trigger?: string;
+  stage?: string;
+  completed?: number;
+  total?: number;
+  percent?: number;
+  action?: string;
+  conclusion?: string;
+  next_action?: string;
+  decision_required?: boolean;
+  decision_options?: Array<{ id: string; label: string }>;
+}
+
 /** 文档写入 / 报告 */
 export interface DocDetail {
   path?: string;
@@ -175,6 +215,9 @@ export type ParsedEvent =
   | (ParsedEventBase & { kind: 'context_loaded'; context: ContextDetail })
   | (ParsedEventBase & { kind: 'doc_write' | 'report'; doc: DocDetail })
   | (ParsedEventBase & { kind: 'subagent_progress'; progress: SubagentProgressDetail })
+  | (ParsedEventBase & { kind: 'question'; question: QuestionDetail })
+  | (ParsedEventBase & { kind: 'answer'; answer: AnswerDetail })
+  | (ParsedEventBase & { kind: 'progress'; stageProgress: StageProgressDetail })
   | (ParsedEventBase & { kind: 'task_end' | 'gate_hit' | 'degradation' | 'artifact'
       | 'checkpoint' | 'inject' | 'plan' | 'replan' | 'task_start'; end: TaskEndDetail & Record<string, unknown> })
   | (ParsedEventBase & { kind: 'unknown' });
@@ -297,6 +340,66 @@ export function parseTaskEvent(event: TaskEvent): ParsedEvent {
           memory: raw.memory && typeof raw.memory === 'object'
             ? (raw.memory as Record<string, unknown>) : undefined,
           root: str(raw.root),
+        },
+      };
+    case 'question':
+      return {
+        ...base,
+        kind,
+        question: {
+          question_id: str(raw.question_id),
+          question: str(raw.question),
+          options: Array.isArray(raw.options)
+            ? (raw.options as Array<Record<string, unknown>>)
+                .filter((o) => o && typeof o === 'object')
+                .map((o) => ({
+                  id: String(o.id ?? ''),
+                  label: String(o.label ?? ''),
+                  detail: str(o.detail),
+                }))
+                .filter((o) => o.id && o.label)
+            : undefined,
+          allow_free_text: typeof raw.allow_free_text === 'boolean'
+            ? raw.allow_free_text : undefined,
+          default_option_id: str(raw.default_option_id) ?? null,
+          timeout_sec: num(raw.timeout_sec),
+          deadline_at: num(raw.deadline_at),
+          context_refs: strArr(raw.context_refs),
+          status: str(raw.status),
+        },
+      };
+    case 'answer':
+      return {
+        ...base,
+        kind,
+        answer: {
+          question_id: str(raw.question_id),
+          option_id: str(raw.option_id) ?? null,
+          text: str(raw.text) ?? null,
+          source: str(raw.source),
+          answered_at: str(raw.answered_at),
+        },
+      };
+    case 'progress':
+      return {
+        ...base,
+        kind,
+        stageProgress: {
+          trigger: str(raw.trigger),
+          stage: str(raw.stage),
+          completed: num(raw.completed),
+          total: num(raw.total),
+          percent: num(raw.percent),
+          action: str(raw.action),
+          conclusion: str(raw.conclusion),
+          next_action: str(raw.next_action),
+          decision_required: typeof raw.decision_required === 'boolean'
+            ? raw.decision_required : undefined,
+          decision_options: Array.isArray(raw.decision_options)
+            ? (raw.decision_options as Array<Record<string, unknown>>)
+                .map((o) => ({ id: String(o.id ?? ''), label: String(o.label ?? '') }))
+                .filter((o) => o.id && o.label)
+            : undefined,
         },
       };
     case 'doc_write':

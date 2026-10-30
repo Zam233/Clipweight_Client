@@ -20,6 +20,7 @@ export const STATUS_CN: Record<TaskStatus, string> = {
   planning: '正在规划',
   running: '执行中',
   paused: '已暂停',
+  waiting_user: '等待你的回答',
   done: '已完成',
   failed: '未完成',
   cancelled: '已取消',
@@ -64,6 +65,10 @@ export const EVENT_CN: Record<TaskEventType, string> = {
   agent_run_end: '子 agent 结束',
   subagent_tool: '子 agent 工具调用',
   subagent_progress: '子 agent 进度',
+  // 反思流 / 主动询问 / 进度播报（2026-10-30）
+  question: '向你提问',
+  answer: '已回答',
+  progress: '阶段进度',
 };
 
 export function eventLabel(type: string): string {

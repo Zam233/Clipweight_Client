@@ -10,6 +10,8 @@ export type TaskStatus =
   | 'planning'
   | 'running'
   | 'paused'
+  /** PRD §15：主 agent 提了问题、正在等回答 */
+  | 'waiting_user'
   | 'done'
   | 'failed'
   | 'cancelled'
@@ -53,7 +55,11 @@ export type TaskEventType =
   | 'agent_run_end'
   // 子 agent 透明化（后端 2026-10-29）
   | 'subagent_tool'
-  | 'subagent_progress';
+  | 'subagent_progress'
+  // 反思流 / 主动询问 / 进度播报（后端 2026-10-30，PRD §13/§14/§15）
+  | 'question'
+  | 'answer'
+  | 'progress';
 
 export interface PlanStep {
   id: string;

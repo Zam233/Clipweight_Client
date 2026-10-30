@@ -3,10 +3,10 @@
  * PRD B5（2026-10-29 / G10）：事件契约 parser。
  *
  * 证伪点：
- * 1. 26 类事件逐个 parse 都不抛异常，且 `kind` 就是事件类型；
+ * 1. 29 类事件逐个 parse 都不抛异常，且 `kind` 就是事件类型；
  * 2. 缺键给默认值、未知键保留在 `raw`（不丢信息）；
  * 3. 未知事件类型 → `kind: 'unknown'`（不崩）；
- * 4. 与后端契约：`EVENT_TYPE_KEYS` 数量 26 且无重复（跨仓一致性由
+ * 4. 与后端契约：`EVENT_TYPE_KEYS` 数量 29 且无重复（跨仓一致性由
  *    `tests/test_event_contract.py` 做严格集合比对）。
  */
 import { describe, expect, it } from 'vitest';
@@ -17,12 +17,12 @@ const ev = (type: TaskEventType, detail: Record<string, unknown> = {}, message =
   ({ seq: 1, type, ts: '', message, detail });
 
 describe('B5 事件契约', () => {
-  it('EVENT_TYPE_KEYS 覆盖 26 类且无重复', () => {
-    expect(EVENT_TYPE_KEYS).toHaveLength(26);
-    expect(new Set(EVENT_TYPE_KEYS).size).toBe(26);
+  it('EVENT_TYPE_KEYS 覆盖 29 类且无重复', () => {
+    expect(EVENT_TYPE_KEYS).toHaveLength(29);
+    expect(new Set(EVENT_TYPE_KEYS).size).toBe(29);
   });
 
-  it('26 类事件逐个 parse 不抛异常，kind 与类型一致', () => {
+  it('29 类事件逐个 parse 不抛异常，kind 与类型一致', () => {
     for (const type of EVENT_TYPE_KEYS) {
       const parsed = parseTaskEvent(ev(type));
       expect(parsed.kind, `type=${type}`).toBe(type);
