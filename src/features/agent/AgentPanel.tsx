@@ -129,13 +129,16 @@ function RequirementsBubble({
   onConfirmPlan: () => void;
   onReview: (mode: 'brief' | 'plan') => void;
 }) {
+  const isUser = m.role === 'user';
+  const isError = /^(会话创建失败|消息发送失败|时间线编辑失败|初始化失败|管线启动失败)/.test(m.content);
   return (
-    <div className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[85%] rounded-cw-md px-3 py-2 text-body-sm leading-relaxed ${m.role === 'user'
-        ? 'bg-primary-container text-on-primary-container rounded-br-cw-xs whitespace-pre-wrap'
-        : /^(会话创建失败|消息发送失败|时间线编辑失败|初始化失败|管线启动失败)/.test(m.content)
-        ? 'bg-error/10 text-error border border-error/30 rounded-bl-cw-xs'
-        : 'bg-surface-container text-on-surface rounded-bl-cw-xs border border-outline-variant/20'}`}>
+    // 用户消息：右侧气泡；模型/系统消息：居中平铺（无气泡框）——用户 2026-10-31 裁定
+    <div className={isUser ? 'flex justify-end' : 'flex justify-center'}>
+      <div className={isUser
+        ? 'max-w-[85%] rounded-cw-md px-3 py-2 text-body-sm leading-relaxed bg-primary-container text-on-primary-container rounded-br-cw-xs whitespace-pre-wrap'
+        : isError
+          ? 'max-w-[92%] rounded-cw-md px-3 py-2 text-body-sm leading-relaxed bg-error/10 text-error border border-error/30 rounded-bl-cw-xs'
+          : 'w-full px-1 py-1.5 text-body-sm leading-relaxed text-on-surface'}>
         {m.role === 'user'
           ? m.content
           // 带简报/规划书卡片的消息：正文往往嵌入了同一份内容的 markdown，跳过以避免重复渲染
@@ -949,7 +952,9 @@ function RequirementsView() {
         ))}
 
         {/* 思考条（unified-stream PRD §5.2 五态机）：可展开只在真有内容时出现 */}
-        {(busy || !!reasoningText) && (!messages.some((m) => m.streaming) || !!reasoningText || reasoningState !== 'pending') && (
+        {/* 旧视图才需要这条独立思考条；单流视图里思考是时间线的一个条目（只此一处，
+            用户 2026-10-31：不要再出现三处重复展示思考） */}
+        {!unified && (busy || !!reasoningText) && (!messages.some((m) => m.streaming) || !!reasoningText || reasoningState !== 'pending') && (
           <div className="px-3 text-label-sm text-on-surface-variant" data-testid="live-thinking-strip">
             <div className="flex items-center gap-2">
               <Loader2 className="w-3 h-3 animate-spin text-primary" />
@@ -994,7 +999,7 @@ function RequirementsView() {
 
       {/* 历史思考（unified-stream PRD §5.1.4）：本轮结束后从会话事件流回放，
           刷新/重连不丢；正在生成时由上面的实时思考条负责，不重复渲染 */}
-      {(questionEvents.some((e) => e.type === 'thinking'))
+      {!unified && (questionEvents.some((e) => e.type === 'thinking'))
         && !(busy && liveReasoning) && (
         <div className="shrink-0 border-t border-outline-variant/20" data-testid="requirements-thinking-history">
           <ThinkingDisclosure events={questionEvents} />
@@ -1649,95 +1654,11 @@ function BottomBar() {
           </button>
         </div>
       )}
-      {running && (
-        <div className="px-3 pt-2 space-y-0.5">
-          <div className="flex items-center justify-end pt-1">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={cancelling}
-              onClick={handleStop}
-              className="text-error hover:bg-error/10 border-error/40"
-            >
-              <X className="w-3.5 h-3.5 mr-1" />
-              {cancelling ? '取消中…' : '停止'}
-            </Button>
-          </div>
-          {/* 阶段进度只走时间线（stage/progress 条目）。这里不再摆 Persona 下拉与
-              六阶段列表——用户 2026-10-31 明确「不要这个面板」；「停止」与当前活动仍在。 */}
-        </div>
-      )}
+      {/* 用户 2026-10-31：底部大「停止」按钮删掉——输入区的发送按钮在生成中已经是
+          「停止」（调 cancelInFlight），不需要第二个入口。 */}
 
-      {/* G4: 当前 Agent 活动（取日志尾部非 system 条目；无则回退相位名） */}
-      {running && (
-        <div className="px-3 pt-1 text-caption text-on-surface-variant">
-          <span className="text-on-surface-variant/60">当前：</span>
-          <span className="text-primary font-medium">{currentActivity(logEntries) ?? PHASE_LABELS[phase as keyof typeof PHASE_LABELS] ?? phase}</span>
-          {pipelineStartedAt && (
-            <span className="ml-2 font-mono text-on-surface-variant/60 tabular-nums" title="本轮耗时">
-              {elapsedText}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* MG 动画逐片段进度（动画阶段） */}
-      {mgTotal > 0 && (
-        <div className="flex items-center gap-2 px-3 pt-1.5">
-          <span className="text-caption text-track-animation shrink-0">动画片段</span>
-          <div className="flex-1 h-1 bg-surface-container rounded-cw-full overflow-hidden">
-            <div className="h-full bg-track-animation transition-all duration-short3"
-              style={{ width: `${Math.min(100, Math.round((mgDone / mgTotal) * 100))}%` }} />
-          </div>
-          <span className="text-caption font-mono text-on-surface-variant shrink-0">{mgDone}/{mgTotal}</span>
-        </div>
-      )}
-
-      {error && (
-        <div className="px-3 py-1.5 text-caption text-error">{error}</div>
-      )}
-
-      {pipelineSummary && (
-        <div className="px-3 py-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-caption font-mono text-on-surface-variant">
-          <span>{pipelineSummary.totalTokens} tokens</span>
-          <span>{pipelineSummary.totalCost}</span>
-          <span>{pipelineSummary.materialCount} 素材</span>
-          {pipelineSummary.selfHealCount > 0 && <span>{pipelineSummary.selfHealCount}× 自愈</span>}
-          {pipelineSummary.timelineStats && (
-            <span>{pipelineSummary.timelineStats.tracks}轨 {pipelineSummary.timelineStats.clips}clip {pipelineSummary.timelineStats.durationSec}s</span>
-          )}
-        </div>
-      )}
-
-      {/* W2: 建议列表（管线完成后的质检/节奏提示） */}
-      {suggestions.length > 0 && (
-        <div className="px-3 pb-2 space-y-1">
-          <p className="text-caption font-medium text-on-surface-variant">建议</p>
-          {suggestions.map((s, i) => (
-            <div key={s.id ?? i} className="flex items-start gap-1.5 text-caption text-on-surface-variant group">
-              <span className="text-primary shrink-0 mt-0.5">▸</span>
-              <span className="flex-1">{s.message}</span>
-              <button
-                onClick={() => {
-                  void navigator.clipboard?.writeText(s.message);
-                  toast('已复制建议', 'success');
-                }}
-                title="复制建议"
-                className="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 text-on-surface-variant/60 hover:text-on-surface cursor-pointer"
-              >
-                <Copy className="w-3 h-3" />
-              </button>
-              <button
-                onClick={() => removeSuggestion(s.id)}
-                title="忽略该建议"
-                className="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 text-on-surface-variant/60 hover:text-error cursor-pointer"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* 用户 2026-10-31：当前活动/阶段汇总/MG 进度/统计/建议这一整块删掉——
+          这些信息都在时间线的事件里（stage / progress / artifact），面板上不再重复。 */}
     </div>
   );
 }

@@ -151,7 +151,12 @@ export const useUnifiedTimelineStore = create<UnifiedTimelineState>((set, get) =
     const item = normalizeRequirementEvent(event, sessionId);
     if (!item) return {};
     const r = _merge(s.itemsByKey, item, s.dispatch);
-    return { itemsByKey: r.items, dispatch: r.dispatch };
+    // 本轮思考已落盘成正式条目 → 丢掉流式期间那条临时条目（否则同一段思考出现两次）
+    const liveKey = `req:live:${sessionId}`;
+    const items = event.type === 'thinking' && r.items[liveKey]
+      ? Object.fromEntries(Object.entries(r.items).filter(([k]) => k !== liveKey))
+      : r.items;
+    return { itemsByKey: items, dispatch: r.dispatch };
   }),
 
   applyRequirementReasoning: (sessionId, delta, done = false) => set((s) => {

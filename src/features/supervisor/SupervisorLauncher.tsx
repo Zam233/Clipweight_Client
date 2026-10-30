@@ -59,6 +59,11 @@ export function SupervisorLauncher({ onAcceptSuggestion, actionPending }: Props)
     if (pipelineId) void hydrate(pipelineId);
   };
 
+  // 用户 2026-10-31：调度按钮与调度面板整体下线（信息已在需求对话的时间线里）。
+  // 保留 store / 事件订阅代码以免牵连其它入口；这里不再渲染任何 UI。
+  return null;
+
+  /* 已下线：原来的「调度」悬浮按钮 + SupervisorDrawer 挂载。
   return (
     <>
       <Button
@@ -97,6 +102,5 @@ export function SupervisorLauncher({ onAcceptSuggestion, actionPending }: Props)
           />
         </div>
       )}
-    </>
-  );
+  */
 }

@@ -348,7 +348,7 @@ describe('G7: reference file upload', () => {
 });
 
 describe('G4: current agent activity in bottom bar', () => {
-  it('运行时显示最新非 system 日志条目活动', async () => {
+  it.skip('运行时显示最新非 system 日志条目活动', async () => {
     useAgentStore.setState({
       pipelineId: 'p1',
       phase: 'animation',
@@ -361,7 +361,7 @@ describe('G4: current agent activity in bottom bar', () => {
     expect(screen.getByText(/animation · LLM MG 生成/)).toBeTruthy();
   });
 
-  it('无日志时回退相位名', async () => {
+  it.skip('无日志时回退相位名', async () => {
     useAgentStore.setState({
       pipelineId: 'p1',
       phase: 'structure',
@@ -371,7 +371,14 @@ describe('G4: current agent activity in bottom bar', () => {
     // 仅 system 日志 → 回退相位标签
     expect(screen.getByText(/当前：/)).toBeTruthy();
   });
+  it('底部「当前活动 / 耗时 / 建议」已按用户要求移除', () => {
+    render(<AgentPanel />);
+    expect(screen.queryByText(/当前：/)).toBeNull();
+    expect(screen.queryByText('建议')).toBeNull();
+  });
+
 });
+
 
 describe('U13: brief/plan card dedupe', () => {
   // 本组断言的是旧视图消息气泡（附件去重），显式关单流（describe 内的 clear 会重置默认值）
@@ -487,7 +494,7 @@ describe('G2: pipeline cancel', () => {
 });
 
 describe('轮72: 建议列表交互 + 耗时计时', () => {
-  it('建议可逐条忽略（X 按钮）', async () => {
+  it.skip('建议可逐条忽略（X 按钮）', async () => {
     useAgentStore.setState({
       requirementsMessages: [
         { id: 'm0', role: 'assistant', content: 'x', timestamp: new Date().toISOString() },
@@ -507,7 +514,7 @@ describe('轮72: 建议列表交互 + 耗时计时', () => {
     expect(screen.queryByText('第一条建议')).toBeNull();
   });
 
-  it('建议可复制（调用剪贴板）', async () => {
+  it.skip('建议可复制（调用剪贴板）', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
     useAgentStore.setState({
@@ -521,7 +528,7 @@ describe('轮72: 建议列表交互 + 耗时计时', () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('可复制的建议'));
   });
 
-  it('运行中显示耗时（mm:ss）', async () => {
+  it.skip('运行中显示耗时（mm:ss）', async () => {
     useAgentStore.setState({
       pipelineId: 'p1',
       phase: 'structure',
@@ -534,7 +541,14 @@ describe('轮72: 建议列表交互 + 耗时计时', () => {
     await act(async () => {});
     expect(screen.getByTitle('本轮耗时').textContent).toMatch(/^01:0\d$/);
   });
+  it('底部「当前活动 / 耗时 / 建议」已按用户要求移除', () => {
+    render(<AgentPanel />);
+    expect(screen.queryByText(/当前：/)).toBeNull();
+    expect(screen.queryByText('建议')).toBeNull();
+  });
+
 });
+
 
 describe('轮69: SSE delta 流式消费', () => {
   beforeEach(() => {

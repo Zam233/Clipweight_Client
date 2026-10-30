@@ -22,9 +22,9 @@ const ORIGIN_CN: Record<string, string> = {
 };
 
 function ReasoningRow({ item }: { item: Extract<TimelineItem, { kind: 'reasoning' }> }) {
-  // 进行中的思考默认展开（流式就该看得见）；结束后折叠成一行，避免占屏
-  const [open, setOpen] = React.useState(!item.done);
-  React.useEffect(() => { if (!item.done) setOpen(true); }, [item.done]);
+  // 思考默认**展开**：用户要的就是"边生成边看得到"。想收起来自己点一下，
+  // 不要把"看不见"当成默认（之前 done 后自动折叠，观感上等于没有流式）。
+  const [open, setOpen] = React.useState(true);
   const n = item.text.length;
   return (
     <div className="px-2 py-1" data-testid="unified-item-reasoning">
