@@ -398,3 +398,65 @@ Sol 的读码路径止步于 `requirements_service` 侧接线，没有核到 `ll
 | `J:\Clipweight-Client\src\features\agent\AgentPanel.test.tsx` | +2 例：无 reasoning 且正文流式中 → 无任何思考控件；未吐字时 → 「正在生成…」 |
 
 §5/§6 的其余条目（`reasoning_status` 帧、五状态机、统一时间线、虚拟滚动）尚未实现，按 M1–M4 推进。
+
+## 执行记录（2026-10-31 · 第 1 轮 · M1 收口 + M2 + M3 主体）
+
+### M1 思考流真通 + 诚实 UI（已完成）
+
+后端：
+- `ProviderCapabilities` 增 `reasoning_content` / `reasoning_streaming`（能配强度 ≠ 能看思考）：
+  openai 两者 True、anthropic `content=True`（按块非逐字）、ollama 全 False。
+- `LLMService.reasoning_capability()`：按活动 route 探测能力，探测失败一律按不支持并给 reason。
+- `stream_chat` 首帧发 `reasoning_status{supported,streaming,available,phase}`；
+  缓冲态明说 `reason=phase_not_streaming`；流式回退补发 `reason=stream_fallback` + `detail`，
+  同时写进 `result.diagnostics`；本轮无思考则 `reason=no_reasoning_this_turn`。
+- 需求侧思考落盘：按轮**一条** `thinking` 事件（`detail.phase="requirements"` / `done` / `chars`），
+  写进 `requirements:<session_id>` 事件流，刷新/重连可回放（契约仍 29 种）。
+
+前端：
+- 思考条五态机：idle 不显示 / pending 按阶段文案（正在思考…、正在修改创作方案…、
+  正在生成制作规划书…）/ available 才可展开（显示字数）/ unsupported 明说「该模型不提供思考内容」
+  或「该阶段无思考流」/ fallback 明说「思考内容不可用（流式已回退）」。
+- 历史思考用 `ThinkingDisclosure` 从会话事件回放，刷新不丢。
+
+### M2 统一时间线只读投影（已完成）
+
+- `features/unifiedTimeline/types.ts`：`TimelineItem` 判别联合（message / reasoning / tool /
+  stage / question / answer / approval / degradation / task-end / log / gap），
+  `kind` = UI 语义、`source` = 数据来源。
+- `normalize.ts`：29 种 `TaskEvent` **全覆盖**（未归类走 `log` 兜底，绝不丢）；
+  `tool_result` 按 `causation_id` 合并进 `tool_call`（老数据按名字兜底并标 `pair=name`）；
+  `question→answer` 合并成一条并标已回答；`thinking` 按轮聚合；
+  比较器同任务按 `seq`、跨源按派发序号，**禁止** `ts`。
+- `stores/unifiedTimelineStore.ts`：`itemsByKey` + 分区 `lastSeq/oldestSeq/seqGap`、hydrate/apply
+  去重 patch、seq 缺口落 `gap` 条目。**命名调整**：编辑器自己的 `stores/timelineStore.ts`
+  是工程时间线（tracks/clips），投影层命名为 `unifiedTimelineStore`，避免两者混淆。
+- `UnifiedTimeline.tsx`：一条流 + 窗口化（首屏 100 条 + 「加载更早」）+ 条目内折叠。
+- `useTaskEvents` 把同一份事件灌进投影层（不订阅第二条 SSE）。
+- `CopilotTaskRunTab` 双视图：flag 打开走一条流，默认仍旧分区；开关优先级
+  `?unifiedTimeline=1|0` → localStorage → 默认关（线上可一键回退，不用发版）。
+
+### M3 合流（主体完成）
+
+- `useTaskEvents` 加**引用计数**：同一 `taskId` 只保持一条活跃 SSE（合流后两个组件同时挂
+  hook 也不会重复订阅/重复应用）。
+- `AgentPanel` flag 打开时：消息与实时思考灌进投影、会话事件（历史思考 + 问答）进投影、
+  消息区改用 `<UnifiedTimeline sessionId taskId>`，旧消息列表不再重复渲染。
+
+### 验证
+
+- 后端 `pytest` **4979 passed / 4 skipped / 1 xfailed**（`test_stream_system_prompt.py` 扩到 9 例）。
+- 前端 `tsc` 干净；`vitest` **138 文件 / 1196 例**（新增 normalizer 13 例、视图 8 例、合流 1 例、
+  五态机 3 例）。
+- 实测（干净后端 service 探针）：修复前 `{status,result}`；现在
+  `{status, reasoning_status, reasoning×343, delta×260, result}`，且会话事件里落一条
+  `thinking`（1393 字）。
+
+### 未完成（下一轮）
+
+- **M4**：虚拟滚动（当前是窗口化 + 「加载更早」，DOM 有界但不是真虚拟化）；
+  需求侧历史分页（`before_id`/`has_more`）与服务端事件游标；
+  2000 条事件 + 40 万字思考的滚动性能采样。
+- **M3 收尾**：完整 E2E 跑单流全链路（需求 → 任务 → 导出）+ 刷新恢复断言。
+- PRD §6 的 M3 条目里「授权/结论/产物改为条目级 renderer」目前是"问答与工具已进流、
+  `TaskArtifacts`/`TaskFinishSummary` 仍走原组件"，需在下一轮补齐。
