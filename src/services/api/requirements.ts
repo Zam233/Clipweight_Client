@@ -267,6 +267,20 @@ export const requirementsApi = {
     return sinceSeq >= 0 ? `${base}?since_seq=${sinceSeq}` : base;
   },
 
+  /**
+   * 派发「生成制作规划书」（plan-dispatch PRD D1）。
+   *
+   * 幂等键在服务端是 `session_id:brief_hash`：同一版简报且任务还在跑就返回既有
+   * `task_id`（`reused=true`），不会点两次建两个任务。`retry=true` 强制重建。
+   */
+  async dispatchPlan(sessionId: string, retry = false) {
+    const { data } = await getApiClient().post(
+      `/api/requirements/${sessionId}/plan/dispatch`,
+      { retry },
+    );
+    return data as { task_id: string; run_id?: string; status: string; reused: boolean };
+  },
+
   /** Get production plan */
   async getPlan(sessionId: string) {
     const { data } = await getApiClient().get(`/api/requirements/plan/${sessionId}`);

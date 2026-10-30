@@ -797,16 +797,59 @@ function RequirementsView() {
     try {
       const sid = ag.requirementsSessionId;
       if (sid) {
-        // Online: sendChat adds exactly ONE user bubble + reads reply/plan from backend.
-        // sendChat 只管理组件内 manualBusy；store busy 必须由本函数在 finally 清理，否则按钮永久禁用
-        await sendChat(sid, '确认，请生成完整的制作规划书。');
+        // D3（plan-dispatch PRD §5）：改走**主 agent 派发**——
+        // 建一个 plan_only 任务，由 kernel 派 structure、产物落 reports/plan.json，
+        // 需求侧读产物回填 production_plan。不再让需求服务内联跑（那条路看不见）。
+        // 事件由服务端投影进同一份时间线（C3：前端**不**再订阅任务流）。
+        const res = await requirementsApi.dispatchPlan(sid, false) as {
+          task_id?: string; status?: string; reused?: boolean;
+        };
+        if (res?.task_id) {
+          useTaskStore.setState((s) => ({
+            ...s,
+            task: { ...(s.task ?? {}), id: String(res.task_id) } as typeof s.task,
+          }));
+        }
+        setStatus('planning');
+        // 终态由后端驱动（C4）：轮询会话状态，等它离开 planning 再放开 busy。
+        // 不做"本地推断 plan_ready"——两套真相必然互相覆盖。
+        void (async () => {
+          for (let i = 0; i < 900; i += 1) {
+            await new Promise((r) => { setTimeout(r, 2000); });
+            let st = '';
+            try {
+              const s = await requirementsApi.getSession(sid) as { status?: string };
+              st = String(s?.status || '');
+            } catch { /* 后端暂时不可用：继续等，不谎报状态 */ }
+            if (st && st !== 'planning') {
+              useAgentStore.getState().setRequirementsStatus(
+                st as Parameters<typeof setStatus>[0],
+              );
+              void refreshQuestions(sid);
+              break;
+            }
+          }
+          useAgentStore.getState().setRequirementsBusy(false);
+        })();
         return;
       }
       // 批B：无会话 = 后端未连接/初始化失败——如实提示（旧实现伪造假规划书）
       addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
         content: '会话未建立，无法生成规划书。请刷新页面重新发起需求。' });
       setStatus('gathering');
-    } finally {
+    } catch (e) {
+      // 失败要说原因并给可重试的路（PRD §3.2 的 brief_ready 回退）
+      const detail = (e as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
+      const reason = typeof detail === 'object' && detail
+        ? String((detail as { reason?: string }).reason || '')
+        : '';
+      addMessage({
+        id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+        content: reason === 'no_brief'
+          ? '还没有创意简报，无法生成规划书。先聊出方案并确认。'
+          : `派发规划书失败：${(e as Error)?.message || '未知错误'}。可再点一次「确认简报」重试。`,
+      });
+      setStatus('brief_ready');
       useAgentStore.getState().setRequirementsBusy(false);
     }
   };
