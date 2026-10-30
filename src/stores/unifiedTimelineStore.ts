@@ -158,13 +158,15 @@ export const useUnifiedTimelineStore = create<UnifiedTimelineState>((set, get) =
     if (!raw) return {};
     // 同上：事件 seq 与消息下标不可比 → 统一按到达顺序（dispatch）
     const item = { ...raw, order: { ...raw.order, ordinal: 0 } } as TimelineItem;
+    // 历史 thinking 落盘发生在**本轮对话结束之后**，如果这时才建条目，
+    // 它会被分配到最晚的派发序号 → 思考永远显示在整段对话的最下面（用户 2026-10-31 实测）。
+    // 因此：本轮已有流式思考条目（req:live:*）时，**忽略**这条历史事件（位置保持流式那一刻），
+    // 只在刷新/回放（没有 req:live）时才用历史事件重建。
+    if (event.type === 'thinking' && s.itemsByKey[`req:live:${sessionId}`]) {
+      return {};
+    }
     const r = _merge(s.itemsByKey, item, s.dispatch);
-    // 本轮思考已落盘成正式条目 → 丢掉流式期间那条临时条目（否则同一段思考出现两次）
-    const liveKey = `req:live:${sessionId}`;
-    const items = event.type === 'thinking' && r.items[liveKey]
-      ? Object.fromEntries(Object.entries(r.items).filter(([k]) => k !== liveKey))
-      : r.items;
-    return { itemsByKey: items, dispatch: r.dispatch };
+    return { itemsByKey: r.items, dispatch: r.dispatch };
   }),
 
   applyRequirementReasoning: (sessionId, delta, done = false) => set((s) => {
