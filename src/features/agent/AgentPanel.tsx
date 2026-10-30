@@ -573,6 +573,23 @@ function RequirementsView() {
             );
           }
         }
+        // 规划书生成过程帧（stage：派发结构 → 结构完成 → 翻译 → 完成）
+        // 用户 2026-10-31：确认简报之后不能一帧不发给用户看
+        else if (chunk.type === 'stage' && chunk.data && typeof chunk.data === 'object') {
+          const d = chunk.data as { stage?: string; status?: string; action?: string; summary?: string };
+          if (requirementsSessionId) {
+            useUnifiedTimelineStore.getState().applyRequirementEvent(requirementsSessionId, {
+              seq: Date.now(),
+              type: 'step_end',
+              ts: new Date().toISOString(),
+              message: d.action || d.stage || 'stage',
+              detail: {
+                stage: d.stage, status: d.status,
+                summary: [d.action, d.summary].filter(Boolean).join(' · '),
+              },
+            });
+          }
+        }
         // 后端自报思考能力/可用性（PRD §5.1）：不再靠"有没有收到帧"反推
         else if (chunk.type === 'reasoning_status' && chunk.data && typeof chunk.data === 'object') {
           const meta = chunk.data as {
