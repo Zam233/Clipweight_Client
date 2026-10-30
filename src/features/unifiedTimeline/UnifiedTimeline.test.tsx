@@ -46,10 +46,9 @@ describe('UnifiedTimeline 渲染', () => {
     expect(screen.getByTestId('unified-item-tool').textContent).toContain('read_artifact');
     expect(screen.getByTestId('unified-item-stage').textContent).toContain('material');
     expect(screen.getByTestId('unified-item-task-end').textContent).toContain('done');
-    // 思考默认折叠，点开才看到正文
+    // 进行中的思考默认展开（流式可见）
     const thinking = screen.getByTestId('unified-item-reasoning');
     expect(thinking.textContent).toContain('思考（4 字）');
-    fireEvent.click(thinking.querySelector('button')!);
     expect(thinking.textContent).toContain('先看素材');
   });
 
@@ -133,15 +132,24 @@ describe('M4：DOM 有界与滚动分页', () => {
     expect(Number(timeline().getAttribute('data-rendered'))).toBe(200);
   });
 
-  it('40 万字思考不会一次性塞进 DOM（默认折叠，点开才渲染正文）', () => {
-    const big = '思'.repeat(400_000);
-    store().applyTaskEvent('t1', ev(1, 'thinking', { round: 1, delta: big }));
+  it('进行中的思考默认展开（流式可见）；结束后折叠，点开才渲染正文', () => {
+    const big = '思'.repeat(40_000);
+    // 进行中：默认展开
+    store().applyTaskEvent('t1', ev(1, 'thinking', { round: 1, delta: big, done: false }));
+    const { unmount } = render(<UnifiedTimeline taskId="t1" />);
+    const live = screen.getByTestId('unified-item-reasoning');
+    expect(live.textContent).toContain('40,000 字');
+    expect(live.querySelector('pre')?.textContent?.length).toBe(40_000);
+    unmount();
+
+    // 已结束：折叠
+    store().resetAll();
+    store().applyTaskEvent('t1', ev(1, 'thinking', { round: 1, delta: big, done: true }));
     render(<UnifiedTimeline taskId="t1" />);
-    const row = screen.getByTestId('unified-item-reasoning');
-    expect(row.textContent).toContain('400,000 字');
-    expect(row.querySelector('pre')).toBeNull();     // 折叠状态不渲染正文
-    fireEvent.click(row.querySelector('button')!);
-    expect(row.querySelector('pre')?.textContent?.length).toBe(400_000);
+    const done = screen.getByTestId('unified-item-reasoning');
+    expect(done.querySelector('pre')).toBeNull();
+    fireEvent.click(done.querySelector('button')!);
+    expect(done.querySelector('pre')?.textContent?.length).toBe(40_000);
   });
 });
 describe('M3 收尾：授权条目可操作', () => {

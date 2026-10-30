@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act, cleanup, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, act, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
 import { AgentPanel } from './AgentPanel';
 import { useAgentStore } from '@/stores/agentStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -1168,6 +1168,95 @@ describe('M3：合流视图（flag 打开时一条流）', () => {
     // 投影层里确实有两条需求消息（不是把事件塞进消息数组）
     const items = Object.values(useUnifiedTimelineStore.getState().itemsByKey);
     expect(items.filter((i) => i.source === 'requirements' && i.kind === 'message')).toHaveLength(2);
+    setUnifiedTimelineEnabled(null);
+  });
+});
+describe('单流视图不得丢旧面板功能', () => {
+  it('Markdown / 创意简报卡 / 规划书卡 / 时间戳 在单流里照常渲染', async () => {
+    const { setUnifiedTimelineEnabled } = await import('@/features/unifiedTimeline/flag');
+    const { useUnifiedTimelineStore } = await import('@/stores/unifiedTimelineStore');
+    setUnifiedTimelineEnabled(true);
+    useUnifiedTimelineStore.getState().resetAll();
+    useSelectionStore.setState({ selectedClipIds: [], selectedTrackId: null });
+    useAgentStore.setState({
+      requirementsSessionId: 'req_func',
+      requirementsStatus: 'plan_ready',
+      requirementsBusy: false,
+      requirementsMessages: [
+        {
+          id: 'u1', role: 'user', content: '做一期数码评测', timestamp: '2026-10-31T10:00:00Z',
+        },
+        {
+          id: 'a1', role: 'assistant', content: '已生成方案',
+          timestamp: '2026-10-31T10:01:00Z',
+          creative_brief: {
+            title: '独特简报标题ABC', overview: '一句话概述', target_audience: '数码爱好者',
+            style_direction: '冷静科技', duration_estimate: '60s',
+          } as never,
+        },
+        {
+          id: 'a2', role: 'assistant', content: '规划书如下',
+          timestamp: '2026-10-31T10:02:00Z',
+          production_plan: { markdown_content: '# 规划书标题QWE\n\n- 第一段' } as never,
+        },
+        {
+          id: 'a3', role: 'assistant', content: '**加粗结论** 与普通文字',
+          timestamp: '2026-10-31T10:03:00Z',
+        },
+      ],
+    });
+    render(<AgentPanel />);
+
+    const stream = await screen.findByTestId('requirements-unified-stream');
+    // 创意简报卡还在
+    expect(within(stream).getByTestId('brief-card').textContent).toContain('独特简报标题ABC');
+    // 规划书卡还在
+    expect(within(stream).getByTestId('plan-card')).toBeTruthy();
+    // Markdown 还在（**加粗** 被渲染成 strong，而不是字面星号）
+    expect(stream.textContent).toContain('加粗结论');
+    expect(stream.textContent).not.toContain('**加粗结论**');
+    // 时间戳还在（按本地时区显示，只断言格式，不锁死时区）
+    expect(stream.textContent).toMatch(/\d{1,2}:\d{2}/);
+    setUnifiedTimelineEnabled(null);
+  });
+
+  it('单流容器撑满高度（不得用 max-h 截断到 60vh）', async () => {
+    const { setUnifiedTimelineEnabled } = await import('@/features/unifiedTimeline/flag');
+    const { useUnifiedTimelineStore } = await import('@/stores/unifiedTimelineStore');
+    setUnifiedTimelineEnabled(true);
+    useUnifiedTimelineStore.getState().resetAll();
+    useSelectionStore.setState({ selectedClipIds: [], selectedTrackId: null });
+    useAgentStore.setState({
+      requirementsSessionId: 'req_h',
+      requirementsStatus: 'gathering',
+      requirementsBusy: false,
+      requirementsMessages: [{ id: 'm1', role: 'user', content: '嗨', timestamp: '' }],
+    });
+    render(<AgentPanel />);
+    const host = await screen.findByTestId('requirements-unified-stream');
+    const timeline = within(host).getByTestId('unified-timeline');
+    expect(timeline.className).not.toContain('max-h');
+    expect(timeline.className).toContain('h-full');
+    setUnifiedTimelineEnabled(null);
+  });
+});
+describe('单流视图：滚动与高度', () => {
+  it('单流模式下只保留一层滚动（外层不滚，避免高度不到底）', async () => {
+    const { setUnifiedTimelineEnabled } = await import('@/features/unifiedTimeline/flag');
+    const { useUnifiedTimelineStore } = await import('@/stores/unifiedTimelineStore');
+    setUnifiedTimelineEnabled(true);
+    useUnifiedTimelineStore.getState().resetAll();
+    useSelectionStore.setState({ selectedClipIds: [], selectedTrackId: null });
+    useAgentStore.setState({
+      requirementsSessionId: 'req_scroll',
+      requirementsStatus: 'gathering',
+      requirementsBusy: false,
+      requirementsMessages: [{ id: 'm1', role: 'user', content: '嗨', timestamp: '' }],
+    });
+    render(<AgentPanel />);
+    const scroll = await screen.findByTestId('requirements-scroll');
+    expect(scroll.getAttribute('data-scroll-mode')).toBe('inner');
+    expect(scroll.className).toContain('overflow-hidden');
     setUnifiedTimelineEnabled(null);
   });
 });

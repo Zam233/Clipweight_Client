@@ -25,7 +25,7 @@ import { useTaskEvents } from '@/features/task/useTaskEvents';
 import { uid } from '@/lib/utils';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline, Clip, ClipKind } from '@/types/timeline';
-import type { RequirementsStatus, CreativeBrief, ProductionPlan } from '@/types/persona';
+import type { RequirementsStatus, CreativeBrief, ProductionPlan, RequirementMessage } from '@/types/persona';
 import type { TaskEvent, TaskQuestionItem } from '@/types/task';
 
 /** R6/R7：`/intent` 响应里前端真正需要的字段（后端结构见 requirementsApi.intent） */
@@ -113,6 +113,59 @@ function formatMsgTime(ts: string | undefined): string {
  * 副驾驶标签栏叠成两层。现在这里只负责 requirements 标签需要的东西：离线横幅、
  * 需求视图、底部输入、时间轴差异浮层。
  */
+/**
+ * 需求消息气泡（旧视图与单流**共用**）。
+ *
+ * 为什么单独抽出来：单流视图一开始自己写了一套纯文本渲染，
+ * 结果把 Markdown、创意简报卡、规划书卡、时间戳、打字光标全丢了。
+ * 现在两个视图渲染同一个组件——功能只可能一起坏、一起好。
+ */
+function RequirementsBubble({
+  m, busy, onConfirmBrief, onConfirmPlan, onReview,
+}: {
+  m: RequirementMessage;
+  busy: boolean;
+  onConfirmBrief: () => void;
+  onConfirmPlan: () => void;
+  onReview: (mode: 'brief' | 'plan') => void;
+}) {
+  return (
+    <div className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+      <div className={`max-w-[85%] rounded-cw-md px-3 py-2 text-body-sm leading-relaxed ${m.role === 'user'
+        ? 'bg-primary-container text-on-primary-container rounded-br-cw-xs whitespace-pre-wrap'
+        : /^(会话创建失败|消息发送失败|时间线编辑失败|初始化失败|管线启动失败)/.test(m.content)
+        ? 'bg-error/10 text-error border border-error/30 rounded-bl-cw-xs'
+        : 'bg-surface-container text-on-surface rounded-bl-cw-xs border border-outline-variant/20'}`}>
+        {m.role === 'user'
+          ? m.content
+          // 带简报/规划书卡片的消息：正文往往嵌入了同一份内容的 markdown，跳过以避免重复渲染
+          : (!m.creative_brief && !m.production_plan ? <Markdown text={m.content} /> : null)}
+        {m.streaming && (
+          <span className="inline-block w-1.5 h-3.5 align-text-bottom ml-0.5 bg-primary animate-pulse" aria-label="正在输出" />
+        )}
+        {m.creative_brief && (
+          <div className="mt-2 pt-2 border-t border-outline-variant/20">
+            <BriefCard brief={m.creative_brief} onConfirm={onConfirmBrief} busy={busy}
+              onReview={() => onReview('brief')} />
+          </div>
+        )}
+        {m.production_plan && (
+          <div className="mt-2 pt-2 border-t border-outline-variant/20">
+            <PlanCard markdown={m.production_plan.markdown_content || m.production_plan.markdown || ''}
+              onConfirm={onConfirmPlan} busy={busy} onReview={() => onReview('plan')} />
+          </div>
+        )}
+        {/* 轮70：消息时间戳（旧草稿可能无 timestamp → 空串不渲染） */}
+        {formatMsgTime(m.timestamp) && (
+          <span className={`block mt-1 text-caption text-on-surface-variant/50 tabular-nums ${m.role === 'user' ? 'text-right' : ''}`}>
+            {formatMsgTime(m.timestamp)}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function RequirementsPane() {
   const agentTimeline = useAgentStore((s) => s.agentTimeline);
   const setAgentTimeline = useAgentStore((s) => s.setAgentTimeline);
@@ -206,6 +259,23 @@ function RequirementsView() {
           : '正在思考…';
   const [draftLoaded, setDraftLoaded] = useState(false);
   const requirementsSessionId = useAgentStore((s) => s.requirementsSessionId);
+
+  // autoStart 等在 AgentPanel 之外发起的流，reasoning 只进了投影层；思考条必须两边都认，
+  // 否则首轮永远显示不可点的「正在思考…」。注意：**必须**放在 requirementsSessionId 之后
+  // （之前写成声明前使用，直接 ReferenceError 把整个需求面板打崩）。
+  const projectedReasoning = useUnifiedTimelineStore(
+    (st) => {
+      for (const it of Object.values(st.itemsByKey)) {
+        if (it.kind === 'reasoning' && it.source === 'requirements'
+            && (!requirementsSessionId || it.sessionId === requirementsSessionId)) {
+          return it.text;
+        }
+      }
+      return '';
+    },
+  );
+  const reasoningText = liveReasoning || projectedReasoning;
+
 
   /** M5c：拉问题与事件（刷新/重连后重建问题卡，不依赖任务 API） */
   const refreshQuestions = useCallback(async (sid: string | null) => {
@@ -793,7 +863,12 @@ function RequirementsView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
+      <div
+        ref={scrollRef}
+        className={`flex-1 p-3 space-y-3 min-h-0 ${unified ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}
+        data-testid="requirements-scroll"
+        data-scroll-mode={unified ? 'inner' : 'outer'}
+      >
         {messages.length === 0 && (
           <div className="bg-agent-bubble/40 border border-primary-container/40 rounded-cw-md p-3">
             <div className="flex items-center gap-2 mb-2">
@@ -837,51 +912,48 @@ function RequirementsView() {
         )}
 
         {unified && messages.length > 0 && (
-          <div data-testid="requirements-unified-stream">
-            <UnifiedTimeline sessionId={requirementsSessionId ?? undefined} taskId={taskId || undefined} />
+          <div data-testid="requirements-unified-stream" className="min-h-0 flex-1">
+            <UnifiedTimeline
+              sessionId={requirementsSessionId ?? undefined}
+              taskId={taskId || undefined}
+              renderMessage={(it) => {
+                // 时间线只负责排序与去重，气泡仍用同一份渲染（Markdown / 创意简报卡 /
+                // 规划书卡 / 时间戳 / 打字光标），避免"新面板丢了旧功能"。
+                const id = String(it.dedupeKey || '').split(':').pop() || '';
+                const m = messages.find((x) => x.id === id);
+                return m ? (
+                  <div data-testid="unified-item-message" data-role={m.role} key={it.key}>
+                    <RequirementsBubble
+                      m={m}
+                    busy={busy}
+                    onConfirmBrief={confirmBrief}
+                    onConfirmPlan={confirmPlan}
+                      onReview={setReviewMode}
+                    />
+                  </div>
+                ) : null;
+              }}
+            />
           </div>
         )}
 
         {!unified && messages.map((m) => (
-          <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-cw-md px-3 py-2 text-body-sm leading-relaxed ${m.role === 'user'
-              ? 'bg-primary-container text-on-primary-container rounded-br-cw-xs whitespace-pre-wrap'
-              : /^(会话创建失败|消息发送失败|时间线编辑失败|初始化失败|管线启动失败)/.test(m.content)
-              ? 'bg-error/10 text-error border border-error/30 rounded-bl-cw-xs'
-              : 'bg-surface-container text-on-surface rounded-bl-cw-xs border border-outline-variant/20'}`}>
-              {m.role === 'user'
-                ? m.content
-                // 带简报/规划书卡片的消息：正文往往嵌入了同一份内容的 markdown，跳过以避免重复渲染
-                : (!m.creative_brief && !m.production_plan ? <Markdown text={m.content} /> : null)}
-              {m.streaming && (
-                <span className="inline-block w-1.5 h-3.5 align-text-bottom ml-0.5 bg-primary animate-pulse" aria-label="正在输出" />
-              )}
-              {m.creative_brief && (
-                <div className="mt-2 pt-2 border-t border-outline-variant/20">
-                  <BriefCard brief={m.creative_brief} onConfirm={confirmBrief} busy={busy} onReview={() => setReviewMode('brief')} />
-                </div>
-              )}
-              {m.production_plan && (
-                <div className="mt-2 pt-2 border-t border-outline-variant/20">
-                  <PlanCard markdown={m.production_plan.markdown_content || m.production_plan.markdown || ''} onConfirm={confirmPlan} busy={busy} onReview={() => setReviewMode('plan')} />
-                </div>
-              )}
-              {/* 轮70：消息时间戳（旧草稿可能无 timestamp → 空串不渲染） */}
-              {formatMsgTime(m.timestamp) && (
-                <span className={`block mt-1 text-caption text-on-surface-variant/50 tabular-nums ${m.role === 'user' ? 'text-right' : ''}`}>
-                  {formatMsgTime(m.timestamp)}
-                </span>
-              )}
-            </div>
-          </div>
+          <RequirementsBubble
+            key={m.id}
+            m={m}
+            busy={busy}
+            onConfirmBrief={confirmBrief}
+            onConfirmPlan={confirmPlan}
+            onReview={setReviewMode}
+          />
         ))}
 
         {/* 思考条（unified-stream PRD §5.2 五态机）：可展开只在真有内容时出现 */}
-        {(busy || !!liveReasoning) && (!messages.some((m) => m.streaming) || !!liveReasoning || reasoningState !== 'pending') && (
+        {(busy || !!reasoningText) && (!messages.some((m) => m.streaming) || !!reasoningText || reasoningState !== 'pending') && (
           <div className="px-3 text-label-sm text-on-surface-variant" data-testid="live-thinking-strip">
             <div className="flex items-center gap-2">
               <Loader2 className="w-3 h-3 animate-spin text-primary" />
-              {liveReasoning ? (
+              {reasoningText ? (
                 <button
                   type="button"
                   data-testid="live-thinking-toggle"
@@ -889,7 +961,7 @@ function RequirementsView() {
                   onClick={() => setReasoningOpen((v) => !v)}
                   aria-expanded={reasoningOpen}
                 >
-                  正在思考（{liveReasoning.length.toLocaleString()} 字）
+                  正在思考（{reasoningText.length.toLocaleString()} 字）
                   {reasoningOpen ? ' ▴' : ' ▾'}
                 </button>
               ) : reasoningState === 'unsupported' ? (
@@ -908,12 +980,12 @@ function RequirementsView() {
                 <span data-testid="live-thinking-pending">{busyLabel}</span>
               )}
             </div>
-            {reasoningOpen && liveReasoning && (
+            {reasoningOpen && reasoningText && (
               <pre
                 data-testid="live-reasoning"
                 className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-cw-sm bg-surface-container p-2 text-caption"
               >
-                {liveReasoning}
+                {reasoningText}
               </pre>
             )}
           </div>
@@ -1591,50 +1663,8 @@ function BottomBar() {
               {cancelling ? '取消中…' : '停止'}
             </Button>
           </div>
-          {/* M13: 编辑器内 Persona 切换 */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-caption text-on-surface-variant/60">Persona</span>
-            <select
-              value={personaId ?? 'default'}
-              onChange={(e) => {
-                const v = e.target.value === 'default' ? null : e.target.value;
-                useProjectStore.getState().setPersonaId(v);
-                useProjectStore.getState().requestSave();
-              }}
-              className="bg-surface-container border border-outline-variant/30 rounded-cw-xs px-1.5 py-1 text-caption text-on-surface outline-none cursor-pointer max-w-[160px]"
-              aria-label="选择 Persona"
-            >
-              <option value="default">默认</option>
-              {personas.map((id) => (
-                <option key={id} value={id}>{id}</option>
-              ))}
-            </select>
-          </div>
-          {PHASE_ORDER.map((p) => {
-            const idx = PHASE_ORDER.indexOf(p);
-            const curIdx = PHASE_ORDER.indexOf(phase as never);
-            const isSelfHeal = (phase as string) === 'self_heal';
-            // self_heal 发生在所有阶段之后，视为各阶段已完成（正在联动重做）
-            const done = (phase as string) === 'completed' || isSelfHeal || (curIdx > idx);
-            const active = (phase as string) === p;
-            return (
-              <div key={p} className="flex items-center gap-1.5">
-                <span className={`w-3.5 h-3.5 rounded-cw-full flex items-center justify-center shrink-0 text-caption ${
-                  done ? 'bg-track-audio text-black' : active ? 'bg-primary' : 'bg-surface-container text-on-surface-variant/50'
-                }`}>
-                  {done ? <Check className="w-2 h-2" /> : active ? <Loader2 className="w-2 h-2 animate-spin" /> : ''}
-                </span>
-                <span className={`text-caption ${active ? 'text-primary font-semibold' : done ? 'text-on-surface' : 'text-on-surface-variant/50'}`}>
-                  {PHASE_LABELS[p]}
-                </span>
-                {active && (
-                  <div className="flex-1 h-0.5 bg-surface-container rounded-cw-full overflow-hidden">
-                    <div className="h-full bg-primary animate-pulse" style={{ width: `${Math.min(100, Math.max(2, progress))}%` }} />
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {/* 阶段进度只走时间线（stage/progress 条目）。这里不再摆 Persona 下拉与
+              六阶段列表——用户 2026-10-31 明确「不要这个面板」；「停止」与当前活动仍在。 */}
         </div>
       )}
 
@@ -1714,7 +1744,7 @@ function BottomBar() {
 
 function BriefCard({ brief, onConfirm, busy, onReview }: { brief: NonNullable<ReturnType<typeof useAgentStore.getState>['creativeBrief']>; onConfirm: () => void; busy: boolean; onReview?: () => void }) {
   return (
-    <div className="bg-surface-container border border-primary/30 rounded-cw-md overflow-hidden text-left">
+    <div className="bg-surface-container border border-primary/30 rounded-cw-md overflow-hidden text-left" data-testid="brief-card">
       <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-primary/20">
         <FileText className="w-3.5 h-3.5 text-primary" />
         <span className="text-label font-medium text-primary">创意简报</span>
@@ -1793,7 +1823,7 @@ function BriefCard({ brief, onConfirm, busy, onReview }: { brief: NonNullable<Re
 function PlanCard({ markdown, onConfirm, busy, onReview }: { markdown?: string; onConfirm: () => void; busy: boolean; onReview?: () => void }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="bg-surface-container border border-primary/30 rounded-cw-md overflow-hidden text-left">
+    <div className="bg-surface-container border border-primary/30 rounded-cw-md overflow-hidden text-left" data-testid="plan-card">
       <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-primary/20">
         <ListChecks className="w-3.5 h-3.5 text-primary" />
         <span className="text-label font-medium text-primary">制作规划书</span>

@@ -22,7 +22,9 @@ const ORIGIN_CN: Record<string, string> = {
 };
 
 function ReasoningRow({ item }: { item: Extract<TimelineItem, { kind: 'reasoning' }> }) {
-  const [open, setOpen] = React.useState(false);
+  // 进行中的思考默认展开（流式就该看得见）；结束后折叠成一行，避免占屏
+  const [open, setOpen] = React.useState(!item.done);
+  React.useEffect(() => { if (!item.done) setOpen(true); }, [item.done]);
   const n = item.text.length;
   return (
     <div className="px-2 py-1" data-testid="unified-item-reasoning">
@@ -263,10 +265,18 @@ export function UnifiedTimeline({
   taskId,
   sessionId,
   className,
+  renderMessage,
 }: {
   taskId?: string;
   sessionId?: string;
   className?: string;
+  /**
+   * 自定义消息气泡渲染（unified-stream PRD §M3）。
+   *
+   * 时间线只负责排序/去重/折叠；气泡本体必须交回调用方——否则 Markdown、创意简报卡、
+   * 规划书卡、时间戳、打字光标这些"旧面板本来就有的东西"会被新面板悄悄丢掉。
+   */
+  renderMessage?: (item: Extract<TimelineItem, { kind: 'message' }>) => React.ReactNode;
 }) {
   const itemsByKey = useUnifiedTimelineStore((s) => s.itemsByKey);
   const items = React.useMemo(
@@ -284,6 +294,17 @@ export function UnifiedTimeline({
    * "滚动触发式分页 + DOM 有界"：一次最多渲染 `visible` 条，滚到顶再加一页，
    * 内存与 DOM 都受控，且不会跳。
    */
+  // 跟随最新：新条目到达时若用户本来就在底部附近（或首次挂载），滚到底；
+  // 用户主动上滑看历史时不打扰。
+  React.useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+    if (nearBottom || el.scrollTop === 0) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [items.length]);
+
   const onScroll = React.useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
     if (el.scrollTop > 24) return;
@@ -307,7 +328,7 @@ export function UnifiedTimeline({
     <div
       ref={scrollerRef}
       onScroll={onScroll}
-      className={cn('max-h-[60vh] overflow-y-auto text-body-sm', className)}
+      className={cn('h-full min-h-0 overflow-y-auto text-body-sm', className)}
       data-testid="unified-timeline"
       data-total={items.length}
       data-rendered={shown.length}
@@ -322,7 +343,11 @@ export function UnifiedTimeline({
           加载更早的 {Math.min(rest, WINDOW)} 条（还有 {rest} 条）
         </button>
       )}
-      {shown.map((it) => <TimelineRow key={it.key} item={it} taskId={taskId} />)}
+      {shown.map((it) => (
+        it.kind === 'message' && renderMessage
+          ? <React.Fragment key={it.key}>{renderMessage(it)}</React.Fragment>
+          : <TimelineRow key={it.key} item={it} taskId={taskId} />
+      ))}
     </div>
   );
 }
