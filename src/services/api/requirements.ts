@@ -197,11 +197,28 @@ export const requirementsApi = {
     return data;
   },
 
+  /**
+   * M4：需求消息历史分页（unified-stream PRD §M4）。
+   * `beforeId` = 上一页最早那条的 id（不含）；返回 `{items, has_more, oldest_id, total}`。
+   */
+  async messages(sessionId: string, opts: { beforeId?: string; limit?: number } = {}) {
+    const { data } = await getApiClient().get(
+      `/api/requirements/${sessionId}/messages`,
+      { params: { before_id: opts.beforeId || '', limit: opts.limit ?? 50 } },
+    );
+    return data as {
+      items: { id: string; role: string; content: string; timestamp?: string }[];
+      has_more: boolean;
+      oldest_id: string;
+      total: number;
+    };
+  },
+
   /** 会话事件（question/answer）：刷新/重连按 seq 补齐。 */
-  async sessionEvents(sessionId: string, sinceSeq = 0, limit = 200) {
+  async sessionEvents(sessionId: string, sinceSeq = 0, limit = 200, beforeSeq = 0) {
     const { data } = await getApiClient().get(
       `/api/requirements/${sessionId}/events`,
-      { params: { since_seq: sinceSeq, limit } },
+      { params: { since_seq: sinceSeq, limit, ...(beforeSeq ? { before_seq: beforeSeq } : {}) } },
     );
     return data as {
       session_id: string;

@@ -103,3 +103,36 @@ describe('feature flag（可回退）', () => {
     expect(isUnifiedTimelineEnabled()).toBe(true);
   });
 });
+describe('M4：DOM 有界与滚动分页', () => {
+  beforeEach(() => {
+    store().resetAll();
+    cleanup();
+  });
+
+  it('2000 条事件下 DOM 有界（≤ 窗口条数），滚动到顶自动增页', () => {
+    for (let i = 1; i <= 2000; i += 1) {
+      store().applyTaskEvent('t1', ev(i, 'narration', {}, `第 ${i} 条`));
+    }
+    render(<UnifiedTimeline taskId="t1" />);
+    const timeline = () => screen.getByTestId('unified-timeline');
+    expect(timeline().getAttribute('data-total')).toBe('2000');
+    expect(Number(timeline().getAttribute('data-rendered'))).toBe(100);
+    // DOM 节点数远小于总条数（这就是"不出长任务"的前提）
+    expect(timeline().querySelectorAll('[data-testid^="unified-item-"]').length).toBe(100);
+
+    // 滚到顶 → 自动 +100
+    fireEvent.scroll(timeline(), { target: { scrollTop: 0 } });
+    expect(Number(timeline().getAttribute('data-rendered'))).toBe(200);
+  });
+
+  it('40 万字思考不会一次性塞进 DOM（默认折叠，点开才渲染正文）', () => {
+    const big = '思'.repeat(400_000);
+    store().applyTaskEvent('t1', ev(1, 'thinking', { round: 1, delta: big }));
+    render(<UnifiedTimeline taskId="t1" />);
+    const row = screen.getByTestId('unified-item-reasoning');
+    expect(row.textContent).toContain('400,000 字');
+    expect(row.querySelector('pre')).toBeNull();     // 折叠状态不渲染正文
+    fireEvent.click(row.querySelector('button')!);
+    expect(row.querySelector('pre')?.textContent?.length).toBe(400_000);
+  });
+});

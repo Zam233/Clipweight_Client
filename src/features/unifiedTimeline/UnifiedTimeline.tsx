@@ -11,6 +11,7 @@ import { ChevronDown, ChevronRight, CircleAlert, Wrench } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { selectOrderedItems, useUnifiedTimelineStore } from '@/stores/unifiedTimelineStore';
+import { finishReasonLabel } from '@/features/task/labels';
 import type { TimelineItem } from '@/features/unifiedTimeline/types';
 
 const WINDOW = 100;
@@ -140,10 +141,36 @@ function TimelineRow({ item }: { item: TimelineItem }) {
     case 'task-end':
       return (
         <div className="px-2 py-1 text-caption" data-testid="unified-item-task-end">
-          <span className="font-medium text-on-surface">任务结束：{item.status}</span>
+          <span className="font-medium text-on-surface">
+            任务结束：{item.reason ? finishReasonLabel(item.reason) : item.status}
+          </span>
           {item.conclusion && <div className="text-on-surface-variant/80">{item.conclusion}</div>}
           {item.unfinished.length > 0 && (
             <div className="text-error/80">未完成：{item.unfinished.join('；')}</div>
+          )}
+        </div>
+      );
+    case 'artifact':
+      return (
+        <div className="flex items-baseline gap-2 px-2 py-0.5 text-caption"
+          data-testid="unified-item-artifact">
+          <span className="rounded-cw-xs bg-surface-container px-1 text-on-surface-variant">产物</span>
+          <span className="text-on-surface">{item.label}</span>
+          {typeof item.chars === 'number' && (
+            <span className="text-on-surface-variant/60">{item.chars} 字</span>
+          )}
+          {item.path && (
+            <button
+              type="button"
+              title="复制路径"
+              className="max-w-full truncate font-mono text-on-surface-variant/50 underline decoration-dotted hover:text-on-surface"
+              onClick={() => { void navigator.clipboard?.writeText(item.path!); }}
+            >
+              {item.path}
+            </button>
+          )}
+          {item.files && item.files.length > 0 && (
+            <span className="text-on-surface-variant/60">+{item.files.length} 个文件</span>
           )}
         </div>
       );
@@ -154,7 +181,7 @@ function TimelineRow({ item }: { item: TimelineItem }) {
           <CircleAlert className="h-3 w-3" /> 历史缺口 seq {item.from}–{item.to}
         </div>
       );
-    default:
+    case 'log':
       return (
         <div className="px-2 py-0.5 text-caption text-on-surface-variant/70"
           data-testid="unified-item-log" data-event-type={item.eventType}>
@@ -162,6 +189,11 @@ function TimelineRow({ item }: { item: TimelineItem }) {
           {item.message}
         </div>
       );
+    default: {
+      // 穷尽检查：新增 kind 必须在这里补 renderer，否则类型不过
+      const never: never = item;
+      return <div className="px-2 py-0.5 text-caption text-error">{String(never)}</div>;
+    }
   }
 }
 
@@ -180,6 +212,21 @@ export function UnifiedTimeline({
     [itemsByKey, taskId, sessionId],
   );
   const [visible, setVisible] = React.useState(WINDOW);
+  const scrollerRef = React.useRef<HTMLDivElement | null>(null);
+
+  /**
+   * 滚动到顶部附近 → 自动多渲染一页（M4）。
+   *
+   * 为什么不是绝对定位的"真虚拟滚动"：条目高度不是定值（思考可展开、消息长短不一、
+   * 工具行有错误文本换行），绝对定位虚拟化一旦估高就会抖动/跳位。这里用
+   * "滚动触发式分页 + DOM 有界"：一次最多渲染 `visible` 条，滚到顶再加一页，
+   * 内存与 DOM 都受控，且不会跳。
+   */
+  const onScroll = React.useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (el.scrollTop > 24) return;
+    setVisible((v) => (v < 4000 ? v + WINDOW : v));
+  }, []);
 
   if (!items.length) {
     return (
@@ -195,8 +242,14 @@ export function UnifiedTimeline({
   const rest = items.length - shown.length;
 
   return (
-    <div className={cn('text-body-sm', className)} data-testid="unified-timeline"
-      data-total={items.length} data-rendered={shown.length}>
+    <div
+      ref={scrollerRef}
+      onScroll={onScroll}
+      className={cn('max-h-[60vh] overflow-y-auto text-body-sm', className)}
+      data-testid="unified-timeline"
+      data-total={items.length}
+      data-rendered={shown.length}
+    >
       {rest > 0 && (
         <button
           type="button"

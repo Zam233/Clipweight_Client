@@ -243,6 +243,7 @@ export function normalizeTaskEvent(
         kind: 'approval',
         approvalId: parsed.approval.approval_id,
         risk: parsed.approval.risk,
+        tool: parsed.approval.tool,
         status: parsed.approval.status ?? (e.type === 'approval_request' ? 'pending' : 'ok'),
       } as TimelineItem;
     }
@@ -258,6 +259,23 @@ export function normalizeTaskEvent(
         detail: d.detail ? String(d.detail) : undefined,
       } as TimelineItem;
     }
+    case 'artifact':
+    case 'doc_write':
+    case 'report': {
+      const d = (e.detail ?? {}) as Record<string, unknown>;
+      const path = d.path ? String(d.path) : undefined;
+      const label = String(d.label || d.name || path?.split(/[\\/]/).pop() || e.message || '产物');
+      return {
+        ..._base('task', `${TASK_PREFIX}:art:${taskId}:${path || e.seq}`, e.seq, {
+          order: { ordinal: e.seq, seq: e.seq }, ts: e.ts, taskId,
+        } as never),
+        kind: 'artifact',
+        label,
+        path,
+        chars: typeof d.chars === 'number' ? d.chars : undefined,
+        files: Array.isArray(d.files) ? (d.files as string[]).map(String) : undefined,
+      } as TimelineItem;
+    }
     case 'task_end': {
       const d = (e.detail ?? {}) as Record<string, unknown>;
       return {
@@ -266,6 +284,7 @@ export function normalizeTaskEvent(
         } as never),
         kind: 'task-end',
         status: String(d.status || 'done'),
+        reason: d.reason ? String(d.reason) : undefined,
         conclusion: d.conclusion ? String(d.conclusion) : e.message,
         completed: Array.isArray(d.completed) ? (d.completed as string[]) : [],
         unfinished: Array.isArray(d.unfinished) ? (d.unfinished as string[]) : [],

@@ -157,6 +157,8 @@ function RequirementsView() {
   const setReasoningEffort = useProjectStore((s) => s.setReasoningEffort);
   const messages = useAgentStore((s) => s.requirementsMessages);
   const addMessage = useAgentStore((s) => s.addRequirementsMessage);
+  const prependMessages = useAgentStore((s) => s.prependRequirementsMessages);
+  const setMessages = useAgentStore((s) => s.setRequirementsMessages);
   const setStatus = useAgentStore((s) => s.setRequirementsStatus);
   const setBrief = useAgentStore((s) => s.setCreativeBrief);
   const setPlan = useAgentStore((s) => s.setProductionPlan);
@@ -180,6 +182,9 @@ function RequirementsView() {
   // M5c（PRD §15.5）：需求会话的 ask_user 问答——问题与事件都走 /api/requirements
   const [questions, setQuestions] = useState<TaskQuestionItem[]>([]);
   const [questionEvents, setQuestionEvents] = useState<TaskEvent[]>([]);
+  // M4：需求消息历史分页（向上翻不重复、刷新后从服务端重建）
+  const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [manualBusy, setBusy] = useState(false);
   // Auto-start (from HomePage launch) runs in EditorPage via useRequirementsAutoStart;
   // reflect its busy flag here so the UI shows progress even though it's store-driven.
@@ -218,6 +223,50 @@ function RequirementsView() {
   }, []);
 
   useEffect(() => { void refreshQuestions(requirementsSessionId); }, [requirementsSessionId, refreshQuestions]);
+
+  // 刷新/首次进入：本地没有消息时从服务端取最新一页（id 稳定，翻页不会重复）
+  useEffect(() => {
+    const sid = requirementsSessionId;
+    if (!sid) return;
+    if (useAgentStore.getState().requirementsMessages.length > 0) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const page = await requirementsApi.messages(sid, { limit: 50 });
+        if (!alive || !page?.items?.length) return;
+        setMessages(page.items.map((m) => ({
+          id: m.id, role: m.role as 'user' | 'assistant' | 'system',
+          content: m.content, timestamp: m.timestamp ?? '',
+        })));
+        setHasEarlierMessages(Boolean(page.has_more));
+      } catch {
+        // 后端不可用：保持空态引导，不伪造历史
+      }
+    })();
+    return () => { alive = false; };
+  }, [requirementsSessionId, setMessages]);
+
+  const loadEarlierMessages = useCallback(async () => {
+    const sid = useAgentStore.getState().requirementsSessionId;
+    if (!sid || loadingEarlier) return;
+    const oldest = useAgentStore.getState().requirementsMessages[0]?.id;
+    if (!oldest) return;
+    setLoadingEarlier(true);
+    try {
+      const page = await requirementsApi.messages(sid, { beforeId: oldest, limit: 50 });
+      if (page?.items?.length) {
+        prependMessages(page.items.map((m) => ({
+          id: m.id, role: m.role as 'user' | 'assistant' | 'system',
+          content: m.content, timestamp: m.timestamp ?? '',
+        })));
+      }
+      setHasEarlierMessages(Boolean(page?.has_more));
+    } catch {
+      setHasEarlierMessages(false);
+    } finally {
+      setLoadingEarlier(false);
+    }
+  }, [loadingEarlier, prependMessages]);
 
   // 需求侧投影（PRD §4.4）：消息与思考进同一个时间线，不在组件里拼数组
   useEffect(() => {
@@ -750,6 +799,18 @@ function RequirementsView() {
               )}
             </div>
           </div>
+        )}
+
+        {hasEarlierMessages && messages.length > 0 && (
+          <button
+            type="button"
+            data-testid="requirements-load-earlier"
+            disabled={loadingEarlier}
+            className="mb-2 w-full text-caption text-primary hover:underline disabled:opacity-50"
+            onClick={() => void loadEarlierMessages()}
+          >
+            {loadingEarlier ? '加载中…' : '加载更早的消息'}
+          </button>
         )}
 
         {unified && messages.length > 0 && (

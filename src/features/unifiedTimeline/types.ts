@@ -90,7 +90,16 @@ export type TimelineItem =
       kind: 'approval';
       approvalId?: string;
       risk?: string;
+      tool?: string;
       status: string;
+    })
+  | (Base & {
+      /** 产物/文档落地（artifact / doc_write / report）：点开能拿到路径 */
+      kind: 'artifact';
+      label: string;
+      path?: string;
+      chars?: number;
+      files?: string[];
     })
   | (Base & {
       kind: 'degradation';
@@ -101,6 +110,7 @@ export type TimelineItem =
   | (Base & {
       kind: 'task-end';
       status: string;
+      reason?: string;
       conclusion?: string;
       completed: string[];
       unfinished: string[];
