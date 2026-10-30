@@ -11,7 +11,8 @@
  */
 
 import { savePipelineId } from '@/services/storage/pipelineSession';
-import { useCopilotStore } from '@/stores/copilotStore';
+import { REQUIREMENTS_TAB, useCopilotStore } from '@/stores/copilotStore';
+import { isUnifiedTimelineEnabled } from '@/features/unifiedTimeline/flag';
 
 export interface ProceedResultLike {
   pipeline_id?: string;
@@ -35,16 +36,21 @@ export function applyProceedResult(res: ProceedResultLike | null | undefined): P
     } catch {
       /* 隐私模式/配额满：不影响本次跳转 */
     }
-    // PRD §19.3：不跳 /task/{id}——在编辑器右侧"任务运行"标签里就地跑。
-    // 标签可复用（同任务已开则聚焦），调用方拿到 mode:'task' 后**不要再 navigate**。
+    // 合流（2026-10-31 用户裁定）：默认**不**再开「轨迹」标签——任务事件已经进需求对话那条流。
+    // 「轨迹」作为专业视图保留在 `+` 菜单里，需要深挖时手动开。
     try {
-      useCopilotStore.getState().openTab({
-        id: `task-run:${taskId}`,
-        kind: 'task-run',
-        title: '任务运行',
-        closable: true,
-        payload: { taskId },
-      });
+      if (isUnifiedTimelineEnabled()) {
+        useCopilotStore.getState().openTab(REQUIREMENTS_TAB);
+        useCopilotStore.getState().setActive(REQUIREMENTS_TAB.id);
+      } else {
+        useCopilotStore.getState().openTab({
+          id: `task-run:${taskId}`,
+          kind: 'task-run',
+          title: '轨迹',
+          closable: true,
+          payload: { taskId },
+        });
+      }
     } catch {
       /* store 不可用（极端场景）不影响返回值 */
     }

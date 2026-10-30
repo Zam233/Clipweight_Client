@@ -43,7 +43,7 @@ describe('CopilotTabBar', () => {
 
   it('B1：标签总数 = 固定标签 + 动态标签，且只有一排（执行日志不重复出现）', () => {
     useCopilotStore.getState().openTab({
-      id: 'task-run:current', kind: 'task-run', title: '任务运行', closable: true,
+      id: 'task-run:current', kind: 'task-run', title: '轨迹', closable: true,
     });
     render(<CopilotTabBar />);
     expect(screen.getAllByRole('tab')).toHaveLength(FIXED_TABS.length + 1);
@@ -53,11 +53,11 @@ describe('CopilotTabBar', () => {
 
   it('新增的标签有关闭按钮，点击后可关闭并回到需求对话', () => {
     useCopilotStore.getState().openTab({
-      id: 'task-run:current', kind: 'task-run', title: '任务运行', closable: true,
+      id: 'task-run:current', kind: 'task-run', title: '轨迹', closable: true,
     });
     render(<CopilotTabBar />);
 
-    const closeBtn = screen.getByLabelText('关闭 任务运行');
+    const closeBtn = screen.getByLabelText('关闭 轨迹');
     fireEvent.click(closeBtn);
 
     const state = useCopilotStore.getState();
@@ -65,10 +65,10 @@ describe('CopilotTabBar', () => {
     expect(state.activeId).toBe('requirements');
   });
 
-  it('+ 菜单可以新增任务运行标签', () => {
+  it('+ 菜单可以新增轨迹标签', () => {
     render(<CopilotTabBar />);
     fireEvent.click(screen.getByLabelText('新增标签'));
-    fireEvent.click(screen.getByText('任务运行'));
+    fireEvent.click(screen.getByText('轨迹'));
 
     expect(useCopilotStore.getState().tabs.some((t) => t.kind === 'task-run')).toBe(true);
   });

@@ -1,7 +1,8 @@
 /**
  * 任务运行标签（PRD §19.3 / 需求 9）
  *
- * 主 agent 的一切都在编辑器里：日志、工具、Skill、阶段、汇报、思考，以及底部"正在运行的子 agent"。
+ * **轨迹面板（专业视图）**：日志、工具、Skill、阶段、汇报、思考、降级、原始事件与子 agent。
+ * 需求对话侧的"一条流"在 AgentPanel；这里保留分区与原始事件，供排查与深挖。
  * 数据源只有两处：任务事件 SSE（`useTaskEvents`）+ 子 agent 快照（`supervisorApi.getSubagents`）。
  */
 import React from 'react';
@@ -646,8 +647,12 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
   const inject = useTaskStore((s) => s.inject);
   // PRD B11：「查看结果」滚到产物区（终态任务不重新跑，只让人看结论）
   const [showArtifacts, setShowArtifacts] = React.useState(false);
-  // M2 双视图（unified-stream PRD §7）：flag 打开 → 一条时间线；默认仍走旧分区
-  const unified = isUnifiedTimelineEnabled();
+  /**
+   * 「轨迹」面板 = 专业视图（用户 2026-10-31 明确：保留但改名、要更详细）。
+   * 单流在需求对话里；这里刻意**不**跟随 unified 开关，始终给分区 + 原始事件 + 用量，
+   * 便于排查（事件 seq、工具配对、降级、run 明细、原始 JSON）。
+   */
+  const unified = false;
   const artifactsRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     if (showArtifacts) {
@@ -670,6 +675,12 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="task-run-tab">
       <div className="border-b border-outline-variant/20 px-3 py-2">
+        <div className="mb-1 flex items-center justify-between text-caption text-on-surface-variant/70">
+          <span data-testid="task-trace-heading">轨迹（专业视图）</span>
+          <span data-testid="task-trace-stats">
+            事件 {events.length} 条 · seq {events[0]?.seq ?? 0}–{events[events.length - 1]?.seq ?? 0}
+          </span>
+        </div>
         <TaskToolbar
           status={status}
           busy={busy}

@@ -3,7 +3,8 @@
  *
  * - `requirements` 不渲染关闭按钮（它不可关）；
  * - 其余标签支持关闭；中键也可关；
- * - `+` 菜单用于新增（任务运行 / 工作区 / 计划 / 文档列表）。
+ * - `+` 菜单用于新增（轨迹 / 工作区 / 计划 / 文档列表）；「轨迹」是专业视图，
+ *   日常看单流就行（需求对话里一条流），排查时再开它。
  */
 import React from 'react';
 import { Plus, X } from 'lucide-react';
@@ -11,7 +12,7 @@ import { cn } from '@/lib/utils';
 import { useCopilotStore, type CopilotTab } from '@/stores/copilotStore';
 
 const NEW_TAB_MENU: Array<{ kind: CopilotTab['kind']; title: string; id: string }> = [
-  { kind: 'task-run', title: '任务运行', id: 'task-run:current' },
+  { kind: 'task-run', title: '轨迹', id: 'task-run:current' },
   { kind: 'workspace', title: '工作区', id: 'workspace' },
   { kind: 'docs', title: '文档', id: 'docs:list' },
 ];

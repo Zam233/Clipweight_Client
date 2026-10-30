@@ -877,7 +877,7 @@ function RequirementsView() {
         ))}
 
         {/* 思考条（unified-stream PRD §5.2 五态机）：可展开只在真有内容时出现 */}
-        {busy && (!messages.some((m) => m.streaming) || !!liveReasoning || reasoningState !== 'pending') && (
+        {(busy || !!liveReasoning) && (!messages.some((m) => m.streaming) || !!liveReasoning || reasoningState !== 'pending') && (
           <div className="px-3 text-label-sm text-on-surface-variant" data-testid="live-thinking-strip">
             <div className="flex items-center gap-2">
               <Loader2 className="w-3 h-3 animate-spin text-primary" />
@@ -922,7 +922,8 @@ function RequirementsView() {
 
       {/* 历史思考（unified-stream PRD §5.1.4）：本轮结束后从会话事件流回放，
           刷新/重连不丢；正在生成时由上面的实时思考条负责，不重复渲染 */}
-      {!busy && questionEvents.some((e) => e.type === 'thinking') && (
+      {(questionEvents.some((e) => e.type === 'thinking'))
+        && !(busy && liveReasoning) && (
         <div className="shrink-0 border-t border-outline-variant/20" data-testid="requirements-thinking-history">
           <ThinkingDisclosure events={questionEvents} />
         </div>

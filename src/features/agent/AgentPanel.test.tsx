@@ -374,6 +374,11 @@ describe('G4: current agent activity in bottom bar', () => {
 });
 
 describe('U13: brief/plan card dedupe', () => {
+  // 本组断言的是旧视图消息气泡（附件去重），显式关单流（describe 内的 clear 会重置默认值）
+  beforeEach(() => {
+    window.localStorage.setItem('cw.unifiedTimeline', '0');
+  });
+
   it('skips markdown body when message carries a creative_brief attachment', () => {
     useAgentStore.setState({
       requirementsStatus: 'brief_ready',
@@ -532,6 +537,12 @@ describe('轮72: 建议列表交互 + 耗时计时', () => {
 });
 
 describe('轮69: SSE delta 流式消费', () => {
+  beforeEach(() => {
+    // 这些用例断言的是**旧视图**的消息细节（打字气泡/附件去重）；
+    // 单流视图由末尾「M3：合流视图」用例单独覆盖。
+    window.localStorage.setItem('cw.unifiedTimeline', '0');
+  });
+
   it('delta 增量填充同一条气泡，result 到达后收尾替换', async () => {
     const api = await import('@/services/api');
     let release!: () => void;

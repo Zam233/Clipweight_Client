@@ -1,9 +1,9 @@
 /**
  * 统一时间线开关（unified-stream PRD §7 迁移与回退）。
  *
- * 迁移期两套 UI 并存：默认仍走旧的分区视图，打开开关才用一条流。
- * 开关来自三处（优先级从高到低）：URL `?unifiedTimeline=1|0` → localStorage → 默认关。
- * 这样出问题时**不用发版**就能切回去（回退只影响渲染，数据层不动）。
+ * 默认**开启**单流（用户明确要求的形态：像现代 agent 工具那样按顺序显示）。
+ * 开关来自三处（优先级从高到低）：URL `?unifiedTimeline=1|0` → localStorage → 默认开。
+ * 出问题时**不用发版**：加 `?unifiedTimeline=0` 或写 localStorage 就能回到旧分区视图。
  */
 
 const STORAGE_KEY = 'cw.unifiedTimeline';
@@ -19,9 +19,9 @@ export function isUnifiedTimelineEnabled(): boolean {
       if (saved === '0' || saved === 'false') return false;
     }
   } catch {
-    /* 隐私模式/无 window：按默认（关）处理，不影响渲染 */
+    /* 隐私模式/无 window：按默认（开）处理，不影响渲染 */
   }
-  return false;
+  return true;
 }
 
 /** 测试与设置页用：写入开关（'1' 开 / '0' 关 / null 清空回到默认）。 */

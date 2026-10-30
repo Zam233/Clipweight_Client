@@ -89,7 +89,9 @@ describe('feature flag（可回退）', () => {
     window.history.replaceState({}, '', '/');
   });
 
-  it('默认关闭（旧分区视图）', () => {
+  it('默认开启单流（用户要的形态），关闭靠 URL/localStorage', () => {
+    expect(isUnifiedTimelineEnabled()).toBe(true);
+    setUnifiedTimelineEnabled(false);
     expect(isUnifiedTimelineEnabled()).toBe(false);
   });
 

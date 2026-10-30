@@ -48,7 +48,7 @@ describe('copilotStore', () => {
 
   it('可以新增并关闭其他标签，焦点回落到 requirements', () => {
     const s = useCopilotStore.getState();
-    expect(s.openTab({ id: 'task-run:current', kind: 'task-run', title: '任务运行', closable: true })).toBe(true);
+    expect(s.openTab({ id: 'task-run:current', kind: 'task-run', title: '轨迹', closable: true })).toBe(true);
 
     const after = useCopilotStore.getState();
     expect(after.tabs).toHaveLength(FIXED_TABS.length + 1);

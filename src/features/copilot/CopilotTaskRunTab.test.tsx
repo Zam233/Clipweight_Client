@@ -211,7 +211,7 @@ describe('M1：预算剩余与终态摘要', () => {
     expect(box.textContent).toContain('回合数达到上限 160');
   });
 });
-describe('M2/M3：flag 打开后的单流视图', () => {
+describe('轨迹面板（专业视图）：不跟随单流开关', () => {
   beforeEach(() => {
     localStorage.clear();
     store.task = null;
@@ -223,13 +223,14 @@ describe('M2/M3：flag 打开后的单流视图', () => {
     cleanup();
   });
 
-  it('一条流替代分区聚合，但追问/重放与产物入口仍在', () => {
+  it('即使单流开关开启，轨迹面板仍是分区详细视图（给排查用）', () => {
     render(<CopilotTaskRunTab taskId="task_x" />);
-    expect(screen.getByTestId('task-run-unified')).toBeTruthy();
-    // 分区聚合不再渲染（同一事件只有一个主视觉归属）
-    expect(screen.queryByTestId('model-turn-rows')).toBeNull();
-    expect(screen.queryByTestId('tool-call-rows')).toBeNull();
-    // 但对某次 run 动手的入口还在
+    expect(screen.getByTestId('task-trace-heading').textContent).toContain('轨迹');
+    expect(screen.getByTestId('task-trace-stats').textContent).toContain('事件');
+    // 分区聚合仍在（专业人士要看工具配对/阶段/降级明细）
+    expect(screen.getByTestId('model-turn-rows')).toBeTruthy();
+    expect(screen.getByTestId('tool-call-rows')).toBeTruthy();
+    // 追问/重放与产物入口也在
     expect(screen.getByTestId('artifacts')).toBeTruthy();
   });
 });
