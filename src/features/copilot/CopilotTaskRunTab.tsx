@@ -440,6 +440,10 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
   useTaskEvents(taskId || null, Boolean(taskId));
   const task = useTaskStore((s) => s.task);
   const events = useTaskStore((s) => s.events);
+  // M3：事件恢复元数据（缺口提示 + 往上翻历史）
+  const hasEarlierEvents = useTaskStore((s) => s.hasEarlierEvents);
+  const seqGap = useTaskStore((s) => s.seqGap);
+  const loadEarlierEvents = useTaskStore((s) => s.loadEarlierEvents);
   const busy = useTaskStore((s) => s.loading);
   const error = useTaskStore((s) => s.error);
   const pause = useTaskStore((s) => s.pause);
@@ -525,7 +529,12 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
       <TaskToolTrace taskId={taskId} active={!terminal} />
 
       <div className="min-h-0 flex-1 overflow-auto px-1 py-1">
-        <EventFeed events={events} />
+        <EventFeed
+          events={events}
+          hasEarlierEvents={hasEarlierEvents}
+          seqGap={seqGap}
+          onLoadEarlier={() => void loadEarlierEvents(taskId)}
+        />
       </div>
 
       <RunningSubagents taskId={taskId} active={!terminal} />

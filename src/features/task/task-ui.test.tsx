@@ -9,7 +9,7 @@
 
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 
 const { stream } = vi.hoisted(() => ({
   stream: {
@@ -28,6 +28,8 @@ vi.mock('@/services/api/sseStream', () => ({
 vi.mock('@/services/api/task', () => ({
   taskApi: {
     eventsStreamUrl: (id: string) => `http://x/api/task/${id}/events/stream`,
+    // M3：订阅 SSE 之前先 REST 水合历史（这里给空页，等价于"没有更早的事件"）
+    events: vi.fn(async () => ({ task_id: 'task_1', count: 0, items: [] })),
     list: vi.fn(async () => ({ count: 0, items: [] })),
     create: vi.fn(),
   },
@@ -103,22 +105,27 @@ describe('toTaskEvent', () => {
 });
 
 describe('useTaskEvents', () => {
-  it('订阅 task 事件流并喂给 store（老计划 hypothesis_only=false 时仍折叠步骤状态）', () => {
+  // M3：store 里的 lastSeq 会跨用例残留（第一段发过 seq 1），不重置会让后面的 seq 被去重丢掉
+  beforeEach(() => { useTaskStore.getState().reset(); });
+  it('订阅 task 事件流并喂给 store（老计划 hypothesis_only=false 时仍折叠步骤状态）', async () => {
     const task = makeTask();
     task.plan!.hypothesis_only = false; // PRD B6：只有"非假设"的老计划才追踪步骤进度
     useTaskStore.setState({ task });
     renderHook(() => useTaskEvents('task_1', true));
-    expect(connectSseStream).toHaveBeenCalledTimes(1);
+    // M3：先水合再订阅——订阅发生在 hydrate 之后
+    await waitFor(() => expect(connectSseStream).toHaveBeenCalledTimes(1));
     stream.onMessage?.({ seq: 1, type: 'step_start', detail: { step_id: 's1', attempt: 1 } });
     expect(useTaskStore.getState().events).toHaveLength(1);
     expect(useTaskStore.getState().task!.plan!.steps[0].status).toBe('running');
   });
 
-  it('PRD B6：假设态 Plan 不因进度事件改动（事件仍入 store）', () => {
+  it('PRD B6：假设态 Plan 不因进度事件改动（事件仍入 store）', async () => {
     const task = makeTask();
     task.plan!.hypothesis_only = true;
     useTaskStore.setState({ task });
     renderHook(() => useTaskEvents('task_1', true));
+    // M3：先水合再订阅——订阅发生在 hydrate 之后
+    await waitFor(() => expect(connectSseStream).toHaveBeenCalledTimes(1));
 
     stream.onMessage?.({ seq: 1, type: 'step_start', detail: { step_id: 's1', attempt: 1 } });
     stream.onMessage?.({ seq: 2, type: 'step_end', detail: { step_id: 's1', status: 'done' } });

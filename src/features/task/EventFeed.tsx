@@ -23,6 +23,11 @@ import { eventLabel, NARRATION_KIND_CN, RECEIPT_MODE_CN } from './labels';
 interface Props {
   events: TaskEvent[];
   className?: string;
+  /** 服务端还有更早的事件（M3）：给"加载更早"入口 */
+  hasEarlierEvents?: boolean;
+  onLoadEarlier?: () => void;
+  /** 事件序号缺口（服务端这段读不到）——必须显式说，不假装完整 */
+  seqGap?: { from: number; to: number } | null;
 }
 
 /**
@@ -168,7 +173,7 @@ function EventRow({ event }: { event: TaskEvent }) {
   );
 }
 
-export function EventFeed({ events, className }: Props) {
+export function EventFeed({ events, className, hasEarlierEvents, onLoadEarlier, seqGap }: Props) {
   // PRD B5：不再过滤任何事件类型（checkpoint 改为折叠展示）；store 已按上限有界
   const visible = events;
   if (visible.length === 0) {
@@ -185,6 +190,26 @@ export function EventFeed({ events, className }: Props) {
         <p className="px-2 pb-1 text-caption text-on-surface-variant/60" data-testid="event-feed-cap">
           只保留最近 {MAX_TASK_EVENTS} 条事件（更早的已从内存丢弃，完整记录见任务事件接口）。
         </p>
+      )}
+      {seqGap && (
+        <p
+          className="px-2 pb-1 text-caption text-warning"
+          data-testid="event-feed-gap"
+          role="status"
+        >
+          事件序号 {seqGap.from}–{seqGap.to} 这段服务端读不到（可能是溢出文件缺失）；
+          下方显示的是能读到的部分。
+        </p>
+      )}
+      {hasEarlierEvents && onLoadEarlier && (
+        <button
+          type="button"
+          data-testid="event-feed-earlier"
+          className="mb-1 ml-2 rounded-cw-xs border border-outline-variant/40 px-2 py-0.5 text-caption text-primary hover:border-primary"
+          onClick={onLoadEarlier}
+        >
+          加载更早的事件
+        </button>
       )}
       <ol className={cn('space-y-1', className)} aria-label="调用记录">
         {visible.map((event) => (

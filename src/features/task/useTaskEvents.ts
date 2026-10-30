@@ -39,16 +39,45 @@ export function toTaskEvent(raw: unknown): TaskEvent | null {
 
 export function useTaskEvents(taskId: string | null, enabled = true): void {
   const applyEvent = useTaskStore((s) => s.applyEvent);
+  const hydrateEvents = useTaskStore((s) => s.hydrateEvents);
 
   useEffect(() => {
     if (!taskId || !enabled) return;
-    const handle = connectSseStream({
-      url: taskApi.eventsStreamUrl(taskId),
-      onMessage: (raw) => {
-        const event = toTaskEvent(raw);
-        if (event) applyEvent(event);
-      },
-    });
-    return () => handle.close();
-  }, [taskId, enabled, applyEvent]);
+    let closed = false;
+    let handle: { close: () => void } | null = null;
+
+    /**
+     * 顺序很重要（PRD §7.2）：
+     * 1. **先** REST 水合（把刷新/断线期间漏掉的历史补齐）；
+     * 2. **再** 订 SSE（只收新事件）；
+     * 3. SSE 断开时用 store 的 `lastSeq` 再补一段，然后重连。
+     *
+     * 旧实现直接订 SSE，一刷新就只剩"从此刻起"的事件；热层淘汰掉的历史
+     * 更是永远看不到——用户会以为任务前面什么都没发生。
+     */
+    const start = async () => {
+      await hydrateEvents(taskId, { sinceSeq: 0, limit: 2000 });
+      if (closed) return;
+      handle = connectSseStream({
+        url: taskApi.eventsStreamUrl(taskId),
+        onMessage: (raw) => {
+          const event = toTaskEvent(raw);
+          if (event) applyEvent(event);
+        },
+        // 每次重连**前**补一段：EventSource 重连只会从"新消息"开始发，
+        // 断开那段时间的事件必须靠 REST 补回来（PRD §7.2）。
+        onRetry: () => {
+          if (closed) return;
+          const last = useTaskStore.getState().lastSeq;
+          void hydrateEvents(taskId, { sinceSeq: last, limit: 2000 });
+        },
+      });
+    };
+    void start();
+
+    return () => {
+      closed = true;
+      handle?.close();
+    };
+  }, [taskId, enabled, applyEvent, hydrateEvents]);
 }

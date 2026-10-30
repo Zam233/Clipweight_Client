@@ -22,13 +22,25 @@ export interface TaskState {
   task: Task | null;
   events: TaskEvent[];
   lastSeq: number;
+  /** 当前窗口里最小的 seq；用来判断"还能不能往上翻" */
+  oldestLoadedSeq: number;
+  /** 服务端是否还有更早的事件 */
+  hasEarlierEvents: boolean;
+  /** 事件序号缺口（服务端这段读不到，例如 spilled 文件丢了） */
+  seqGap: { from: number; to: number } | null;
   list: TaskListItem[];
   loading: boolean;
   error: string;
 
   createTask: (body: Parameters<typeof taskApi.create>[0]) => Promise<Task | null>;
   load: (taskId: string) => Promise<void>;
-  hydrateEvents: (taskId: string, sinceSeq?: number) => Promise<void>;
+  /** 拉一段历史（订阅 SSE 前先水合；断线时也用它补段） */
+  hydrateEvents: (
+    taskId: string,
+    opts?: number | { sinceSeq?: number; beforeSeq?: number; limit?: number },
+  ) => Promise<void>;
+  /** 往前翻一页历史（M3） */
+  loadEarlierEvents: (taskId: string, limit?: number) => Promise<void>;
   applyEvent: (event: TaskEvent) => void;
   start: (taskId: string) => Promise<void>;
   pause: (taskId: string) => Promise<void>;
@@ -44,6 +56,10 @@ const EMPTY = {
   task: null as Task | null,
   events: [] as TaskEvent[],
   lastSeq: 0,
+  // M3：恢复元数据也要随 reset 归零，否则切任务/重进会把上一个任务的历史范围带过来
+  oldestLoadedSeq: 0,
+  hasEarlierEvents: false,
+  seqGap: null,
   loading: false,
   error: '',
 };
@@ -150,10 +166,70 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     }
   },
 
-  hydrateEvents: async (taskId, sinceSeq = 0) => {
+  /**
+   * 拉一段历史事件（M3：订阅 SSE **之前**先水合，断线时也用它补段）。
+   *
+   * `sinceSeq` 语义 = 只要 seq 大于它的事件；入栈走 `applyEvent`（自带 seq 去重）。
+   * 缺口判定：返回里第一条的 seq 比"期望的下一个"大，说明中间一段服务端读不到
+   * （例如 spilled 文件丢了）——记 `seqGap`，UI 明说，不假装完整。
+   */
+  hydrateEvents: async (taskId, opts = {}) => {
+    const cfg = typeof opts === 'number' ? { sinceSeq: opts } : opts;
+    const sinceSeq = cfg.sinceSeq ?? 0;
     try {
-      const res = await taskApi.events(taskId, sinceSeq);
-      for (const event of res.items) get().applyEvent(toTaskEvent(event) ?? event);
+      const res = await taskApi.events(taskId, {
+        sinceSeq,
+        beforeSeq: cfg.beforeSeq,
+        limit: cfg.limit,
+      });
+      const items = res.items ?? [];
+      let expected = sinceSeq + 1;
+      let gap: { from: number; to: number } | null = null;
+      for (const raw of items) {
+        const event = toTaskEvent(raw) ?? (raw as TaskEvent);
+        if (typeof event.seq === 'number' && event.seq > expected && !gap) {
+          gap = { from: expected, to: event.seq - 1 };
+        }
+        if (typeof event.seq === 'number') expected = Math.max(expected, event.seq + 1);
+        get().applyEvent(event);
+      }
+      const seqs = items.map((e) => e.seq).filter((n) => typeof n === 'number');
+      const oldest = seqs.length ? Math.min(...seqs) : 0;
+      set({
+        oldestLoadedSeq: oldest || get().oldestLoadedSeq,
+        hasEarlierEvents: Boolean(res.has_more)
+          || (oldest > 0 && Number(res.oldest_available_seq ?? 0) > 0
+            && Number(res.oldest_available_seq) < oldest),
+        seqGap: gap ?? get().seqGap,
+      });
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  loadEarlierEvents: async (taskId, limit = 200) => {
+    const before = get().oldestLoadedSeq;
+    if (!before || before <= 1) {
+      set({ hasEarlierEvents: false });
+      return;
+    }
+    try {
+      const res = await taskApi.events(taskId, { beforeSeq: before, limit });
+      const items = (res.items ?? []).map((raw) => toTaskEvent(raw) ?? (raw as TaskEvent));
+      if (!items.length) {
+        set({ hasEarlierEvents: false });
+        return;
+      }
+      set((state) => {
+        const merged = new Map<number, TaskEvent>();
+        for (const e of [...items, ...state.events]) merged.set(e.seq, e);
+        const ordered = [...merged.values()].sort((a, b) => a.seq - b.seq);
+        return {
+          events: ordered,
+          oldestLoadedSeq: ordered.length ? ordered[0].seq : state.oldestLoadedSeq,
+          hasEarlierEvents: Boolean(res.has_more),
+        };
+      });
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
     }

@@ -33,27 +33,61 @@ interface ResultSnapshot {
   output_path: string;
 }
 
+/**
+ * 终态后的结果查询要做**有限退避重试**（PRD §5 P1-9 / §7.4）。
+ *
+ * 现场：后端是「先结束任务、再在 finally 里把时间线同步回项目」，两步之间有个窗口。
+ * 旧实现终态后只请求一次 `/result`，恰好落进那个窗口就永久显示"没有可编辑时间线"，
+ * 用户只能刷新页面。现在按 1/2/4/8 秒退避重试（最多 5 次），并留一个手动「重新检查」。
+ */
+const _RETRY_DELAYS = [1000, 2000, 4000, 8000];
+
 export function TaskArtifacts({ taskId, enabled = true }: Props) {
   const navigate = useNavigate();
   const [snap, setSnap] = useState<ResultSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [checking, setChecking] = useState(0);
+  const [manualTick, setManualTick] = useState(0);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    void (async () => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const fetchOnce = async (): Promise<ResultSnapshot | null> => {
       try {
         const res = await taskApi.result(taskId);
         if (!cancelled) setSnap(res);
+        return res;
       } catch {
         if (!cancelled) setSnap(null);
+        return null;
+      }
+    };
+
+    void (async () => {
+      let attempt = 0;
+      while (!cancelled) {
+        const res = await fetchOnce();
+        // 有时间线 → 直接收工；第 5 次仍没有 → 认命（不再无限重试）
+        if (res?.has_timeline || attempt >= _RETRY_DELAYS.length) {
+          if (!cancelled) setChecking(0);
+          return;
+        }
+        if (!cancelled) setChecking(attempt + 1);
+        await new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, _RETRY_DELAYS[attempt]);
+        });
+        attempt += 1;
       }
     })();
+
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
-  }, [taskId, enabled]);
+  }, [taskId, enabled, manualTick]);
 
   if (!enabled || !snap) return null;
 
@@ -84,6 +118,14 @@ export function TaskArtifacts({ taskId, enabled = true }: Props) {
       ) : (
         <p className="text-caption text-on-surface-variant">
           这条任务还没有可编辑的时间线（管线未产出，或还没执行到出片那一步）。
+          <button
+            type="button"
+            data-testid="artifacts-recheck"
+            className="ml-2 underline decoration-dotted hover:text-on-surface"
+            onClick={() => setManualTick((n) => n + 1)}
+          >
+            重新检查
+          </button>
         </p>
       )}
       {snap.output_path && (

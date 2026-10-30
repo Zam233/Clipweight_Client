@@ -9,6 +9,7 @@ import { getApiClient } from './client';
 import { apiBase } from './sse';
 import type {
   CreateTaskBody,
+  TaskEventPage,
   Task,
   TaskEvent,
   TaskListItem,
@@ -38,16 +39,19 @@ export const taskApi = {
     return data;
   },
 
-  async events(taskId: string, sinceSeq = 0): Promise<{
-    task_id: string;
-    since_seq: number;
-    count: number;
-    items: TaskEvent[];
-  }> {
+  async events(taskId: string, opts: {
+    sinceSeq?: number;
+    beforeSeq?: number;
+    limit?: number;
+  } = {}): Promise<TaskEventPage> {
+    const params: Record<string, number> = {};
+    if (opts.sinceSeq) params.since_seq = opts.sinceSeq;
+    if (opts.beforeSeq) params.before_seq = opts.beforeSeq;
+    if (opts.limit) params.limit = opts.limit;
     const { data } = await getApiClient().get(`/api/task/${taskId}/events`, {
-      params: sinceSeq ? { since_seq: sinceSeq } : undefined,
+      params: Object.keys(params).length ? params : undefined,
     });
-    return data;
+    return data as TaskEventPage;
   },
 
   /** SSE 订阅地址（token 由 `connectSseStream` 附加）。 */

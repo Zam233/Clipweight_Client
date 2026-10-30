@@ -280,3 +280,22 @@ export interface TaskQuestionItem {
   created_at?: number;
   answer?: Record<string, unknown> | null;
 }
+
+/**
+ * `GET /api/task/{id}/events` 的分页响应（M3）。
+ *
+ * `has_more` / `oldest_available_seq` / `latest_seq` 是恢复元数据：前端据此区分
+ * 「已经到头」与「服务端这段读不到」，缺口要显式说出来而不是假装完整。
+ */
+export interface TaskEventPage {
+  task_id: string;
+  since_seq?: number;
+  before_seq?: number;
+  limit?: number;
+  count: number;
+  items: TaskEvent[];
+  has_more?: boolean;
+  oldest_available_seq?: number;
+  latest_seq?: number;
+  spilled_max_seq?: number;
+}
