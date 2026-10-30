@@ -99,6 +99,44 @@ export function finishReasonLabel(reason: string): string {
   return FINISH_REASON_CN[key] ?? '';
 }
 
+/** 工具调用的来源（PRD §13：主 agent / 阶段子 agent / 内核补派 / 内部动作） */
+export const TOOL_SOURCE_CN: Record<string, string> = {
+  kernel: '由内核触发',
+  internal: '后端内部动作',
+};
+
+/** `narration` / `progress` 的 kind / trigger：程序与模型各自的"说明"类型 */
+export const NARRATION_KIND_CN: Record<string, string> = {
+  preamble: '动手前',
+  kernel_recovery: '内核正在补派',
+  timeline_gate_continue: '时间线检查后继续',
+  degradation_gate_continue: '降级检查后继续',
+  final_receipt_attempt: '正在补齐降级收据',
+  question_expired_on_restart: '原问题已失效，任务继续',
+  budget_half: '预算过半',
+  stage_start: '阶段开始',
+  stage_end: '阶段结束',
+  wrapup: '进入收尾',
+  start: '开工',
+  degradation_first: '首次降级',
+  tool_failure_streak: '工具连续失败',
+  decision_required: '等你决定',
+};
+
+/** `degradation` 事件的处置模式（后端 mode 字段） */
+export const RECEIPT_MODE_CN: Record<string, string> = {
+  remediated: '已修复（重派成功）',
+  accepted: '已接受（写了收据）',
+  replayed_not_fixed: '重放命中缓存，不算修复',
+  final_receipt_attempt: '正在尝试补齐收据',
+  degradation_unresolved: '收尾时仍未处置',
+};
+
+export function narrationKindLabel(kind: string): string {
+  const key = String(kind || '');
+  return NARRATION_KIND_CN[key] ?? key;
+}
+
 export function eventLabel(type: string): string {
   return EVENT_CN[type as TaskEventType] ?? type;
 }

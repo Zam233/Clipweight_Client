@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 import type { TaskEvent } from '@/types/task';
 import { MAX_TASK_EVENTS } from '@/stores/taskStore';
 
-import { eventLabel } from './labels';
+import { eventLabel, NARRATION_KIND_CN, RECEIPT_MODE_CN } from './labels';
 
 interface Props {
   events: TaskEvent[];
@@ -36,9 +36,46 @@ const _DEFAULT_COLLAPSED = new Set(['checkpoint']);
 const _EXPANDABLE = new Set([
   'doc_write', 'report', 'context_loaded', 'degradation', 'inject', 'plan', 'replan',
   'checkpoint',
+  // 2026-10-30：这些事件也有结构化 detail（去重/来源/剩余回合/收据/问答/进度），
+  // 不给展开入口就只能看到一行中文，等于把事实藏起来。
+  'tool_result', 'narration', 'thinking', 'agent_run_start', 'agent_run_update',
+  'agent_run_end', 'subagent_tool', 'subagent_progress',
+  'question', 'answer', 'progress', 'gate_hit',
 ]);
 /** 这些事件带产物路径，要能直接看到/复制 */
 const _PATH_KEYS = ['path', 'report_path', 'artifact_path', 'script_path'];
+
+/**
+ * 事件语义后缀（PRD §6.2 文案表）。
+ *
+ * 为什么需要：`tool_result → ok` 这一行本身信息量为零。真正要看见的是
+ * 「这次结果是复用的（去重）」「由内核触发」「剩余回合 3」「技能调用」「收据模式」。
+ * 这些都只存在于 detail 里，必须在行内说出来，而不是让人去展开 JSON。
+ */
+function _semanticTags(detail: Record<string, unknown>): string[] {
+  const tags: string[] = [];
+  if (detail.deduped === true) tags.push('结果已复用（去重）');
+  const source = String(detail.source ?? '');
+  if (source === 'kernel') tags.push('由内核触发');
+  else if (source === 'internal') tags.push('后端内部动作');
+  if (typeof detail.remaining_turns === 'number') {
+    tags.push(`剩余回合 ${detail.remaining_turns}`);
+  }
+  if (String(detail.kind ?? '') === 'skill') tags.push('技能');
+  const kind = String(detail.kind ?? '');
+  if (kind && kind !== 'skill' && kind !== 'preamble' && NARRATION_KIND_CN[kind]) {
+    tags.push(NARRATION_KIND_CN[kind]);
+  }
+  const mode = String(detail.mode ?? '');
+  if (mode && RECEIPT_MODE_CN[mode]) tags.push(RECEIPT_MODE_CN[mode]);
+  if (typeof detail.resolved === 'number' && detail.resolved > 0) {
+    tags.push(`处置 ${detail.resolved} 项`);
+  }
+  const trigger = String(detail.trigger ?? '');
+  if (trigger) tags.push(trigger);
+  if (typeof detail.percent === 'number') tags.push(`${detail.percent}%`);
+  return tags;
+}
 
 function _pathOf(detail: Record<string, unknown>): string {
   for (const key of _PATH_KEYS) {
@@ -84,6 +121,15 @@ function EventRow({ event }: { event: TaskEvent }) {
       <span className="min-w-0 flex-1 text-on-surface break-words">
         {/* checkpoint 默认折叠：行不丢，内容点开才看 */}
         {(!_DEFAULT_COLLAPSED.has(event.type) || open) && event.message}
+        {_semanticTags(detail).map((tag) => (
+          <span
+            key={tag}
+            data-event-tag={tag}
+            className="ml-1 rounded-cw-xs bg-surface-container-high px-1 text-caption text-on-surface-variant/80"
+          >
+            {tag}
+          </span>
+        ))}
         {path && (
           <button
             type="button"

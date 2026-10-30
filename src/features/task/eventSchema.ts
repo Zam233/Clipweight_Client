@@ -60,6 +60,20 @@ export interface ToolDetail {
   duration_ms?: number;
   error?: string;
   brief?: string;
+  /** 后端能力名（agent 按语义能力名解析出的实现） */
+  capability?: string;
+  /** `kernel` = 运行时补派（不是模型发起）；`internal` = 后端内部动作 */
+  source?: string;
+  /** 同参数查询被拦下、直接复用上次结果（PRD §13） */
+  deduped?: boolean;
+  /** 见底护栏回给模型的剩余回合数 */
+  remaining_turns?: number;
+  /** `tool` / `skill`：Skill 必须与普通工具分开显示 */
+  kind?: string;
+  /** 子 agent 名（subagent_tool 才有） */
+  agent?: string;
+  stage?: string;
+  run_id?: string;
 }
 
 /** 阶段（step_*） */
@@ -250,6 +264,14 @@ export function parseTaskEvent(event: TaskEvent): ParsedEvent {
           duration_ms: num(raw.duration_ms),
           error: str(raw.error),
           brief: str(raw.brief) ?? str(raw.args_brief),
+          capability: str(raw.capability),
+          source: str(raw.source),
+          deduped: typeof raw.deduped === 'boolean' ? raw.deduped : undefined,
+          remaining_turns: num(raw.remaining_turns),
+          kind: str(raw.kind),
+          agent: str(raw.agent),
+          stage: str(raw.stage),
+          run_id: str(raw.run_id),
         },
       };
     case 'subagent_progress':
