@@ -687,7 +687,80 @@ describe('轮69: SSE delta 流式消费', () => {
     fireEvent.keyDown(ta, { key: 'Enter' });
 
     await waitFor(() => {
-      expect(screen.getByTestId('live-thinking-pending').textContent).toContain('正在生成');
+      // gathering 阶段的 pending 文案是"正在思考…"（不是可点的"正在思考 ▾"）
+      expect(screen.getByTestId('live-thinking-pending').textContent).toContain('正在思考');
+    });
+    expect(screen.queryByTestId('live-thinking-toggle')).toBeNull();
+    release();
+    await waitFor(() => expect(useAgentStore.getState().requirementsBusy).toBe(false));
+  });
+
+  it('provider 自报不支持思考 → 明说"该模型不提供"，不给可点控件', async () => {
+    const r = await import('@/services/api') as unknown as {
+      requirementsApi: { streamChat: (sid: string, msg: string,
+        onChunk?: (c: { type: string; data: unknown }) => void) => Promise<Record<string, unknown>> };
+    };
+    let release!: () => void;
+    const gate = new Promise<void>((res) => { release = res; });
+    r.requirementsApi.streamChat = async (_sid, _msg, onChunk) => {
+      onChunk?.({ type: 'reasoning_status', data: {
+        supported: false, streaming: false, available: false, reason: 'provider_not_exposed',
+      } });
+      await gate;
+      return { reply: '好的', status: 'gathering' };
+    };
+    useAgentStore.setState({
+      requirementsSessionId: 'sess_unsupported',
+      requirementsStatus: 'gathering',
+      requirementsBusy: false,
+      requirementsMessages: [
+        { id: 'm0', role: 'assistant', content: '请描述选题', timestamp: new Date().toISOString() },
+      ],
+    });
+    render(<AgentPanel />);
+    const ta = screen.getByPlaceholderText('继续与需求 Agent 对话…（Shift+Enter 换行）');
+    fireEvent.change(ta, { target: { value: '做一期数码评测' } });
+    fireEvent.keyDown(ta, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('live-thinking-unsupported').textContent)
+        .toContain('该模型不提供思考内容');
+    });
+    expect(screen.queryByTestId('live-thinking-toggle')).toBeNull();
+    release();
+    await waitFor(() => expect(useAgentStore.getState().requirementsBusy).toBe(false));
+  });
+
+  it('流式回退 → 说清"思考内容不可用（流式已回退）"，不装成思考中', async () => {
+    const r = await import('@/services/api') as unknown as {
+      requirementsApi: { streamChat: (sid: string, msg: string,
+        onChunk?: (c: { type: string; data: unknown }) => void) => Promise<Record<string, unknown>> };
+    };
+    let release!: () => void;
+    const gate = new Promise<void>((res) => { release = res; });
+    r.requirementsApi.streamChat = async (_sid, _msg, onChunk) => {
+      onChunk?.({ type: 'reasoning_status', data: {
+        supported: true, streaming: true, available: false,
+        reason: 'stream_fallback', detail: 'TypeError: boom', phase: 'gathering',
+      } });
+      await gate;
+      return { reply: '好的', status: 'gathering', diagnostics: { stream_fallback: 'TypeError: boom' } };
+    };
+    useAgentStore.setState({
+      requirementsSessionId: 'sess_fallback',
+      requirementsStatus: 'gathering',
+      requirementsBusy: false,
+      requirementsMessages: [
+        { id: 'm0', role: 'assistant', content: '请描述选题', timestamp: new Date().toISOString() },
+      ],
+    });
+    render(<AgentPanel />);
+    const ta = screen.getByPlaceholderText('继续与需求 Agent 对话…（Shift+Enter 换行）');
+    fireEvent.change(ta, { target: { value: '做一期数码评测' } });
+    fireEvent.keyDown(ta, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('live-thinking-fallback').textContent).toContain('流式已回退');
     });
     expect(screen.queryByTestId('live-thinking-toggle')).toBeNull();
     release();

@@ -19,6 +19,8 @@ import { parseTaskEvent } from '@/features/task/eventSchema';
 import { supervisorApi } from '@/services/api';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { RunningSubagents } from './RunningSubagents';
+import { UnifiedTimeline } from '@/features/unifiedTimeline/UnifiedTimeline';
+import { isUnifiedTimelineEnabled } from '@/features/unifiedTimeline/flag';
 
 function StageRows({ events }: { events: ReturnType<typeof useTaskStore.getState>['events'] }) {
   const stages = React.useMemo(() => {
@@ -644,6 +646,8 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
   const inject = useTaskStore((s) => s.inject);
   // PRD B11：「查看结果」滚到产物区（终态任务不重新跑，只让人看结论）
   const [showArtifacts, setShowArtifacts] = React.useState(false);
+  // M2 双视图（unified-stream PRD §7）：flag 打开 → 一条时间线；默认仍走旧分区
+  const unified = isUnifiedTimelineEnabled();
   const artifactsRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     if (showArtifacts) {
@@ -705,29 +709,43 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
           上方 Plan 只是初始假设，不追踪进度
         </span>
       </p>
-      <StageRows events={events} />
-      <ModelTurnRows events={events} />
-      <ToolCallRows events={events} />
-      <ApprovalRows events={events} taskId={taskId} />
-      <DegradationRows events={events} />
+      {unified ? (
+        /* 一条流：消息/思考/工具/阶段/问答/授权/降级/结论按时间顺序（PRD §4）
+           —— 不再分区聚合，也不重复消费同一批事件（同一事件只有一个主视觉归属） */
+        <div className="min-h-0 flex-1 overflow-auto" data-testid="task-run-unified">
+          <UnifiedTimeline taskId={taskId} />
+          <div className="border-t border-outline-variant/20 px-3 py-1">
+            <TaskQuestionCard taskId={taskId} events={events} />
+          </div>
+          <TaskToolTrace taskId={taskId} active={!terminal} />
+        </div>
+      ) : (
+        <>
+          <StageRows events={events} />
+          <ModelTurnRows events={events} />
+          <ToolCallRows events={events} />
+          <ApprovalRows events={events} taskId={taskId} />
+          <DegradationRows events={events} />
 
-      {/* PRD §15：主 agent 提问 → 用户回答（任务进入 waiting_user 时的唯一出路） */}
-      <TaskQuestionCard taskId={taskId} events={events} />
+          {/* PRD §15：主 agent 提问 → 用户回答（任务进入 waiting_user 时的唯一出路） */}
+          <TaskQuestionCard taskId={taskId} events={events} />
 
-      {/* PRD modern-agent-review M2：子会话可寻址（追问 / 重放） */}
-      <TaskRuns taskId={taskId} active={!terminal} />
+          {/* PRD modern-agent-review M2：子会话可寻址（追问 / 重放） */}
+          <TaskRuns taskId={taskId} active={!terminal} />
 
-      {/* PRD modern-agent-review M3：事件流只有采样，全量轨迹单独读盘上的 transcript */}
-      <TaskToolTrace taskId={taskId} active={!terminal} />
+          {/* PRD modern-agent-review M3：事件流只有采样，全量轨迹单独读盘上的 transcript */}
+          <TaskToolTrace taskId={taskId} active={!terminal} />
 
-      <div className="min-h-0 flex-1 overflow-auto px-1 py-1">
-        <EventFeed
-          events={events}
-          hasEarlierEvents={hasEarlierEvents}
-          seqGap={seqGap}
-          onLoadEarlier={() => void loadEarlierEvents(taskId)}
-        />
-      </div>
+          <div className="min-h-0 flex-1 overflow-auto px-1 py-1">
+            <EventFeed
+              events={events}
+              hasEarlierEvents={hasEarlierEvents}
+              seqGap={seqGap}
+              onLoadEarlier={() => void loadEarlierEvents(taskId)}
+            />
+          </div>
+        </>
+      )}
 
       <RunningSubagents taskId={taskId} active={!terminal} />
       <div ref={artifactsRef}>

@@ -16,6 +16,7 @@ import { useBackendHealth } from '@/pages/useBackendHealth';
 import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
 import { TaskQuestionCard } from '@/features/task/TaskQuestionCard';
+import { ThinkingDisclosure } from '@/features/copilot/ThinkingDisclosure';
 import { uid } from '@/lib/utils';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline, Clip, ClipKind } from '@/types/timeline';
@@ -161,9 +162,16 @@ function RequirementsView() {
   const setReviewMode = useAgentStore((s) => s.setReviewMode);
   const [topic, setTopic] = useState('');
   const [input, setInput] = useState('');
-  // PRD §19.4：思考内容（SSE reasoning 帧逐块追加；没有就不显示）
+  // PRD §19.4 / unified-stream PRD §5.2：思考内容五态机——
+  // idle 不显示；pending 只说"正在生成/正在思考"；available 才给可展开按钮；
+  // unsupported 明说"该模型不提供"；fallback 明说"流式已回退"。不许假按钮。
   const [liveReasoning, setLiveReasoning] = useState('');
   const [reasoningOpen, setReasoningOpen] = useState(false);
+  const [reasoningState, setReasoningState] = useState<
+    'idle' | 'pending' | 'available' | 'unsupported' | 'fallback'>('idle');
+  const [reasoningMeta, setReasoningMeta] = useState<{
+    supported?: boolean; streaming?: boolean; reason?: string | null; detail?: string;
+  }>({});
   // M5c（PRD §15.5）：需求会话的 ask_user 问答——问题与事件都走 /api/requirements
   const [questions, setQuestions] = useState<TaskQuestionItem[]>([]);
   const [questionEvents, setQuestionEvents] = useState<TaskEvent[]>([]);
@@ -172,6 +180,15 @@ function RequirementsView() {
   // reflect its busy flag here so the UI shows progress even though it's store-driven.
   const autoBusy = useAgentStore((s) => s.requirementsBusy);
   const busy = manualBusy || autoBusy;
+  // 不同阶段的"忙"含义不同：需求澄清才谈得上思考，规划/管线阶段说清楚在干什么
+  const busyLabel =
+    status === 'brief_ready' || status === 'brief_confirmed'
+      ? '正在修改创作方案…'
+      : status === 'planning'
+        ? '正在生成制作规划书…'
+        : status === 'plan_ready' || status === 'plan_confirmed'
+          ? '正在处理规划…'
+          : '正在思考…';
   const [draftLoaded, setDraftLoaded] = useState(false);
   const requirementsSessionId = useAgentStore((s) => s.requirementsSessionId);
 
@@ -329,6 +346,8 @@ function RequirementsView() {
     setBusy(true);
     // 每轮提问重新累积思考（上一轮的 reasoning 不能挂到这一轮下面）
     setLiveReasoning('');
+    setReasoningState('pending');
+    setReasoningMeta({});
     cancelInFlight();
     chatAbortRef.current = new AbortController();
     const signal = chatAbortRef.current.signal;
@@ -372,6 +391,19 @@ function RequirementsView() {
         // 后端不发 reasoning 时这里一帧都收不到，折叠条不出现，不假装思考。
         else if (chunk.type === 'reasoning' && typeof chunk.data === 'string' && chunk.data) {
           setLiveReasoning((prev) => (prev + chunk.data).slice(0, 200_000));
+          setReasoningState('available');
+        }
+        // 后端自报思考能力/可用性（PRD §5.1）：不再靠"有没有收到帧"反推
+        else if (chunk.type === 'reasoning_status' && chunk.data && typeof chunk.data === 'object') {
+          const meta = chunk.data as {
+            supported?: boolean; streaming?: boolean; available?: boolean | null;
+            reason?: string | null; detail?: string;
+          };
+          setReasoningMeta(meta);
+          if (meta.supported === false) setReasoningState('unsupported');
+          else if (meta.reason === 'stream_fallback') setReasoningState('fallback');
+          else if (meta.available === false) setReasoningState('unsupported');
+          else setReasoningState((prev) => (prev === 'available' ? prev : 'pending'));
         }
         // M5c：agent 提问 → 立刻出问题卡（等用户回答才继续）
         else if (chunk.type === 'question' && chunk.data && typeof chunk.data === 'object') {
@@ -720,9 +752,9 @@ function RequirementsView() {
           </div>
         ))}
 
-        {/* 有 reasoning 时即使正文已在流式，也继续显示思考条（思考与正文并行可见） */}
-        {busy && (!messages.some((m) => m.streaming) || !!liveReasoning) && (
-          <div className="px-3 text-label-sm text-on-surface-variant">
+        {/* 思考条（unified-stream PRD §5.2 五态机）：可展开只在真有内容时出现 */}
+        {busy && (!messages.some((m) => m.streaming) || !!liveReasoning || reasoningState !== 'pending') && (
+          <div className="px-3 text-label-sm text-on-surface-variant" data-testid="live-thinking-strip">
             <div className="flex items-center gap-2">
               <Loader2 className="w-3 h-3 animate-spin text-primary" />
               {liveReasoning ? (
@@ -736,9 +768,20 @@ function RequirementsView() {
                   正在思考（{liveReasoning.length.toLocaleString()} 字）
                   {reasoningOpen ? ' ▴' : ' ▾'}
                 </button>
+              ) : reasoningState === 'unsupported' ? (
+                // 模型不回吐思考：明说，且不给可点控件
+                <span data-testid="live-thinking-unsupported">
+                  {reasoningMeta.reason === 'phase_not_streaming'
+                    ? '该阶段无思考流（不是模型不提供）'
+                    : '该模型不提供思考内容'}
+                </span>
+              ) : reasoningState === 'fallback' ? (
+                <span data-testid="live-thinking-fallback" title={reasoningMeta.detail || ''}>
+                  思考内容不可用（流式已回退）
+                </span>
               ) : (
-                // 没有 reasoning 就是没有：不做一个点了没反应的假按钮
-                <span data-testid="live-thinking-pending">正在生成…</span>
+                // 请求在路上、还没收到能力声明或第一块思考：按阶段说人话
+                <span data-testid="live-thinking-pending">{busyLabel}</span>
               )}
             </div>
             {reasoningOpen && liveReasoning && (
@@ -752,6 +795,14 @@ function RequirementsView() {
           </div>
         )}
       </div>
+
+      {/* 历史思考（unified-stream PRD §5.1.4）：本轮结束后从会话事件流回放，
+          刷新/重连不丢；正在生成时由上面的实时思考条负责，不重复渲染 */}
+      {!busy && questionEvents.some((e) => e.type === 'thinking') && (
+        <div className="shrink-0 border-t border-outline-variant/20" data-testid="requirements-thinking-history">
+          <ThinkingDisclosure events={questionEvents} />
+        </div>
+      )}
 
       {/* M5c：agent 主动提问 → 问题卡（回答后 agent 继续；刷新后从会话事件重建） */}
       {questions.length > 0 && (
