@@ -1150,3 +1150,15 @@ ease-out-elastic / ease-out-bounce
   reasoning 2 例与导出重试 4 例）；后端同轮 `pytest` 4925 passed。
 - **未完成**：M6（动画提示词 v2）未开始；`TaskToolTrace` 已有后端 `limit/offset` 分页，
   本轮未再加虚拟滚动。
+
+## 执行记录（2026-10-30 · 第 11 轮 · 收口：全链路 E2E 通过）
+
+- **完整 E2E 通过**：`npx playwright test e2e/final-flow.spec.ts`（19.8 分钟）走完
+  首页新建制作 → 创意简报 → 「确认简报」→ 规划书 → 「确认实施」→ 任务 `done`
+  → 事件流/工具轨迹可见（`/tool-calls` 61 条）→ 时间线回写（5 轨 / 43 片段 / 60s）
+  → 导出「加入渲染队列」→ 渲染完成 → 「下载成片」4.2 MB →
+  `ffprobe`：h264 1920x1080 30fps 58.0s；`pageErrors` 为空（零未捕获异常）。
+- **这一轮前端没有代码改动**：M6 是提示词/风格模块/lint（后端仓）。前端在本轮只跑验收：
+  `tsc --noEmit` 干净、`vitest` 136 文件 / 1171 例全绿。
+- **顺带确认**：需求对话 reasoning 帧、工具三路合并、任务问答卡、导出快照重试在真实
+  链路里都没报错（E2E 走的就是这些页面）。
