@@ -34,6 +34,13 @@ vi.mock('@/services/api', () => ({
     questions: vi.fn().mockResolvedValue({ session_id: 's', items: [], status: 'all' }),
     sessionEvents: vi.fn().mockResolvedValue({ session_id: 's', items: [], has_more: false, latest_seq: 0 }),
     answer: vi.fn().mockResolvedValue({ status: 'gathering', reply: '好，按你选的走' }),
+    // session-timeline PRD：单流读服务端唯一有序流；默认空（等价于"还没有记录"）
+    timeline: vi.fn().mockResolvedValue({
+      session_id: 's', items: [], has_more: false, latest_seq: 0, archived_until_seq: 0,
+    }),
+    timelineStreamUrl: (sid: string, sinceSeq = -1) =>
+      `http://localhost:8000/api/requirements/${sid}/timeline/stream`
+      + (sinceSeq >= 0 ? `?since_seq=${sinceSeq}` : ''),
   },
   personaApi: {
     listIds: vi.fn().mockResolvedValue([]), // M13
@@ -1155,122 +1162,135 @@ describe('M5c：需求会话 ask_user 问答卡', () => {
     expect(screen.getByPlaceholderText('继续与需求 Agent 对话…（Shift+Enter 换行）')).toBeTruthy();
   });
 });
+describe('单流视图（session-timeline）：服务端条目按 seq 渲染', () => {
+  const api = () => import('@/services/api') as unknown as Promise<{
+    requirementsApi: {
+      timeline: ReturnType<typeof vi.fn>;
+      sessionEvents: ReturnType<typeof vi.fn>;
+      questions: ReturnType<typeof vi.fn>;
+    };
+  }>;
 
-describe('M3：合流视图（flag 打开时一条流）', () => {
-  it('flag 打开后消息与思考进同一条时间线，旧消息列表不再重复渲染', async () => {
-    const { setUnifiedTimelineEnabled } = await import('@/features/unifiedTimeline/flag');
-    const { useUnifiedTimelineStore } = await import('@/stores/unifiedTimelineStore');
-    const { useTaskStore } = await import('@/stores/taskStore');
-    setUnifiedTimelineEnabled(true);
-    useUnifiedTimelineStore.getState().resetAll();
-    useTaskStore.setState({ task: null, events: [] });
+  /** 造一条服务端时间线条目（字段与后端 SessionLog 一致） */
+  const item = (seq: number, type: string, content: unknown, meta: Record<string, unknown> = {}) => ({
+    seq,
+    type,
+    time: `2026-10-31T10:0${seq}:00+08:00`,
+    turn: 1,
+    state: 'done' as const,
+    source: 'requirements',
+    ref: null,
+    content_ref: null,
+    content_inline: content,
+    meta,
+    content,
+  });
+
+  it('用户与模型条目都在同一条流里，顺序由 seq 决定', async () => {
+    const { setSessionTimelineEnabled } = await import('@/features/sessionTimeline/flag');
+    setSessionTimelineEnabled(true);
+    const r = await api();
+    r.requirementsApi.timeline.mockResolvedValue({
+      session_id: 'req_seq',
+      items: [
+        item(1, 'content', '做一期数码评测', { role: 'user' }),
+        item(2, 'thinking', '先想清楚受众'),
+        item(3, 'content', '好的，先确认三点', { role: 'assistant' }),
+      ],
+      has_more: false,
+      latest_seq: 3,
+      archived_until_seq: 0,
+    });
     useSelectionStore.setState({ selectedClipIds: [], selectedTrackId: null });
     useAgentStore.setState({
-      requirementsSessionId: 'req_uni',
+      requirementsSessionId: 'req_seq',
       requirementsStatus: 'gathering',
       requirementsBusy: false,
-      requirementsMessages: [
-        { id: 'm1', role: 'user', content: '做一期数码评测', timestamp: new Date().toISOString() },
-        { id: 'm2', role: 'assistant', content: '好的，先确认三点', timestamp: new Date().toISOString() },
-      ],
+      requirementsMessages: [],
     });
     render(<AgentPanel />);
 
-    const host = await screen.findByTestId('requirements-unified-stream');
-    expect(host.textContent).toContain('做一期数码评测');
-    expect(host.textContent).toContain('好的，先确认三点');
-    // 投影层里确实有两条需求消息（不是把事件塞进消息数组）
-    const items = Object.values(useUnifiedTimelineStore.getState().itemsByKey);
-    expect(items.filter((i) => i.source === 'requirements' && i.kind === 'message')).toHaveLength(2);
-    setUnifiedTimelineEnabled(null);
+    const stream = await screen.findByTestId('requirements-unified-stream');
+    await waitFor(() => expect(within(stream).getByTestId('session-timeline')).toBeTruthy());
+    const timeline = within(stream).getByTestId('session-timeline');
+    expect(timeline.getAttribute('data-total')).toBe('3');
+    const seqs = Array.from(timeline.querySelectorAll('[data-seq]'))
+      .map((el) => Number(el.getAttribute('data-seq')));
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    expect(timeline.textContent).toContain('做一期数码评测');
+    expect(timeline.textContent).toContain('先想清楚受众');
+    expect(timeline.textContent).toContain('好的，先确认三点');
+    setSessionTimelineEnabled(null);
   });
-});
-describe('单流视图不得丢旧面板功能', () => {
-  it('Markdown / 创意简报卡 / 规划书卡 / 时间戳 在单流里照常渲染', async () => {
-    const { setUnifiedTimelineEnabled } = await import('@/features/unifiedTimeline/flag');
-    const { useUnifiedTimelineStore } = await import('@/stores/unifiedTimelineStore');
-    setUnifiedTimelineEnabled(true);
-    useUnifiedTimelineStore.getState().resetAll();
+
+  it('简报卡 / 规划书卡 / Markdown / 时间戳 在单流里照常渲染', async () => {
+    const { setSessionTimelineEnabled } = await import('@/features/sessionTimeline/flag');
+    setSessionTimelineEnabled(true);
+    const r = await api();
+    r.requirementsApi.timeline.mockResolvedValue({
+      session_id: 'req_func',
+      items: [
+        item(1, 'content', '**加粗结论** 与普通文字', { role: 'assistant' }),
+        item(2, 'report', {
+          title: '独特简报标题ABC', overview: '一句话概述', target_audience: '数码爱好者',
+          style_direction: '冷静科技', duration_estimate: '60s',
+        }, { role: 'assistant', title: '独特简报标题ABC' }),
+        item(3, 'plan', { markdown_content: '# 规划书标题QWE\n\n- 第一段' },
+          { role: 'assistant', scene_count: 6 }),
+      ],
+      has_more: false,
+      latest_seq: 3,
+      archived_until_seq: 0,
+    });
     useSelectionStore.setState({ selectedClipIds: [], selectedTrackId: null });
     useAgentStore.setState({
       requirementsSessionId: 'req_func',
       requirementsStatus: 'plan_ready',
       requirementsBusy: false,
-      requirementsMessages: [
-        {
-          id: 'u1', role: 'user', content: '做一期数码评测', timestamp: '2026-10-31T10:00:00Z',
-        },
-        {
-          id: 'a1', role: 'assistant', content: '已生成方案',
-          timestamp: '2026-10-31T10:01:00Z',
-          creative_brief: {
-            title: '独特简报标题ABC', overview: '一句话概述', target_audience: '数码爱好者',
-            style_direction: '冷静科技', duration_estimate: '60s',
-          } as never,
-        },
-        {
-          id: 'a2', role: 'assistant', content: '规划书如下',
-          timestamp: '2026-10-31T10:02:00Z',
-          production_plan: { markdown_content: '# 规划书标题QWE\n\n- 第一段' } as never,
-        },
-        {
-          id: 'a3', role: 'assistant', content: '**加粗结论** 与普通文字',
-          timestamp: '2026-10-31T10:03:00Z',
-        },
-      ],
+      requirementsMessages: [],
     });
     render(<AgentPanel />);
 
     const stream = await screen.findByTestId('requirements-unified-stream');
-    // 创意简报卡还在
+    await waitFor(() => expect(within(stream).getByTestId('brief-card')).toBeTruthy());
+    // 简报卡还在
     expect(within(stream).getByTestId('brief-card').textContent).toContain('独特简报标题ABC');
     // 规划书卡还在
     expect(within(stream).getByTestId('plan-card')).toBeTruthy();
-    // Markdown 还在（**加粗** 被渲染成 strong，而不是字面星号）
+    // Markdown 还在（**加粗** 渲染成 strong，而不是字面星号）
     expect(stream.textContent).toContain('加粗结论');
     expect(stream.textContent).not.toContain('**加粗结论**');
-    // 时间戳还在（按本地时区显示，只断言格式，不锁死时区）
+    // 时间戳还在（只断言格式，不锁死时区）
     expect(stream.textContent).toMatch(/\d{1,2}:\d{2}/);
-    setUnifiedTimelineEnabled(null);
+    setSessionTimelineEnabled(null);
   });
 
-  it('单流容器撑满高度（不得用 max-h 截断到 60vh）', async () => {
-    const { setUnifiedTimelineEnabled } = await import('@/features/unifiedTimeline/flag');
-    const { useUnifiedTimelineStore } = await import('@/stores/unifiedTimelineStore');
-    setUnifiedTimelineEnabled(true);
-    useUnifiedTimelineStore.getState().resetAll();
+  it('单流容器撑满高度，且只保留一层滚动', async () => {
+    const { setSessionTimelineEnabled } = await import('@/features/sessionTimeline/flag');
+    setSessionTimelineEnabled(true);
+    const r = await api();
+    r.requirementsApi.timeline.mockResolvedValue({
+      session_id: 'req_h',
+      items: [item(1, 'content', '嗨', { role: 'user' })],
+      has_more: false, latest_seq: 1, archived_until_seq: 0,
+    });
     useSelectionStore.setState({ selectedClipIds: [], selectedTrackId: null });
     useAgentStore.setState({
       requirementsSessionId: 'req_h',
       requirementsStatus: 'gathering',
       requirementsBusy: false,
-      requirementsMessages: [{ id: 'm1', role: 'user', content: '嗨', timestamp: '' }],
+      requirementsMessages: [],
     });
     render(<AgentPanel />);
-    const host = await screen.findByTestId('requirements-unified-stream');
-    const timeline = within(host).getByTestId('unified-timeline');
+
+    const stream = await screen.findByTestId('requirements-unified-stream');
+    const timeline = await within(stream).findByTestId('session-timeline');
     expect(timeline.className).not.toContain('max-h');
     expect(timeline.className).toContain('h-full');
-    setUnifiedTimelineEnabled(null);
-  });
-});
-describe('单流视图：滚动与高度', () => {
-  it('单流模式下只保留一层滚动（外层不滚，避免高度不到底）', async () => {
-    const { setUnifiedTimelineEnabled } = await import('@/features/unifiedTimeline/flag');
-    const { useUnifiedTimelineStore } = await import('@/stores/unifiedTimelineStore');
-    setUnifiedTimelineEnabled(true);
-    useUnifiedTimelineStore.getState().resetAll();
-    useSelectionStore.setState({ selectedClipIds: [], selectedTrackId: null });
-    useAgentStore.setState({
-      requirementsSessionId: 'req_scroll',
-      requirementsStatus: 'gathering',
-      requirementsBusy: false,
-      requirementsMessages: [{ id: 'm1', role: 'user', content: '嗨', timestamp: '' }],
-    });
-    render(<AgentPanel />);
+    // 外层不滚（否则两层滚动，高度永远不到底）
     const scroll = await screen.findByTestId('requirements-scroll');
     expect(scroll.getAttribute('data-scroll-mode')).toBe('inner');
     expect(scroll.className).toContain('overflow-hidden');
-    setUnifiedTimelineEnabled(null);
+    setSessionTimelineEnabled(null);
   });
 });

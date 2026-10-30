@@ -2,6 +2,7 @@ import { getApiClient } from './client';
 import { apiBase, fetchSseToken, withSseToken } from './sse';
 import type { RequirementsInitRequest, RequirementsChatRequest } from '@/types/api';
 import type { TaskEvent, TaskQuestionItem } from '@/types/task';
+import type { SessionTimelineItem } from '@/features/sessionTimeline/types';
 
 export const requirementsApi = {
   /** Initialize a requirements session */
@@ -226,6 +227,42 @@ export const requirementsApi = {
       has_more: boolean;
       latest_seq: number;
     };
+  },
+
+  /**
+   * 会话时间线（唯一有序流，session-timeline PRD §5.1）。
+   *
+   * 返回的条目**已按 seq 升序**，前端不做任何本地排序——顺序由服务端分配。
+   */
+  async timeline(
+    sessionId: string,
+    opts: { sinceSeq?: number; untilSeq?: number; beforeSeq?: number; limit?: number } = {},
+  ) {
+    const { data } = await getApiClient().get(
+      `/api/requirements/${sessionId}/timeline`,
+      {
+        params: {
+          since_seq: opts.sinceSeq ?? 0,
+          ...(opts.untilSeq ? { until_seq: opts.untilSeq } : {}),
+          ...(opts.beforeSeq ? { before_seq: opts.beforeSeq } : {}),
+          limit: opts.limit ?? 200,
+        },
+      },
+    );
+    return data as {
+      session_id: string;
+      items: SessionTimelineItem[];
+      has_more: boolean;
+      latest_seq: number;
+      archived_until_seq: number;
+      counters?: Record<string, number>;
+    };
+  },
+
+  /** 时间线实时流 URL（EventSource 直连；token 由 connectSseStream 拼）。 */
+  timelineStreamUrl(sessionId: string, sinceSeq = -1): string {
+    const base = `${apiBase()}/api/requirements/${sessionId}/timeline/stream`;
+    return sinceSeq >= 0 ? `${base}?since_seq=${sinceSeq}` : base;
   },
 
   /** Get production plan */

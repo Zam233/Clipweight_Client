@@ -14,7 +14,6 @@ import { useEffect } from 'react';
 import { connectSseStream } from '@/services/api/sseStream';
 import { taskApi } from '@/services/api/task';
 import { useTaskStore } from '@/stores/taskStore';
-import { useUnifiedTimelineStore } from '@/stores/unifiedTimelineStore';
 import type { TaskEvent } from '@/types/task';
 
 /** 只认 TaskEvent 形状（有 seq + type），其余丢弃——不猜、不兜底。 */
@@ -75,30 +74,19 @@ export function useTaskEvents(taskId: string | null, enabled = true): void {
      */
     const start = async () => {
       await hydrateEvents(taskId, { sinceSeq: 0, limit: 2000 });
-      // 统一时间线只是投影：同一份事件灌进投影层，**不**再订阅第二条 SSE
-      useUnifiedTimelineStore.getState().hydrateTaskEvents(
-        taskId, useTaskStore.getState().events,
-      );
       if (closed) return;
       handle = connectSseStream({
         url: taskApi.eventsStreamUrl(taskId),
         onMessage: (raw) => {
           const event = toTaskEvent(raw);
-          if (event) {
-            applyEvent(event);
-            useUnifiedTimelineStore.getState().applyTaskEvent(taskId, event);
-          }
+          if (event) applyEvent(event);
         },
         // 每次重连**前**补一段：EventSource 重连只会从"新消息"开始发，
         // 断开那段时间的事件必须靠 REST 补回来（PRD §7.2）。
         onRetry: () => {
           if (closed) return;
           const last = useTaskStore.getState().lastSeq;
-          void hydrateEvents(taskId, { sinceSeq: last, limit: 2000 }).then(() => {
-            useUnifiedTimelineStore.getState().hydrateTaskEvents(
-              taskId, useTaskStore.getState().events,
-            );
-          });
+          void hydrateEvents(taskId, { sinceSeq: last, limit: 2000 });
         },
       });
     };

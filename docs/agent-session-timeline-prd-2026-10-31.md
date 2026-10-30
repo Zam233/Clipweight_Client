@@ -243,13 +243,22 @@ GET /api/requirements/{sid}/timeline/stream?since_seq=<latest>
 
 ---
 
-## 9. 需要用户拍板的三个点
+## 9. 三个待拍板点的执行口径（已按推荐落地）
 
-1. `session.json` 落盘位置：`workspaces/<project>/sessions/<session_id>/`（推荐，与工作区同根）
-   还是项目根 `sessions/`（跨项目可见性更好）？
-2. `subagent` 是否**逐次调用**都记一条（推荐：每次 `delegate_agent` 一条，含 run_id 与结论），
-   还是只记"派过哪些阶段"一条汇总？
-3. 流式 thinking 的落盘节流窗（默认 200ms/4KB）与会话归档阈值（默认 5000 条）是否按此执行？
+用户 2026-10-31 授权「按你推荐的来」，三个点定案如下，实现与本文一致：
+
+| # | 决定 | 理由 |
+|---|---|---|
+| 1 | 会话目录 = `workspace_root()/sessions/<session_id>/` | 会话在**项目存在之前**就创建（新建制作第一步就开需求会话），按 `<project>/sessions/` 分目录在创建时刻没有 project 可挂；放到工作区根下既与项目目录同根，又能跨项目排查 |
+| 2 | `subagent` **逐次调用**各记一条（带 run_id/阶段/结论摘要） | 一次阶段派发的多个子 agent 是不同事件，合成一条会让"谁干了什么"不可追溯 |
+| 3 | 节流 200ms / 4KB；归档阈值 5000 条（保留 4000） | 与 PRD §4.2/§4.3 原值一致 |
+
+补充两条实现细节（写代码时才暴露的）：
+
+- **思考增量不能逐条落盘**：任务侧 `thinking` 是 token 级增量（一次调用数百条），
+  投影必须**按轮合并**走 `begin/chunk/finish`，否则每条重写全文是 O(n²) 写盘。
+- **`state` 只有四值**（`streaming/done/failed/interrupted`）：事件的 `status` 是
+  业务字段，放 `meta.status`；不要为"running"再发明一个条目状态。
 
 ---
 

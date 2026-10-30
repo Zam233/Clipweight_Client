@@ -20,8 +20,6 @@ import { parseTaskEvent } from '@/features/task/eventSchema';
 import { supervisorApi } from '@/services/api';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { RunningSubagents } from './RunningSubagents';
-import { UnifiedTimeline } from '@/features/unifiedTimeline/UnifiedTimeline';
-import { isUnifiedTimelineEnabled } from '@/features/unifiedTimeline/flag';
 
 function StageRows({ events }: { events: ReturnType<typeof useTaskStore.getState>['events'] }) {
   const stages = React.useMemo(() => {
@@ -652,7 +650,6 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
    * 单流在需求对话里；这里刻意**不**跟随 unified 开关，始终给分区 + 原始事件 + 用量，
    * 便于排查（事件 seq、工具配对、降级、run 明细、原始 JSON）。
    */
-  const unified = false;
   const artifactsRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     if (showArtifacts) {
@@ -720,19 +717,6 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
           上方 Plan 只是初始假设，不追踪进度
         </span>
       </p>
-      {unified ? (
-        /* 一条流：消息/思考/工具/阶段/问答/授权/降级/结论按时间顺序（PRD §4）
-           —— 不再分区聚合，也不重复消费同一批事件（同一事件只有一个主视觉归属） */
-        <div className="min-h-0 flex-1 overflow-auto" data-testid="task-run-unified">
-          <UnifiedTimeline taskId={taskId} />
-          <div className="border-t border-outline-variant/20 px-3 py-1">
-            <TaskQuestionCard taskId={taskId} events={events} />
-          </div>
-          {/* 追问 / 重放仍按 run 维度操作（时间线是"发生了什么"，这里是"对某次 run 动手"） */}
-          <TaskRuns taskId={taskId} active={!terminal} />
-          <TaskToolTrace taskId={taskId} active={!terminal} />
-        </div>
-      ) : (
         <>
           <StageRows events={events} />
           <ModelTurnRows events={events} />
@@ -758,7 +742,6 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
             />
           </div>
         </>
-      )}
 
       <RunningSubagents taskId={taskId} active={!terminal} />
       <div ref={artifactsRef}>

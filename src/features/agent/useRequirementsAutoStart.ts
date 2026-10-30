@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useProjectStore } from '@/stores/projectStore';
 import { useAgentStore } from '@/stores/agentStore';
-import { useUnifiedTimelineStore } from '@/stores/unifiedTimelineStore';
 import { requirementsApi } from '@/services/api';
 import { uid } from '@/lib/utils';
 import { demoBrief } from './AgentPanel';
@@ -86,12 +85,9 @@ export function useRequirementsAutoStart(ready: boolean) {
                 } else {
                   ag2.appendRequirementsDelta(streamedId, chunk.data as string);
                 }
-              } else if (chunk.type === 'reasoning' && typeof chunk.data === 'string') {
-                // 思考进投影层：即使 AgentPanel 还没挂载，打开单流也能看到这一段
-                useUnifiedTimelineStore.getState().applyRequirementReasoning(
-                  res.session_id, chunk.data as string,
-                );
               }
+              // 思考不再需要前端转存：服务端已把它作为时间线条目按 seq 落好，
+              // AgentPanel 挂载时直接读 GET /timeline（位置 = 发生时刻，不靠推断）。
             });
           } catch {
             chatRes = await requirementsApi.chat({ session_id: res.session_id, message: firstMsg });

@@ -12,7 +12,7 @@
 
 import { savePipelineId } from '@/services/storage/pipelineSession';
 import { REQUIREMENTS_TAB, useCopilotStore } from '@/stores/copilotStore';
-import { isUnifiedTimelineEnabled } from '@/features/unifiedTimeline/flag';
+import { isSessionTimelineEnabled } from '@/features/sessionTimeline/flag';
 
 export interface ProceedResultLike {
   pipeline_id?: string;
@@ -39,7 +39,7 @@ export function applyProceedResult(res: ProceedResultLike | null | undefined): P
     // 合流（2026-10-31 用户裁定）：默认**不**再开「轨迹」标签——任务事件已经进需求对话那条流。
     // 「轨迹」作为专业视图保留在 `+` 菜单里，需要深挖时手动开。
     try {
-      if (isUnifiedTimelineEnabled()) {
+      if (isSessionTimelineEnabled()) {
         useCopilotStore.getState().openTab(REQUIREMENTS_TAB);
         useCopilotStore.getState().setActive(REQUIREMENTS_TAB.id);
       } else {

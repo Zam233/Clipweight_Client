@@ -17,9 +17,13 @@ import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
 import { TaskQuestionCard } from '@/features/task/TaskQuestionCard';
 import { ThinkingDisclosure } from '@/features/copilot/ThinkingDisclosure';
-import { UnifiedTimeline } from '@/features/unifiedTimeline/UnifiedTimeline';
-import { isUnifiedTimelineEnabled } from '@/features/unifiedTimeline/flag';
-import { useUnifiedTimelineStore } from '@/stores/unifiedTimelineStore';
+import { SessionTimeline } from '@/features/sessionTimeline/SessionTimeline';
+import { isSessionTimelineEnabled } from '@/features/sessionTimeline/flag';
+import {
+  itemRole,
+  itemText,
+  type SessionTimelineItem,
+} from '@/features/sessionTimeline/types';
 import { useTaskStore } from '@/stores/taskStore';
 import { useTaskEvents } from '@/features/task/useTaskEvents';
 import { uid } from '@/lib/utils';
@@ -102,6 +106,25 @@ function formatMsgTime(ts: string | undefined): string {
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * 时间线条目 → 气泡消息（session-timeline PRD §6.5）。
+ *
+ * 气泡组件（`RequirementsBubble`）只认 `RequirementMessage`，而新数据源是服务端条目。
+ * 这一层适配的意义：**换数据源不换渲染**——Markdown、时间戳、打字光标、简报卡、
+ * 规划书卡都还在，只是"位置"改由服务端 seq 决定。
+ *
+ * `id` 用 `seq`：它就是条目的稳定身份，不再靠"消息下标"这种会被压缩打乱的东西。
+ */
+function timelineItemAsMessage(item: SessionTimelineItem): RequirementMessage {
+  return {
+    id: `seq-${item.seq}`,
+    role: itemRole(item),
+    content: itemText(item),
+    timestamp: item.time,
+    streaming: item.state === 'streaming',
+  };
 }
 
 
@@ -243,42 +266,34 @@ function RequirementsView() {
   const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [manualBusy, setBusy] = useState(false);
+  // 规划书生成阶段的一句话进展（stage 帧），只影响忙碌文案；位置由服务端条目决定
+  const [stageHint, setStageHint] = useState('');
   // Auto-start (from HomePage launch) runs in EditorPage via useRequirementsAutoStart;
   // reflect its busy flag here so the UI shows progress even though it's store-driven.
   const autoBusy = useAgentStore((s) => s.requirementsBusy);
   const busy = manualBusy || autoBusy;
-  // M3 合流（unified-stream PRD §M3）：flag 打开时，消息 + 思考 + 工具 + 阶段 + 结论
-  // 在同一个滚动容器里按时间顺序显示；默认仍走旧消息列表，可随时回退。
-  const unified = isUnifiedTimelineEnabled();
+  // 会话时间线（session-timeline PRD §6）：默认读服务端唯一有序流；关掉后回到旧消息列表。
+  const unified = isSessionTimelineEnabled();
   const taskId = useTaskStore((s) => s.task?.id ?? '');
-  useTaskEvents(taskId || null, Boolean(taskId && unified));
+  // 任务事件不再由面板订阅：服务端已经把它们投影进会话时间线（同一份 seq），
+  // 「轨迹」面板自己订阅任务流。两条流同时挂会重复应用事件、成本翻倍。
+  useTaskEvents(taskId || null, false);
   // 不同阶段的"忙"含义不同：需求澄清才谈得上思考，规划/管线阶段说清楚在干什么
   const busyLabel =
-    status === 'brief_ready' || status === 'brief_confirmed'
-      ? '正在修改创作方案…'
-      : status === 'planning'
-        ? '正在生成制作规划书…'
-        : status === 'plan_ready' || status === 'plan_confirmed'
-          ? '正在处理规划…'
-          : '正在思考…';
+    stageHint
+      || (status === 'brief_ready' || status === 'brief_confirmed'
+        ? '正在修改创作方案…'
+        : status === 'planning'
+          ? '正在生成制作规划书…'
+          : status === 'plan_ready' || status === 'plan_confirmed'
+            ? '正在处理规划…'
+            : '正在思考…');
   const [draftLoaded, setDraftLoaded] = useState(false);
   const requirementsSessionId = useAgentStore((s) => s.requirementsSessionId);
 
-  // autoStart 等在 AgentPanel 之外发起的流，reasoning 只进了投影层；思考条必须两边都认，
-  // 否则首轮永远显示不可点的「正在思考…」。注意：**必须**放在 requirementsSessionId 之后
-  // （之前写成声明前使用，直接 ReferenceError 把整个需求面板打崩）。
-  const projectedReasoning = useUnifiedTimelineStore(
-    (st) => {
-      for (const it of Object.values(st.itemsByKey)) {
-        if (it.kind === 'reasoning' && it.source === 'requirements'
-            && (!requirementsSessionId || it.sessionId === requirementsSessionId)) {
-          return it.text;
-        }
-      }
-      return '';
-    },
-  );
-  const reasoningText = liveReasoning || projectedReasoning;
+  // 思考条只认本轮 SSE 增量帧。**位置**不再由这里决定——思考已经作为时间线条目
+  // 由服务端分配 seq（旧实现靠 projectedReasoning 猜位置，思考因此总沉到底部）。
+  const reasoningText = liveReasoning;
 
 
   /** M5c：拉问题与事件（刷新/重连后重建问题卡，不依赖任务 API） */
@@ -303,10 +318,7 @@ function RequirementsView() {
   const prevBusyRef = useRef(false);
   useEffect(() => {
     if (prevBusyRef.current && !busy && requirementsSessionId) {
-      // 本轮结束：思考条目收尾（不标 done 会永远显示"进行中"），再刷新会话事件
-      useUnifiedTimelineStore.getState().applyRequirementReasoning(
-        requirementsSessionId, '', true,
-      );
+      // 本轮结束：刷新会话事件（思考条目由服务端在收尾时自己落定，前端不再改状态）
       void refreshQuestions(requirementsSessionId);
     }
     prevBusyRef.current = busy;
@@ -365,24 +377,8 @@ function RequirementsView() {
     }
   }, [loadingEarlier, prependMessages]);
 
-  // 需求侧投影（PRD §4.4）：消息与思考进同一个时间线，不在组件里拼数组
-  useEffect(() => {
-    if (!requirementsSessionId) return;
-    useUnifiedTimelineStore.getState().applyRequirementMessages(
-      requirementsSessionId,
-      messages.map((m) => ({
-        id: m.id, role: String(m.role), content: String(m.content ?? ''),
-        timestamp: m.timestamp, streaming: m.streaming,
-      })),
-    );
-  }, [requirementsSessionId, messages]);
-
-  useEffect(() => {
-    if (!requirementsSessionId) return;
-    for (const ev of questionEvents) {
-      useUnifiedTimelineStore.getState().applyRequirementEvent(requirementsSessionId, ev);
-    }
-  }, [requirementsSessionId, questionEvents]);
+  // 需求消息只用于**旧视图**（flag 关掉时）与问题卡；单流视图读服务端时间线，
+  // 不再从前端消息数组投影出第二个数据源（旧实现正是这样把顺序搞乱的）。
 
   /** 回答需求会话问题 → 后端带答案继续 → 回显新回复并刷新问题状态 */
   const answerRequirementQuestion = useCallback(async (
@@ -567,28 +563,14 @@ function RequirementsView() {
         else if (chunk.type === 'reasoning' && typeof chunk.data === 'string' && chunk.data) {
           setLiveReasoning((prev) => (prev + chunk.data).slice(0, 200_000));
           setReasoningState('available');
-          if (requirementsSessionId) {
-            useUnifiedTimelineStore.getState().applyRequirementReasoning(
-              requirementsSessionId, chunk.data as string,
-            );
-          }
+          // 不再在这里往时间线写思考：服务端已经按 seq 落了条目（位置=发生时刻），
+          // 前端再写一份就是"两份数据、两种顺序"——顺序错乱的根源。
         }
-        // 规划书生成过程帧（stage：派发结构 → 结构完成 → 翻译 → 完成）
-        // 用户 2026-10-31：确认简报之后不能一帧不发给用户看
+        // 规划书生成过程帧（stage）：时间线条目由服务端写（stage 类型），
+        // 这里只负责让旧视图的忙碌文案有进展（stage 帧本身仍会到达，只是不再落前端流）。
         else if (chunk.type === 'stage' && chunk.data && typeof chunk.data === 'object') {
           const d = chunk.data as { stage?: string; status?: string; action?: string; summary?: string };
-          if (requirementsSessionId) {
-            useUnifiedTimelineStore.getState().applyRequirementEvent(requirementsSessionId, {
-              seq: Date.now(),
-              type: 'step_end',
-              ts: new Date().toISOString(),
-              message: d.action || d.stage || 'stage',
-              detail: {
-                stage: d.stage, status: d.status,
-                summary: [d.action, d.summary].filter(Boolean).join(' · '),
-              },
-            });
-          }
+          setStageHint(d.action || d.stage || '');
         }
         // 后端自报思考能力/可用性（PRD §5.1）：不再靠"有没有收到帧"反推
         else if (chunk.type === 'reasoning_status' && chunk.data && typeof chunk.data === 'object') {
@@ -938,28 +920,48 @@ function RequirementsView() {
           </button>
         )}
 
-        {unified && messages.length > 0 && (
+        {unified && requirementsSessionId && (
           <div data-testid="requirements-unified-stream" className="min-h-0 flex-1">
-            <UnifiedTimeline
-              sessionId={requirementsSessionId ?? undefined}
-              taskId={taskId || undefined}
-              renderMessage={(it) => {
-                // 时间线只负责排序与去重，气泡仍用同一份渲染（Markdown / 创意简报卡 /
-                // 规划书卡 / 时间戳 / 打字光标），避免"新面板丢了旧功能"。
-                const id = String(it.dedupeKey || '').split(':').pop() || '';
-                const m = messages.find((x) => x.id === id);
-                return m ? (
-                  <div data-testid="unified-item-message" data-role={m.role} key={it.key}>
+            <SessionTimeline
+              sessionId={requirementsSessionId}
+              renderContent={(it) => {
+                // 气泡渲染仍走同一个 RequirementsBubble：Markdown / 时间戳 / 打字光标
+                // 不会因为换了数据源而丢失。id 用 seq——它就是条目的稳定身份。
+                const m = timelineItemAsMessage(it);
+                return (
+                  <div data-testid="unified-item-message" data-role={m.role} data-seq={it.seq}>
                     <RequirementsBubble
                       m={m}
-                    busy={busy}
-                    onConfirmBrief={confirmBrief}
-                    onConfirmPlan={confirmPlan}
+                      busy={busy}
+                      onConfirmBrief={confirmBrief}
+                      onConfirmPlan={confirmPlan}
                       onReview={setReviewMode}
                     />
                   </div>
-                ) : null;
+                );
               }}
+              renderReport={(it) => (
+                <div data-testid="timeline-item-report" data-seq={it.seq}>
+                  <RequirementsBubble
+                    m={{ ...timelineItemAsMessage(it), content: '', creative_brief: it.content as RequirementMessage['creative_brief'] }}
+                    busy={busy}
+                    onConfirmBrief={confirmBrief}
+                    onConfirmPlan={confirmPlan}
+                    onReview={setReviewMode}
+                  />
+                </div>
+              )}
+              renderPlan={(it) => (
+                <div data-testid="timeline-item-plan" data-seq={it.seq}>
+                  <RequirementsBubble
+                    m={{ ...timelineItemAsMessage(it), content: '', production_plan: it.content as RequirementMessage['production_plan'] }}
+                    busy={busy}
+                    onConfirmBrief={confirmBrief}
+                    onConfirmPlan={confirmPlan}
+                    onReview={setReviewMode}
+                  />
+                </div>
+              )}
             />
           </div>
         )}
