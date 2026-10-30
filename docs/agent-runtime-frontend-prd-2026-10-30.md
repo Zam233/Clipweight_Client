@@ -663,12 +663,14 @@ reason 显示文案不决定 status；status 仍使用后端任务状态/现有 
    - `ThinkingDisclosure` 升级为独立「模型思考」区：默认折叠；标题显示状态（生成中 / 已完成 / 模型未提供）与已接收片段数；展开后按增量**追加**渲染（保留滚动位置：用户在底部时自动跟随，向上阅读时暂停跟随）。
    - `thinking`（provider reasoning）与 `narration`（模型面向用户的说明）分栏；`report`、`subagent_progress`、`agent_run_update` 归入「阶段进度与汇报」，不混进思考区。
    - 工具列表合并三类来源：主 agent（`tool_call`/`tool_result`）、阶段子 agent（`subagent_tool`）、Skill（`kind=skill`）。按「主 agent / 阶段子 agent」分组，可按阶段、调用者、工具名、状态筛选。
+   - **全部可见（2026-10-30 用户裁定）**：默认呈现**全量**调用，不做「最近 N 条」截断。现有 `ToolCallRows` 只取 `slice(-8)`（`CopilotTaskRunTab.tsx:191`）属于过渡实现，须改为「全量列表 + 虚拟滚动 + 按需加载历史」，并保留 `tool_calls_total` 之类的总数口径；任何采样都必须显式标注「已采样，共 M 条」并给出查看全部入口。
    - Skill 必须显式标「技能」，名字从 `kind=skill` 或 `skill:<名>` 解析；**不得**把 `skill:xxx` 当普通工具名显示。
 2. **需求对话页**
    - SSE 收到 `reasoning` 时更新独立 reasoning 状态；有内容才显示「正在思考」可展开，空内容不伪造。
    - reasoning 结束显示已完成标记；正文回复（`delta`）仍作为独立 assistant 气泡，不并入 reasoning。
    - 无 reasoning 能力的 provider：不显示思考区，或显示「该模型未提供思考过程」（二选一，不许留空白按钮）。
 3. **折叠与超长**
+   - **思考内容全部可见**：折叠只是默认收起，展开后必须是**完整**文本（不得只给首尾或最近 N 段）；超过窗口时按 §13.3 的历史分页继续取，而不是丢弃。
    - 折叠摘要只显示片段数与总字数，不预览全文。
    - 展开区高度上限；超过 20,000 字时首屏保留头尾摘要 + 「查看完整思考」（分页或虚拟列表）。
    - 切换任务/会话必须清理对应 reasoning 状态，禁止串显上一个任务的内容。
@@ -685,11 +687,13 @@ reason 显示文案不决定 status；status 仍使用后端任务状态/现有 
 - SSE 消费端按帧缓冲：同一动画帧内的多个短 delta 合并成一次状态提交（`requestAnimationFrame`/节流），避免每个 token 触发一次列表重渲染。
 - reasoning 用**增量缓冲**（chunk 数组 + 惰性 join），不做每个 token 的全量 `filter/join`（现实现的问题，见 `ThinkingDisclosure.tsx:12-39`）。
 - 主 agent 与子 agent 状态按 `task_id`/`run_id` 隔离；重连按 seq 去重。
+- **「全部可见」不靠前端内存**：store 的 400 条只是实时窗口，历史一律走服务端分页（§13.3 第 4 点）；思考与工具列表均按「最新在前 + 可上翻历史」组织，翻到顶部时自动加载更早一页。
 - 解析失败/未知事件类型保留原始 detail 并可诊断，不静默丢弃。
 
 ### 13.5 验收断言
 
 **组件级**：`ThinkingDisclosure` 默认 `aria-expanded=false`；多段 `delta` 后按序拼接、`done=true` 转已完成；空 reasoning 不显示假内容；`truncated=true` 显示截断提示与全文入口；`ToolCallRows` 同时渲染 `tool_call/tool_result` 与 `subagent_tool`，`kind=skill` 显示「技能」；同一批次多 delta 只触发一次批量更新。
+**全部可见断言**：投递 200 条以上 `tool_call`/`subagent_tool`/Skill 混合事件，断言列表条数等于事件条数（或等于 `tool_calls_total`），**不存在**「只显示最近 8 条」；滚动到顶部触发历史分页且不重复、不跳项；思考文本长度与拼接结果等于所有 `thinking.delta` 之和。
 
 **E2E**：任务 SSE 依次投递 reasoning delta → narration → 主 agent 工具 → 子 agent 工具 → Skill → progress → report → done，页面分区与来源标识正确；需求对话投递 `status→reasoning→delta→result`，点「正在思考」能看到内容、assistant 气泡只显示 `delta/result`；provider 无 reasoning / 断线重连 / 重复 seq 时不串任务、不重复拼接；超过 400 条事件时实时视图仍响应且历史可分页读取。
 
@@ -730,9 +734,10 @@ reason 显示文案不决定 status；status 仍使用后端任务状态/现有 
 
 1. 在 `AgentKernel.run` 的任务启动、阶段派发、阶段返回、降级登记、预算快照、连续失败计数、最终校验等**状态转换点**生成播报事件，不依赖模型自觉。
 2. 统一入口 `AgentKernel.emit_progress(task, trigger, progress, conclusion, next_action, decision=None)`，只从已知状态与执行结果组装。
-3. 建议新增事件类型 `progress`（与模型生成的 `narration` 分开），字段：`trigger`、`stage`、`completed`、`total`、`percent`、`action`、`conclusion`、`next_action`、`decision_required`、`decision_options`、`budget{dimension,used,limit,ratio}`、`failure_streak{tool,fingerprint,count,error_summary}`、`source="kernel"`、`ts`、`run_id`。**若采用，事件契约从 26 增至 29（含 §15 的 question/answer）**，需同步三处：`clipwright/schema/task.py::EVENT_TYPES`、`tests/test_event_contract.py`、`src/features/task/eventSchema.ts` + `eventSchema.test.ts`。
+3. **新增事件类型 `progress`（2026-10-30 已采纳，与模型生成的 `narration` 分开）**，字段：`trigger`、`stage`、`completed`、`total`、`percent`、`action`、`conclusion`、`next_action`、`decision_required`、`decision_options`、`budget{dimension,used,limit,ratio}`、`failure_streak{tool,fingerprint,count,error_summary}`、`source="kernel"`、`ts`、`run_id`。**事件契约 26 → 29**（`question` / `answer` / `progress`），需同步三处：`clipwright/schema/task.py::EVENT_TYPES`、`tests/test_event_contract.py`、`src/features/task/eventSchema.ts` + `eventSchema.test.ts`。
 4. 去重规则：首次降级按 `(task, kind)` 一次；预算过半按维度一次；失败连击按 `(tool, 参数指纹)` 计数、成功即清零。
 5. 播报事件**先写入事件账本再继续**；写失败只记日志，不得让业务因播报失败而失败。
+6. **落 reports（2026-10-30 用户裁定）**：每条 `progress` 同时追加到任务工作区的 `reports/progress.jsonl`（一行一条 JSON，字段与事件 detail 同构，另带 `task_id`/`ts`/`seq`），并在 `reports/INDEX.md` 末尾维护一节「进度时间线」（时间、`n/N`、阶段、结论、下一步）。目的：①事件热层会淘汰，报告不该跟着消失；②人可以直接读文件复盘；③重启后可用它把进度补回事件流（可选，按 `seq` 去重）。落盘失败记 `progress_write_failed` 降级并继续，不得阻断任务。
 
 ### 14.5 前端呈现
 
@@ -743,7 +748,7 @@ reason 显示文案不决定 status；status 仍使用后端任务状态/现有 
 
 ### 14.6 验收断言
 
-**Kernel/服务级**：8 类触发点各至少产出一条含必需字段的进度事件；首次降级与预算过半各只播报一次；阶段失败/超时/降级/连续失败都播真实状态与下一步，成功后连击计数清零；任何播报不得替代紧随其后的工具/阶段实际调用（断言业务调用仍发生且顺序正确）；事件写失败不改变业务结果；分母缺失时输出「总数未定」。
+**Kernel/服务级**：8 类触发点各至少产出一条含必需字段的进度事件；每条 `progress` 都能在 `reports/progress.jsonl` 找到同 `seq` 的一行，且 `INDEX.md` 的「进度时间线」条目数与之匹配；首次降级与预算过半各只播报一次；阶段失败/超时/降级/连续失败都播真实状态与下一步，成功后连击计数清零；任何播报不得替代紧随其后的工具/阶段实际调用（断言业务调用仍发生且顺序正确）；事件写失败不改变业务结果；分母缺失时输出「总数未定」。
 
 **组件级**：阶段开始/结束后进度条按 `n/N` 更新；`thinking`/`narration`/`subagent_progress`/`report`/`progress` 分区显示且来源无歧义；决策事件仅在 `decision_required=true` 时出现可操作选项，提交后显示服务端确认。
 
@@ -812,16 +817,26 @@ reason 显示文案不决定 status；status 仍使用后端任务状态/现有 
 5. **服务重启**：不对重启前的待答问题接受答案；恢复为 `expired`，answer 返回 410，并在恢复上下文记「服务重启，原问题已失效」。主 agent 恢复后可新建 `question_id` 重问。历史可读，旧问题不可再答。
 6. 待答问题、答案、状态迁移、deadline、恢复信息必须持久化；进程重启**不尝试**恢复旧协程或旧工具栈。
 
-### 15.4 事件契约（26 → 28）
+**与既有 resume 的关系（2026-10-30 用户裁定，按此实现）**
+
+现状：`agent_kernel.resume()`（`:1122`）只做「非终态 → 清 `_CONTROL` → 重新进 tool loop」，而 `TASK_TERMINAL = {done, failed, cancelled}`（`schema/task.py:24`）——`paused` 不在其中，所以今天的 resume 是「从产物继续干」，**没有在飞调用需要交付**。`ask_user` 是第一个「有在飞调用、结果必须由外部事件交付」的工具，因此必须划清：
+
+1. **活进程内**：`waiting_user` 时 `POST /resume` **拒绝**，返回 `409 {reason:"waiting_answer", question_id, message:"任务正在等待回答，请先回答问题或取消"}`。出口只有两个：`POST /answer` 或 `POST /cancel`。**不得**把 resume 解释成「用 `default_option_id` 替你回答」——那是静默代选。
+2. **重启恢复后**：被恢复任务里所有 pending 问题标 `expired`（answer → 410），任务状态从 `waiting_user` **回落 `paused`**，并 emit 一条 `narration`「原问题已失效，任务继续」；此时 `resume` 正常放行（已无挂起调用），主 agent 需要时重新 `ask_user` 新问题。
+3. **resume 本质不变**：仍是「清暂停 + 重进 loop」，只增加一个前置拒绝条件与重启后的状态回落；终态 409 `task_terminal` 契约不动。
+
+前端相应：`waiting_user` 显示问题卡（`TaskQuestionCard`）并**隐藏/禁用**「继续」按钮；收到 409 `waiting_answer` 时提示「请先回答上面的问题」，不显示为失败。
+
+### 15.4 事件契约（26 → 29）
 
 新增两种事件：
 
 - `question`：`detail` 含 `question_id`、`owner_type`（`task`/`requirements`）、`owner_id`、`question`、`options`、`allow_free_text`、`default_option_id`、`timeout_sec`、`deadline_at`、`context_refs`。
 - `answer`：`detail` 含 `question_id`、`option_id`（自由文本时 null）、`text`、`source`（`user_option`/`user_text`/`timeout_default`）、`answered_at`。
 
-必须同步修改三处：①`clipwright/schema/task.py::EVENT_TYPES`；②`tests/test_event_contract.py` 的**数量断言 26 → 28**（保留集合/顺序/去重断言）；③前端 `src/features/task/eventSchema.ts` + `eventSchema.test.ts`（26 → 28，补两个类型的解析与字段）。这是**向后兼容的增量**：不改旧事件字段；旧前端收到未知类型走现有 unknown 兜底（`eventSchema.ts:11-14`），显示原始 detail。
+必须同步修改三处：①`clipwright/schema/task.py::EVENT_TYPES`；②`tests/test_event_contract.py` 的**数量断言 26 → 29**（保留集合/顺序/去重断言）；③前端 `src/features/task/eventSchema.ts` + `eventSchema.test.ts`（26 → 29，补三个类型的解析与字段）。这是**向后兼容的增量**：不改旧事件字段；旧前端收到未知类型走现有 unknown 兜底（`eventSchema.ts:11-14`），显示原始 detail。
 
-> 若同时采纳 §14.4 的 `progress` 事件，则总数变为 **29**，三处同步改 29。
+> 三个新增类型合计：`question`（§15.4）、`answer`（§15.4）、`progress`（§14.4，已采纳）→ 26 + 3 = **29**。
 
 ### 15.5 REST 接口
 
@@ -1096,6 +1111,10 @@ ease-out-elastic / ease-out-bounce
 | 4 | 新增 `ask_user` 工具（前后端） | 新增 §15；§2.1/§3.4/§9 M5/§10/§11/§12 相应条目 | 新工具 + `waiting_user` 状态 + 事件契约 26→28 + `POST .../answer` + `TaskQuestionCard` + 需求会话复用 |
 | 5 | 动画提示词参考 `XiaoyeCodes/code-animation-prompts` 后完善 | 新增 §16；§9 M6 | 14 条可借鉴清单、九段式模板 v2、S1–S12 风格模块、六类文字 + 四类 MG 逐类改进点、风格候选先问后定、索引化与 lint |
 
+| 6 | 2026-10-30 二次确认 | §13.2、§13.4、§13.5、§14.4、§14.6、§15.3、§15.4 | ①思考与工具**全部可见**（废除「最近 8 条」截断，全量+历史分页）；②`progress` 事件**正式采纳**（契约 26→29）并**同时落 `reports/progress.jsonl` + INDEX 进度时间线**；③定死 `waiting_user` 与 `resume` 的三条规则（活进程拒绝 409 `waiting_answer` / 重启后回落 paused 并放行 / resume 本质不变） |
+
 **新增/重编章节**：§13 思考流与工具可见性、§14 阶段进度播报规范、§15 ask_user、§16 动画提示词完善方案、附录 A（本表）。
 **取消项**：`TaskDegradationPanel`、`GET /api/task/{id}/degradations`（D1）、`taskDegradationLedger` 开关。
-**仍待后端确认**：D1′ 落库载体、`waiting_user` 是否影响既有 resume 语义、`progress` 事件是否采纳（若采纳事件总数为 29）、需求会话事件读取契约。
+**仍待后端确认**：D1′ 落库载体（Mongo / `reports/` 落盘，PRD 要求至少不丢 pending 与收据）、需求会话事件读取契约、`waiting_user` 与前端 `TaskToolbar` 的按钮映射细节（本轮已定：显示问题卡、禁用「继续」）。
+
+**已定（2026-10-30）**：`progress` 事件采纳（总数 29）；`waiting_user` 走「活进程拒绝 resume / 重启后回落 paused 放行」；思考与工具全部可见。
