@@ -509,3 +509,28 @@ AgentPanel 增加 `busy: true→false` 监听统一刷新会话事件（不再�
 - 需求侧 `hasEarlierMessages` 目前只在本地无消息时覆盖；跨多次刷新后向上翻到最老一页的
   断言还没写进 E2E。
 - 任务侧 `TaskRuns`（追问/重放）仍是独立区块，未进时间线条目。
+
+### 第 3 轮补修（2026-10-31，用户实测反馈）
+
+用户三条实测反馈，逐个定位到真因：
+
+| 现象 | 真因 | 修法 |
+|---|---|---|
+| 需求面板"什么都没了"（简报/规划书/Markdown 全丢） | 单流分支自己写了一套纯文本渲染；随后又用一个在 `requirementsSessionId` **声明之前**的 zustand selector → `ReferenceError` 把整个 RequirementsView 打崩 | 抽出 `RequirementsBubble` 给旧视图与单流**共用**（Markdown / 创意简报卡 / 规划书卡 / 时间戳 / 打字光标 / 错误样式全在里面）；selector 移到声明之后并去掉具体 key 依赖 |
+| 阶段面板（Persona + 六阶段）又出现了，用户不要 | 该面板是旧有 `BottomBar` 里的管线阶段区，单流模式下仍在渲染 | **直接删除**（不靠 flag），阶段进度只走时间线 `stage`/`progress` 条目；保留「停止」与「当前：X 耗时」 |
+| 「正在思考」点不开、完成后 0 字 | 首轮由 `useRequirementsAutoStart` 发起，reasoning 只进投影层、不进 AgentPanel 局部 state → 条子永远停在不可点的 `pending` | 思考条读「局部 ∪ 投影」合并值；时间线里**进行中的思考默认展开**，结束后折叠 |
+
+实测（真实浏览器 + 唯一选题，35s 采样，`_cache/diag4.mjs`）：
+
+```
+t+5s  {"msgs":2,"reasoning":1,"open":1,"toggle":"正在思考（146 字） ▾","brief":0,"phasePanel":false,"typing":1}
+t+15s {"msgs":2,"reasoning":2,"open":1,"toggle":"正在思考（146 字） ▾","brief":1,"phasePanel":false,"typing":0}
+errors: []
+```
+
+即：消息条目在、思考可点且有字数、进行中默认展开、创意简报卡在、阶段面板消失、零运行时报错。
+
+**留下的教训（写进流程）**：① 新 UI 不得另写一套 message 渲染，必须复用同一气泡组件，
+否则"新面板丢旧功能"必然反复发生；② 组件内 hook 的依赖变量必须先声明后使用，
+这类 TDZ 崩溃在单测里未必暴露（测试的 store 顺序不同），必须用真实浏览器跑一遍；
+③ 诊断脚本要带 `pageerror` 捕获与唯一选题，否则会把"没进编辑器"误读成"功能没做"。
