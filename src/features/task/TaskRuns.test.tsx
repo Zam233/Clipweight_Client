@@ -6,11 +6,11 @@
  */
 
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const { api } = vi.hoisted(() => ({
-  api: { runs: vi.fn(), runMessage: vi.fn(), runReplay: vi.fn() },
+  api: { runs: vi.fn(), runMessage: vi.fn(), runReplay: vi.fn(), runDetail: vi.fn() },
 }));
 vi.mock('@/services/api', () => ({ taskApi: api }));
 
@@ -87,5 +87,73 @@ describe('TaskRuns', () => {
     const { container } = render(<TaskRuns taskId="task_1" active />);
     await waitFor(() => expect(api.runs).toHaveBeenCalled());
     expect(container.querySelector('[data-testid="task-runs"]')).toBeNull();
+  });
+});
+
+describe('M1：run 详情入口与追问/重放过程态', () => {
+  afterEach(cleanup);
+
+  it('点「查看详情」才请求 runDetail，同一时刻只展开一个', async () => {
+    api.runs.mockResolvedValue({
+      task_id: 'task_1', count: 2,
+      items: [
+        { run_id: 'run_a', kind: 'stage', stage: 'edit', role: '', status: 'ok', attempt: 1,
+          duration_ms: 10, cost_usd: null, degradations: 0, tool_calls: 2, tool_calls_path: '',
+          report_path: '', summary: 'A', replayed: false },
+        { run_id: 'run_b', kind: 'stage', stage: 'audio', role: '', status: 'ok', attempt: 1,
+          duration_ms: 10, cost_usd: null, degradations: 0, tool_calls: 2, tool_calls_path: '',
+          report_path: '', summary: 'B', replayed: false },
+      ],
+    });
+    render(<TaskRuns taskId="task_1" active />);
+    await screen.findByTestId('task-runs');
+    expect(api.runDetail).not.toHaveBeenCalled();
+
+    fireEvent.click(document.querySelector('[data-run-expand="run_a"]')!);
+    await waitFor(() => expect(api.runDetail).toHaveBeenCalledWith('task_1', 'run_a'));
+
+    fireEvent.click(document.querySelector('[data-run-expand="run_b"]')!);
+    await waitFor(() => expect(api.runDetail).toHaveBeenCalledWith('task_1', 'run_b'));
+    expect(document.querySelector('[data-run-id="run_a"] [data-testid="task-run-detail"]')).toBeNull();
+  });
+
+  it('重放期间按钮显示重跑中并禁用', async () => {
+    let resolve: (v: unknown) => void = () => {};
+    api.runReplay.mockImplementation(() => new Promise((r) => { resolve = r; }));
+    render(<TaskRuns taskId="task_1" active />);
+    await screen.findByTestId('task-runs');
+    fireEvent.click(document.querySelector('[data-run-replay="run_a"]')!);
+    await waitFor(() => {
+      const btn = document.querySelector('[data-run-replay="run_a"]') as HTMLButtonElement;
+      expect(btn.textContent).toContain('重跑中');
+      expect(btn.disabled).toBe(true);
+    });
+    resolve({ stage: 'edit', status: 'ok', replayed: false });
+    await waitFor(() =>
+      expect((screen.getByTestId('task-runs-note')).textContent).toContain('已重跑'));
+  });
+
+  it('replayed=true 时照实说"未确认真实重跑"', async () => {
+    api.runReplay.mockResolvedValue({ stage: 'edit', status: 'ok', replayed: true });
+    render(<TaskRuns taskId="task_1" active />);
+    await screen.findByTestId('task-runs');
+    fireEvent.click(document.querySelector('[data-run-replay="run_a"]')!);
+    await waitFor(() => {
+      const note = screen.getByTestId('task-runs-note').textContent || '';
+      expect(note).toContain('未确认发生真实重跑');
+    });
+  });
+
+  it('409 重放被拒时给出可读原因', async () => {
+    api.runReplay.mockRejectedValue({
+      response: { status: 409, data: { detail: { reason: 'task_terminal' } } },
+    });
+    render(<TaskRuns taskId="task_1" active />);
+    await screen.findByTestId('task-runs');
+    fireEvent.click(document.querySelector('[data-run-replay="run_a"]')!);
+    await waitFor(() => {
+      const note = screen.getByTestId('task-runs-note').textContent || '';
+      expect(note).toContain('没有可重放的运行实例');
+    });
   });
 });

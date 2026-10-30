@@ -14,6 +14,9 @@ import { cn } from '@/lib/utils';
 import { taskApi } from '@/services/api';
 import type { TaskRunSummary } from '@/types/task';
 
+import { TaskRunDetail } from './TaskRunDetail';
+import { describeRunActionError } from './taskApiError';
+
 interface Props {
   taskId: string;
   /** 任务在跑时才允许追问/重放（结束后 run 已不在内存里） */
@@ -30,7 +33,10 @@ function statusTone(status: string): string {
 
 export function TaskRuns({ taskId, active = false, className }: Props) {
   const [runs, setRuns] = useState<TaskRunSummary[]>([]);
-  const [busy, setBusy] = useState('');
+  /** 逐 run 逐动作的忙碌态：{run_id: 'message' | 'replay'}，不互相阻塞 */
+  const [busy, setBusy] = useState<Record<string, 'message' | 'replay'>>({});
+  /** 展开详情的 run（同一时刻只展开一个） */
+  const [openRun, setOpenRun] = useState('');
   const [note, setNote] = useState('');
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
@@ -51,28 +57,33 @@ export function TaskRuns({ taskId, active = false, className }: Props) {
   const message = async (run: TaskRunSummary) => {
     const text = (draft[run.run_id] || '').trim();
     if (!text) return;
-    setBusy(run.run_id);
+    setBusy((b) => ({ ...b, [run.run_id]: 'message' }));
+    setNote('');
     try {
       const res = await taskApi.runMessage(taskId, run.run_id, text);
       setNote(`已排队 ${res.pending} 条给 ${res.stage}，下次派发时生效`);
       setDraft((d) => ({ ...d, [run.run_id]: '' }));
     } catch (e) {
-      setNote(`追问失败：${(e as Error)?.message || '未知错误'}`);
+      setNote(`追问失败：${describeRunActionError(e, 'message').message}`);
     } finally {
-      setBusy('');
+      setBusy((b) => { const n = { ...b }; delete n[run.run_id]; return n; });
     }
   };
 
   const replay = async (run: TaskRunSummary) => {
-    setBusy(run.run_id);
+    setBusy((b) => ({ ...b, [run.run_id]: 'replay' }));
+    setNote('');
     try {
       const res = await taskApi.runReplay(taskId, run.run_id);
-      setNote(`已重跑 ${res.stage}：${res.status}${res.replayed ? '（注意：命中了回放）' : ''}`);
+      // 后端带回本次 run：先就地显示结果，再刷新列表；replayed=true 必须照实说
+      setNote(res.replayed
+        ? `${res.stage}：服务端返回了回放结果，**未确认发生真实重跑**`
+        : `已重跑 ${res.stage}：${res.status}`);
       await load();
     } catch (e) {
-      setNote(`重放失败：${(e as Error)?.message || '未知错误'}`);
+      setNote(`重放失败：${describeRunActionError(e, 'replay').message}`);
     } finally {
-      setBusy('');
+      setBusy((b) => { const n = { ...b }; delete n[run.run_id]; return n; });
     }
   };
 
@@ -117,22 +128,25 @@ export function TaskRuns({ taskId, active = false, className }: Props) {
                 <button
                   type="button"
                   data-run-send={run.run_id}
-                  disabled={!active || busy === run.run_id}
+                  disabled={!active || Boolean(busy[run.run_id])}
                   title={active ? '排队到下一次同阶段派发' : '任务已结束，无法追问'}
                   className="rounded-cw-xs border border-outline-variant/40 px-1.5 py-0.5 text-caption text-primary hover:border-primary disabled:opacity-40"
                   onClick={() => void message(run)}
                 >
-                  <MessageSquarePlus className="inline w-3 h-3" /> 追问
+                  <MessageSquarePlus className="inline w-3 h-3" />
+                  {busy[run.run_id] === 'message' ? '排队中…' : '追问'}
                 </button>
                 <button
                   type="button"
                   data-run-replay={run.run_id}
-                  disabled={!active || busy === run.run_id}
+                  disabled={!active || Boolean(busy[run.run_id])}
                   title={active ? '同样的阶段与 brief 真重跑' : '任务已结束，无法重放'}
                   className="rounded-cw-xs border border-outline-variant/40 px-1.5 py-0.5 text-caption text-on-surface-variant hover:border-primary disabled:opacity-40"
                   onClick={() => void replay(run)}
                 >
-                  <RefreshCw className="inline w-3 h-3" /> 重放
+                  <RefreshCw className={cn('inline w-3 h-3',
+                    busy[run.run_id] === 'replay' && 'animate-spin')} />
+                  {busy[run.run_id] === 'replay' ? '重跑中…' : '重放'}
                 </button>
               </span>
             </div>
@@ -141,6 +155,18 @@ export function TaskRuns({ taskId, active = false, className }: Props) {
                 title={run.summary}>
                 {run.summary}
               </p>
+            )}
+            <button
+              type="button"
+              className="mt-0.5 text-caption text-on-surface-variant/70 underline decoration-dotted hover:text-on-surface"
+              aria-expanded={openRun === run.run_id}
+              data-run-expand={run.run_id}
+              onClick={() => setOpenRun((cur) => (cur === run.run_id ? '' : run.run_id))}
+            >
+              {openRun === run.run_id ? '收起详情' : '查看详情'}
+            </button>
+            {openRun === run.run_id && (
+              <TaskRunDetail taskId={taskId} runId={run.run_id} />
             )}
           </li>
         ))}

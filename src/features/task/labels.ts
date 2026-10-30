@@ -71,6 +71,34 @@ export const EVENT_CN: Record<TaskEventType, string> = {
   progress: '阶段进度',
 };
 
+/**
+ * `finish.reason` → 中文（PRD §6.1 文案表）。
+ *
+ * 只影响"为什么结束"这句话，**不改任务状态**：状态永远以后端 `status` 为准。
+ * 返回空串表示"前端还不认识这个 reason"，调用方要原样展示并标「待适配」。
+ */
+const FINISH_REASON_CN: Record<string, string> = {
+  tool_loop_completed: 'Agent 执行完成',
+  plan_completed: '计划执行完成',
+  task_completed: '任务完成',
+  dry_run_preview: '预览运行完成（dry-run）',
+  degradation_unresolved: '仍有降级未处置',
+  cancelled: '任务已取消',
+  cancel: '任务已取消',
+  paused: '任务已暂停',
+  validation_failed: '结果校验未通过',
+};
+
+export function finishReasonLabel(reason: string): string {
+  const key = String(reason || '').trim();
+  if (!key) return '未记录结束原因';
+  if (key.startsWith('gate:')) return `达到运行限制：${key.slice(5) || '未知限制'}`;
+  if (key.startsWith('tool_loop_error')) return 'Agent 执行出错';
+  if (key.startsWith('tool_loop_unavailable')) return 'Agent 执行服务不可用';
+  if (key.startsWith('step_failed')) return '执行步骤失败';
+  return FINISH_REASON_CN[key] ?? '';
+}
+
 export function eventLabel(type: string): string {
   return EVENT_CN[type as TaskEventType] ?? type;
 }

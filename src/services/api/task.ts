@@ -12,6 +12,7 @@ import type {
   Task,
   TaskEvent,
   TaskListItem,
+  TaskRunDetail,
   TaskRunSummary,
   TaskToolCall,
   TaskToolCalls,
@@ -146,7 +147,7 @@ export const taskApi = {
   /** 单个 run 的全量结果（含降级、工具轨迹、失败原因）。 */
   async runDetail(taskId: string, runId: string): Promise<{
     task_id: string;
-    run: Record<string, unknown>;
+    run: TaskRunDetail;
   }> {
     const { data } = await getApiClient().get(`/api/task/${taskId}/runs/${runId}`);
     return data;
@@ -162,11 +163,18 @@ export const taskApi = {
     return data;
   },
 
-  /** 重放一个 run：同样阶段与 brief **真重跑**（跳过幂等回放）。 */
+  /**
+   * 重放一个 run：同样阶段与 brief **真重跑**（跳过幂等回放）。
+   *
+   * 后端会带回本次的 `run`（AgentResult）——`replayed=true` 说明服务端其实回了缓存，
+   * 界面必须照实说"未确认真实重跑"，不能宣传成"已重跑"。
+   */
   async runReplay(taskId: string, runId: string): Promise<{
+    task_id?: string;
     stage: string;
     status: string;
     replayed: boolean;
+    run?: TaskRunDetail;
   }> {
     const { data } = await getApiClient().post(`/api/task/${taskId}/runs/${runId}/replay`);
     return data;

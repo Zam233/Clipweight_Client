@@ -228,3 +228,38 @@ export interface TaskRunSummary {
   summary: string;
   replayed: boolean;
 }
+
+/** 一次派发里的单条降级（run 详情用） */
+export interface TaskRunDegradation {
+  kind?: string;
+  scope?: string;
+  detail?: string;
+  impact?: string;
+  [key: string]: unknown;
+}
+
+/** `GET /api/task/{id}/runs/{run_id}` 里的 AgentResult（只声明前端要读的字段） */
+export interface TaskRunDetail {
+  run_id?: string;
+  kind?: string;
+  stage?: string;
+  role?: string;
+  status?: string;
+  attempt?: number;
+  task_id?: string;
+  summary?: string;
+  brief?: string;
+  outputs?: Record<string, unknown>;
+  writes?: string[];
+  needs?: Array<Record<string, unknown>>;
+  failure?: Record<string, unknown> | null;
+  degradations?: TaskRunDegradation[];
+  tool_calls?: Array<Record<string, unknown>>;
+  tool_calls_path?: string;
+  duration_ms?: number;
+  cost_usd?: number | null;
+  provider?: string;
+  model?: string;
+  replayed?: boolean;
+  [key: string]: unknown;
+}

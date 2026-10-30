@@ -159,3 +159,55 @@ describe('CopilotTaskRunTab', () => {
     expect(chips.textContent).toContain('needs_review');
   });
 });
+
+describe('M1：预算剩余与终态摘要', () => {
+  afterEach(cleanup);
+
+  it('UsageRows 显示 已用/上限/剩余（四道闸）', () => {
+    store.task = {
+      id: 'task_x', status: 'running', plan: null, finish: null,
+      limits: { max_turns: 30, max_tool_calls: 80, max_wall_sec: 3600, budget_usd: 1.0 },
+      usage: { turns: 12, tool_calls: 41, tokens: 100, cost_usd: 0.32, wall_sec: 750,
+        unknown_cost_calls: 0 },
+      context_digest: [], created_at: '', updated_at: '',
+    };
+    render(<CopilotTaskRunTab taskId="task_x" />);
+    const rows = screen.getByTestId('usage-rows');
+    expect(rows.textContent).toContain('模型往返 12 / 30');
+    expect(rows.textContent).toContain('剩余 18');
+    expect(rows.textContent).toContain('工具调用 41 / 80');
+    expect(rows.textContent).toContain('剩余 39');
+    expect(rows.textContent).toContain('运行时长 12:30 / 1:00:00');
+    expect(rows.textContent).toContain('/ $1.00');
+  });
+
+  it('没有金额上限时明说未设置', () => {
+    store.task = {
+      id: 'task_x', status: 'running', plan: null, finish: null,
+      limits: { max_turns: 30, max_tool_calls: 80, max_wall_sec: 0, budget_usd: null },
+      usage: { turns: 1, tool_calls: 1, tokens: 0, cost_usd: 0, wall_sec: 10,
+        unknown_cost_calls: 0 },
+      context_digest: [], created_at: '', updated_at: '',
+    };
+    render(<CopilotTaskRunTab taskId="task_x" />);
+    const rows = screen.getByTestId('usage-rows');
+    expect(rows.textContent).toContain('未设置金额上限');
+    expect(rows.textContent).toContain('（无上限）');
+  });
+
+  it('终态用 TaskFinishSummary 解释 reason（不再只显示 conclusion）', () => {
+    store.task = {
+      id: 'task_x', status: 'failed', plan: null,
+      finish: { conclusion: '触闸收尾', reason: 'gate:回合数达到上限 160',
+        completed: [], unfinished: ['回合数达到上限 160'] },
+      limits: { max_turns: 160, max_tool_calls: 800, max_wall_sec: 0, budget_usd: null },
+      usage: { turns: 170, tool_calls: 163, tokens: 0, cost_usd: 0, wall_sec: 1200,
+        unknown_cost_calls: 0 },
+      context_digest: [], created_at: '', updated_at: '',
+    };
+    render(<CopilotTaskRunTab taskId="task_x" />);
+    const box = screen.getByTestId('task-finish-summary');
+    expect(box.textContent).toContain('达到运行限制：回合数达到上限 160');
+    expect(box.textContent).toContain('回合数达到上限 160');
+  });
+});

@@ -10,6 +10,7 @@ import { useTaskEvents } from '@/features/task/useTaskEvents';
 import { EventFeed } from '@/features/task/EventFeed';
 import { TaskToolTrace } from '@/features/task/TaskToolTrace';
 import { TaskRuns } from '@/features/task/TaskRuns';
+import { TaskFinishSummary } from '@/features/task/TaskFinishSummary';
 import { PlanPanel } from '@/features/task/PlanPanel';
 import { TaskArtifacts } from '@/features/task/TaskArtifacts';
 import { TaskToolbar } from '@/features/task/TaskToolbar';
@@ -58,11 +59,54 @@ type Ev = ReturnType<typeof useTaskStore.getState>['events'];
  * 关键点：后端 `cost_usd` **不包含**"成本未知"的调用（`unknown_cost_calls`）。
  * 只显示金额会让用户把未知读成 0，所以未知次数必须显式写出来。
  */
-function UsageRows({ usage, unknownCostCalls }: {
+/**
+ * 预算四道闸的中文名（PRD §6.4）。只有 limits 里真的配了才展示剩余量。
+ */
+function _fmtSec(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
+    : `${m}:${String(ss).padStart(2, '0')}`;
+}
+
+function _BudgetCell({ label, used, limit, fmt }: {
+  label: string;
+  used: number;
+  limit?: number | null;
+  fmt?: (v: number) => string;
+}) {
+  const show = typeof limit === 'number' && limit > 0;
+  const remaining = show ? Math.max(0, (limit as number) - used) : 0;
+  const ratio = show ? Math.min(1, used / (limit as number)) : 0;
+  const f = fmt || ((v: number) => String(Math.round(v)));
+  return (
+    <span data-budget={label} data-ratio={ratio.toFixed(2)}>
+      {label} <b className="font-mono text-on-surface">{f(used)}</b>
+      {show ? (
+        <>
+          {' / '}
+          <span className="font-mono">{f(limit as number)}</span>
+          <span className={ratio >= 0.9 ? 'ml-1 text-error' : 'ml-1 text-on-surface-variant/60'}>
+            剩余 {f(remaining)}
+          </span>
+        </>
+      ) : (
+        <span className="ml-1 text-on-surface-variant/50">（无上限）</span>
+      )}
+    </span>
+  );
+}
+
+function UsageRows({ usage, limits, unknownCostCalls }: {
   usage: { turns: number; tool_calls: number; tokens: number; cost_usd: number; wall_sec: number };
+  limits?: { max_turns?: number; max_tool_calls?: number; max_wall_sec?: number;
+    budget_usd?: number | null } | null;
   unknownCostCalls: number;
 }) {
   const hasCost = usage.cost_usd > 0;
+  const hasBudget = typeof limits?.budget_usd === 'number' && (limits?.budget_usd ?? 0) > 0;
   return (
     <div
       className="border-b border-outline-variant/20 px-3 py-2 text-caption"
@@ -70,13 +114,24 @@ function UsageRows({ usage, unknownCostCalls }: {
     >
       <p className="mb-1 text-label-sm text-on-surface-variant">用量</p>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-on-surface-variant">
-        <span>模型往返 <b className="font-mono text-on-surface">{usage.turns}</b></span>
-        <span>工具调用 <b className="font-mono text-on-surface">{usage.tool_calls}</b></span>
-        <span>tokens <b className="font-mono text-on-surface">{usage.tokens.toLocaleString()}</b></span>
-        <span>
+        <_BudgetCell label="模型往返" used={usage.turns} limit={limits?.max_turns} />
+        <_BudgetCell label="工具调用" used={usage.tool_calls} limit={limits?.max_tool_calls} />
+        <_BudgetCell label="运行时长" used={usage.wall_sec} limit={limits?.max_wall_sec}
+          fmt={_fmtSec} />
+        <span data-budget="budget_usd">
           成本 <b className="font-mono text-on-surface">{hasCost ? `$${usage.cost_usd.toFixed(4)}` : '—'}</b>
-          {!hasCost && <span className="ml-1 text-on-surface-variant/60">（未配置单价或暂无计费）</span>}
+          {hasBudget ? (
+            <span className="ml-1 font-mono text-on-surface-variant/60">
+              / ${(limits?.budget_usd as number).toFixed(2)}
+            </span>
+          ) : (
+            <span className="ml-1 text-on-surface-variant/60">（未设置金额上限）</span>
+          )}
+          {!hasCost && (
+            <span className="ml-1 text-on-surface-variant/50">暂无计费</span>
+          )}
         </span>
+        <span>tokens <b className="font-mono text-on-surface">{usage.tokens.toLocaleString()}</b></span>
         {unknownCostCalls > 0 && (
           <span className="text-error" data-testid="unknown-cost">
             未知成本 {unknownCostCalls} 次（这些调用未计入金额，不能当 0）
@@ -427,16 +482,16 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
         {error && (
           <p className="mt-1 text-caption text-error" data-testid="task-error">{error}</p>
         )}
-        {task?.finish?.conclusion && (
-          <p className="mt-1 text-caption text-on-surface-variant" data-testid="task-conclusion">
-            {task.finish.conclusion}
-          </p>
-        )}
       </div>
+
+      {task && (
+        <TaskFinishSummary status={status} finish={task.finish ?? null} />
+      )}
 
       {task && (
         <UsageRows
           usage={task.usage}
+          limits={task.limits}
           unknownCostCalls={task.usage.unknown_cost_calls ?? 0}
         />
       )}
