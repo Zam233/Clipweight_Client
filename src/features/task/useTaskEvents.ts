@@ -38,12 +38,29 @@ export function toTaskEvent(raw: unknown): TaskEvent | null {
   };
 }
 
+/**
+ * 同一 taskId 的**引用计数**：M3 合流后，时间线宿主与任务面板可能同时挂这个 hook，
+ * 两个组件各自订阅同一条 SSE 会导致事件重复应用、成本翻倍（PRD §8 反模式 3）。
+ * 这里保证一条任务只有一条活跃流，最后一个卸载时才关闭。
+ */
+const _taskSubs = new Map<string, number>();
+
 export function useTaskEvents(taskId: string | null, enabled = true): void {
   const applyEvent = useTaskStore((s) => s.applyEvent);
   const hydrateEvents = useTaskStore((s) => s.hydrateEvents);
 
   useEffect(() => {
     if (!taskId || !enabled) return;
+    // 已有别的组件在订阅同一条任务流 → 本组件不重复订阅
+    const refs = _taskSubs.get(taskId) ?? 0;
+    _taskSubs.set(taskId, refs + 1);
+    if (refs > 0) {
+      return () => {
+        const left = (_taskSubs.get(taskId) ?? 1) - 1;
+        if (left <= 0) _taskSubs.delete(taskId);
+        else _taskSubs.set(taskId, left);
+      };
+    }
     let closed = false;
     let handle: { close: () => void } | null = null;
 
@@ -90,6 +107,7 @@ export function useTaskEvents(taskId: string | null, enabled = true): void {
     return () => {
       closed = true;
       handle?.close();
+      _taskSubs.delete(taskId);
     };
   }, [taskId, enabled, applyEvent, hydrateEvents]);
 }

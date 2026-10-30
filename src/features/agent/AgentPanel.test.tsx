@@ -1130,3 +1130,33 @@ describe('M5c：需求会话 ask_user 问答卡', () => {
     expect(screen.getByPlaceholderText('继续与需求 Agent 对话…（Shift+Enter 换行）')).toBeTruthy();
   });
 });
+
+describe('M3：合流视图（flag 打开时一条流）', () => {
+  it('flag 打开后消息与思考进同一条时间线，旧消息列表不再重复渲染', async () => {
+    const { setUnifiedTimelineEnabled } = await import('@/features/unifiedTimeline/flag');
+    const { useUnifiedTimelineStore } = await import('@/stores/unifiedTimelineStore');
+    const { useTaskStore } = await import('@/stores/taskStore');
+    setUnifiedTimelineEnabled(true);
+    useUnifiedTimelineStore.getState().resetAll();
+    useTaskStore.setState({ task: null, events: [] });
+    useSelectionStore.setState({ selectedClipIds: [], selectedTrackId: null });
+    useAgentStore.setState({
+      requirementsSessionId: 'req_uni',
+      requirementsStatus: 'gathering',
+      requirementsBusy: false,
+      requirementsMessages: [
+        { id: 'm1', role: 'user', content: '做一期数码评测', timestamp: new Date().toISOString() },
+        { id: 'm2', role: 'assistant', content: '好的，先确认三点', timestamp: new Date().toISOString() },
+      ],
+    });
+    render(<AgentPanel />);
+
+    const host = await screen.findByTestId('requirements-unified-stream');
+    expect(host.textContent).toContain('做一期数码评测');
+    expect(host.textContent).toContain('好的，先确认三点');
+    // 投影层里确实有两条需求消息（不是把事件塞进消息数组）
+    const items = Object.values(useUnifiedTimelineStore.getState().itemsByKey);
+    expect(items.filter((i) => i.source === 'requirements' && i.kind === 'message')).toHaveLength(2);
+    setUnifiedTimelineEnabled(null);
+  });
+});

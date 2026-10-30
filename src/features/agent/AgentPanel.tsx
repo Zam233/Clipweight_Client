@@ -17,6 +17,11 @@ import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
 import { TaskQuestionCard } from '@/features/task/TaskQuestionCard';
 import { ThinkingDisclosure } from '@/features/copilot/ThinkingDisclosure';
+import { UnifiedTimeline } from '@/features/unifiedTimeline/UnifiedTimeline';
+import { isUnifiedTimelineEnabled } from '@/features/unifiedTimeline/flag';
+import { useUnifiedTimelineStore } from '@/stores/unifiedTimelineStore';
+import { useTaskStore } from '@/stores/taskStore';
+import { useTaskEvents } from '@/features/task/useTaskEvents';
 import { uid } from '@/lib/utils';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline, Clip, ClipKind } from '@/types/timeline';
@@ -180,6 +185,11 @@ function RequirementsView() {
   // reflect its busy flag here so the UI shows progress even though it's store-driven.
   const autoBusy = useAgentStore((s) => s.requirementsBusy);
   const busy = manualBusy || autoBusy;
+  // M3 合流（unified-stream PRD §M3）：flag 打开时，消息 + 思考 + 工具 + 阶段 + 结论
+  // 在同一个滚动容器里按时间顺序显示；默认仍走旧消息列表，可随时回退。
+  const unified = isUnifiedTimelineEnabled();
+  const taskId = useTaskStore((s) => s.task?.id ?? '');
+  useTaskEvents(taskId || null, Boolean(taskId && unified));
   // 不同阶段的"忙"含义不同：需求澄清才谈得上思考，规划/管线阶段说清楚在干什么
   const busyLabel =
     status === 'brief_ready' || status === 'brief_confirmed'
@@ -208,6 +218,25 @@ function RequirementsView() {
   }, []);
 
   useEffect(() => { void refreshQuestions(requirementsSessionId); }, [requirementsSessionId, refreshQuestions]);
+
+  // 需求侧投影（PRD §4.4）：消息与思考进同一个时间线，不在组件里拼数组
+  useEffect(() => {
+    if (!requirementsSessionId) return;
+    useUnifiedTimelineStore.getState().applyRequirementMessages(
+      requirementsSessionId,
+      messages.map((m) => ({
+        id: m.id, role: String(m.role), content: String(m.content ?? ''),
+        timestamp: m.timestamp, streaming: m.streaming,
+      })),
+    );
+  }, [requirementsSessionId, messages]);
+
+  useEffect(() => {
+    if (!requirementsSessionId) return;
+    for (const ev of questionEvents) {
+      useUnifiedTimelineStore.getState().applyRequirementEvent(requirementsSessionId, ev);
+    }
+  }, [requirementsSessionId, questionEvents]);
 
   /** 回答需求会话问题 → 后端带答案继续 → 回显新回复并刷新问题状态 */
   const answerRequirementQuestion = useCallback(async (
@@ -392,6 +421,11 @@ function RequirementsView() {
         else if (chunk.type === 'reasoning' && typeof chunk.data === 'string' && chunk.data) {
           setLiveReasoning((prev) => (prev + chunk.data).slice(0, 200_000));
           setReasoningState('available');
+          if (requirementsSessionId) {
+            useUnifiedTimelineStore.getState().applyRequirementReasoning(
+              requirementsSessionId, chunk.data as string,
+            );
+          }
         }
         // 后端自报思考能力/可用性（PRD §5.1）：不再靠"有没有收到帧"反推
         else if (chunk.type === 'reasoning_status' && chunk.data && typeof chunk.data === 'object') {
@@ -718,7 +752,13 @@ function RequirementsView() {
           </div>
         )}
 
-        {messages.map((m) => (
+        {unified && messages.length > 0 && (
+          <div data-testid="requirements-unified-stream">
+            <UnifiedTimeline sessionId={requirementsSessionId ?? undefined} taskId={taskId || undefined} />
+          </div>
+        )}
+
+        {!unified && messages.map((m) => (
           <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[85%] rounded-cw-md px-3 py-2 text-body-sm leading-relaxed ${m.role === 'user'
               ? 'bg-primary-container text-on-primary-container rounded-br-cw-xs whitespace-pre-wrap'
