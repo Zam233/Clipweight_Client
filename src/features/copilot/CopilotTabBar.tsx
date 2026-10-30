@@ -1,10 +1,10 @@
 /**
- * 副驾驶标签栏（PRD §19.2 / 需求 8）
+ * 副驾驶标签栏（PRD §19.2 / 需求 8；2026-10-31 用户定稿）
  *
- * - `requirements` 不渲染关闭按钮（它不可关）；
+ * - 固定标签只有两个且都不可关：**需求对话**、**轨迹**（紧挨其右）；
+ * - 「执行日志」标签已撤删——日志内容并入轨迹的「日志」视图，功能没丢、标签少一个；
  * - 其余标签支持关闭；中键也可关；
- * - `+` 菜单用于新增（轨迹 / 工作区 / 计划 / 文档列表）；「轨迹」是专业视图，
- *   日常看单流就行（需求对话里一条流），排查时再开它。
+ * - `+` 菜单用于新增（工作区 / 文档）；轨迹是固定标签，不再出现在菜单里。
  */
 import React from 'react';
 import { Plus, X } from 'lucide-react';
@@ -12,7 +12,6 @@ import { cn } from '@/lib/utils';
 import { useCopilotStore, type CopilotTab } from '@/stores/copilotStore';
 
 const NEW_TAB_MENU: Array<{ kind: CopilotTab['kind']; title: string; id: string }> = [
-  { kind: 'task-run', title: '轨迹', id: 'task-run:current' },
   { kind: 'workspace', title: '工作区', id: 'workspace' },
   { kind: 'docs', title: '文档', id: 'docs:list' },
 ];

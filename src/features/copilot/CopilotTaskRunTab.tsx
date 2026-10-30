@@ -7,6 +7,9 @@
  */
 import React from 'react';
 import { useTaskStore } from '@/stores/taskStore';
+import { cn } from '@/lib/utils';
+import { LogPanel } from '@/features/agent/AgentPanel';
+import { TraceInspector } from './TraceInspector';
 import { useTaskEvents } from '@/features/task/useTaskEvents';
 import { EventFeed } from '@/features/task/EventFeed';
 import { TaskToolTrace } from '@/features/task/TaskToolTrace';
@@ -17,6 +20,7 @@ import { PlanPanel } from '@/features/task/PlanPanel';
 import { TaskArtifacts } from '@/features/task/TaskArtifacts';
 import { TaskToolbar } from '@/features/task/TaskToolbar';
 import { parseTaskEvent } from '@/features/task/eventSchema';
+import type { TaskEvent } from '@/types/task';
 import { supervisorApi } from '@/services/api';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { RunningSubagents } from './RunningSubagents';
@@ -630,7 +634,14 @@ function DegradationRows({ events }: { events: Ev }) {
 }
 
 export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
-  useTaskEvents(taskId || null, Boolean(taskId));
+  /**
+   * 固定「轨迹」标签不绑定具体任务：优先用传入的 taskId（动态标签），
+   * 没有就跟着 taskStore 的"当前任务"走（派发/开工时写入，刷新后由会话时间线的
+   * `task_ids` 接回）。否则固定标签一刷新就是死空态。
+   */
+  const currentTaskId = useTaskStore((s) => s.task?.id ?? '');
+  const effectiveTaskId = taskId || currentTaskId;
+  useTaskEvents(effectiveTaskId || null, Boolean(effectiveTaskId));
   const task = useTaskStore((s) => s.task);
   const events = useTaskStore((s) => s.events);
   // M3：事件恢复元数据（缺口提示 + 往上翻历史）
@@ -658,10 +669,50 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
     }
   }, [showArtifacts]);
 
-  if (!taskId) {
+  /**
+   * 轨迹的两块内容（用户 2026-10-31 定稿）：
+   * - 事件流：分区行 + 原始事件，点任一条 → 右侧详情（旧「执行日志」的能力并入这里）；
+   * - 日志：Agent 结构化日志（LogPanel 原样搬进来，撤掉独立标签后功能不能丢）。
+   */
+  const [view, setView] = React.useState<'flow' | 'log'>('flow');
+  const [selectedSeq, setSelectedSeq] = React.useState<number | null>(null);
+  const selectedEvent = React.useMemo(
+    () => events.find((e) => e.seq === selectedSeq) ?? null,
+    [events, selectedSeq],
+  );
+  // 默认选中最后一条（跟"当前正在发生什么"对齐）；用户点了别的就不再抢焦点
+  const touched = React.useRef(false);
+  const onSelect = React.useCallback((e: TaskEvent) => {
+    touched.current = true;
+    setSelectedSeq(e.seq);
+  }, []);
+  React.useEffect(() => {
+    if (touched.current || selectedSeq !== null) return;
+    const last = events[events.length - 1];
+    if (last) setSelectedSeq(last.seq);
+  }, [events, selectedSeq]);
+
+  /**
+   * 两栏还是堆叠：面板默认只有 320px（拖宽上限 1100），窄屏两栏会把详情挤成一条缝。
+   * 用容器宽度而不是 `window.innerWidth`——用户拖的是面板，不是窗口。
+   */
+  const flowRef = React.useRef<HTMLDivElement | null>(null);
+  const [wide, setWide] = React.useState(false);
+  React.useEffect(() => {
+    const el = flowRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width ?? el.clientWidth;
+      setWide(w >= 720);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [view, effectiveTaskId]);
+
+  if (!effectiveTaskId) {
     return (
       <div className="p-3 text-caption text-on-surface-variant">
-        还没有运行中的任务：从「需求对话」确认规划书后会自动打开这里。
+        还没有运行中的任务：从「需求对话」确认简报后会派发规划书，这里显示它的轨迹。
       </div>
     );
   }
@@ -681,10 +732,10 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
         <TaskToolbar
           status={status}
           busy={busy}
-          onPause={() => void pause(taskId)}
-          onResume={() => void resume(taskId)}
-          onCancel={() => void cancel(taskId)}
-          onInject={(text) => void inject(taskId, text)}
+          onPause={() => void pause(effectiveTaskId)}
+          onResume={() => void resume(effectiveTaskId)}
+          onCancel={() => void cancel(effectiveTaskId)}
+          onInject={(text) => void inject(effectiveTaskId, text)}
           onViewResult={() => setShowArtifacts(true)}
         />
         {/* PRD B11：resume 被后端拒绝（终态）时，原因来自 store.error——显示在工具条下方 */}
@@ -697,7 +748,9 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
         <TaskFinishSummary status={status} finish={task.finish ?? null} />
       )}
 
-      {task && (
+      {/* 只有拿到**完整** task（含 usage/limits）才渲染用量；只有 id 的半成品对象
+          会让这里读 undefined 崩掉——宁可少一块，也不要把面板打崩 */}
+      {task?.usage && (
         <UsageRows
           usage={task.usage}
           limits={task.limits}
@@ -708,44 +761,97 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
       <ThinkingDisclosure events={events} />
       {/* PRD B6：Plan 是「初始假设」，真实进展只认事件——两块在视觉上分开 */}
       {task && <PlanPanel task={task} busy={busy} />}
-      <p
-        className="border-b border-outline-variant/20 bg-surface-container/40 px-3 py-1 text-label-sm text-on-surface"
-        data-testid="real-progress-heading"
-      >
-        真实进展（来自事件）
-        <span className="ml-2 text-caption text-on-surface-variant/70">
-          上方 Plan 只是初始假设，不追踪进度
+
+      {/* 视图切换：事件流（可点开详情）/ 日志（旧「执行日志」的内容） */}
+      <div className="flex shrink-0 items-center gap-1 border-b border-outline-variant/20 px-3 py-1"
+        data-testid="trace-view-switch">
+        {([['flow', '事件流'], ['log', '日志']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            data-trace-view={key}
+            aria-selected={view === key}
+            className={cn(
+              'rounded-cw-xs px-1.5 py-0.5 text-caption',
+              view === key
+                ? 'bg-surface-container-high text-on-surface'
+                : 'text-on-surface-variant hover:bg-surface-container',
+            )}
+            onClick={() => setView(key)}
+          >
+            {label}
+          </button>
+        ))}
+        <span className="ml-auto text-caption text-on-surface-variant/60">
+          点左侧任一条，右侧看参数 / 结果 / Schema / 计时
         </span>
-      </p>
-        <>
-          <StageRows events={events} />
-          <ModelTurnRows events={events} />
-          <ToolCallRows events={events} />
-          <ApprovalRows events={events} taskId={taskId} />
-          <DegradationRows events={events} />
+      </div>
 
-          {/* PRD §15：主 agent 提问 → 用户回答（任务进入 waiting_user 时的唯一出路） */}
-          <TaskQuestionCard taskId={taskId} events={events} />
+      {view === 'log' ? (
+        <div className="min-h-[420px] flex-1 overflow-auto" data-testid="trace-log-view">
+          <LogPanel />
+        </div>
+      ) : (
+        <div
+          ref={flowRef}
+          className={cn('flex min-h-[420px] flex-1', wide ? 'flex-row' : 'flex-col')}
+          data-testid="trace-flow-view"
+          data-layout={wide ? 'split' : 'stacked'}
+        >
+          {/* 列表：分区行 + 原始事件（可选中） */}
+          <div className={cn(
+            'flex min-h-0 min-w-0 flex-col overflow-auto',
+            wide ? 'flex-[1.15]' : 'flex-1',
+          )}>
+            <p
+              className="border-b border-outline-variant/20 bg-surface-container/40 px-3 py-1 text-label-sm text-on-surface"
+              data-testid="real-progress-heading"
+            >
+              真实进展（来自事件）
+              <span className="ml-2 text-caption text-on-surface-variant/70">
+                上方 Plan 只是初始假设，不追踪进度
+              </span>
+            </p>
+            <StageRows events={events} />
+            <ModelTurnRows events={events} />
+            <ToolCallRows events={events} />
+            <ApprovalRows events={events} taskId={effectiveTaskId} />
+            <DegradationRows events={events} />
 
-          {/* PRD modern-agent-review M2：子会话可寻址（追问 / 重放） */}
-          <TaskRuns taskId={taskId} active={!terminal} />
+            {/* PRD §15：主 agent 提问 → 用户回答（任务进入 waiting_user 时的唯一出路） */}
+            <TaskQuestionCard taskId={effectiveTaskId} events={events} />
 
-          {/* PRD modern-agent-review M3：事件流只有采样，全量轨迹单独读盘上的 transcript */}
-          <TaskToolTrace taskId={taskId} active={!terminal} />
+            {/* PRD modern-agent-review M2：子会话可寻址（追问 / 重放） */}
+            <TaskRuns taskId={effectiveTaskId} active={!terminal} />
 
-          <div className="min-h-0 flex-1 overflow-auto px-1 py-1">
-            <EventFeed
-              events={events}
-              hasEarlierEvents={hasEarlierEvents}
-              seqGap={seqGap}
-              onLoadEarlier={() => void loadEarlierEvents(taskId)}
-            />
+            {/* PRD modern-agent-review M3：事件流只有采样，全量轨迹单独读盘上的 transcript */}
+            <TaskToolTrace taskId={effectiveTaskId} active={!terminal} />
+
+            <div className="min-h-0 flex-1 overflow-auto px-1 py-1">
+              <EventFeed
+                events={events}
+                hasEarlierEvents={hasEarlierEvents}
+                seqGap={seqGap}
+                onLoadEarlier={() => void loadEarlierEvents(effectiveTaskId)}
+                onSelect={onSelect}
+                selectedSeq={selectedSeq}
+              />
+            </div>
           </div>
-        </>
+          {/* 详情：选中条目的 概述 / 参数 / 结果 / Schema / 计时 */}
+          <div className={cn(
+            'min-h-0 border-outline-variant/20',
+            wide ? 'w-[46%] shrink-0 border-l' : 'h-[42%] shrink-0 border-t',
+          )}
+          >
+            <TraceInspector event={selectedEvent} taskId={effectiveTaskId} />
+          </div>
+        </div>
+      )}
 
-      <RunningSubagents taskId={taskId} active={!terminal} />
+      <RunningSubagents taskId={effectiveTaskId} active={!terminal} />
       <div ref={artifactsRef}>
-        <TaskArtifacts taskId={taskId} enabled={terminal} />
+        <TaskArtifacts taskId={effectiveTaskId} enabled={terminal} />
       </div>
     </div>
   );

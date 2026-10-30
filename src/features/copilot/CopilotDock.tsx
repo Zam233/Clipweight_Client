@@ -1,16 +1,17 @@
 /**
- * 副驾驶容器（PRD §19.2 / 需求 8；2026-10-28 PRD B1 统一单层标签）
+ * 副驾驶容器（PRD §19.2 / 需求 8；2026-10-31 用户定稿）
  *
  * 右侧面板只有**一排**标签：
  * - `requirements` → 需求对话宿主（RequirementsPane，无自身标题行/标签）；
- * - `logs`        → 执行日志面板（LogPanel），与需求对话同级；
- * - `task-run` / `subagent` / `stage` / `workspace` / `docs` → F2–F4 逐步接入。
+ * - `task-run`（固定 `trace`）→ 轨迹：事件流 + 右侧详情检查器，另含「日志」视图
+ *   （原「执行日志」标签已撤删，能力并入这里）；
+ * - `subagent` / `stage` / `workspace` / `docs` → F2–F4 逐步接入。
  *
  * 注意：Dock 只挂载当前激活标签的内容，SSE 订阅仍在各自的 store/provider 中，
  * 不在此处重复订阅。
  */
 import React from 'react';
-import { LogPanel, RequirementsPane } from '@/features/agent/AgentPanel';
+import { RequirementsPane } from '@/features/agent/AgentPanel';
 import { WorkspaceMaterialsPanel } from '@/features/workspace/WorkspaceMaterialsPanel';
 import { CopilotTabBar } from './CopilotTabBar';
 import { CopilotTaskRunTab } from './CopilotTaskRunTab';
@@ -37,8 +38,6 @@ export function CopilotDock() {
     switch (active?.kind) {
       case 'requirements':
         return <RequirementsPane />;
-      case 'logs':
-        return <LogPanel />;
       case 'workspace':
         return active.payload?.projectId ? (
           <WorkspaceMaterialsPanel projectId={active.payload.projectId} compact />

@@ -122,3 +122,34 @@ export function itemRole(item: SessionTimelineItem): SessionItemRole {
   if (role === 'user' || role === 'system' || role === 'assistant') return role;
   return item.source === 'requirements' ? 'assistant' : 'system';
 }
+
+/**
+ * 这条 `report` 条目到底是**创意简报**还是**主 agent 的汇报**？
+ *
+ * 踩过的坑（用户 2026-10-31 实测）：内核每轮会 emit `report`（headline + bullets +
+ * tool_calls），投影成 `report` 条目后被当成创意简报，用 BriefCard 模板渲染 →
+ * 界面上出现一张「创意简报 / 标题：undefined」的卡。类型名一样，语义完全不同：
+ *
+ * - 创意简报：需求侧产出，字段是 title/overview/target_audience/style_direction…；
+ * - 主 agent 汇报：`meta.event_type === 'report'`，字段是 stage/status/bullets。
+ *
+ * 判据用**字段**而不是来源名，这样两边的数据变形都不会再错判。
+ */
+export function isBriefItem(item: SessionTimelineItem): boolean {
+  if (item.type !== 'report') return false;
+  const obj = itemObject(item);
+  if (!obj || typeof obj !== 'object') return false;
+  if ('bullets' in obj && !('overview' in obj)) return false;   // 内核汇报卡
+  return typeof obj.overview === 'string'
+    || typeof obj.target_audience === 'string'
+    || typeof obj.style_direction === 'string'
+    || typeof obj.title === 'string';
+}
+
+/** 主 agent 的汇报卡（headline + bullets），不是创意简报。 */
+export function reportBullets(item: SessionTimelineItem): string[] {
+  const obj = itemObject(item);
+  const raw = Array.isArray(obj.bullets) ? obj.bullets : [];
+  return raw.map((b) => String(b)).filter(Boolean);
+}
+

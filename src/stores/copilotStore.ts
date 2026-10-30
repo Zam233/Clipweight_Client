@@ -1,19 +1,20 @@
 /**
- * 副驾驶标签（PRD master-agent §19.2 / 需求 8；2026-10-28 PRD B1 统一单层标签）
+ * 副驾驶标签（PRD master-agent §19.2 / 需求 8；2026-10-28 PRD B1 统一单层标签；
+ * 2026-10-31 用户定稿：轨迹固定放在需求对话右侧，执行日志撤删、能力并入轨迹）
  *
  * 规则（逐条可测，见 CopilotTabBar/copilotStore 测试）：
- * 1. `requirements` 永远是第一个、`logs`（执行日志）紧随其后，两者都**不可关闭**；
+ * 1. `requirements`（需求对话）永远是第一个，`trace`（轨迹）紧随其右，两者**不可关闭**；
  * 2. 关掉当前激活标签 → 焦点回落到 `requirements`；
  * 3. 同 id 重复添加只聚焦，不新增；
  * 4. 上限 8 个，超出返回 false（调用方提示"先关掉一个"）；
- * 5. 按 projectId 持久化到 localStorage，刷新后恢复（旧数据缺 logs 时绑定时补上）。
+ * 5. 按 projectId 持久化到 localStorage，刷新后恢复（旧数据缺 trace 时绑定时补上，
+ *    旧的 `logs`（执行日志）标签在绑定时被丢弃——它的内容已并进轨迹的「日志」视图）。
  */
 import { create } from 'zustand';
 import { loadPref, savePref } from '@/services/storage/localPrefs';
 
 export type CopilotTabKind =
   | 'requirements'
-  | 'logs'
   | 'task-run'
   | 'subagent'
   | 'stage'
@@ -42,15 +43,21 @@ export const REQUIREMENTS_TAB: CopilotTab = {
   title: '需求对话',
   closable: false,
 };
-/** B1：执行日志提升为固定标签，与需求对话、任务运行同级（不再藏在 AgentPanel 内部）。 */
-export const LOGS_TAB: CopilotTab = {
-  id: 'logs',
-  kind: 'logs',
-  title: '执行日志',
+/**
+ * 轨迹：与需求对话同级、**固定**（用户 2026-10-31 定稿）。
+ *
+ * 取代了原「执行日志」标签：日志内容并入轨迹的「日志」视图，轨迹默认给事件流 +
+ * 右侧详情检查器（概述/参数/结果/Schema/计时）。`kind: 'task-run'` 表示它渲染的是
+ * 当前任务的执行轨迹——不绑定具体 taskId，跟着 taskStore 里"当前任务"走。
+ */
+export const TRACE_TAB: CopilotTab = {
+  id: 'trace',
+  kind: 'task-run',
+  title: '轨迹',
   closable: false,
 };
 /** 固定标签（顺序即渲染顺序，不可关闭、不可重排到末尾之前）。 */
-export const FIXED_TABS: readonly CopilotTab[] = [REQUIREMENTS_TAB, LOGS_TAB];
+export const FIXED_TABS: readonly CopilotTab[] = [REQUIREMENTS_TAB, TRACE_TAB];
 
 
 const PREFS_KEY = 'cw_copilot_tabs';
@@ -76,10 +83,19 @@ function writeAll(data: Persisted): void {
   }
 }
 
-/** 保证固定标签（需求对话 + 执行日志）恒在首位且不可关闭（防御脏数据/旧持久化）。 */
+/** 保证固定标签（需求对话 + 轨迹）恒在首位且不可关闭（防御脏数据/旧持久化）。 */
 export function normalizeTabs(tabs: CopilotTab[]): CopilotTab[] {
   const fixedIds = new Set(FIXED_TABS.map((t) => t.id));
-  const rest = (tabs ?? []).filter((t) => t && t.id && !fixedIds.has(t.id));
+  const rest = (tabs ?? []).filter((t) => {
+    if (!t || !t.id) return false;
+    if (fixedIds.has(t.id)) return false;
+    // 旧「执行日志」标签已撤删（内容并进轨迹的「日志」视图）→ 绑定时丢掉；
+    // 旧的可关闭「轨迹」标签（kind=task-run）也丢掉，避免与固定轨迹重复。
+    const kind = String((t as { kind?: string }).kind || '');
+    if (kind === 'logs') return false;
+    if (kind === 'task-run') return false;
+    return true;
+  });
   const seen = new Set<string>();
   const deduped: CopilotTab[] = [];
   for (const t of rest) {
@@ -137,13 +153,15 @@ export const useCopilotStore = create<CopilotState>((set, get) => ({
     }
     if (state.tabs.length >= MAX_TABS) return false;
     const next = normalizeTabs([...state.tabs, tab]);
+    // 被规范化丢弃的标签（旧 logs、可关闭轨迹等）不能聚焦——否则 activeId 指向不存在的标签
+    if (!next.some((t) => t.id === tab.id)) return false;
     set({ tabs: next, activeId: tab.id });
     persist(get());
     return true;
   },
 
   closeTab: (id: string) => {
-    if (FIXED_TABS.some((t) => t.id === id)) return; // 需求对话 / 执行日志不可关
+    if (FIXED_TABS.some((t) => t.id === id)) return; // 需求对话 / 轨迹不可关
     const state = get();
     const idx = state.tabs.findIndex((t) => t.id === id);
     if (idx < 0) return;

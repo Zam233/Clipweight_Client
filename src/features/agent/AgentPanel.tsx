@@ -21,6 +21,7 @@ import { SessionTimeline } from '@/features/sessionTimeline/SessionTimeline';
 import { isSessionTimelineEnabled } from '@/features/sessionTimeline/flag';
 import { useSessionTimelineStore } from '@/stores/sessionTimelineStore';
 import {
+  isBriefItem,
   itemRole,
   itemText,
   type SessionTimelineItem,
@@ -805,10 +806,9 @@ function RequirementsView() {
           task_id?: string; status?: string; reused?: boolean;
         };
         if (res?.task_id) {
-          useTaskStore.setState((s) => ({
-            ...s,
-            task: { ...(s.task ?? {}), id: String(res.task_id) } as typeof s.task,
-          }));
+          // 拉完整 task 对象（taskApi.get）。**不要**只塞一个 {id} 的假对象：
+          // 「轨迹」会读 task.usage/limits，假对象直接把它打崩（2026-10-31 实测）。
+          void useTaskStore.getState().load(String(res.task_id));
         }
         setStatus('planning');
         // 终态由后端驱动（C4）：轮询会话状态，等它离开 planning 再放开 busy。
@@ -1007,17 +1007,24 @@ function RequirementsView() {
                   </div>
                 );
               }}
-              renderReport={(it) => (
-                <div data-testid="timeline-item-report" data-seq={it.seq}>
-                  <RequirementsBubble
-                    m={{ ...timelineItemAsMessage(it), content: '', creative_brief: it.content as RequirementMessage['creative_brief'] }}
-                    busy={busy}
-                    onConfirmBrief={confirmBrief}
-                    onConfirmPlan={confirmPlan}
-                    onReview={setReviewMode}
-                  />
-                </div>
-              )}
+              renderReport={(it) => {
+                // 只有**创意简报**才用 BriefCard 模板。内核每轮也会 emit `report`
+                // （headline + bullets），它被投影成 report 条目后曾在这里被当成简报渲染，
+                // 于是界面上出现「创意简报 / 标题：undefined」（用户 2026-10-31 实测）。
+                // 认不出来就返回 null，让时间线走默认渲染（主 agent 汇报 = bullets 列表）。
+                if (!isBriefItem(it)) return null;
+                return (
+                  <div data-testid="timeline-item-report" data-seq={it.seq}>
+                    <RequirementsBubble
+                      m={{ ...timelineItemAsMessage(it), content: '', creative_brief: it.content as RequirementMessage['creative_brief'] }}
+                      busy={busy}
+                      onConfirmBrief={confirmBrief}
+                      onConfirmPlan={confirmPlan}
+                      onReview={setReviewMode}
+                    />
+                  </div>
+                );
+              }}
               renderPlan={(it) => (
                 <div data-testid="timeline-item-plan" data-seq={it.seq}>
                   <RequirementsBubble
@@ -1926,3 +1933,4 @@ function clipText(clip: Clip, kind: string): string {
 function demoPlanMarkdown(topic: string) {
   return `# 制作规划书：${topic || '未命名选题'}\n\n## 一、整体结构\n- 00:00-00:20  钩子\n- 00:20-01:00  背景\n- 01:00-03:30  三个核心论点\n- 03:30-04:00  总结\n\n## 二、场景列表\n1. 开场钩子\n2. 数据展示\n3. 论点一\n4. 论点二\n5. 论点三\n6. 结尾引导`;
 }
+

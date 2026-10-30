@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 /**
  * 副驾驶标签（PRD §19.2 / 需求 8；2026-10-28 PRD B1 单层标签）：
- * 固定标签（需求对话 + 执行日志）不可关、去重、上限、持久化。
+ * 固定标签（需求对话 + 轨迹）不可关、去重、上限、持久化。
+ * 2026-10-31 用户定稿：轨迹固定在需求对话右侧；执行日志标签撤删（内容并入轨迹的日志视图）。
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   FIXED_TABS,
-  LOGS_TAB,
+  TRACE_TAB,
   MAX_TABS,
   REQUIREMENTS_TAB,
   normalizeTabs,
@@ -35,26 +36,34 @@ describe('copilotStore', () => {
     expect(useCopilotStore.getState().activeId).toBe('requirements');
   });
 
-  it('B1：执行日志（logs）是第二个固定标签，不可关闭', () => {
+  it('轨迹（trace）是第二个固定标签、紧挨需求对话，且不可关闭', () => {
     const s = useCopilotStore.getState();
-    expect(s.tabs[1].id).toBe(LOGS_TAB.id);
-    expect(s.tabs[1].kind).toBe('logs');
-    expect(s.tabs[1].title).toBe('执行日志');
+    expect(s.tabs[1].id).toBe(TRACE_TAB.id);
+    expect(s.tabs[1].kind).toBe('task-run');
+    expect(s.tabs[1].title).toBe('轨迹');
     expect(s.tabs[1].closable).toBe(false);
 
-    s.closeTab(LOGS_TAB.id);
-    expect(useCopilotStore.getState().tabs.some((t) => t.id === LOGS_TAB.id)).toBe(true);
+    s.closeTab(TRACE_TAB.id);
+    expect(useCopilotStore.getState().tabs.some((t) => t.id === TRACE_TAB.id)).toBe(true);
+  });
+
+  it('旧的可关闭轨迹标签（kind=task-run）不再是动态标签', () => {
+    const s = useCopilotStore.getState();
+    expect(s.openTab({
+      id: 'task-run:current', kind: 'task-run', title: '轨迹', closable: true,
+    })).toBe(false);
+    expect(useCopilotStore.getState().tabs.filter((t) => t.kind === 'task-run')).toHaveLength(1);
   });
 
   it('可以新增并关闭其他标签，焦点回落到 requirements', () => {
     const s = useCopilotStore.getState();
-    expect(s.openTab({ id: 'task-run:current', kind: 'task-run', title: '轨迹', closable: true })).toBe(true);
+    expect(s.openTab({ id: 'workspace', kind: 'workspace', title: '工作区', closable: true })).toBe(true);
 
     const after = useCopilotStore.getState();
     expect(after.tabs).toHaveLength(FIXED_TABS.length + 1);
-    expect(after.activeId).toBe('task-run:current');
+    expect(after.activeId).toBe('workspace');
 
-    after.closeTab('task-run:current');
+    after.closeTab('workspace');
     expect(useCopilotStore.getState().tabs).toHaveLength(FIXED_TABS.length);
     expect(useCopilotStore.getState().activeId).toBe('requirements');
   });
@@ -102,18 +111,22 @@ describe('copilotStore', () => {
     expect(tabs.filter((t) => t.id === 'x')).toHaveLength(1);
   });
 
-  it('B1：旧持久化数据（只有 requirements）绑定后补出 logs 且限长', () => {
-    // 旧版本会话只存了 requirements + 若干动态标签，没有 logs
+  it('旧持久化数据（requirements + 已撤删的 logs + 旧轨迹）绑定后补出 trace 且限长', () => {
+    // 旧版本会话只存了 requirements + 若干动态标签，没有 trace；还带着已撤删的 logs
     const legacy = [
       { id: 'requirements', kind: 'requirements' as const, title: '需求对话', closable: false },
       ...Array.from({ length: 10 }, (_, i) => ({
         id: `old${i}`, kind: 'docs' as const, title: `old${i}`, closable: true,
       })),
+      { id: 'logs', kind: 'logs' as never, title: '执行日志', closable: false },
+      { id: 'task-run:current', kind: 'task-run' as const, title: '轨迹', closable: true },
     ];
     const normalized = normalizeTabs(legacy);
     expect(normalized[0].id).toBe('requirements');
-    expect(normalized[1].id).toBe('logs');
+    expect(normalized[1].id).toBe('trace');
     expect(normalized).toHaveLength(MAX_TABS); // 固定标签 + 动态标签不超过上限
-    expect(normalized.filter((t) => t.id === 'logs')).toHaveLength(1); // 不重复插入
+    // 旧「执行日志」与可关闭的旧轨迹都被丢掉，不重复出现
+    expect(normalized.some((t) => (t as { kind?: string }).kind === 'logs')).toBe(false);
+    expect(normalized.filter((t) => t.kind === 'task-run')).toHaveLength(1);
   });
 });

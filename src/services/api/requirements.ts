@@ -257,6 +257,8 @@ export const requirementsApi = {
       archived_until_seq: number;
       /** 服务端在本次请求里回填了几条（存量会话迁移；0 = 没回填） */
       backfilled?: number;
+      /** 绑定到本会话的任务（按绑定顺序）；「轨迹」固定标签靠它接上当前任务 */
+      task_ids?: string[];
       counters?: Record<string, number>;
     };
   },

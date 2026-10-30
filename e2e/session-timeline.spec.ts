@@ -203,25 +203,36 @@ test('会话时间线：seq 顺序 / 刷新一致 / 派发规划书可见（K:\\
   log(`最终条目序列 ${JSON.stringify(seqsFinal)}`);
   await page.screenshot({ path: path.join(ARTIFACT_DIR, 'final.png') }).catch(() => undefined);
 
-  // ── 7) 「轨迹」面板（专业视图，入口在「新增标签」菜单里）──
-  const traceTab = page.getByRole('tab', { name: '轨迹' }).first();
-  if (!(await traceTab.isVisible().catch(() => false))) {
-    const plus = page.getByRole('button', { name: '新增标签' }).first();
-    if (await plus.isVisible().catch(() => false)) {
-      await plus.click();
-      await page.getByRole('button', { name: '轨迹', exact: true }).first().click();
-      log('已从「新增标签」菜单打开轨迹');
-    }
-  }
+  // ── 7) 「轨迹」固定标签（需求对话右侧）：事件流 + 右侧详情检查器 ──
+  const tabs = page.getByRole('tab');
+  await expect(tabs.nth(0)).toHaveText(/需求对话/);
+  await expect(tabs.nth(1)).toHaveText(/轨迹/);
+  await expect(page.getByRole('tab', { name: /执行日志/ })).toHaveCount(0);
+  log('标签顺序正确（需求对话 → 轨迹），执行日志已撤删');
+  await tabs.nth(1).click();
+
   const stats = page.getByTestId('task-trace-stats');
-  if (await stats.isVisible({ timeout: 30_000 }).catch(() => false)) {
-    const text = (await stats.textContent()) || '';
-    log(`轨迹：${text}`);
-    expect(text).toContain('事件');
-  } else {
-    // 轨迹读的是"当前任务"：派发任务收尾后标签可能显示空态，这不算失败
-    log('轨迹标签已打开但没有任务事件区（任务可能已收尾），跳过 UI 断言');
+  await expect(stats).toBeVisible({ timeout: 60_000 });
+  // 事件是异步水合的（taskApi.get + hydrateEvents），必须等它 >0 再断言
+  await expect(async () => {
+    const t = (await stats.textContent()) || '';
+    const n = Number((t.match(/事件\s*(\d+)/) || [])[1] || 0);
+    if (!(n > 0)) throw new Error(`轨迹还没有事件：${t}`);
+  }).toPass({ timeout: 90_000, intervals: [2000] });
+  log(`轨迹：${(await stats.textContent()) || ''}`);
+
+  // 事件流 / 日志 两个视图都在（执行日志的入口并进了轨迹）
+  await expect(page.locator('[data-trace-view="flow"]')).toBeVisible();
+  await expect(page.locator('[data-trace-view="log"]')).toBeVisible();
+
+  // 右侧详情检查器：五个页签齐全
+  const inspector = page.getByTestId('trace-inspector');
+  await expect(inspector).toBeVisible({ timeout: 30_000 });
+  for (const key of ['overview', 'params', 'result', 'schema', 'timing']) {
+    await expect(page.locator(`[data-inspector-tab="${key}"]`)).toBeVisible();
   }
+  log('轨迹详情检查器五页签齐全（概述/参数/结果/Schema/计时）');
+  await page.screenshot({ path: path.join(ARTIFACT_DIR, 'trace.png') }).catch(() => undefined);
 
   expect(pageErrors).toEqual([]);
 });

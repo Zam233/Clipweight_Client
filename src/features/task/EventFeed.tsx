@@ -28,6 +28,10 @@ interface Props {
   onLoadEarlier?: () => void;
   /** 事件序号缺口（服务端这段读不到）——必须显式说，不假装完整 */
   seqGap?: { from: number; to: number } | null;
+  /** 选中某条事件（轨迹面板右侧详情）；不传则行不可点 */
+  onSelect?: (event: TaskEvent) => void;
+  /** 当前选中的事件 seq */
+  selectedSeq?: number | null;
 }
 
 /**
@@ -92,7 +96,11 @@ function _pathOf(detail: Record<string, unknown>): string {
   return '';
 }
 
-function EventRow({ event }: { event: TaskEvent }) {
+function EventRow({ event, selected, onSelect }: {
+  event: TaskEvent;
+  selected?: boolean;
+  onSelect?: (event: TaskEvent) => void;
+}) {
   const [open, setOpen] = useState(false);
   const detail = (event.detail || {}) as Record<string, unknown>;
   // checkpoint 即使 detail 为空也要能展开（否则默认折叠后内容永远看不到）
@@ -105,8 +113,13 @@ function EventRow({ event }: { event: TaskEvent }) {
       className={cn(
         'flex items-start gap-2 text-caption px-2 py-1 rounded-cw-sm',
         event.type === 'tool_result' || event.type === 'step_end' ? 'bg-surface-container' : '',
+        // 选中态：右侧详情跟着它走（轨迹面板）
+        selected ? 'ring-1 ring-primary/50 bg-primary/10' : '',
+        onSelect ? 'cursor-pointer hover:bg-surface-container-high' : '',
       )}
       data-event-type={event.type}
+      data-event-seq={event.seq}
+      onClick={onSelect ? () => onSelect(event) : undefined}
     >
       <span className="font-mono text-on-surface-variant shrink-0 w-8 text-right">
         {event.seq}
@@ -173,7 +186,7 @@ function EventRow({ event }: { event: TaskEvent }) {
   );
 }
 
-export function EventFeed({ events, className, hasEarlierEvents, onLoadEarlier, seqGap }: Props) {
+export function EventFeed({ events, className, hasEarlierEvents, onLoadEarlier, seqGap, onSelect, selectedSeq }: Props) {
   // PRD B5：不再过滤任何事件类型（checkpoint 改为折叠展示）；store 已按上限有界
   const visible = events;
   if (visible.length === 0) {

@@ -24,8 +24,10 @@ import {
   type SessionLinkState,
 } from '@/stores/sessionTimelineStore';
 import {
+  isBriefItem,
   itemObject,
   itemText,
+  reportBullets,
   type SessionTimelineItem,
 } from '@/features/sessionTimeline/types';
 import {
@@ -504,25 +506,37 @@ export function SessionTimeline({
         if (item.type === 'content' && renderContent) {
           return <React.Fragment key={key}>{renderContent(item)}</React.Fragment>;
         }
+        // 调用方可能对同类型条目"认不出来"（例如内核汇报卡 vs 创意简报）→ 返回空，
+        // 这时必须落回默认渲染，不能把条目吞掉。
         if (item.type === 'report' && renderReport) {
-          return <React.Fragment key={key}>{renderReport(item)}</React.Fragment>;
+          const custom = renderReport(item);
+          if (custom) return <React.Fragment key={key}>{custom}</React.Fragment>;
         }
         if (item.type === 'plan' && renderPlan) {
-          return <React.Fragment key={key}>{renderPlan(item)}</React.Fragment>;
+          const custom = renderPlan(item);
+          if (custom) return <React.Fragment key={key}>{custom}</React.Fragment>;
         }
         if (item.type === 'report' || item.type === 'plan') {
-          // 没有注入卡片渲染时的最小视图：标题 + 摘要，绝不静默丢失
+          // 默认视图：简报/规划书给摘要卡，内核汇报给 bullets —— 绝不静默丢失
           const obj = itemObject(item);
           const title = String(item.meta?.title ?? obj.title ?? '');
+          const bullets = reportBullets(item);
           return (
             <div key={key} className="px-2 py-1" data-testid={`session-item-${item.type}`}
               data-seq={item.seq}>
               <div className="text-caption text-on-surface-variant/70">
-                {item.type === 'report' ? '创意简报' : '规划书'}
+                {item.type === 'report'
+                  ? (isBriefItem(item) ? '创意简报' : '主 agent 汇报')
+                  : '规划书'}
                 {item.type === 'plan' && typeof item.meta?.scene_count === 'number'
                   ? ` · ${item.meta.scene_count} 场景` : ''}
               </div>
-              <div className="text-body-sm text-on-surface">{title}</div>
+              {title && <div className="text-body-sm text-on-surface">{title}</div>}
+              {bullets.length > 0 && (
+                <ul className="mt-0.5 list-disc pl-4 text-caption text-on-surface-variant">
+                  {bullets.map((b, i) => <li key={`${item.seq}-b${i}`}>{b}</li>)}
+                </ul>
+              )}
             </div>
           );
         }
@@ -549,6 +563,7 @@ export function SessionTimeline({
     </div>
   );
 }
+
 
 
 

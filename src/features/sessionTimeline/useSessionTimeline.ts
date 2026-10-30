@@ -11,6 +11,7 @@
 import { useCallback, useEffect } from 'react';
 
 import { connectSseStream } from '@/services/api/sseStream';
+import { useTaskStore } from '@/stores/taskStore';
 import { requirementsApi } from '@/services/api/requirements';
 import { useSessionTimelineStore } from '@/stores/sessionTimelineStore';
 import type { SessionTimelineFrame } from '@/features/sessionTimeline/types';
@@ -76,6 +77,14 @@ export function useSessionTimeline(
           archivedUntil: page.archived_until_seq ?? 0,
           backfilled: isFirst ? (page.backfilled ?? 0) : 0,
         });
+        // 「轨迹」是固定标签：刷新后 taskStore 里没有任务，标签会显示空态。
+        // 服务端知道这个会话绑过哪些任务（session.json 的 task_ids），把最新的一个
+        // 拉回来（走 taskApi.get 拿完整 task 对象——**不能**塞只有 id 的假对象，
+        // 下游会读 task.usage 直接崩，2026-10-31 实测）。
+        const bound = page.task_ids ?? [];
+        if (bound.length > 0 && !useTaskStore.getState().task?.id) {
+          void useTaskStore.getState().load(bound[bound.length - 1]);
+        }
         return true;
       } catch (err) {
         if (closed) return false;
@@ -142,3 +151,4 @@ export function useRetrySessionTimeline(sessionId: string | null | undefined): (
     if (sessionId) retry(sessionId);
   }, [sessionId, retry]);
 }
+
