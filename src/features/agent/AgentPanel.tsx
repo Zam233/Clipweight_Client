@@ -141,8 +141,9 @@ function RequirementsBubble({
           : 'w-full px-1 py-1.5 text-body-sm leading-relaxed text-on-surface'}>
         {m.role === 'user'
           ? m.content
-          // 带简报/规划书卡片的消息：正文往往嵌入了同一份内容的 markdown，跳过以避免重复渲染
-          : (!m.creative_brief && !m.production_plan ? <Markdown text={m.content} /> : null)}
+          // 正文**始终渲染**：带附件也照常显示（用户 2026-10-31：模型输出被创意简报顶掉）。
+          // 重复感靠卡片自身折叠解决，不能靠"把正文丢掉"来解决。
+          : <Markdown text={m.content} />}
         {m.streaming && (
           <span className="inline-block w-1.5 h-3.5 align-text-bottom ml-0.5 bg-primary animate-pulse" aria-label="正在输出" />
         )}
@@ -776,6 +777,12 @@ function RequirementsView() {
     if (ag.requirementsBusy) return;
     ag.setRequirementsBusy(true);
     setStatus('planning');
+    // 立刻在流里留一条可见回执：规划书生成通常 30–90s，没有回执时用户会以为
+    // "点了没后续"（用户 2026-10-31 实测反馈）。
+    addMessage({
+      id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+      content: '已确认创意简报，正在生成制作规划书…（这一步通常要几十秒）',
+    });
     try {
       const sid = ag.requirementsSessionId;
       if (sid) {

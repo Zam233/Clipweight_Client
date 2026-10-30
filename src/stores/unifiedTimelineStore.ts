@@ -138,7 +138,10 @@ export const useUnifiedTimelineStore = create<UnifiedTimelineState>((set, get) =
     let items = s.itemsByKey;
     let dispatch = s.dispatch;
     messages.forEach((m, i) => {
-      const r = _merge(items, normalizeRequirementMessage(m, sessionId, i), dispatch);
+      const norm = normalizeRequirementMessage(m, sessionId, i);
+      // ordinal 归零 → _merge 用 dispatch 分配（已有条目保留原序号，顺序稳定）
+      const item = { ...norm, order: { ...norm.order, ordinal: 0 } } as TimelineItem;
+      const r = _merge(items, item, dispatch);
       items = r.items; dispatch = r.dispatch;
     });
     return {
@@ -148,8 +151,10 @@ export const useUnifiedTimelineStore = create<UnifiedTimelineState>((set, get) =
   }),
 
   applyRequirementEvent: (sessionId, event) => set((s) => {
-    const item = normalizeRequirementEvent(event, sessionId);
-    if (!item) return {};
+    const raw = normalizeRequirementEvent(event, sessionId);
+    if (!raw) return {};
+    // 同上：事件 seq 与消息下标不可比 → 统一按到达顺序（dispatch）
+    const item = { ...raw, order: { ...raw.order, ordinal: 0 } } as TimelineItem;
     const r = _merge(s.itemsByKey, item, s.dispatch);
     // 本轮思考已落盘成正式条目 → 丢掉流式期间那条临时条目（否则同一段思考出现两次）
     const liveKey = `req:live:${sessionId}`;
