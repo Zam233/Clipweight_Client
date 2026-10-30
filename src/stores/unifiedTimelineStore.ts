@@ -141,9 +141,7 @@ export const useUnifiedTimelineStore = create<UnifiedTimelineState>((set, get) =
     let items = s.itemsByKey;
     let dispatch = s.dispatch;
     messages.forEach((m, i) => {
-      const norm = normalizeRequirementMessage(m, sessionId, i);
-      // ordinal 归零 → _merge 用 dispatch 分配（已有条目保留原序号，顺序稳定）
-      const item = { ...norm, order: { ...norm.order, ordinal: 0 } } as TimelineItem;
+      const item = normalizeRequirementMessage(m, sessionId, i);
       const r = _merge(items, item, dispatch);
       items = r.items; dispatch = r.dispatch;
     });
@@ -156,8 +154,7 @@ export const useUnifiedTimelineStore = create<UnifiedTimelineState>((set, get) =
   applyRequirementEvent: (sessionId, event) => set((s) => {
     const raw = normalizeRequirementEvent(event, sessionId);
     if (!raw) return {};
-    // 同上：事件 seq 与消息下标不可比 → 统一按到达顺序（dispatch）
-    const item = { ...raw, order: { ...raw.order, ordinal: 0 } } as TimelineItem;
+    const item = raw;
     // 历史 thinking 落盘发生在**本轮对话结束之后**，如果这时才建条目，
     // 它会被分配到最晚的派发序号 → 思考永远显示在整段对话的最下面（用户 2026-10-31 实测）。
     // 因此：本轮已有流式思考条目（req:live:*）时，**忽略**这条历史事件（位置保持流式那一刻），
@@ -186,7 +183,8 @@ export const useUnifiedTimelineStore = create<UnifiedTimelineState>((set, get) =
     }
     const item = {
       key, dedupeKey: key, source: 'requirements',
-      order: { ordinal: s.dispatch }, receivedAt: Date.now(),
+      // 与消息同源时钟（ms）：live 思考落在"本轮提问之后、回复之前"
+      order: { ordinal: Date.now() }, receivedAt: Date.now(),
       sessionId, kind: 'reasoning', phase: 'requirements',
       text: delta.slice(0, 400_000), done, availability: 'available',
     } as unknown as TimelineItem;

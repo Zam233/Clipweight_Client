@@ -305,9 +305,12 @@ export function normalizeRequirementMessage(
   index: number,
 ): TimelineItem {
   const dedupeKey = `${REQ_PREFIX}:msg:${sessionId}:${m.id}`;
+  // 位置 = 发生时间（ms）；没有 timestamp 才退回数组下标。同一轮里消息与思考
+  // 都用时间刻度，晚到的事件因此不会插错位置。
+  const at = Date.parse(m.timestamp || '');
   return {
-    ..._base('requirements', dedupeKey, index, {
-      order: { ordinal: index }, ts: m.timestamp, sessionId,
+    ..._base('requirements', dedupeKey, Number.isFinite(at) ? at : index, {
+      order: { ordinal: Number.isFinite(at) ? at : index }, ts: m.timestamp, sessionId,
     } as never),
     kind: 'message',
     role: (['user', 'assistant', 'system'].includes(m.role) ? m.role : 'assistant') as
@@ -324,9 +327,14 @@ export function normalizeRequirementEvent(e: TaskEvent, sessionId: string): Time
     const text = String(parsed.turn.delta || parsed.turn.text || '');
     if (!text) return null;
     const dedupeKey = `${REQ_PREFIX}:think:${sessionId}:${e.seq}`;
+    // 用后端记的"本轮开始时刻"（turn_ts, ms）定位；没有就退回事件时间。
+    const turnTs = Number((e.detail as Record<string, unknown>)?.turn_ts);
+    const at = Number.isFinite(turnTs) && turnTs > 0
+      ? turnTs
+      : (Date.parse(e.ts || '') || e.seq);
     return {
-      ..._base('requirements', dedupeKey, e.seq, {
-        order: { ordinal: e.seq }, ts: e.ts, sessionId,
+      ..._base('requirements', dedupeKey, at, {
+        order: { ordinal: at }, ts: e.ts, sessionId,
       } as never),
       kind: 'reasoning',
       phase: 'requirements',
