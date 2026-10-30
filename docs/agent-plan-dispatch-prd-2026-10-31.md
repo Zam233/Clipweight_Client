@@ -241,3 +241,51 @@ POST /api/requirements/{session_id}/plan/dispatch
    派发版本要保持同样的可见性。
 
 提交：后端 `6cd18ca`（S1+S2），前端 `1c0341c`（S3+S4）。
+
+---
+
+## 11. 执行记录（2026-10-31，D1–D4 全部落地）
+
+后端 `c78595a`（D1+D2）、前端 `aa8e10f`（D3）、后端 `fb77383`（D4）、`12dbb0b`（E2E 查出的两处修复）。
+配套：时间线适配见 [agent-timeline-adaptation-prd §12](agent-timeline-adaptation-prd-2026-10-31.md)。
+
+| 里程碑 | 落地内容 |
+|---|---|
+| **D1 派发通道** | `POST /{sid}/plan/dispatch`（幂等键 `session_id:brief_hash`，`retry` 重建，400 `no_brief`/404）；`RequirementsService.dispatch_plan()` 建 `plan_only` 任务（`TaskLimits(40, 80)`）+ 写 `planning` + `session_projection.bind()` + 1s 终态监听；`_finalize_dispatched_plan()` 读 `reports/plan.json` → 校验 `brief_hash` → `_translate_plan` 生成可读规划书 → 写 `plan_ready` + `plan` 条目；失败/产物空/简报变更 → 如实回 `brief_ready` 并说明原因 |
+| **D2 提示词与守门** | `agent_loop._PLAN_ONLY_SYSTEM`（只派 structure、不进 material/edit/animation/audio、拿到场景立刻收尾）+ `_user_prompt` 目标段；`kernel._finish_plan_only()` 把守门换成"有分镜场景 + `reports/plan.json` 落盘"，不再要求 `final_timeline`；模型没派结构阶段 → 内核确定性补派一次；`done` 白名单加 `plan_only_completed` |
+| **D3 前端接线** | `confirmBrief` 改调 `/plan/dispatch`；`task_id` 写入 taskStore；**不**订阅任务事件流（条目由服务端投影）；终态由后端驱动（前端只轮询会话 status，离开 `planning` 才放开 busy）；失败给出 `no_brief` 等具体原因并回 `brief_ready` |
+| **D4 收口** | `PLAN_DISPATCH_ENABLED`（`CLIPWRIGHT_PLAN_DISPATCH=0` 应急）；`chat()` 的确认分支直接转派发；`_generate_plan` 加护栏：派发开启时走内联会写一条可见 `degradation`（`kind=plan_inline_fallback`），不允许第二条正式通道藏在日志里 |
+
+### 与本文的一处取舍（写进 PRD 口径）
+
+**规划书"可读化"留在需求侧**：内核只负责派 `structure` 并落 `scenes`（`reports/plan.json`
+不含 `markdown`）。理由是翻译需要 brief/persona/文案上下文，内核没有这些；
+需求侧在回填时用同一个 `_translate_plan` 生成正文，失败用 `_default_markdown` 兜底。
+`brief_hash` 仍由内核写、需求侧校验，**同源**这一点不变。
+
+### 真实运行证据（K:\demo E2E，2026-10-31）
+
+点「确认简报」后时间线里依次出现（`data-seq` 严格递增）：
+
+```
+18 content  用户确认         19 stage  task_start(plan_only=True)
+20-21 content 上下文装载      22-23 content 回执 + report
+24 stage    execution_plan   26 stage  progress(start)
+28 content  tool_loop         29 thinking 主 agent 思考（"只派一次 structure…"）
+30 content  preamble          31 tool      delegate_agent
+32 subagent agent_run_start   33 stage     structure running
+35 artifact doc_write(报告)   36 stage     structure → degraded(4 分镜)
+37 subagent agent_run_end     39 degradation scenes_fallback
+40 thinking 重派思考           42-44 再次 delegate_agent → structure
+...        reports/plan.json 落盘（artifact）→ 需求侧回填 → plan 条目 seq=37
+```
+
+最终 37 条条目升序，规划书卡正常出现，`pageErrors=[]`，全流程 2.3 分钟。
+
+### 遗留
+
+- 幂等登记 `_PLAN_DISPATCH` 是进程内内存表：进程重启后同一 brief 再点确认会新建任务
+  （不重复扣费之外的副作用是"可能有两个任务都产出 plan.json"，回填按 `brief_hash` 校验，
+  内容一致则等价）。后续可落盘到 `reports/`。
+- 「轨迹」面板当前读"当前任务"上下文；从「新增标签」打开且无绑定任务时显示空态
+  （既有行为，未在本轮改动范围内）。

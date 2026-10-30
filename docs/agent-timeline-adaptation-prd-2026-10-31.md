@@ -231,3 +231,49 @@ SessionLog.backfill_messages(messages) -> int
 2. 前端改完 `npx tsc --noEmit` 必须干净（编译检查，不是测试）。
 3. 不跑 pytest/vitest（用户 2026-10-31 裁定：测试与验证由人做）；E2E 仅在 §T6 显式授权时跑。
 4. 提交信息写清"为什么"，多行走 `git commit -F`。
+
+---
+
+## 12. 执行记录（2026-10-31，T1–T6 全部落地）
+
+触发：用户实测「需求对话提示 **还没有可显示的内容**」。后端 `5cc6606`、前端 `24747c2`、
+E2E `a4a6521`；派发侧见 [agent-plan-dispatch-prd §11](agent-plan-dispatch-prd-2026-10-31.md)。
+
+| 里程碑 | 落地内容 |
+|---|---|
+| **T1 回填** | `SessionLog.backfill_messages()` + `is_empty()`；`GET /timeline` 与 `stream_chat` 两处触发（幂等）；简报/规划书各补一条 `report`/`plan`（`ref=legacy:*:<brief_hash>`）；不回填历史 thinking（只有 `turn_ts`，塞进去等于再次"推断位置"）。**实测**：`req_cbdb1fd15d41` 回填 5 条（欢迎+用户+回复+确认卡+简报卡） |
+| **T2 空态** | 四支空态（同步中/已迁移 N 条/真无记录/接口不可用+HTTP 码+重试）；`lastError` + `retryTick` 触发订阅重跑；`useSessionTimeline` 不再 `catch {}` 吞错误 |
+| **T3 能力对齐** | 忙碌行（`session-busy-row`，仅在无 streaming 条目时出）、思考能力说明（`session-reasoning-note`）、问题条目内联作答（选项/自由文本 → `requirementsApi.answer`，已答状态由服务端 `answer` 条目推出）、后端补写 `answer` 条目（`ref=q:<qid>`）、输入框门控改看"有没有会话"、开场卡只在无会话时出、旧分页按钮只在旧视图渲染、单流视图不再重复出问题卡 |
+| **T4 副作用与上限** | `_ensure_loaded` 去掉 mkdir（读接口不再给不存在的会话建空目录）；`GET /timeline?resolve=0` 只给索引；前端每会话 3000 条上限 + 切会话 `reset(prev)` |
+| **T5 分流与文档** | 投影把内核 `plan`/`replan` 映射为 `stage`（`meta.kind=execution_plan`），`plan` 类型专属制作规划书；api_reference / services_overview / parity 同步 |
+| **T6 E2E** | `e2e/session-timeline.spec.ts`（K:\demo 数据）跑通，2.3 分钟 |
+
+### E2E 结果（真实前后端，两轮一致）
+
+```
+刷新前条目序列 [1,2,3,4] → 刷新后 [1,2,3,4]（逐条一致）
+用户 seq=2 / 思考 seq=3 / 回复 seq=4   ← 思考夹在提问与回复之间（核心收益）
+点「确认简报」→ 5s 内出现 stage+tool+subagent 条目（D3 不再是空等）
+最终 37 条 data-seq 严格升序，plan 卡在 seq=37（D1 回填成功）
+pageErrors = []
+```
+
+### E2E 查出并已修的两个真问题（比跑通更有价值）
+
+| # | 问题 | 根因 | 修复 |
+|---|---|---|---|
+| 1 | 实时收到简报条目但**卡片不渲染**，刷新后才出现 | `report`/`plan` 走外置，`append/patch/finish` 帧只发 `to_dict()`（只有 `content_ref`，无 `content`）；只有 REST snapshot 会解析 | `SessionLog._frame_item()`：发布帧带解析后的 content（>64KB 才省略）→ 后端 `12dbb0b` |
+| 2 | plan_only 产物已落盘，任务仍判 `degradation_unresolved` → 规划书被回退 | 分镜走了模板兜底（`scenes_fallback`），收据没集齐就判失败 | plan_only 且产物已落盘时跳过降级收据守门（降级条目仍在时间线上可见）→ 后端 `12dbb0b` |
+
+### 与本文的差异
+
+1. **T3.3 问题条目作答的"已答"判定**改用服务端 `answer` 条目（不靠本地状态），
+   否则刷新后已答问题又变回可点。
+2. **T4 的 3000 上限只截前端窗口**：服务端仍完整，向前翻页可取回；`archived_until_seq` 给边界。
+3. **「轨迹」入口在「新增标签」菜单里**（不在主标签栏），派发任务收尾后打开会显示空态——
+   属既有行为，本轮不改（要改属于轨迹面板的信息架构，用户明确要它保持专业分区视图）。
+
+### 遗留（不在本 PRD 范围）
+
+- 多进程并发写仍按单进程假设（文件锁未接）。
+- 回填只覆盖"会话里还留着"的消息（`compress_history` 之前的已丢），前端已如实标注。
