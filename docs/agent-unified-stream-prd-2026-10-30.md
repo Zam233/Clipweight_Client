@@ -534,3 +534,24 @@ errors: []
 否则"新面板丢旧功能"必然反复发生；② 组件内 hook 的依赖变量必须先声明后使用，
 这类 TDZ 崩溃在单测里未必暴露（测试的 store 顺序不同），必须用真实浏览器跑一遍；
 ③ 诊断脚本要带 `pageerror` 捕获与唯一选题，否则会把"没进编辑器"误读成"功能没做"。
+
+---
+
+## 执行记录（2026-10-31）：数据源换成服务端唯一日志
+
+本 PRD 定义的是**展示层**契约（一条流、思考可见、只给用户气泡），这些约定不变；
+变的是**数据从哪来**——原来的客户端拼装层已被
+[`agent-session-timeline-prd-2026-10-31.md`](./agent-session-timeline-prd-2026-10-31.md)
+的服务端有序流取代。
+
+| 本 PRD 的约定 | 现在的落地方式 |
+|---|---|
+| 单流按顺序显示 | `GET /{sid}/timeline` + `/timeline/stream`，前端按 `seq` 渲染（不再有 dispatch 序号 / 时间戳比较 / 临时条目） |
+| 思考可见、默认展开 | `thinking` 条目由服务端 `begin/chunk/finish` 落盘，位置 = 发生时刻（不再"沉底"） |
+| 五态思考能力提示 | 后端 `reasoning_status` 帧保留；旧视图仍用它，单流视图看条目 `state` |
+| 只有用户侧用气泡 | `content` 条目用 `meta.role` 区分，`itemRole()` 决定气泡与居中 |
+| 复用同一气泡组件 | 不变——`RequirementsBubble` 同时服务旧视图与单流（`timelineItemAsMessage` 适配） |
+
+提交：后端 `6cd18ca`（S1+S2）、前端 `1c0341c`（S3+S4）。
+被删除的：`src/features/unifiedTimeline/*`、`src/stores/unifiedTimelineStore.ts`（及其测试）。
+回退开关仍是 `?unifiedTimeline=0` / `localStorage['cw.unifiedTimeline']='0'`。

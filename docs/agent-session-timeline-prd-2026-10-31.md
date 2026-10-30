@@ -271,3 +271,39 @@ GET /api/requirements/{sid}/timeline/stream?since_seq=<latest>
 
 实施顺序建议：**本 PRD 的 S1/S2 先做**（存储与写入），再叠加 plan-dispatch（D1–D4），
 否则派发链路又要复用一套客户端拼装逻辑。
+
+---
+
+## 11. 执行记录（2026-10-31，S1–S5 已落地）
+
+分支 `feat/master-agent`；后端 `J:\Clipwright`，前端 `J:\Clipweight-Client`。
+
+| 里程碑 | 提交 | 落地内容 |
+|---|---|---|
+| S1 | `6cd18ca`（后端） | `services/session_log.py`：`SessionLog` 唯一写入口 + `Turn` 懒开占位助手；`sessions/<sid>/{session.json, session.jsonl, items/<seq>.json, archive/}`；`seq` 原子分配（`threading.RLock`）；`session.json` 用 `.tmp`+`os.replace` 原子替换；流式 200ms/4KB 节流、`finish` 强制 flush；崩溃恢复把 `streaming` 且 jsonl 无 `finish` 的条目标 `interrupted`；5000 条归档（留 4000）、40 万字截断标 `meta.truncated`；`GET /{sid}/timeline`（`since_seq`/`until_seq`/`before_seq`/`limit≤500`）与 `GET /{sid}/timeline/stream`（`snapshot/append/chunk/patch/finish/ping`） |
+| S2 | `6cd18ca`（后端） | `RequirementsService.chat` 拆 wrapper + `_chat_router`；`_close_turn` 按发生顺序写 `thinking → content（本轮全部模型发言）→ report（带 brief_hash）→ plan（brief_hash/scene_count）→ question`；开头把简报/规划书文件卡的位置改由独立条目承担（正文不再被附件顶掉）；`services/session_projection.py` 拉式投影 task 事件（幂等 ref、thinking 按轮 `begin/chunk`）；`proceed` 建 task 后 `bind` 会话 + 1s 轮询；异常 `close_open(failed)`；`stage` 条目由 `_generate_plan` 的 `on_event` 落到时间线（确认简报后不再是一片空白） |
+| S3 | `1c0341c`（前端） | `features/sessionTimeline/{types,useSessionTimeline,SessionTimeline,flag}` + `stores/sessionTimelineStore`；先拉后订、按 `latestSeq` 补齐；`chunk` 按 seq 追加；首屏 500 条 + `before_seq` 向前翻页；气泡/简报卡/规划书卡仍用同一个 `RequirementsBubble`（`timelineItemAsMessage` 适配，`id = seq-<n>`） |
+| S4 | `1c0341c`（前端） | 删除 `features/unifiedTimeline/*` 与 `stores/unifiedTimelineStore`（含其测试）；`AgentPanel` 不再从前端消息数组投影第二份时间线、不再喂 `reasoning`/`stage`/`Date.now()` 序号、不再订阅任务事件流；「轨迹」面板删掉恒 `false` 的 unified 死分支；开关沿用 `cw.unifiedTimeline` 与 `?unifiedTimeline=0` |
+| S5 | 本提交 | 文档：本 PRD §9/§11、`docs/api_reference.md`（两条新端点）、`docs/services_overview.md`（两个新服务）、`docs/frontend-backend-parity.md` §9；旧 PRD 追加执行记录 |
+
+### 与本文最初的差异（写代码时被现实修正）
+
+1. **`stage` 从"扩展类型"变成必需品**：确认简报后到规划书之间曾整段静默，所以把
+   `_generate_plan` 的三个阶段帧落成 `stage` 条目（`running → ok/failed` 同 seq 收尾）。
+2. **`_close_turn` 只在收口时写正文档条目**：流式期间 `begin/chunk` 已经实时可见，
+   收尾用权威全文 `finish` 覆盖——避免丢块拼出残缺文本。
+3. **崩溃恢复不落盘**：载入时只修内存镜像，等下一次真实写入再写；不在读路径制造 IO。
+4. **`before_seq` 是必需参数**：只给 `since_seq` 时"加载更早"变成"从 0 取 200 条"，
+   永远拿不到最新——聊天窗口的向前翻页必须由服务端给最后 N 条。
+
+### 人工验证清单（由人执行，未跑自动化）
+
+- [ ] 新建会话 → 首轮提问：思考条目**出现在提问与回复之间**，不是沉底
+- [ ] 流式回复：正文逐字增长（`chunk` 帧），结束后文字不丢不乱
+- [ ] 生成规划书：确认简报后能看到 `stage`（派发结构 → 结构完成 → 翻译）三条进度
+- [ ] 简报卡/规划书卡出现在**正确位置**（对应那一轮回复之后），且正文仍在
+- [ ] 刷新页面：条目顺序与刷新前逐条一致（含思考、工具行、阶段）
+- [ ] 确认规划书后开工：「轨迹」能看到工具/子 agent/阶段，需求流里也按 seq 追加
+- [ ] 断网/重启后端：面板显示「重连中…」；恢复后按 `latest_seq` 补齐，不重复不乱序
+- [ ] `?unifiedTimeline=0` 回退：旧消息列表视图仍可用
+

@@ -221,3 +221,23 @@ POST /api/requirements/{session_id}/plan/dispatch
 
 **教训**：凡是"某条链路是否真的执行"的结论必须有运行证据（服务探针 / 真实浏览器诊断），
 读码评审只能提出候选；时间线的 `order` 属身份字段，任何 merge 都不得覆盖。
+
+---
+
+## 10. 执行记录（2026-10-31）：思考与阶段已能在同一条流里定位
+
+原计划里"派发链路要复用一套客户端拼装逻辑"的顾虑已被
+[`agent-session-timeline-prd-2026-10-31.md`](./agent-session-timeline-prd-2026-10-31.md)
+的 S1/S2 解决：`stage` 是会话时间线的一等条目，`thinking` 由服务端按发生时刻分配 `seq`，
+`plan` 条目自带 `brief_hash`（可直接判定"这份规划书对应哪版简报"）。
+
+因此 D1–D4（主 agent 派发规划书）开工时的要求变得明确：
+
+1. 派发过程只写时间线条目（`stage`/`subagent`/`thinking`/`plan`），**不要**再给前端的
+   拼装层喂序号；
+2. `reports/plan.json` 的 `brief_hash` 与 `plan` 条目的 `meta.brief_hash` 必须同源
+   （都用 `requirements_service._brief_hash`），否则"回填校验"两处对不上；
+3. 生成期间不能整段静默——`_generate_plan` 现在已在三个节点发 `stage` 帧并落条目，
+   派发版本要保持同样的可见性。
+
+提交：后端 `6cd18ca`（S1+S2），前端 `1c0341c`（S3+S4）。
