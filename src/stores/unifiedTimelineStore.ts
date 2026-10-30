@@ -80,8 +80,11 @@ function _merge(
     };
   }
   const next = { ...(existing as unknown as Rec) };
+  // 身份与排序键不可被 patch 覆盖：order 一旦被重置，整条时间线的顺序就乱
+  const IMMUTABLE = new Set(['key', 'dedupeKey', 'source', 'order', 'receivedAt']);
   for (const [k, v] of Object.entries(patch)) {
     if (v === undefined) continue;
+    if (IMMUTABLE.has(k)) continue;
     if (k === 'kind' && v !== next.kind) {
       // question → answer：同一 question_id 只留一条，标记已回答
       if (next.kind === 'question' && v === 'answer') {

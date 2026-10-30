@@ -321,6 +321,8 @@ export function UnifiedTimeline({
   }
 
   // 最新在下：窗口只截断顶部（更早的），用「加载更早」逐段展开
+  // 时间流：最旧在上、最新在下（与聊天工具一致）。分页只截断顶部更早的部分，
+  // 顺序本身由 store 的 ordinal 决定，这里绝不重排。
   const shown = items.slice(Math.max(0, items.length - visible));
   const rest = items.length - shown.length;
 
