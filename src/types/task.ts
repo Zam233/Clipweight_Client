@@ -263,3 +263,20 @@ export interface TaskRunDetail {
   replayed?: boolean;
   [key: string]: unknown;
 }
+
+/** `GET /api/task/{id}/questions` 的一条（后端 question 公开结构） */
+export interface TaskQuestionItem {
+  question_id: string;
+  owner_type?: string;
+  owner_id?: string;
+  question: string;
+  options?: Array<{ id: string; label: string; detail?: string }>;
+  allow_free_text?: boolean;
+  default_option_id?: string | null;
+  timeout_sec?: number;
+  deadline_at?: number;
+  context_refs?: string[];
+  status?: string;
+  created_at?: number;
+  answer?: Record<string, unknown> | null;
+}

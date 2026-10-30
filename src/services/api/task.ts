@@ -12,6 +12,7 @@ import type {
   Task,
   TaskEvent,
   TaskListItem,
+  TaskQuestionItem,
   TaskRunDetail,
   TaskRunSummary,
   TaskToolCall,
@@ -135,6 +136,45 @@ export const taskApi = {
     name: string;
   }> {
     const { data } = await getApiClient().post(`/api/task/${taskId}/to-project`, { name });
+    return data;
+  },
+
+  /**
+   * 回答 ask_user 的问题（PRD §15.5）。
+   *
+   * 错误语义（前端要按码分流，不能只显示 message）：
+   * 404 问题不存在 / 409 已回答或任务已取消 / 410 已超时或服务重启失效 / 400 选项非法。
+   */
+  async answer(taskId: string, body: {
+    questionId: string;
+    optionId?: string | null;
+    text?: string | null;
+  }): Promise<{
+    task_id: string;
+    question_id: string;
+    status: string;
+    task_status: string;
+    option_id?: string | null;
+    source?: string;
+  }> {
+    const { data } = await getApiClient().post(`/api/task/${taskId}/answer`, {
+      question_id: body.questionId,
+      option_id: body.optionId ?? null,
+      text: body.text ?? null,
+    });
+    return data;
+  },
+
+  /** 待答问题（刷新后恢复问题卡；默认只要 pending）。 */
+  async questions(taskId: string, status = 'pending'): Promise<{
+    task_id: string;
+    status: string;
+    count: number;
+    items: TaskQuestionItem[];
+  }> {
+    const { data } = await getApiClient().get(`/api/task/${taskId}/questions`, {
+      params: { status },
+    });
     return data;
   },
 

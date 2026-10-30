@@ -11,6 +11,7 @@ import { EventFeed } from '@/features/task/EventFeed';
 import { TaskToolTrace } from '@/features/task/TaskToolTrace';
 import { TaskRuns } from '@/features/task/TaskRuns';
 import { TaskFinishSummary } from '@/features/task/TaskFinishSummary';
+import { TaskQuestionCard } from '@/features/task/TaskQuestionCard';
 import { PlanPanel } from '@/features/task/PlanPanel';
 import { TaskArtifacts } from '@/features/task/TaskArtifacts';
 import { TaskToolbar } from '@/features/task/TaskToolbar';
@@ -513,6 +514,9 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
       <ToolCallRows events={events} />
       <ApprovalRows events={events} taskId={taskId} />
       <DegradationRows events={events} />
+
+      {/* PRD §15：主 agent 提问 → 用户回答（任务进入 waiting_user 时的唯一出路） */}
+      <TaskQuestionCard taskId={taskId} events={events} />
 
       {/* PRD modern-agent-review M2：子会话可寻址（追问 / 重放） */}
       <TaskRuns taskId={taskId} active={!terminal} />
