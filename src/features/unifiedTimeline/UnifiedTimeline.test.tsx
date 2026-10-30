@@ -1,8 +1,14 @@
 // @vitest-environment jsdom
 /** 统一时间线视图 + 开关（unified-stream PRD §4.6 / §7 M2 验收）。 */
 
-import { beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const approvalMock = vi.hoisted(() => ({
+  approveExec: vi.fn().mockResolvedValue(undefined),
+  rejectExec: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('@/services/api', () => ({ supervisorApi: approvalMock }));
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { UnifiedTimeline } from './UnifiedTimeline';
 import { isUnifiedTimelineEnabled, setUnifiedTimelineEnabled } from './flag';
@@ -134,5 +140,52 @@ describe('M4：DOM 有界与滚动分页', () => {
     expect(row.querySelector('pre')).toBeNull();     // 折叠状态不渲染正文
     fireEvent.click(row.querySelector('button')!);
     expect(row.querySelector('pre')?.textContent?.length).toBe(400_000);
+  });
+});
+describe('M3 收尾：授权条目可操作', () => {
+  beforeEach(() => {
+    store().resetAll();
+    cleanup();
+    approvalMock.approveExec.mockClear();
+    approvalMock.rejectExec.mockClear();
+  });
+
+  it('待授权条目给出「授权 / 拒绝」，点击调用对应接口并回显结果', async () => {
+    store().applyTaskEvent('t1', ev(1, 'approval_request', {
+      approval_id: 'ap1', risk: 'low', tool: 'run_shell',
+    }));
+    render(<UnifiedTimeline taskId="t1" />);
+    const row = screen.getByTestId('unified-item-approval');
+    expect(row.textContent).toContain('run_shell');
+
+    fireEvent.click(row.querySelector('[data-approval-approve="ap1"]')!);
+    await waitFor(() => expect(approvalMock.approveExec).toHaveBeenCalledTimes(1));
+    await screen.findByTestId('unified-approval-note');
+
+    const reject = row.querySelector('[data-approval-reject="ap1"]');
+    if (reject) {
+      fireEvent.click(reject);
+      await waitFor(() => expect(approvalMock.rejectExec).toHaveBeenCalledTimes(1));
+    }
+  });
+
+  it('已结算的授权不再给按钮（不重复提交）', () => {
+    store().applyTaskEvent('t1', ev(1, 'approval_request', { approval_id: 'ap2', risk: 'low' }));
+    store().applyTaskEvent('t1', ev(2, 'approval_result', { approval_id: 'ap2', status: 'approved' }));
+    render(<UnifiedTimeline taskId="t1" />);
+    const row = screen.getByTestId('unified-item-approval');
+    expect(row.querySelector('[data-approval-approve="ap2"]')).toBeNull();
+    expect(row.textContent).toContain('approved');
+  });
+
+  it('产物条目显示路径与字数（不再落 log）', () => {
+    store().applyTaskEvent('t1', ev(1, 'artifact', {
+      path: 'reports/03-edit-1.md', chars: 1234,
+    }));
+    render(<UnifiedTimeline taskId="t1" />);
+    const row = screen.getByTestId('unified-item-artifact');
+    expect(row.textContent).toContain('03-edit-1.md');
+    expect(row.textContent).toContain('1234 字');
+    expect(screen.queryByTestId('unified-item-log')).toBeNull();
   });
 });

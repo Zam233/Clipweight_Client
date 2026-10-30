@@ -717,6 +717,8 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
           <div className="border-t border-outline-variant/20 px-3 py-1">
             <TaskQuestionCard taskId={taskId} events={events} />
           </div>
+          {/* 追问 / 重放仍按 run 维度操作（时间线是"发生了什么"，这里是"对某次 run 动手"） */}
+          <TaskRuns taskId={taskId} active={!terminal} />
           <TaskToolTrace taskId={taskId} active={!terminal} />
         </div>
       ) : (

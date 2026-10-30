@@ -211,3 +211,25 @@ describe('M1：预算剩余与终态摘要', () => {
     expect(box.textContent).toContain('回合数达到上限 160');
   });
 });
+describe('M2/M3：flag 打开后的单流视图', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    store.task = null;
+    useCopilotStore.setState({ projectId: 'p1', tabs: [REQUIREMENTS_TAB], activeId: REQUIREMENTS_TAB.id });
+    window.localStorage.setItem('cw.unifiedTimeline', '1');
+  });
+  afterEach(() => {
+    window.localStorage.clear();
+    cleanup();
+  });
+
+  it('一条流替代分区聚合，但追问/重放与产物入口仍在', () => {
+    render(<CopilotTaskRunTab taskId="task_x" />);
+    expect(screen.getByTestId('task-run-unified')).toBeTruthy();
+    // 分区聚合不再渲染（同一事件只有一个主视觉归属）
+    expect(screen.queryByTestId('model-turn-rows')).toBeNull();
+    expect(screen.queryByTestId('tool-call-rows')).toBeNull();
+    // 但对某次 run 动手的入口还在
+    expect(screen.getByTestId('artifacts')).toBeTruthy();
+  });
+});

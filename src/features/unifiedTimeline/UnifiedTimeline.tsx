@@ -12,6 +12,7 @@ import { ChevronDown, ChevronRight, CircleAlert, Wrench } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { selectOrderedItems, useUnifiedTimelineStore } from '@/stores/unifiedTimelineStore';
 import { finishReasonLabel } from '@/features/task/labels';
+import { supervisorApi } from '@/services/api';
 import type { TimelineItem } from '@/features/unifiedTimeline/types';
 
 const WINDOW = 100;
@@ -43,7 +44,73 @@ function ReasoningRow({ item }: { item: Extract<TimelineItem, { kind: 'reasoning
   );
 }
 
-function TimelineRow({ item }: { item: TimelineItem }) {
+/** 授权条目：等授权不是失败，必须能当场提交（与 ApprovalRows 同一套接口/二次确认）。 */
+function ApprovalRow({
+  item, taskId,
+}: {
+  item: Extract<TimelineItem, { kind: 'approval' }>;
+  taskId?: string;
+}) {
+  const [busy, setBusy] = React.useState(false);
+  const [note, setNote] = React.useState('');
+  const settled = item.status !== 'pending' && item.status !== 'requested';
+
+  const submit = async (approve: boolean) => {
+    if (!item.approvalId || !taskId || busy) return;
+    const highRisk = item.risk === 'high' || item.risk === 'critical';
+    if (approve && highRisk
+        && !window.confirm(`这条操作被判定为 ${item.risk} 风险，确认授权？`)) return;
+    setBusy(true);
+    try {
+      if (approve) {
+        await supervisorApi.approveExec(taskId, item.approvalId, highRisk, item.risk === 'critical');
+        setNote('已授权');
+      } else {
+        await supervisorApi.rejectExec(taskId, item.approvalId);
+        setNote('已拒绝');
+      }
+    } catch (e) {
+      setNote(`提交失败：${(e as Error)?.message || '未知错误'}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-baseline gap-2 px-2 py-0.5 text-caption"
+      data-testid="unified-item-approval">
+      <span className="text-warning">授权</span>
+      <span className="text-on-surface-variant">{item.tool || ''}</span>
+      <span className="text-on-surface-variant/80">{item.status}</span>
+      {item.risk && <span className="text-on-surface-variant/60">risk={item.risk}</span>}
+      {!settled && taskId && (
+        <>
+          <button
+            type="button"
+            data-approval-approve={item.approvalId}
+            disabled={busy}
+            className="rounded-cw-xs border border-primary/40 px-1.5 text-primary hover:bg-primary/10 disabled:opacity-50"
+            onClick={() => void submit(true)}
+          >
+            授权
+          </button>
+          <button
+            type="button"
+            data-approval-reject={item.approvalId}
+            disabled={busy}
+            className="rounded-cw-xs border border-error/40 px-1.5 text-error hover:bg-error/10 disabled:opacity-50"
+            onClick={() => void submit(false)}
+          >
+            拒绝
+          </button>
+        </>
+      )}
+      {note && <span className="text-on-surface-variant/80" data-testid="unified-approval-note">{note}</span>}
+    </div>
+  );
+}
+
+function TimelineRow({ item, taskId }: { item: TimelineItem; taskId?: string }) {
   switch (item.kind) {
     case 'message': {
       const mine = item.role === 'user';
@@ -126,12 +193,7 @@ function TimelineRow({ item }: { item: TimelineItem }) {
         </div>
       );
     case 'approval':
-      return (
-        <div className="px-2 py-0.5 text-caption" data-testid="unified-item-approval">
-          <span className="text-warning">授权</span> {item.status}
-          {item.risk ? ` · risk=${item.risk}` : ''}
-        </div>
-      );
+      return <ApprovalRow item={item} taskId={taskId} />;
     case 'degradation':
       return (
         <div className="px-2 py-0.5 text-caption text-warning/90" data-testid="unified-item-degradation">
@@ -260,7 +322,7 @@ export function UnifiedTimeline({
           加载更早的 {Math.min(rest, WINDOW)} 条（还有 {rest} 条）
         </button>
       )}
-      {shown.map((it) => <TimelineRow key={it.key} item={it} />)}
+      {shown.map((it) => <TimelineRow key={it.key} item={it} taskId={taskId} />)}
     </div>
   );
 }

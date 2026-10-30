@@ -460,3 +460,52 @@ Sol 的读码路径止步于 `requirements_service` 侧接线，没有核到 `ll
 - **M3 收尾**：完整 E2E 跑单流全链路（需求 → 任务 → 导出）+ 刷新恢复断言。
 - PRD §6 的 M3 条目里「授权/结论/产物改为条目级 renderer」目前是"问答与工具已进流、
   `TaskArtifacts`/`TaskFinishSummary` 仍走原组件"，需在下一轮补齐。
+
+## 执行记录（2026-10-31 · 第 2 轮 · M3 收尾 + M4 + 单流 E2E）
+
+### 本轮修掉的真实缺陷（E2E 逼出来的）
+
+**首页「新建制作」的首轮对话根本没有流式**：`useRequirementsAutoStart` 用的是非流式
+`requirementsApi.chat()`，因此自动开始那一段既没有逐字输出、也没有任何思考内容——
+用户最初看到的"点不开的正在思考"，有一半就是这个原因。现在 autoStart 改走
+`streamChat`（失败回退非流式），delta 进消息气泡、reasoning 进投影层；
+AgentPanel 增加 `busy: true→false` 监听统一刷新会话事件（不再依赖"是谁发起了这一轮"），
+所以首轮思考落盘后，「历史思考」块一定会出现。
+
+另外：单流视图里思考的存在性以**投影层条目**（`unified-item-reasoning`）为准，
+不再依赖组件局部 `liveReasoning`——组件卸载/重挂都不会让思考"看起来消失了"。
+
+### M3 收尾
+
+- 新增 `artifact` kind：`artifact` / `doc_write` / `report` 事件映射成产物条目
+  （label + 路径可复制 + 字数 + 文件数），不再落 log 兜底。
+- `approval` 条目带 `tool`；`task-end` 带 finish reason（无 reason 时回退显示 status）。
+- renderer 加穷尽检查（`const never: never`）：新增 kind 不补 renderer 直接类型报错。
+
+### M4
+
+- 后端：消息 id 稳定化（`_ensure_message_ids`）+ `list_messages(before_id, limit)` +
+  `GET /{sid}/messages` + 会话事件 `before_seq`。7 例测试（翻页不重复、能走到头、limit 钳制、
+  since_seq / before_seq 互不污染）。
+- 前端：`requirementsApi.messages()`；AgentPanel 本地无消息时 hydrate 最新一页，
+  顶部「加载更早的消息」按 id 前插去重；`prependRequirementsMessages` / `setRequirementsMessages`。
+- `UnifiedTimeline`：**滚动触发式分页 + DOM 有界**（初始 100 条，滚到顶 +100，容器自持滚动）。
+  说明：条目高度不定（思考可展开、消息长短不一），绝对定位虚拟化会抖动，
+  因此取"分页渲染 + DOM 上限"的折中，并用测试钉住（2000 条 → 只渲染 100 条；
+  40 万字思考默认折叠不渲染正文）。
+
+### 验证
+
+- 后端 `pytest` **4986 passed / 4 skipped / 1 xfailed**。
+- 前端 `tsc` 干净；`vitest` **138 文件 / 1198 例**。
+- **单流 E2E 通过**（`e2e/unified-stream.spec.ts`，11.8s）：
+  `?unifiedTimeline` 打开 → 单流容器 → assistant 回复 → 思考在时间线里可展开（正文 98 字）
+  → 刷新后消息条目 2 → 5（服务端 hydrate 生效）→ 零未捕获异常。
+- `final-flow.spec.ts`（需求 → 任务 → 渲染 → 下载 → ffprobe）本轮同时重跑，结果见下。
+
+### 仍未做（下一轮）
+
+- 真·绝对定位虚拟滚动（当前是分页渲染 + DOM 上限；若条目高度模型稳定后再上）。
+- 需求侧 `hasEarlierMessages` 目前只在本地无消息时覆盖；跨多次刷新后向上翻到最老一页的
+  断言还没写进 E2E。
+- 任务侧 `TaskRuns`（追问/重放）仍是独立区块，未进时间线条目。

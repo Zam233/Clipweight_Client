@@ -224,23 +224,46 @@ function RequirementsView() {
 
   useEffect(() => { void refreshQuestions(requirementsSessionId); }, [requirementsSessionId, refreshQuestions]);
 
+  // 任何路径结束后都补一次会话事件（包含 autoStart 的非 AgentPanel 发起）：
+  // 否则首轮思考虽已落盘，界面上的「历史思考」块永远不出现。
+  const prevBusyRef = useRef(false);
+  useEffect(() => {
+    if (prevBusyRef.current && !busy && requirementsSessionId) {
+      // 本轮结束：思考条目收尾（不标 done 会永远显示"进行中"），再刷新会话事件
+      useUnifiedTimelineStore.getState().applyRequirementReasoning(
+        requirementsSessionId, '', true,
+      );
+      void refreshQuestions(requirementsSessionId);
+    }
+    prevBusyRef.current = busy;
+  }, [busy, requirementsSessionId, refreshQuestions]);
+
   // 刷新/首次进入：本地没有消息时从服务端取最新一页（id 稳定，翻页不会重复）
   useEffect(() => {
     const sid = requirementsSessionId;
     if (!sid) return;
-    if (useAgentStore.getState().requirementsMessages.length > 0) return;
     let alive = true;
     void (async () => {
       try {
-        const page = await requirementsApi.messages(sid, { limit: 50 });
-        if (!alive || !page?.items?.length) return;
-        setMessages(page.items.map((m) => ({
-          id: m.id, role: m.role as 'user' | 'assistant' | 'system',
-          content: m.content, timestamp: m.timestamp ?? '',
-        })));
-        setHasEarlierMessages(Boolean(page.has_more));
+        const local = useAgentStore.getState().requirementsMessages;
+        if (local.length === 0) {
+          const page = await requirementsApi.messages(sid, { limit: 50 });
+          if (!alive || !page?.items?.length) return;
+          setMessages(page.items.map((m) => ({
+            id: m.id, role: m.role as 'user' | 'assistant' | 'system',
+            content: m.content, timestamp: m.timestamp ?? '',
+          })));
+          setHasEarlierMessages(Boolean(page.has_more));
+          return;
+        }
+        // 本地已有消息（草稿/实时）：只探测"服务端是否还有更早的"，不动已有消息
+        const oldest = local[0]?.id;
+        const probe = await requirementsApi.messages(sid, { beforeId: oldest || '', limit: 1 });
+        if (!alive) return;
+        setHasEarlierMessages(Boolean(probe?.has_more) || Boolean(probe?.items?.length));
       } catch {
-        // 后端不可用：保持空态引导，不伪造历史
+        // 后端不可用：不显示"加载更早"，也不伪造历史
+        setHasEarlierMessages(false);
       }
     })();
     return () => { alive = false; };

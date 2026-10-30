@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { useProjectStore } from '@/stores/projectStore';
 import { useAgentStore } from '@/stores/agentStore';
+import { useUnifiedTimelineStore } from '@/stores/unifiedTimelineStore';
 import { requirementsApi } from '@/services/api';
 import { uid } from '@/lib/utils';
 import { demoBrief } from './AgentPanel';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { resolveMessageAttachments } from './requirementsAttachments';
+import type { CreativeBrief, ProductionPlan } from '@/types/persona';
 
 /**
  * useRequirementsAutoStart — 从 HomePage「开始创作」进入编辑器后自动启动需求 Agent。
@@ -66,17 +68,53 @@ export function useRequirementsAutoStart(ready: boolean) {
         });
         useAgentStore.getState().setRequirementsSession(res.session_id);
         try {
-          const chatRes = await requirementsApi.chat({ session_id: res.session_id, message: firstMsg });
-          const brief = chatRes.creative_brief ?? null;
-          const plan = chatRes.production_plan ?? null;
+          // unified-stream PRD §M1：首轮必须走**流式**，否则思考与逐字输出在自动开始的
+          // 那一段完全不存在（旧实现用非流式 chat，前端只能看到"整段蹦出来"）。
+          // 失败时回退非流式，行为与旧实现一致。
+          let chatRes: Record<string, unknown> = {};
+          let streamedId: string | null = null;
+          try {
+            chatRes = await requirementsApi.streamChat(res.session_id, firstMsg, (chunk) => {
+              const ag2 = useAgentStore.getState();
+              if (chunk.type === 'delta' && typeof chunk.data === 'string') {
+                if (!streamedId) {
+                  streamedId = uid('m');
+                  ag2.addRequirementsMessage({
+                    id: streamedId, role: 'assistant', content: chunk.data as string,
+                    timestamp: new Date().toISOString(), streaming: true,
+                  });
+                } else {
+                  ag2.appendRequirementsDelta(streamedId, chunk.data as string);
+                }
+              } else if (chunk.type === 'reasoning' && typeof chunk.data === 'string') {
+                // 思考进投影层：即使 AgentPanel 还没挂载，打开单流也能看到这一段
+                useUnifiedTimelineStore.getState().applyRequirementReasoning(
+                  res.session_id, chunk.data as string,
+                );
+              }
+            });
+          } catch {
+            chatRes = await requirementsApi.chat({ session_id: res.session_id, message: firstMsg });
+          }
+          const brief = (chatRes.creative_brief ?? null) as CreativeBrief | null;
+          const plan = (chatRes.production_plan ?? null) as ProductionPlan | null;
           const ag2 = useAgentStore.getState();
           if (brief) { ag2.setCreativeBrief(brief); ag2.setRequirementsStatus('brief_ready'); }
           if (plan) { ag2.setProductionPlan(plan); ag2.setRequirementsStatus('plan_ready'); }
-          const att = resolveMessageAttachments(chatRes.status, brief, plan);
-          ag2.addRequirementsMessage({
-            id: uid('m'), role: 'assistant', content: chatRes.reply ?? chatRes.message ?? '已收到。',
-            timestamp: new Date().toISOString(), creative_brief: att.creative_brief, production_plan: att.production_plan,
-          });
+          const att = resolveMessageAttachments(chatRes.status as string, brief, plan);
+          const finalText = String(chatRes.reply ?? chatRes.message ?? '已收到。');
+          if (streamedId) {
+            // 收尾：用权威 reply 替换打字气泡，不再新增一条
+            useAgentStore.getState().updateRequirementsMessage(streamedId, {
+              content: finalText, streaming: false,
+              creative_brief: att.creative_brief, production_plan: att.production_plan,
+            });
+          } else {
+            ag2.addRequirementsMessage({
+              id: uid('m'), role: 'assistant', content: finalText,
+              timestamp: new Date().toISOString(), creative_brief: att.creative_brief, production_plan: att.production_plan,
+            });
+          }
         } catch {
           if (!useSettingsStore.getState().allowDemoFallback) {
             useAgentStore.getState().addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '后端暂不可达，无法生成简报（可在设置中开启离线演示回退）' });
