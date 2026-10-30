@@ -234,11 +234,20 @@ export const useAgentStore = create<AgentState>((set) => ({
     set((state) => ({ mgDone: state.mgDone + 1 })),
   resetMgProgress: () => set({ mgTotal: 0, mgDone: 0 }),
 
+  // 会话 id / 状态必须一起进草稿：旧实现只在 addRequirementsMessage 时顺带写草稿，
+  // 状态迁移（brief_ready→plan_ready→pipeline_running）与新建会话本身不落盘，
+  // 刷新后草稿里的 sessionId/status 仍是旧值（或 null）→ 恢复不出规划书卡片。
   setRequirementsSession: (sessionId) =>
-    set({ requirementsSessionId: sessionId }),
+    set((state) => {
+      saveDraft({ messages: state.requirementsMessages, brief: state.creativeBrief, plan: state.productionPlan, sessionId, status: state.requirementsStatus });
+      return { requirementsSessionId: sessionId };
+    }),
 
   setRequirementsStatus: (status) =>
-    set({ requirementsStatus: status }),
+    set((state) => {
+      saveDraft({ messages: state.requirementsMessages, brief: state.creativeBrief, plan: state.productionPlan, sessionId: state.requirementsSessionId, status });
+      return { requirementsStatus: status };
+    }),
 
   setRequirementsBusy: (busy) => set({ requirementsBusy: busy }),
 

@@ -50,7 +50,10 @@ export type TaskEventType =
   // M3：统一 AgentRun 事件（阶段与调研同一组）
   | 'agent_run_start'
   | 'agent_run_update'
-  | 'agent_run_end';
+  | 'agent_run_end'
+  // 子 agent 透明化（后端 2026-10-29）
+  | 'subagent_tool'
+  | 'subagent_progress';
 
 export interface PlanStep {
   id: string;
@@ -162,4 +165,60 @@ export interface TaskListItem {
   topic: string;
   updated_at: string;
   steps: number;
+}
+
+/**
+ * 一次工具调用（全量轨迹里的一行，PRD modern-agent-review M3）。
+ *
+ * `source === 'internal'` 表示这是后端**内部操作**（MG 生成、素材检索、技能调用等），
+ * 不是 LLM 主动发的工具调用——以前这类动作在 UI 上是黑区，现在照样落在轨迹里。
+ */
+export interface TaskToolCall {
+  tool: string;
+  capability?: string;
+  status?: string;
+  duration_ms?: number;
+  args_brief?: string;
+  output_brief?: string;
+  error?: string;
+  source?: string;
+  [key: string]: unknown;
+}
+
+/** `GET /api/task/{id}/tool-calls` 的响应：某阶段某次尝试的完整轨迹（分页）。 */
+export interface TaskToolCalls {
+  task_id: string;
+  stage: string;
+  attempt: number;
+  path: string;
+  total: number;
+  offset: number;
+  limit: number;
+  count: number;
+  /** 内部操作条数（source=internal） */
+  internal: number;
+  /** 失败条数（status 非 success/ok/空） */
+  failed: number;
+  items: TaskToolCall[];
+  /** 磁盘上可看的 `<stage>-<attempt>` 列表 */
+  available: string[];
+}
+
+
+/** 一个子 agent run 的摘要（`GET /api/task/{id}/runs`）。 */
+export interface TaskRunSummary {
+  run_id: string;
+  kind: string;
+  stage: string;
+  role: string;
+  status: string;
+  attempt: number;
+  duration_ms: number;
+  cost_usd: number | null;
+  degradations: number;
+  tool_calls: number;
+  tool_calls_path: string;
+  report_path: string;
+  summary: string;
+  replayed: boolean;
 }

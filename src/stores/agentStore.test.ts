@@ -64,3 +64,16 @@ describe('E7: log entry cap', () => {
     expect(useAgentStore.getState().logEntries.length).toBe(0);
   });
 });
+
+describe('需求会话持久化：sessionId / status 进本地草稿', () => {
+  it('setRequirementsSession + setRequirementsStatus 写进草稿', async () => {
+    const mod = await import('./agentStore');
+    mod.clearRequirementsDraft();
+    const s = useAgentStore.getState();
+    s.setRequirementsSession('req_persist');
+    useAgentStore.getState().setRequirementsStatus('plan_ready');
+    const draft = mod.loadRequirementsDraft();
+    expect(draft?.sessionId).toBe('req_persist');
+    expect(draft?.status).toBe('plan_ready');
+  });
+});

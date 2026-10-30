@@ -167,34 +167,41 @@ export function ExportPage() {
       .finally(() => setLoadingPresets(false));
   }, []);
 
-  // 刷新后从后端恢复在途渲染任务并重新挂接进度流
+  // 刷新后从后端恢复渲染任务并重新挂接进度流。
+  // 除了在跑的任务，**刚完成的**也要带回来：终态记录 60s 后会被后端清理，
+  // 刷新一次就再也点不到「下载」（E2E 2026-10-29 实测：渲染完成即失联）。
   useEffect(() => {
     let alive = true;
     renderApi.listQueue()
       .then((tasks) => {
         if (!alive) return;
-        const active = tasks.filter((t) => t.status === 'queued' || t.status === 'rendering');
-        if (active.length === 0) return;
+        const live = tasks.filter((t) => t.status === 'queued' || t.status === 'rendering');
+        const finished = tasks.filter((t) => t.status === 'completed');
+        if (live.length === 0 && finished.length === 0) return;
         setQueue((q) => {
           const known = new Set(q.map((it) => it.task_id));
-          const restored: QueueItem[] = active
+          const restored: QueueItem[] = [...finished, ...live]
             .filter((t) => !known.has(t.task_id))
             .map((t) => {
               // U18: 尽量从后端任务的文件名恢复原始项目名与预设信息
               const parsed = parseRestoredTask(t);
+              const done = t.status === 'completed';
               return {
                 task_id: t.task_id,
                 status: t.status,
-                progress: t.progress ?? 0,
+                progress: t.progress ?? (done ? 100 : 0),
                 label: parsed.label,
                 presetName: parsed.presetName,
                 startedAt: new Date().toLocaleTimeString(),
                 filename: parsed.filename,
+                ...(done && (t as { output_path?: string }).output_path
+                  ? { output_path: (t as { output_path?: string }).output_path }
+                  : {}),
               };
             });
           return [...restored, ...q];
         });
-        active.forEach((t) => openSSE(t.task_id));
+        live.forEach((t) => openSSE(t.task_id));
       })
       .catch(() => { /* offline：跳过恢复 */ });
     return () => { alive = false; };

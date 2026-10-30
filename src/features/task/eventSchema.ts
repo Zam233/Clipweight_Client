@@ -41,6 +41,9 @@ export const EVENT_TYPE_KEYS = [
   'agent_run_start',
   'agent_run_update',
   'agent_run_end',
+  // 子 agent 透明化（后端 2026-10-29）：子 agent 的工具调用与长阶段分段进度
+  'subagent_tool',
+  'subagent_progress',
 ] as const satisfies readonly TaskEventType[];
 
 export type KnownEventKind = (typeof EVENT_TYPE_KEYS)[number];
@@ -130,6 +133,16 @@ export interface TaskEndDetail {
   dry_run?: boolean;
 }
 
+/** 子 agent 分段进度（后端 subagent_progress） */
+export interface SubagentProgressDetail {
+  stage?: string;
+  done?: number;
+  total?: number;
+  anim_id?: string;
+  clip_id?: string;
+  error?: string;
+}
+
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v ? v : undefined;
 }
@@ -154,13 +167,14 @@ export interface ParsedEventBase {
 }
 
 export type ParsedEvent =
-  | (ParsedEventBase & { kind: 'tool_call' | 'tool_result'; tool: ToolDetail })
+  | (ParsedEventBase & { kind: 'tool_call' | 'tool_result' | 'subagent_tool'; tool: ToolDetail })
   | (ParsedEventBase & { kind: 'step_start' | 'step_end'; stage: StageDetail })
   | (ParsedEventBase & { kind: 'narration' | 'thinking' | 'intent'; turn: ModelTurnDetail })
   | (ParsedEventBase & { kind: 'approval_request' | 'approval_result'; approval: ApprovalDetail })
   | (ParsedEventBase & { kind: 'agent_run_start' | 'agent_run_update' | 'agent_run_end'; run: AgentRunDetail })
   | (ParsedEventBase & { kind: 'context_loaded'; context: ContextDetail })
   | (ParsedEventBase & { kind: 'doc_write' | 'report'; doc: DocDetail })
+  | (ParsedEventBase & { kind: 'subagent_progress'; progress: SubagentProgressDetail })
   | (ParsedEventBase & { kind: 'task_end' | 'gate_hit' | 'degradation' | 'artifact'
       | 'checkpoint' | 'inject' | 'plan' | 'replan' | 'task_start'; end: TaskEndDetail & Record<string, unknown> })
   | (ParsedEventBase & { kind: 'unknown' });
@@ -182,6 +196,7 @@ export function parseTaskEvent(event: TaskEvent): ParsedEvent {
   switch (kind) {
     case 'tool_call':
     case 'tool_result':
+    case 'subagent_tool':
       return {
         ...base,
         kind,
@@ -191,7 +206,20 @@ export function parseTaskEvent(event: TaskEvent): ParsedEvent {
           status: str(raw.status),
           duration_ms: num(raw.duration_ms),
           error: str(raw.error),
-          brief: str(raw.brief),
+          brief: str(raw.brief) ?? str(raw.args_brief),
+        },
+      };
+    case 'subagent_progress':
+      return {
+        ...base,
+        kind,
+        progress: {
+          stage: str(raw.stage),
+          done: num(raw.done),
+          total: num(raw.total),
+          anim_id: str(raw.anim_id),
+          clip_id: str(raw.clip_id),
+          error: str(raw.error),
         },
       };
     case 'step_start':

@@ -8,6 +8,8 @@ import React from 'react';
 import { useTaskStore } from '@/stores/taskStore';
 import { useTaskEvents } from '@/features/task/useTaskEvents';
 import { EventFeed } from '@/features/task/EventFeed';
+import { TaskToolTrace } from '@/features/task/TaskToolTrace';
+import { TaskRuns } from '@/features/task/TaskRuns';
 import { PlanPanel } from '@/features/task/PlanPanel';
 import { TaskArtifacts } from '@/features/task/TaskArtifacts';
 import { TaskToolbar } from '@/features/task/TaskToolbar';
@@ -348,10 +350,27 @@ function DegradationRows({ events }: { events: Ev }) {
           const detail = String(raw.detail ?? p.message ?? '');
           const scope = String(raw.scope ?? raw.kind ?? '');
           const impact = String(raw.impact ?? '');
+          // 收据（PRD modern-agent-review P0）：降级不能只"口头接受"，
+          // better 是重派修好了（remediated），要么写明理由接受（accepted）。
+          const receipt = String(raw.mode ?? '');
+          const reason = String(raw.reason ?? '');
+          const resolved = typeof raw.resolved === 'number' ? raw.resolved : null;
           return (
-            <li key={p.seq} className="text-caption text-on-surface-variant" data-degradation-seq={p.seq}>
+            <li key={p.seq} className="text-caption text-on-surface-variant" data-degradation-seq={p.seq}
+              data-receipt={receipt || undefined}>
+              {receipt === 'remediated' && (
+                <span className="mr-1 rounded-cw-xs bg-primary/15 px-1 text-primary">
+                  已修复{resolved ? ` ${resolved} 项` : ''}
+                </span>
+              )}
+              {receipt === 'accepted' && (
+                <span className="mr-1 rounded-cw-xs bg-warning/15 px-1 text-warning">
+                  已接受{resolved ? ` ${resolved} 项` : ''}
+                </span>
+              )}
               {scope && <span className="mr-1 font-mono text-warning/80">{scope}</span>}
               {detail}
+              {reason && <span className="ml-1 text-on-surface-variant/70">理由：{reason}</span>}
               {impact && <span className="ml-1 text-on-surface-variant/60">（{impact}）</span>}
             </li>
           );
@@ -439,6 +458,12 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
       <ToolCallRows events={events} />
       <ApprovalRows events={events} taskId={taskId} />
       <DegradationRows events={events} />
+
+      {/* PRD modern-agent-review M2：子会话可寻址（追问 / 重放） */}
+      <TaskRuns taskId={taskId} active={!terminal} />
+
+      {/* PRD modern-agent-review M3：事件流只有采样，全量轨迹单独读盘上的 transcript */}
+      <TaskToolTrace taskId={taskId} active={!terminal} />
 
       <div className="min-h-0 flex-1 overflow-auto px-1 py-1">
         <EventFeed events={events} />

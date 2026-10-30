@@ -12,6 +12,9 @@ import type {
   Task,
   TaskEvent,
   TaskListItem,
+  TaskRunSummary,
+  TaskToolCall,
+  TaskToolCalls,
 } from '@/types/task';
 
 export const taskApi = {
@@ -132,5 +135,62 @@ export const taskApi = {
   }> {
     const { data } = await getApiClient().post(`/api/task/${taskId}/to-project`, { name });
     return data;
+  },
+
+  /** 该任务派过的全部子 agent run（PRD modern-agent-review M2 可寻址子会话）。 */
+  async runs(taskId: string): Promise<{ task_id: string; count: number; items: TaskRunSummary[] }> {
+    const { data } = await getApiClient().get(`/api/task/${taskId}/runs`);
+    return data;
+  },
+
+  /** 单个 run 的全量结果（含降级、工具轨迹、失败原因）。 */
+  async runDetail(taskId: string, runId: string): Promise<{
+    task_id: string;
+    run: Record<string, unknown>;
+  }> {
+    const { data } = await getApiClient().get(`/api/task/${taskId}/runs/${runId}`);
+    return data;
+  },
+
+  /** 给某个 run 所在的阶段子会话留一条补充要求（下次派发时并入 brief）。 */
+  async runMessage(taskId: string, runId: string, text: string): Promise<{
+    stage: string;
+    pending: number;
+  }> {
+    const { data } = await getApiClient().post(
+      `/api/task/${taskId}/runs/${runId}/message`, { text });
+    return data;
+  },
+
+  /** 重放一个 run：同样阶段与 brief **真重跑**（跳过幂等回放）。 */
+  async runReplay(taskId: string, runId: string): Promise<{
+    stage: string;
+    status: string;
+    replayed: boolean;
+  }> {
+    const { data } = await getApiClient().post(`/api/task/${taskId}/runs/${runId}/replay`);
+    return data;
+  },
+
+  /**
+   * 某阶段的**全量**工具轨迹（PRD modern-agent-review M3）。
+   *
+   * 主 agent 的工具结果里只带 12 条采样 + `tool_calls_path`；用户要"点开看全部"时
+   * 走这个接口分页读盘上的 `reports/tool_calls/<stage>-<n>.json`。
+   * `stage` 留空 = 取最近一次落盘的那份（任务刚结束、用户还没选阶段时用）。
+   */
+  async toolCalls(
+    taskId: string,
+    opts: { stage?: string; attempt?: number; limit?: number; offset?: number } = {},
+  ): Promise<TaskToolCalls> {
+    const params: Record<string, string | number> = {};
+    if (opts.stage) params.stage = opts.stage;
+    if (opts.attempt) params.attempt = opts.attempt;
+    if (opts.limit) params.limit = opts.limit;
+    if (opts.offset) params.offset = opts.offset;
+    const { data } = await getApiClient().get(`/api/task/${taskId}/tool-calls`, {
+      params: Object.keys(params).length ? params : undefined,
+    });
+    return data as TaskToolCalls;
   },
 };

@@ -3,6 +3,7 @@ export { pipelineApi } from './pipeline';
 export { supervisorApi } from './supervisor';
 export { personaApi } from './persona';
 export { assetApi } from './asset';
+export { taskApi } from './task';
 export { renderApi } from './render';
 export { requirementsApi } from './requirements';
 export { projectApi, healthApi, pluginApi, animationApi, skillApi } from './project';
@@ -36,3 +37,4 @@ export type {
 } from './workspace';
 export { evalApi } from './eval';
 export type { EvalReportPayload, EvalReportSummary } from './eval';
+

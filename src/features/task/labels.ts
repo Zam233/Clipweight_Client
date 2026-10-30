@@ -62,6 +62,8 @@ export const EVENT_CN: Record<TaskEventType, string> = {
   agent_run_start: '派出子 agent',
   agent_run_update: '子 agent 进展',
   agent_run_end: '子 agent 结束',
+  subagent_tool: '子 agent 工具调用',
+  subagent_progress: '子 agent 进度',
 };
 
 export function eventLabel(type: string): string {
@@ -90,3 +92,4 @@ export function durationText(sec: number): string {
   const s = Math.round(sec % 60);
   return `${m}m${s ? ` ${s}s` : ''}`;
 }
+

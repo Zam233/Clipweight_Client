@@ -3,7 +3,8 @@ import { useParams, useBlocker } from '@tanstack/react-router';
 import { EditorLayout } from '@/layouts/EditorLayout';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
-import { useAgentStore, clearRequirementsDraft } from '@/stores/agentStore';
+import { useAgentStore, clearRequirementsDraft, loadRequirementsDraft } from '@/stores/agentStore';
+import { useTaskStore } from '@/stores/taskStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { usePreviewStore } from '@/stores/previewStore';
@@ -11,7 +12,7 @@ import { useAssetStore } from '@/stores/assetStore';
 import { useVoiceStore } from '@/stores/voiceStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { toast } from '@/stores/toastStore';
-import { projectApi, requirementsApi, getApiClient } from '@/services/api';
+import { projectApi, requirementsApi, taskApi, getApiClient } from '@/services/api';
 import { session } from '@/services/api/session';
 import { mediaManager } from '@/services/media/mediaManager';
 import { useGlobalKeybindings } from '@/features/keyboard/useGlobalKeybindings';
@@ -182,9 +183,21 @@ export function EditorPage() {
           useProjectStore.getState().setAutoDub(pending.autoDub);
           useProjectStore.getState().setPersonaId(pending.personaId);
           useProjectStore.getState().setPluginId(pending.pluginId);
-        } else if (project.agent_state) {
+        } else {
           // 非首页新启动 → 恢复项目保存的 Agent 状态（需求对话/简报/规划书/执行日志）
-          useAgentStore.getState().restoreAgentState(project.agent_state);
+          if (project.agent_state) useAgentStore.getState().restoreAgentState(project.agent_state);
+          // 服务端快照可能早于需求会话（旧实现只在时间线变化时才落盘 agent_state）
+          // → 回退读本地草稿，否则刷新后会话/规划书卡片整个消失
+          const _draft = loadRequirementsDraft();
+          if (_draft && _draft.sessionId && !useAgentStore.getState().requirementsSessionId) {
+            useAgentStore.getState().restoreAgentState({
+              requirementsSessionId: _draft.sessionId,
+              requirementsStatus: _draft.status,
+              requirementsMessages: _draft.messages,
+              creativeBrief: _draft.brief,
+              productionPlan: _draft.plan,
+            });
+          }
           // G8: 存在需求会话时从后端同步权威状态（消息/简报/规划书/status），
           // 失败静默保留本地恢复值（离线兜底）。
           const sid = useAgentStore.getState().requirementsSessionId;
@@ -204,16 +217,51 @@ export function EditorPage() {
                   timestamp: new Date().toISOString(),
                 });
                 // 用后端消息覆盖本地草稿（保留现有 store action 语义）
-                useAgentStore.setState({
-                  requirementsMessages: remote.messages.map((m) => ({
-                    id: uid('m'), role: m.role as never, content: m.content, timestamp: m.timestamp,
-                  })),
-                });
+                const restored = remote.messages.map((m) => ({
+                  id: uid('m'), role: m.role as never, content: m.content, timestamp: m.timestamp,
+                })) as Array<Record<string, unknown>>;
+                // 卡片（简报/规划书）是**挂在消息上**渲染的：后端把 brief/plan 存在会话顶层，
+                // 消息本身可能不带附件（例如规划书是流式生成完成后才落到会话）。
+                // 只把 brief/plan 塞进 store 字段而不补消息，刷新后卡片与「确认并启动管线」
+                // 按钮都不会出现（E2E 实测：status=plan_ready 却无法继续）。
+                const hasBrief = restored.some((m) => m.creative_brief);
+                const hasPlan = restored.some((m) => m.production_plan);
+                if (remote?.creative_brief && !hasBrief) {
+                  restored.push({
+                    id: uid('m'), role: 'assistant',
+                    content: '已恢复创意简报，请审阅后确认。',
+                    timestamp: new Date().toISOString(),
+                    creative_brief: remote.creative_brief,
+                  });
+                }
+                if (remote?.production_plan && !hasPlan) {
+                  restored.push({
+                    id: uid('m'), role: 'assistant',
+                    content: '已恢复制作规划书，请审阅后确认并启动管线。',
+                    timestamp: new Date().toISOString(),
+                    production_plan: remote.production_plan,
+                  });
+                }
+                useAgentStore.setState({ requirementsMessages: restored as never });
               }
               if (remote?.creative_brief) useAgentStore.getState().setCreativeBrief(remote.creative_brief as never);
               if (remote?.production_plan) useAgentStore.getState().setProductionPlan(remote.production_plan as never);
             } catch {
               // 离线：保留本地草稿
+            }
+          }
+          // 过期「管线运行中」自救：任务早就结束（成功/失败/取消）而 agent_state 里
+          // 仍是 pipeline_running 时，confirmPlan 会一直拒绝启动（刷新前浏览器没收到
+          // task_end 就会永久卡住）。这里按任务列表核实一次，没有在跑的任务就降级。
+          if (useAgentStore.getState().requirementsStatus === 'pipeline_running') {
+            try {
+              const res = await taskApi.list(10);
+              const active = (res?.items ?? []).some((it) =>
+                ['running', 'pending', 'planning', 'paused'].includes(String(it.status)),
+              );
+              if (!active) useAgentStore.getState().setRequirementsStatus('pipeline_done');
+            } catch {
+              // 拉不到任务列表就保持原状态（宁可保守，也不谎报已完成）
             }
           }
         }
@@ -349,11 +397,62 @@ export function EditorPage() {
     return () => { unsub(); };
   }, []);
 
+  // 任务完成 → 重新加载项目时间线（E2E 2026-10-29）：
+  // 主 Agent 跑完会把成片时间线回写项目（后端 services/task_project_sync.py），
+  // 但编辑器不会自己重拉——刷新前用户看到的还是 0 轨，导出页按钮恒禁用。
+  const taskStatus = useTaskStore((s) => s.task?.status);
+  const taskId = useTaskStore((s) => s.task?.id);
+  const reloadedTaskRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (taskStatus !== 'done') return;
+    const pid = useProjectStore.getState().projectId;
+    if (!pid || !taskId) return;
+    if (reloadedTaskRef.current === taskId) return;
+    reloadedTaskRef.current = taskId;
+    void (async () => {
+      try {
+        const project = await projectApi.load(pid);
+        const tl = project?.timeline;
+        if (!tl || !Array.isArray(tl.tracks) || tl.tracks.length === 0) return;
+        useTimelineStore.getState().setTimeline(tl);
+        mediaManager.registerTimeline(tl);
+        toast('制作完成，成片时间线已载入编辑器', 'info');
+      } catch {
+        /* 拉取失败静默：用户可手动刷新 */
+      }
+    })();
+  }, [taskStatus, taskId]);
+
   // Manual save trigger via saveNonce
   const saveNonce = useProjectStore((s) => s.saveNonce);
   useEffect(() => {
     if (saveNonce > 0) void doSave();
   }, [saveNonce, doSave]);
+
+  // 需求会话落盘：doSave 会把 agent_state 随项目保存，但它此前只由 timelineStore
+  // 变化触发；需求阶段（对话/简报/规划书）根本不动时间线，于是 agent_state 永远是
+  // 初始空快照——刷新后会话丢失、规划书卡片与「确认并启动管线」按钮都出不来。
+  // 这里单独订阅需求相关字段，变化后 4 秒防抖落盘。
+  const reqSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const unsub = useAgentStore.subscribe((state, prev) => {
+      if (
+        state.requirementsSessionId === prev.requirementsSessionId &&
+        state.requirementsStatus === prev.requirementsStatus &&
+        state.requirementsMessages.length === prev.requirementsMessages.length &&
+        state.creativeBrief === prev.creativeBrief &&
+        state.productionPlan === prev.productionPlan
+      ) return;
+      if (!useProjectStore.getState().projectId) return;
+      if (!useSettingsStore.getState().autoSave) return;
+      if (reqSaveTimer.current) clearTimeout(reqSaveTimer.current);
+      reqSaveTimer.current = setTimeout(() => { void doSave(); }, 4000);
+    });
+    return () => {
+      unsub();
+      if (reqSaveTimer.current) clearTimeout(reqSaveTimer.current);
+    };
+  }, [doSave]);
 
   // P0-02: SPA 导航守卫 —— 返回首页/导出/项目列表等路由离开前，先落盘未保存改动。
   // （SPA 跳转不触发 pagehide，原先 5s 防抖窗口内的最后一次改动会静默丢失。）
@@ -496,3 +595,4 @@ export function EditorPage() {
     </>
   );
 }
+
