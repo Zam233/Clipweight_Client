@@ -315,6 +315,31 @@ function RequirementsView() {
 
   useEffect(() => { void refreshQuestions(requirementsSessionId); }, [requirementsSessionId, refreshQuestions]);
 
+  // 任务跑完/失败后**会话要放开**（用户 2026-10-31）：状态停在 pipeline_running / planning
+  // 时后端已挂终态监听把会话拉回可对话状态，但前端不知道——输入区会一直隐藏。
+  // 这里在这两个状态下降频轮询会话状态，变了就跟着变（用户就能继续跟主 agent 说话）。
+  useEffect(() => {
+    const sid = requirementsSessionId;
+    if (!sid) return undefined;
+    if (!['pipeline_running', 'planning'].includes(String(status))) return undefined;
+    let alive = true;
+    const timer = window.setInterval(() => {
+      void (async () => {
+        try {
+          const s = await requirementsApi.getSession(sid) as { status?: string };
+          const next = String(s?.status || '');
+          if (!alive || !next || next === status) return;
+          setStatus(next as Parameters<typeof setStatus>[0]);
+          useAgentStore.getState().setRequirementsBusy(false);
+          void refreshQuestions(sid);
+        } catch {
+          /* 后端忙/抖动：下一轮再来 */
+        }
+      })();
+    }, 5000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [requirementsSessionId, status, refreshQuestions]);
+
   // 切换/新建会话时清掉上一个会话的前端条目（服务端仍在，不会丢数据）——
   // 否则长会话的桶会一直挂在内存里（T4）
   const prevSessionRef = useRef<string | null>(null);

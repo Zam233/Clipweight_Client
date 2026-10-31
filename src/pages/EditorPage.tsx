@@ -423,6 +423,38 @@ export function EditorPage() {
     })();
   }, [taskStatus, taskId]);
 
+  // 时间轴**实时**同步（用户 2026-10-31）：任务运行期间后端每派完一个阶段就把当前
+  // 时间线增量写回项目；这里每 4s 拉一次，只在"轨道数/片段数变化"时才更新 store——
+  // 否则会把用户正在拖动/调整的片段位置冲掉。
+  useEffect(() => {
+    if (!taskId) return;
+    if (!['running', 'planning', 'waiting_user', 'paused'].includes(String(taskStatus))) return;
+    const pid = useProjectStore.getState().projectId;
+    if (!pid) return;
+    let alive = true;
+    const clipCount = (tl: { tracks?: { clips?: unknown[] }[] } | null | undefined) =>
+      (tl?.tracks || []).reduce((n, tr) => n + ((tr?.clips || []).length), 0);
+    const tick = async () => {
+      try {
+        const project = await projectApi.load(pid);
+        if (!alive) return;
+        const tl = project?.timeline;
+        if (!tl || !Array.isArray(tl.tracks) || tl.tracks.length === 0) return;
+        const cur = useTimelineStore.getState().timeline;
+        const sameTracks = (tl.tracks || []).length === (cur?.tracks || []).length;
+        if (sameTracks && clipCount(tl) === clipCount(cur)) return;
+        useTimelineStore.getState().setTimeline(tl);
+        mediaManager.registerTimeline(tl);
+        toast(`时间轴已同步：${(tl.tracks || []).length} 轨 / ${clipCount(tl)} 片段`, 'info');
+      } catch {
+        /* 后端忙/网络抖动：下一轮再来，不打扰用户 */
+      }
+    };
+    void tick();
+    const h = window.setInterval(() => void tick(), 4000);
+    return () => { alive = false; window.clearInterval(h); };
+  }, [taskId, taskStatus]);
+
   // Manual save trigger via saveNonce
   const saveNonce = useProjectStore((s) => s.saveNonce);
   useEffect(() => {
