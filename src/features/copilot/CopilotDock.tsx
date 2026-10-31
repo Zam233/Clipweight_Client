@@ -16,6 +16,7 @@ import { WorkspaceMaterialsPanel } from '@/features/workspace/WorkspaceMaterials
 import { CopilotTabBar } from './CopilotTabBar';
 import { CopilotTaskRunTab } from './CopilotTaskRunTab';
 import { CopilotDocsTab } from './CopilotDocsTab';
+import { CopilotArtifactTab } from './CopilotArtifactTab';
 import { CopilotStageTab } from './CopilotStageTab';
 import { CopilotSubagentTab } from './CopilotSubagentTab';
 import { useCopilotStore } from '@/stores/copilotStore';
@@ -62,6 +63,8 @@ export function CopilotDock() {
         );
       case 'docs':
         return <CopilotDocsTab projectId={String(active.payload?.projectId || '')} />;
+      case 'artifact':
+        return <CopilotArtifactTab path={String(active.payload?.path || '')} />;
       default:
         return <Placeholder title={active?.title ?? '未选择'} hint="该标签暂未接入。" />;
     }
@@ -76,3 +79,4 @@ export function CopilotDock() {
     </div>
   );
 }
+

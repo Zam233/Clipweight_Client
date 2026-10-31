@@ -20,7 +20,9 @@ export type CopilotTabKind =
   | 'stage'
   | 'workspace'
   | 'docs'
-  | 'plan';
+  | 'plan'
+  /** 产物预览（点产物默认在应用内新开一个这种标签；Ctrl+点击走系统打开） */
+  | 'artifact';
 
 export interface CopilotTab {
   id: string;

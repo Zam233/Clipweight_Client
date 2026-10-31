@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { handleArtifactClick } from '@/features/copilot/artifactOpen';
 import type { TaskEvent } from '@/types/task';
 import { MAX_TASK_EVENTS } from '@/stores/taskStore';
 
@@ -151,10 +152,10 @@ function EventRow({ event, selected, onSelect }: {
         {path && (
           <button
             type="button"
-            title="复制路径"
+            title="点击在应用内打开；Ctrl/⌘+点击用系统默认程序打开"
             data-event-path={path}
             className="ml-1 font-mono text-caption text-on-surface-variant/70 underline decoration-dotted hover:text-on-surface"
-            onClick={() => { void navigator.clipboard?.writeText(path); }}
+            onClick={(e) => { void handleArtifactClick(e, path); }}
           >
             {path.split(/[\\/]/).slice(-2).join('/')}
           </button>
@@ -232,3 +233,4 @@ export function EventFeed({ events, className, hasEarlierEvents, onLoadEarlier, 
     </>
   );
 }
+

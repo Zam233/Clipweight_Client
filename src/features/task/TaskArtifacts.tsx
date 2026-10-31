@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { FolderOpen, Film } from 'lucide-react';
+import { handleArtifactClick } from '@/features/copilot/artifactOpen';
 
 import { Button } from '@/components/ui';
 import { taskApi } from '@/services/api/task';
@@ -132,9 +133,16 @@ export function TaskArtifacts({ taskId, enabled = true }: Props) {
         // PRD B9：产物路径要能直接复制（后端返回什么就显示什么，不拼接本地路径）
         <div className="flex items-center gap-2 text-caption text-on-surface-variant">
           <span className="font-mono text-caption text-on-surface-variant/70">产物路径</span>
-          <code className="min-w-0 flex-1 truncate font-mono text-caption text-on-surface" data-testid="artifact-path">
+          {/* 直接点击 → 应用内新开标签预览；Ctrl/⌘+点击 → 系统默认程序打开 */}
+          <button
+            type="button"
+            data-testid="artifact-path"
+            title="点击在应用内打开；Ctrl/⌘+点击用系统默认程序打开"
+            className="min-w-0 flex-1 truncate text-left font-mono text-caption text-on-surface underline decoration-dotted hover:text-primary"
+            onClick={(e) => { void handleArtifactClick(e, snap.output_path); }}
+          >
             {snap.output_path}
-          </code>
+          </button>
           <button
             type="button"
             data-testid="artifact-path-copy"
@@ -157,3 +165,4 @@ export function TaskArtifacts({ taskId, enabled = true }: Props) {
     </section>
   );
 }
+

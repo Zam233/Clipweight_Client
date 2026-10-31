@@ -17,6 +17,7 @@ import React from 'react';
 import { ChevronDown, ChevronRight, Wrench } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { handleArtifactClick } from '@/features/copilot/artifactOpen';
 import {
   EMPTY_BUCKET,
   itemsOf,
@@ -329,13 +330,21 @@ function Row({
         <div className="flex items-baseline gap-2 px-2 py-0.5 text-caption"
           data-testid="session-item-artifact" data-seq={item.seq}>
           <span className="rounded-cw-xs bg-surface-container px-1 text-on-surface-variant">产物</span>
-          <span className="text-on-surface">{label}</span>
-          {path && (
-            <button type="button" title="复制路径"
-              className="max-w-full truncate font-mono text-on-surface-variant/50 underline decoration-dotted hover:text-on-surface"
-              onClick={() => { void navigator.clipboard?.writeText(path); }}>
-              {path}
+          {path ? (
+            // 直接点击 → 应用内新开标签；Ctrl/⌘+点击 → 系统默认程序打开
+            <button type="button"
+              title="点击在应用内打开；Ctrl/⌘+点击用系统默认程序打开"
+              data-artifact-path={path}
+              className="max-w-full truncate text-on-surface underline decoration-dotted hover:text-primary"
+              onClick={(e) => { void handleArtifactClick(e, path); }}>
+              {label || path.split(/[\\/]/).pop()}
             </button>
+          ) : <span className="text-on-surface">{label}</span>}
+          {path && (
+            <span className="max-w-[45%] truncate font-mono text-caption text-on-surface-variant/50"
+              title={path}>
+              {path.split(/[\\/]/).slice(-2).join('/')}
+            </span>
           )}
         </div>
       );
@@ -563,6 +572,7 @@ export function SessionTimeline({
     </div>
   );
 }
+
 
 
 

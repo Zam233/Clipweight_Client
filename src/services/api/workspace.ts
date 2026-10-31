@@ -245,4 +245,31 @@ export const workspaceApi = {
     const { data } = await getApiClient().get('/api/workspace/roots');
     return data;
   },
+
+  /**
+   * 读取工作区内的**文本**产物（产物预览 tab 用）。
+   * 二进制（图片/音视频）由 `fileRawUrl()` 交给 <img>/<video>，不走这里。
+   */
+  async fileText(path: string, maxChars = 400000): Promise<{
+    path: string; name: string; size: number; suffix: string;
+    text: string; truncated: boolean; chars: number;
+  }> {
+    const { data } = await getApiClient().get('/api/workspace/artifact/file', {
+      params: { path, max_chars: maxChars },
+    });
+    return data;
+  },
+
+  /** 原样字节 URL（图片/音视频预览）。带 SSE 同款一次性 token，EventSource 不适用但 <img> 需要。 */
+  fileRawUrl(path: string, token = ''): string {
+    const params = new URLSearchParams({ path });
+    if (token) params.set('token', token);
+    return `${apiBase()}/api/workspace/artifact/raw?${params.toString()}`;
+  },
+
+  /** 用**系统默认程序**打开（Ctrl/⌘ + 点击产物走这条）。 */
+  async reveal(path: string): Promise<{ opened: boolean; path: string }> {
+    const { data } = await getApiClient().post('/api/workspace/reveal', { path });
+    return data;
+  },
 };
