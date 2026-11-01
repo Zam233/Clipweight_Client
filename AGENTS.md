@@ -74,6 +74,16 @@ J:\Clipwright
     另有 `release_stale_pipeline_sessions()` 周期扫存量（实测一次放开 34 个卡死会话）。中止后用户再说一句，
     `_continue_as_task` 重新拉起主 agent，并把「本轮指令 / 会话对话 / 上一轮工具·技能·子 agent 轨迹」
     装进新任务上下文（见 [docs/agent-continuation-and-context-2026-10-31.md](docs/agent-continuation-and-context-2026-10-31.md)）。
+15. **任务数据源按 taskId 原子切换**：`taskStore` 的 `activeTaskId` 先于 `task` 生效；切任务必须同批清空
+    `events/lastSeq/oldestLoadedSeq/seqGap/runEvents`，异步水合与翻页按「taskId + 代际」丢弃过期响应。
+    `seq` 只在单个任务内单调，**禁止跨任务比较**。`/proceed` 拿到新 Task 后必须 `load(taskId)`，
+    否则轨迹/暂停取消/子 Agent 列表仍会指向上一轮 `plan_only` 任务。
+16. **run 身份与归属分离**：`idem_key` 只负责结果复用；每次真实执行（含显式重放、降级重跑）都必须有
+    独立的 `run_id` 与递增 `attempt`。所有 run 详情/追问/重放入口必须校验 `run.task_id === task_id`，
+    任务 owner 校验不能替代 run 归属校验。
+17. **SSE 生命周期必须收敛**：一个 task 只维护一条共享流（引用计数与 handle 同记录），最后一个订阅者
+    卸载才关闭；收到 `task_end` 主动 close，终态任务不再建流；恢复先 REST 水合、再带 `since_seq` 接流。
+    `task_end.detail` 必须带 `completed/unfinished`，前端缺省时保留已有 `finish`，不得用空数组覆盖。
 
 ## 鉴权三模式
 
@@ -81,6 +91,10 @@ J:\Clipwright
 
 ## 本期改进（P8–P10 摘要）
 
+- **主/子 Agent 运行态收口（2026-11-01）**：任务切换按 taskId 原子清游标并加请求代际；确认实施后切到新生产
+  Task；SSE 共享引用计数 + 终态主动关闭 + `since_seq` 续传；子 Agent 详情自己订阅；`runEvents` 独立保存
+  `agent_run_*`；run 归属/重放身份/结束事件契约前后端对齐。详见
+  [docs/agent-runtime-frontend-prd-2026-10-30.md](docs/agent-runtime-frontend-prd-2026-10-30.md) 第 16 轮。
 - **工作区（本期已落地）**：首页「一句话出片（主 Agent）」与 `/task` 启动页已下线，主 Agent 改由「新建制作」承载（`requirements/proceed` 双轨：`agent_mode=on` → Task）；「新建制作」新增 04 工作区（工程/素材/下载/成片同根，`materials/` 唯一用户写入区）＋自动索引与视觉解读。见 [docs/workspace-prd-2026-10-24.md](docs/workspace-prd-2026-10-24.md)。
 - **配音与字幕（本期）**：上传配音入口始终可见（旧实现被 `mode` 派生自我隐藏，用户根本没有上传入口）；
   上传配音的字幕对齐从 `sfx` 分支里移出、**默认执行**（实测时间；段数不一致按配音时长等比；样式继承）；
@@ -157,15 +171,19 @@ J:\Clipwright
 
 修改代码后，运行：
 ```bash
-# 后端全量回归（工作目录 J:\Clipwright）
-python -m pytest tests -q        # 期望 1154 passed
+# 后端回归（工作目录 J:\Clipwright；用带依赖的解释器，如 py -3.14）
+python -m pytest tests -q
 python -c "import clipwright.main"
 
-# 前端回归（工作目录 J:\Clipwright\web）
+# 前端回归（工作目录 J:\Clipweight-Client）
 npx tsc --noEmit
-npm run test                     # 期望 349 passed
+npm run test                     # 2026-11-01 基线：1125 passed / 5 skipped
 npm run build
 ```
+
+后端全量套件在本机曾于 53% 附近长时间无进展（既有长跑用例/环境问题）；至少跑
+`tests/test_task_api.py`、`tests/test_event_contract.py`、`tests/clipwright/test_run_addressing_api.py`、
+`tests/clipwright/test_agent_run_replay.py` 与 Agent/Kernel/Loop/Stage 相关文件。
 
 ## 文档与对应代码
 
@@ -181,3 +199,6 @@ npm run build
 | [动画系统](docs/animation_system.md) | animation/ 全部 |
 | [服务概览](docs/services_overview.md) | services/ 全部服务 |
 | [需求分析 Agent](docs/requirements_agent.md) | agents/requirements_agent.py, services/requirements_service.py |
+| [Agent 运行时前端 PRD](docs/agent-runtime-frontend-prd-2026-10-30.md) | `src/stores/taskStore.ts`、`src/features/task/*`、`src/features/copilot/*`、`src/features/agent/proceedResult.ts` |
+| [会话时间线 PRD](docs/agent-session-timeline-prd-2026-10-31.md) | `src/features/sessionTimeline/*`、`src/stores/sessionTimelineStore.ts` |
+| [中止续跑与上下文](docs/agent-continuation-and-context-2026-10-31.md) | `useRequirementsAutoStart.ts`、`requirements_service`、`context_loader` |

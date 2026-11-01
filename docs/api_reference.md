@@ -144,6 +144,37 @@ Pipeline 输出的核心数据结构。前端编辑器与后端 Agent 共享此 
 
 ---
 
+## 任务与子 Agent（/api/task）
+
+> 后端实现：`J:/Clipwright/clipwright/api/task.py`、`services/agent_run.py`、`services/task_events.py`。
+> 前端客户端：`src/services/api/task.ts`（`taskApi`）；状态与订阅：`src/stores/taskStore.ts`、
+> `src/features/task/useTaskEvents.ts`。
+
+| 端点 | 前端消费 / 说明 |
+|------|----------------|
+| `POST /api/task` | `taskApi.create`；`plan_only=true` 只规划 |
+| `GET /api/task/{task_id}` | `taskApi.get` → `taskStore.load`；切任务会清空旧事件与 seq |
+| `GET /api/task/{task_id}/events` | 水合分页；`has_more` / `oldest_available_seq` / `latest_seq` 驱动“加载更早”与缺口提示 |
+| `GET /api/task/{task_id}/events/stream?since_seq=` | `useTaskEvents` 共享订阅；收到 `task_end` 主动 close，终态不再建流 |
+| `POST .../resume` / `pause` / `cancel` / `inject` / `plan` | `TaskToolbar` / `taskStore` 对应动作 |
+| `GET .../questions` + `POST .../answer` | 任务问题卡（需求会话另有 `/api/requirements` 自己的问答） |
+| `GET .../result` + `POST .../to-project` | 产物快照 / 落成项目 |
+| `GET .../runs` | `TaskRuns`；含 `live=true` 的运行中记录，随 `agent_run_*` 事件去抖刷新 |
+| `GET .../runs/{run_id}` | run 详情；跨任务访问返回 404 |
+| `POST .../runs/{run_id}/message` | 子会话追问，排队到下次派发 |
+| `POST .../runs/{run_id}/replay` | 真重跑；新 `run_id` 带 `#r…`；终态 409 |
+| `GET .../tool-calls` | `TaskToolTrace` 全量轨迹，支持 stage/attempt/分页 |
+
+前端渲染契约：
+
+- `agent_run_end.detail.failure` 是**完整对象**（`category/retryable/blocking_point/evidence`），
+  不是分类字符串；`needs` 是缺失输入数组；`duration_ms` 用于详情耗时。
+- 子 Agent 筹码与详情分别用 `runEvents` 折叠，不能依赖会被 400 条上限裁剪的 `events`。
+- `task_end.detail` 的 `completed/unfinished` 缺省时保留已有 `task.finish`，不得用空数组覆盖。
+- 事件 `seq` 只在单任务内比较；跨任务比较会让新任务事件被整段去重丢失。
+
+---
+
 ## 渲染
 
 | 端点 | 说明 |

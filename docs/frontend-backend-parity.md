@@ -328,3 +328,27 @@ P6/P7 阶段新增/变更的路由与客户端（均已完成接线与回归）�
 1. `/api/test/*` 无专属客户端模块（ModelsPage 内联），如后续统一 API 管理可抽取 `modelTestApi`。
 2. `SettingsPage.tsx:51`「WebSocket 地址」为 WsClient 移除后的遗留字段，属 UI 清理项，不影响对账结论。
 3. 本报告基于 2026-08-04 工作区快照；路由新增/变更后需重跑 §6 命令并更新本报告。
+
+---
+
+## 8. 任务与子 Agent 增量对账（2026-11-01）
+
+| 后端路由 | 前端消费 | 状态 / 契约 |
+|---|---|---|
+| `POST /api/task`、`GET /api/task/{id}` | `taskApi.create/get` → `taskStore.createTask/load` | ✅ 切任务原子清空事件与 seq；`activeTaskId` 先于 `task` 生效 |
+| `GET /api/task/{id}/events` | `taskStore.hydrateEvents/loadEarlierEvents` | ✅ 带 taskId + 代际校验，旧响应不写新任务 |
+| `GET /api/task/{id}/events/stream?since_seq=` | `useTaskEvents`（共享单流） | ✅ 终态不建流、`task_end` 主动 close、从 `lastSeq` 续传 |
+| `POST /api/task/{id}/resume|pause|cancel|inject|plan` | `taskStore` / `TaskToolbar` | ✅ 终态 resume/replay 由后端 409，前端显示原因 |
+| `GET /api/task/{id}/runs` | `TaskRuns` | ✅ 含 `live=true` 运行中记录；`agent_run_*` 事件 300ms 去抖刷新 |
+| `GET /api/task/{id}/runs/{run_id}` | `TaskRunDetail` / 子 Agent 详情 | ✅ run 不属于该任务时 404 |
+| `POST /api/task/{id}/runs/{run_id}/message|replay` | `TaskRuns` | ✅ 追问排队到下次派发；replay 生成 `#r…` 新 run_id |
+| `GET /api/task/{id}/tool-calls` | `TaskToolTrace` | ✅ 请求序号防乱序；翻页后后台刷新不清空历史 |
+| `POST /api/requirements/proceed` 幂等命中 | `proceedResult.applyProceedResult` | ✅ 返回 `task_id` + `mode=task` 时切生产 Task，不再误走老管线 |
+| `agent_run_end` / `task_end` 事件 | `foldRunChips` / `foldRunDetail` / `taskStore.applyEvent` | ✅ failure 完整对象、needs、duration_ms、completed/unfinished 均已对齐 |
+
+前端约束：
+
+- 子 Agent 筹码/详情使用 `runEvents`（独立 600 条），不使用会被 400 条上限裁剪的原始 `events`。
+- 同一 task 的 SSE 由 `useTaskEvents` 共享引用计数，最后一个订阅者卸载才关闭；
+  打开子 Agent 详情时轨迹标签卸载不会中断详情更新。
+- `seq` 只在单任务内比较；任务切换必须清游标，禁止跨任务去重。

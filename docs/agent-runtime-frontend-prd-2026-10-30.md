@@ -1258,3 +1258,65 @@ IndexedDB 草稿快照（`listMediaSnapshots` / `getDraft`）、`/api/requiremen
 
 **验证**：Playwright 打开两个真实项目，编辑器 **~1.4s / ~1.3s** 就绪（改造前要等完全部增强步骤），
 `slowHint=0`、`pageerror=0`；`npx tsc --noEmit` 干净。
+
+## 执行记录（2026-11-01 · 第 16 轮 · 主/子 Agent 运行态收口）
+
+审查发现的不是单个组件 bug，而是三处生命周期缺口：任务数据源没有原子切换、
+SSE 连接没有收敛、子 Agent run 的身份/事件契约前后端不一致。
+
+### 1. 任务切换（`src/stores/taskStore.ts`）
+
+- **根因**：`load()` 只换 `task`，不换 `events/lastSeq`；seq 只在单任务内单调，
+  切任务后新任务前 N 条事件会被旧 `lastSeq` 整段去重丢弃。慢响应还能把旧任务
+  水合结果写回新任务。
+- **修法**：
+  - 新增 `activeTaskId`（先于 `task` 生效）与模块级 `_taskEpoch`；
+  - 切任务同步清空 `events/runEvents/lastSeq/oldestLoadedSeq/hasEarlierEvents/seqGap`；
+  - `hydrateEvents` / `loadEarlierEvents` 请求返回后校验 taskId + 代际，过期响应直接丢弃；
+  - `applyEvent(event, forTaskId)` 拒绝来自旧流的迟到事件。
+- **生产 Task**：`AgentPanel.confirmPlan` / `ReviewPanel.confirm` 在 `/proceed` 后
+  `taskStore.load(newTaskId)`。旧实现只开标签不切数据源，轨迹/暂停取消/子 Agent 列表
+  会继续指向上一轮 `plan_only` 任务。
+
+### 2. SSE 生命周期（`src/features/task/useTaskEvents.ts`）
+
+- 引用计数与连接放在同一 `TaskSub` 记录：最后一个订阅者卸载才 close，
+  避免“首个订阅者先卸载把还在看的人一起断掉”。
+- 终态任务不建流；收到 `task_end` 主动 close；恢复时先水合、再从 `lastSeq`
+  通过 `?since_seq=` 续传，不再每次重放整段历史。
+- `CopilotSubagentTab` 自己订阅任务流：Dock 只挂激活标签，旧实现切到子 Agent 详情
+  会卸载唯一订阅，详情从此冻结。
+
+### 3. 子 Agent 展示与收尾
+
+- `taskStore` 新增 `runEvents`（只存 `agent_run_*`，上限 600）：原始 400 条事件窗口
+  在长阶段会挤掉 `agent_run_start`，导致 RunningSubagents 的 chip 凭空消失。
+- `TaskRuns` 随 `agent_run_*` 事件 300ms 去抖刷新；后端 `/runs` 同时返回运行中
+  `live=true` 记录。
+- `EventFeed` 透传 `onSelect/selectedSeq`，轨迹右侧检查器恢复点击选择。
+- `task_end` 缺省 `completed/unfinished` 时保留已有 `task.finish`；
+  `plan_only_completed` 归为成功，不再显示 `unknown_terminal`。
+- 兼容旧事件：`failure` 既可是完整对象，也可是旧版分类字符串。
+
+### 4. 其它异步竞态
+
+- `EditorPage` 调 `bindProject(project.id)`，标签恢复真正生效；后台恢复每个 await
+  后检查 `alive`，切项目不再被旧会话响应污染。
+- `useRequirementsAutoStart` 增加取消标记；`confirmBrief` 的后台轮询校验会话归属，
+  不再替新会话清 `busy`。
+- `TaskToolTrace` 增加请求序号与分页保护；移除已下线但仍每 60 秒轮询的
+  `SupervisorLauncher` 挂载。
+
+### 验证
+
+- 新增 `src/stores/taskStore.switching.test.ts`（切换清游标 / 旧水合丢弃 /
+  run 生命周期 / 终态字段合并），补 SSE 终态关闭与 EventFeed 点击用例。
+- `npx tsc --noEmit` 通过；`npm run build` 通过；全量 **1125 passed / 5 skipped / 0 failed**。
+- 校正 10 条过期 `AgentPanel` 断言（底部停止入口已撤、无会话不渲染上传、正文与简报卡
+  同时渲染、旧问答卡测试显式关单流、单流测试修正 `services/api/requirements` 直连 mock）。
+
+### 已知残留
+
+- 后端重启后的完整事件历史与统一 AgentRun 恢复链仍不完整（Mongo 只有写路径；
+  普通任务事件不全量落 JSONL）。见后端 `modern-agent-review-prd-2026-10-30.md`。
+- 后端全量 pytest 在本机 53% 附近长时间无进展；本次改动范围用 139 例相关回归覆盖。
