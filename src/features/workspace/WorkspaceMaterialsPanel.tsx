@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FolderOpen, RefreshCw, Upload, Loader2, Film, Image as ImageIcon, Music, AlertTriangle } from 'lucide-react';
 import { Button, Badge } from '@/components/ui';
+import { asText } from '@/lib/render';
 import { connectSseStream, type SseStreamHandle } from '@/services/api/sseStream';
 import {
   workspaceApi, type WorkspaceStatus, type WorkspaceMaterial, type WorkspaceEvent,
@@ -282,7 +283,7 @@ export function WorkspaceMaterialsPanel({ projectId, compact = false }: {
                       : 'font-mono text-caption text-on-surface-variant'
                 }
               >
-                #{ev.seq} {ev.message}
+                #{ev.seq} {asText(ev.message)}
               </li>
             ))}
           </ul>

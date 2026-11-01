@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { MessageSquarePlus, RefreshCw } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import { taskApi } from '@/services/api';
 import type { TaskRunSummary } from '@/types/task';
 
@@ -153,7 +154,7 @@ export function TaskRuns({ taskId, active = false, className }: Props) {
             {run.summary && (
               <p className="mt-0.5 truncate text-caption text-on-surface-variant/70"
                 title={run.summary}>
-                {run.summary}
+                {asText(run.summary)}
               </p>
             )}
             <button

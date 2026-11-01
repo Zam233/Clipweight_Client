@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { HelpCircle } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import { taskApi } from '@/services/api';
 import type { TaskEvent, TaskQuestionItem } from '@/types/task';
 
@@ -195,7 +196,7 @@ export function TaskQuestionCard({ taskId, onSubmit, events = [], questions = []
                     className="rounded-cw-xs border border-outline-variant/40 px-1.5 py-0.5 text-caption text-primary hover:border-primary disabled:opacity-40"
                     onClick={() => void submit(q, o.id, null)}
                   >
-                    {o.label}
+                    {asText(o.label)}
                     {q.default_option_id === o.id && (
                       <span className="ml-1 text-on-surface-variant/60">（超时默认）</span>
                     )}

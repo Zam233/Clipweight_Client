@@ -1,6 +1,26 @@
 import { getApiClient } from './client';
 import { apiBase } from './sse';
+import { asText, textList } from '@/lib/render';
 import type { Project, ProjectSummary, ProjectSaveRequest, HealthResponse, AnimationDef } from '@/types/api';
+
+/**
+ * 项目摘要出站收口（2026-10-31）。
+ *
+ * 实测库里存在 `"name": {"name": "guard-smoke"}` 这类记录（早期脚本直接写盘留下），
+ * 前端 `{proj.name}` 把它当子节点 → 整页崩在
+ * `Objects are not valid as a React child (found: object with keys {name})`。
+ * 后端读接口也已收口，这里再兜一层：即便旧版后端/插件/缓存给出脏数据，
+ * 也保证前端拿到的 `name`/`folder` 是字符串、`tags` 是字符串数组。
+ */
+function normalizeProjectSummary(p: ProjectSummary): ProjectSummary {
+  if (!p || typeof p !== 'object') return p;
+  return {
+    ...p,
+    name: asText((p as { name?: unknown }).name),
+    folder: asText((p as { folder?: unknown }).folder),
+    tags: textList((p as { tags?: unknown }).tags),
+  } as ProjectSummary;
+}
 
 /** 插件 UI 定义（兼容新旧两种响应形态，见 getUI 注释）。 */
 export interface PluginUIDefinition {
@@ -77,6 +97,14 @@ export const projectApi = {
   /** Load a project by id */
   async load(projectId: string) {
     const { data } = await getApiClient().get<Project>(`/api/project/${projectId}`);
+    if (data && typeof data === 'object') {
+      return {
+        ...data,
+        name: asText((data as { name?: unknown }).name),
+        folder: asText((data as { folder?: unknown }).folder),
+        tags: textList((data as { tags?: unknown }).tags),
+      } as Project;
+    }
     return data;
   },
 
@@ -87,7 +115,7 @@ export const projectApi = {
     if (tag) params.tag = tag;
     if (trash) params.trash = '1'; // A2: 回收站视图
     const { data } = await getApiClient().get<ProjectSummary[]>('/api/project', { params });
-    return data;
+    return (data ?? []).map(normalizeProjectSummary);
   },
 
   /** A2: 移入回收站（软删除，可恢复） */

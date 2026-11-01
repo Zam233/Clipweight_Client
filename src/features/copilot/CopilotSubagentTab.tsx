@@ -12,6 +12,7 @@ import React from 'react';
 import { supervisorApi } from '@/services/api';
 import { useTaskStore } from '@/stores/taskStore';
 import type { TaskEvent } from '@/types/task';
+import { asText } from '@/lib/render';
 
 interface Node {
   id: string;
@@ -146,7 +147,7 @@ export function CopilotSubagentTab({ taskId, subagentId }: { taskId?: string; su
           <>
             <p className="text-on-surface-variant/70">结论</p>
             <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-cw-sm bg-surface-container p-2">
-              {run.summary}
+              {asText(run.summary)}
             </pre>
           </>
         )}

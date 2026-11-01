@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useRef, useState, useEffect } from 'react';
+import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip } from '@/components/ui';
@@ -12,6 +12,7 @@ import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { TimelinePanel } from '@/features/timeline/components/TimelinePanel';
 import { PropertiesPanel } from '@/features/properties/PropertiesPanel';
 import { CopilotDock } from '@/features/copilot/CopilotDock';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { SupervisorLauncher } from '@/features/supervisor/SupervisorLauncher';
 import { ReviewPanel } from '@/features/agent/ReviewPanel';
 import type { PlanView } from '@/features/plan/PlanReviewPanel';
@@ -196,7 +197,7 @@ export function EditorLayout() {
               className="h-full overflow-hidden shrink-0"
               style={{ width: panelWidths.assets }}
             >
-              <AssetPanel />
+              <ErrorBoundary region="素材"><AssetPanel /></ErrorBoundary>
             </div>
             <div
               className={cn('panel-divider shrink-0', dragging === 'assets' && 'bg-primary')}
@@ -223,7 +224,7 @@ export function EditorLayout() {
         <div className="flex flex-col flex-1 overflow-hidden min-w-0">
           {/* Preview */}
           <div className="flex-1 overflow-hidden min-h-0">
-            <PreviewPanel />
+            <ErrorBoundary region="预览"><PreviewPanel /></ErrorBoundary>
           </div>
 
           {/* Timeline divider */}
@@ -249,7 +250,7 @@ export function EditorLayout() {
               className="shrink-0 overflow-hidden relative"
               style={{ height: timelineHeight }}
             >
-              <TimelinePanel />
+              <ErrorBoundary region="时间线"><TimelinePanel /></ErrorBoundary>
               {isNarrow && (
                 <div
                   role="note"
@@ -277,7 +278,7 @@ export function EditorLayout() {
               className="h-full overflow-hidden shrink-0 flex flex-col"
               style={{ width: panelWidths.properties }}
             >
-              <PropertiesPanel />
+              <ErrorBoundary region="属性"><PropertiesPanel /></ErrorBoundary>
             </div>
           </>
         )}

@@ -17,6 +17,7 @@ import React from 'react';
 import { ChevronDown, ChevronRight, Wrench } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import { handleArtifactClick } from '@/features/copilot/artifactOpen';
 import {
   EMPTY_BUCKET,
@@ -185,11 +186,11 @@ function QuestionActions({
             type="button"
             disabled={busy}
             data-question-option={id}
-            title={opt.detail || ''}
+            title={asText(opt.detail)}
             className="rounded-cw-xs border border-primary/40 px-2 py-0.5 text-primary hover:bg-primary/10 disabled:opacity-50"
             onClick={() => void submit(id, null)}
           >
-            {opt.label || id}
+            {asText(opt.label) || id}
           </button>
         );
       })}

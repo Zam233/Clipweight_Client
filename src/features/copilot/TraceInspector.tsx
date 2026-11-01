@@ -69,13 +69,19 @@ function Pre({ children, testId }: { children: React.ReactNode; testId?: string 
 }
 
 function KV({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
+  // 运行时收口：`value` 常直接来自事件字段（声明 string，实际可能是 `{name: …}` 这种
+  // 结构化产物）。原样塞进 JSX 会抛 "Objects are not valid as a React child" 并炸掉整页。
+  const node = (typeof value === 'object' && value !== null
+    && !Array.isArray(value) && !(value as { $$typeof?: unknown }).$$typeof)
+    ? asText(value)
+    : value;
   return (
     <div className="flex items-baseline gap-2 border-b border-outline-variant/10 py-1 last:border-0">
       <span className="w-20 shrink-0 text-caption text-on-surface-variant/70">{label}</span>
       <span className={cn('min-w-0 flex-1 break-words text-caption text-on-surface',
         mono ? 'font-mono' : '')}
       >
-        {value}
+        {node}
       </span>
     </div>
   );

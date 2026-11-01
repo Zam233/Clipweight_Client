@@ -31,6 +31,7 @@ import { TemplateGallery } from '@/components/shared/TemplateGallery';
 import { ChatForgeDrawer } from '@/features/chatforge/ChatForgeDrawer';
 import { CreativePromptField } from '@/features/creation/CreativePromptField';
 import { fmtDur, relTime, uid } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import { toast } from '@/stores/toastStore';
 // 首页四个 tab 与独立页曾经各写一套（能力不同、字段不同、必然漂移）。
 // 现在统一复用同一份面板实现：人格 → /persona 的画廊，类型 → 类型总览，
@@ -969,7 +970,7 @@ export function HomePage() {
                               : 'bg-surface-container-high border-outline-variant/40 text-on-surface-variant hover:border-outline hover:text-on-surface'
                           }`}
                         >
-                          {p.name}
+                          {asText(p.name)}
                           <span className="opacity-60 ml-1">· {p.tone}</span>
                         </button>
                       ))}
@@ -998,7 +999,7 @@ export function HomePage() {
                           <span className="flex items-center gap-2">
                             <i className="w-2 h-2 rounded-full shrink-0" style={{ background: pl.color }} />
                             <span className={`text-body-sm font-medium truncate ${pluginId === pl.id ? 'text-on-surface' : 'text-on-surface-variant group-hover:text-on-surface'}`}>
-                              {pl.name}
+                              {asText(pl.name)}
                             </span>
                           </span>
                           {pl.desc && (

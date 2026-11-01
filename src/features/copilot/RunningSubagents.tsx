@@ -12,6 +12,7 @@
 import React from 'react';
 import { Bot } from 'lucide-react';
 import { useCopilotStore } from '@/stores/copilotStore';
+import { asText } from '@/lib/render';
 import { useTaskStore } from '@/stores/taskStore';
 
 interface RunChip {
@@ -54,15 +55,15 @@ export function foldRunChips(
     const detail = (ev.detail || {}) as Record<string, unknown>;
     const runId = String(detail.run_id || '');
     if (!runId) continue;
-    const stage = String(detail.stage || '');
-    const role = String(detail.role || '');
+    const stage = asText(detail.stage);
+    const role = asText(detail.role);
     const prev = map.get(runId);
     const failure = (detail.failure as Record<string, unknown> | undefined)
       ?? (prev?.failure ? { blocking_point: prev.failure } : undefined);
     map.set(runId, {
       runId,
       // update/end 事件通常不带 stage/role —— 保留 start 时的标签，别退化成"子 agent"
-      label: stage || role || String(detail.kind || '') || prev?.label || '子 agent',
+      label: stage || role || asText(detail.kind) || prev?.label || '子 agent',
       status: _statusOf(ev.type, detail),
       cost: typeof detail.cost_usd === 'number' ? detail.cost_usd : prev?.cost,
       replayed: Boolean(detail.replayed) || Boolean(prev?.replayed),

@@ -1,5 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useBlocker } from '@tanstack/react-router';
+import { reportCrash } from '@/lib/reportCrash';
+
+/** 给可选增强步骤加超时：卡住就放弃，绝不拖住编辑器 */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(
+      () => reject(new Error(`${label} 超时 ${ms}ms（已跳过，不影响编辑器）`)),
+      ms,
+    );
+    p.then(
+      (v) => { window.clearTimeout(timer); resolve(v); },
+      (e) => { window.clearTimeout(timer); reject(e); },
+    );
+  });
+}
 import { EditorLayout } from '@/layouts/EditorLayout';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -50,6 +65,29 @@ export function EditorPage() {
   const dirtyRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // 加载慢的时候要给出可操作提示，不能只转圈（后端没起 / 刚重启时最常见）
+  const [slowLoad, setSlowLoad] = useState(false);
+  const [slowLoadSec, setSlowLoadSec] = useState(0);
+  /** 加载过程留痕：卡住时把它上报，直接看出停在哪一步（不用猜） */
+  const loadTraceRef = useRef<string[]>([]);
+  useEffect(() => {
+    if (!loading) { setSlowLoad(false); return; }
+    const t0 = Date.now();
+    const id = window.setInterval(() => {
+      const sec = Math.round((Date.now() - t0) / 1000);
+      setSlowLoadSec(sec);
+      if (sec >= 12) setSlowLoad(true);
+      if (sec === 15) {
+        // 12s 后还没出来 → 把留痕送到后端，排障不用再问「你卡在哪」
+        reportCrash({
+          source: 'stuck',
+          message: `编辑器加载卡住 ${sec}s`,
+          extra: loadTraceRef.current.join(' > ') || '(无留痕：还没走过任何一步)',
+        });
+      }
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [loading]);
   // O5：本地草稿恢复提示（草稿比服务端新时才出现）
   const [draftPrompt, setDraftPrompt] = useState<DraftRecord | null>(null);
   /** 本次编辑期间是否已把草稿写进 IndexedDB（用于提示文案与恢复判定） */
@@ -80,6 +118,7 @@ export function EditorPage() {
   // Load project from backend on mount
   useEffect(() => {
     let alive = true;
+    loadTraceRef.current = [`load:${projectId}`];
     (async () => {
       try {
         // 仅在首次捕获 HomePage.launch() 写入的需求数据（ref 跨 StrictMode 重挂载保留）
@@ -152,20 +191,37 @@ export function EditorPage() {
         useTimelineStore.getState().setTimeline(project.timeline ?? _emptyTl());
         // 注册项目时间线中的真实媒体（video/audio/image），供预览真实渲染
         mediaManager.registerTimeline(project.timeline ?? _emptyTl());
-        // O5：先用手上的派生数据快照补缩略图/波形/时长（刷新后不再先看到一片空白），
-        // 再检查是否存在比服务端更新的本地草稿
-        try {
-          const repo = getDraftRepository();
-          const snapshots = await repo.listMediaSnapshots();
-          if (snapshots.length > 0) mediaManager.applySnapshots(snapshots);
-          const draft = await repo.getDraft(project.id);
-          if (isDraftNewer(draft, project.updated_at)) {
-            draftRef.current = draft;
-            setDraftPrompt(draft);
+
+        // ── 快速放行（2026-10-31 用户实测：项目接口 200 但界面一直「加载项目中…」）──
+        // 编辑器只需要 `GET /api/project/{id}` 就能画出来。后面的**本地草稿快照**与
+        // **需求会话回填**全是可选增强，却排在 setLoading(false) 之前——只要其中任何
+        // 一步卡住（IndexedDB 被别的标签页旧版本事务挡住、/api/requirements/{sid} 迟迟
+        // 不返回），用户就永远看不到编辑器，而且界面无从判断卡在哪。
+        // 所以：先放行渲染，增强逻辑挪到后面的后台续跑里，卡住也只影响它自己。
+        if (alive) setLoading(false);
+        loadTraceRef.current.push(`project:${project.id}:${project.timeline ? 'with' : 'empty'}tl`);
+
+        void (async () => {
+          const mark = (s: string) => { loadTraceRef.current.push(s); };
+          // O5：先用手上的派生数据快照补缩略图/波形/时长（刷新后不再先看到一片空白），
+          // 再检查是否存在比服务端更新的本地草稿
+          try {
+            const repo = getDraftRepository();
+            // IndexedDB 可能被其他标签页的旧版本事务挡住 → open 永不 resolve。
+            // 草稿是可选项，最多等 3s，等不到就放弃（编辑器不等它）。
+            const snapshots = await withTimeout(repo.listMediaSnapshots(), 3000, 'listMediaSnapshots');
+            mark(`snapshots:${snapshots.length}`);
+            if (snapshots.length > 0) mediaManager.applySnapshots(snapshots);
+            const draft = await withTimeout(repo.getDraft(project.id), 3000, 'getDraft');
+            if (isDraftNewer(draft, project.updated_at)) {
+              draftRef.current = draft;
+              setDraftPrompt(draft);
+            }
+            mark('draft:checked');
+          } catch (e) {
+            // 草稿是可选的增强：读写失败/超时静默降级，不阻断编辑器
+            loadTraceRef.current.push(`draft:sank:${(e as Error)?.message || 'err'}`);
           }
-        } catch {
-          // 草稿是可选的增强：读写失败静默降级，不阻断编辑器
-        }
         // Restore requirements data so AgentPanel auto-start can consume it
         if (pendingTopic) {
           const pending = pendingReqRef.current!;
@@ -265,7 +321,8 @@ export function EditorPage() {
             }
           }
         }
-        if (alive) setLoading(false);
+        loadTraceRef.current.push('enhance:done');
+        })();
       } catch (err) {
         console.error('[EditorPage] Failed to initialize editor:', err);
         if (alive) {
@@ -574,10 +631,36 @@ export function EditorPage() {
   }, []);
 
   if (loading) {
+    // 卡住要说人话（2026-10-31 实测：后端/前端 dev server 挂掉时这里会无限转圈，
+    // 用户只能看到「加载项目中…」，既不知道是不是自己等得不够，也不知道能做什么）。
     return (
-      <div className="flex items-center justify-center h-screen bg-surface-dim text-on-surface-variant gap-3">
-        <Loader2 className="w-5 h-5 animate-spin text-primary" />
-        <span className="text-body">加载项目中…</span>
+      <div className="flex flex-col items-center justify-center h-screen bg-surface-dim text-on-surface-variant gap-3 px-6 text-center">
+        <div className="flex items-center gap-3">
+          <Loader2 className="w-5 h-5 animate-spin text-primary" />
+          <span className="text-body">加载项目中…</span>
+        </div>
+        {slowLoad && (
+          <div className="max-w-[420px] space-y-2" data-testid="editor-load-slow">
+            <p className="text-caption text-warning">
+              已经等了 {slowLoadSec}s。后端可能没启动（或刚重启还在加载插件，通常要 20–30 秒），
+              也可能是网络不通。
+            </p>
+            <div className="flex items-center justify-center gap-2">
+              <button
+                onClick={() => window.location.reload()}
+                className="px-3 py-1.5 rounded-cw-sm bg-primary text-on-primary text-caption hover:bg-primary/90 cursor-pointer"
+              >
+                重试
+              </button>
+              <button
+                onClick={() => window.location.href = '/'}
+                className="px-3 py-1.5 rounded-cw-sm border border-outline-variant/50 text-caption text-on-surface hover:bg-surface-container cursor-pointer"
+              >
+                返回首页
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

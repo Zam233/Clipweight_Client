@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { applyProceedResult } from './proceedResult';
 import { useAgentStore } from '@/stores/agentStore';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui';
 import { Markdown } from '@/components/shared/Markdown';
 import { resolveMessageAttachments } from './requirementsAttachments';
 import { uid } from '@/lib/utils';
+import { asText, textList } from '@/lib/render';
 import { PlanReviewPanel, type PlanView } from '@/features/plan/PlanReviewPanel';
 import { MessageSquare, ThumbsDown, ThumbsUp, X, Send, Check, Loader2, ChevronLeft } from 'lucide-react';
 
@@ -212,56 +213,56 @@ export function ReviewPanel({ brief, planMarkdown, planView, onBack }: ReviewPan
         <div ref={contentRef} className="flex-1 overflow-y-auto p-4 min-w-0 select-text text-body-sm leading-relaxed whitespace-pre-wrap bg-surface-container-low">
           {brief && !planMarkdown && (
             <div className="space-y-3">
-              <h3 className="text-title-sm font-bold text-on-surface">{brief.title}</h3>
-              <div><span className="text-on-surface-variant">概述：</span>{brief.overview}</div>
-              <div><span className="text-on-surface-variant">目标受众：</span>{brief.target_audience}</div>
-              <div><span className="text-on-surface-variant">核心信息：</span>{brief.core_message}</div>
-              <div><span className="text-on-surface-variant">风格方向：</span>{brief.style_direction}</div>
-              <div><span className="text-on-surface-variant">结构建议：</span>{brief.structure_suggestion}</div>
-              <div><span className="text-on-surface-variant">时长预估：</span>{brief.duration_estimate}</div>
-              {brief.key_elements?.length > 0 && (
-                <div><span className="text-on-surface-variant">关键元素：</span>{brief.key_elements.join('、')}</div>
+              <h3 className="text-title-sm font-bold text-on-surface">{asText(brief.title)}</h3>
+              <div><span className="text-on-surface-variant">概述：</span>{asText(brief.overview)}</div>
+              <div><span className="text-on-surface-variant">目标受众：</span>{asText(brief.target_audience)}</div>
+              <div><span className="text-on-surface-variant">核心信息：</span>{asText(brief.core_message)}</div>
+              <div><span className="text-on-surface-variant">风格方向：</span>{asText(brief.style_direction)}</div>
+              <div><span className="text-on-surface-variant">结构建议：</span>{asText(brief.structure_suggestion)}</div>
+              <div><span className="text-on-surface-variant">时长预估：</span>{asText(brief.duration_estimate)}</div>
+              {textList(brief.key_elements).length > 0 && (
+                <div><span className="text-on-surface-variant">关键元素：</span>{textList(brief.key_elements).join('、')}</div>
               )}
-              {brief.special_requirements?.length > 0 && (
-                <div><span className="text-on-surface-variant">特殊要求：</span>{brief.special_requirements.join('、')}</div>
+              {textList(brief.special_requirements).length > 0 && (
+                <div><span className="text-on-surface-variant">特殊要求：</span>{textList(brief.special_requirements).join('、')}</div>
               )}
               {brief.production_plan && (
-                <div><span className="text-on-surface-variant">制作方案：</span>{brief.production_plan}</div>
+                <div><span className="text-on-surface-variant">制作方案：</span>{asText(brief.production_plan)}</div>
               )}
               {brief.reference_style && (
-                <div><span className="text-on-surface-variant">参考风格：</span>{brief.reference_style}</div>
+                <div><span className="text-on-surface-variant">参考风格：</span>{asText(brief.reference_style)}</div>
               )}
               {brief.bgm_requirement && (
-                <div><span className="text-on-surface-variant">BGM需求：</span>{brief.bgm_requirement}</div>
+                <div><span className="text-on-surface-variant">BGM需求：</span>{asText(brief.bgm_requirement)}</div>
               )}
               {brief.era_background && (
-                <div><span className="text-on-surface-variant">年代背景：</span>{brief.era_background}</div>
+                <div><span className="text-on-surface-variant">年代背景：</span>{asText(brief.era_background)}</div>
               )}
               {brief.material_requirements && (
                 <div className="pt-1 border-t border-outline-variant/10 space-y-1">
-                  {brief.material_requirements.type && (
-                    <div><span className="text-on-surface-variant">素材类型：</span>{brief.material_requirements.type}</div>
+                  {asText(brief.material_requirements.type) && (
+                    <div><span className="text-on-surface-variant">素材类型：</span>{asText(brief.material_requirements.type)}</div>
                   )}
-                  {brief.material_requirements.source && (
-                    <div><span className="text-on-surface-variant">推荐来源：</span>{brief.material_requirements.source}</div>
+                  {asText(brief.material_requirements.source) && (
+                    <div><span className="text-on-surface-variant">推荐来源：</span>{asText(brief.material_requirements.source)}</div>
                   )}
-                  {brief.material_requirements.preference && (
-                    <div><span className="text-on-surface-variant">素材偏好：</span>{brief.material_requirements.preference}</div>
+                  {asText(brief.material_requirements.preference) && (
+                    <div><span className="text-on-surface-variant">素材偏好：</span>{asText(brief.material_requirements.preference)}</div>
                   )}
                 </div>
               )}
               {brief.animation_style && (
                 <div className="pt-1 border-t border-outline-variant/10 space-y-1">
-                  {brief.animation_style.style && (
-                    <div><span className="text-on-surface-variant">动画风格：</span>{brief.animation_style.style}</div>
+                  {asText(brief.animation_style.style) && (
+                    <div><span className="text-on-surface-variant">动画风格：</span>{asText(brief.animation_style.style)}</div>
                   )}
-                  {brief.animation_style.tone && (
-                    <div><span className="text-on-surface-variant">色调倾向：</span>{brief.animation_style.tone}</div>
+                  {asText(brief.animation_style.tone) && (
+                    <div><span className="text-on-surface-variant">色调倾向：</span>{asText(brief.animation_style.tone)}</div>
                   )}
                 </div>
               )}
               {brief.asset_ratio && (
-                <div><span className="text-on-surface-variant">素材/动画占比：</span>实拍 {brief.asset_ratio.footage} · MG {brief.asset_ratio.mg}</div>
+                <div><span className="text-on-surface-variant">素材/动画占比：</span>实拍 {asText(brief.asset_ratio.footage)} · MG {asText(brief.asset_ratio.mg)}</div>
               )}
             </div>
           )}

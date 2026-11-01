@@ -3,6 +3,7 @@ import { useParams, useNavigate } from '@tanstack/react-router';
 import { personaApi, voiceApi } from '@/services/api';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge, Slider } from '@/components/ui';
+import { asText } from '@/lib/render';
 import type { Persona } from '@/types/persona';
 import { buildUpdatePayload } from '@/types/persona';
 import type { VoiceRecord } from '@/types/voice';
@@ -547,7 +548,7 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
       <div className="flex items-center gap-2">
         <input type="color" value={value} onChange={(e) => onChange(e.target.value)}
           className="w-9 h-8 rounded-cw-xs border border-outline-variant/40 bg-transparent cursor-pointer" />
-        <span className="font-mono text-label-sm text-on-surface-variant">{value}</span>
+        <span className="font-mono text-label-sm text-on-surface-variant">{asText(value)}</span>
       </div>
     </div>
   );

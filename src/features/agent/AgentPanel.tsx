@@ -29,6 +29,7 @@ import {
 import { useTaskStore } from '@/stores/taskStore';
 import { useTaskEvents } from '@/features/task/useTaskEvents';
 import { uid } from '@/lib/utils';
+import { asText, textList } from '@/lib/render';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline, Clip, ClipKind } from '@/types/timeline';
 import type { RequirementsStatus, CreativeBrief, ProductionPlan, RequirementMessage } from '@/types/persona';
@@ -1799,60 +1800,63 @@ function BriefCard({ brief, onConfirm, busy, onReview }: { brief: NonNullable<Re
         <span className="text-label font-medium text-primary">创意简报</span>
       </div>
       <div className="p-3 space-y-1 text-label-sm">
-        <span className="block"><span className="text-on-surface-variant">标题：</span>{brief.title}</span>
-        <span className="block"><span className="text-on-surface-variant">概述：</span>{brief.overview}</span>
-        <span className="block"><span className="text-on-surface-variant">目标受众：</span>{brief.target_audience}</span>
-        <span className="block"><span className="text-on-surface-variant">核心信息：</span>{brief.core_message}</span>
+        {/* 落地纪律：简报表单字段全是**模型产物**，运行时形状可能不是字符串
+            （实测出现 `{"name": "..."}`，整页崩在 "Objects are not valid as a React child"）。
+            一律过 asText，结构化内容退化成 JSON 文本显示，绝不白屏。 */}
+        <span className="block"><span className="text-on-surface-variant">标题：</span>{asText(brief.title)}</span>
+        <span className="block"><span className="text-on-surface-variant">概述：</span>{asText(brief.overview)}</span>
+        <span className="block"><span className="text-on-surface-variant">目标受众：</span>{asText(brief.target_audience)}</span>
+        <span className="block"><span className="text-on-surface-variant">核心信息：</span>{asText(brief.core_message)}</span>
         {brief.style_direction && (
-          <span className="block"><span className="text-on-surface-variant">风格方向：</span>{brief.style_direction}</span>
+          <span className="block"><span className="text-on-surface-variant">风格方向：</span>{asText(brief.style_direction)}</span>
         )}
         {brief.structure_suggestion && (
-          <span className="block"><span className="text-on-surface-variant">结构建议：</span>{brief.structure_suggestion}</span>
+          <span className="block"><span className="text-on-surface-variant">结构建议：</span>{asText(brief.structure_suggestion)}</span>
         )}
-        <span className="block"><span className="text-on-surface-variant">时长预估：</span>{brief.duration_estimate}</span>
-        {brief.key_elements?.length > 0 && (
-          <span className="block"><span className="text-on-surface-variant">关键元素：</span>{brief.key_elements.join('、')}</span>
+        <span className="block"><span className="text-on-surface-variant">时长预估：</span>{asText(brief.duration_estimate)}</span>
+        {textList(brief.key_elements).length > 0 && (
+          <span className="block"><span className="text-on-surface-variant">关键元素：</span>{textList(brief.key_elements).join('、')}</span>
         )}
-        {brief.special_requirements?.length > 0 && (
-          <span className="block"><span className="text-on-surface-variant">特殊要求：</span>{brief.special_requirements.join('、')}</span>
+        {textList(brief.special_requirements).length > 0 && (
+          <span className="block"><span className="text-on-surface-variant">特殊要求：</span>{textList(brief.special_requirements).join('、')}</span>
         )}
         {brief.production_plan && (
-          <span className="block"><span className="text-on-surface-variant">制作方案：</span>{brief.production_plan}</span>
+          <span className="block"><span className="text-on-surface-variant">制作方案：</span>{asText(brief.production_plan)}</span>
         )}
         {brief.reference_style && (
-          <span className="block"><span className="text-on-surface-variant">参考风格：</span>{brief.reference_style}</span>
+          <span className="block"><span className="text-on-surface-variant">参考风格：</span>{asText(brief.reference_style)}</span>
         )}
         {brief.bgm_requirement && (
-          <span className="block"><span className="text-on-surface-variant">BGM需求：</span>{brief.bgm_requirement}</span>
+          <span className="block"><span className="text-on-surface-variant">BGM需求：</span>{asText(brief.bgm_requirement)}</span>
         )}
         {brief.era_background && (
-          <span className="block"><span className="text-on-surface-variant">年代背景：</span>{brief.era_background}</span>
+          <span className="block"><span className="text-on-surface-variant">年代背景：</span>{asText(brief.era_background)}</span>
         )}
         {brief.material_requirements && (
           <div className="mt-1 pt-1 border-t border-outline-variant/10">
-            {brief.material_requirements.type && (
-              <span className="block"><span className="text-on-surface-variant">素材类型：</span>{brief.material_requirements.type}</span>
+            {asText(brief.material_requirements.type) && (
+              <span className="block"><span className="text-on-surface-variant">素材类型：</span>{asText(brief.material_requirements.type)}</span>
             )}
-            {brief.material_requirements.source && (
-              <span className="block"><span className="text-on-surface-variant">推荐来源：</span>{brief.material_requirements.source}</span>
+            {asText(brief.material_requirements.source) && (
+              <span className="block"><span className="text-on-surface-variant">推荐来源：</span>{asText(brief.material_requirements.source)}</span>
             )}
-            {brief.material_requirements.preference && (
-              <span className="block"><span className="text-on-surface-variant">素材偏好：</span>{brief.material_requirements.preference}</span>
+            {asText(brief.material_requirements.preference) && (
+              <span className="block"><span className="text-on-surface-variant">素材偏好：</span>{asText(brief.material_requirements.preference)}</span>
             )}
           </div>
         )}
         {brief.animation_style && (
           <div className="mt-1 pt-1 border-t border-outline-variant/10">
-            {brief.animation_style.style && (
-              <span className="block"><span className="text-on-surface-variant">动画风格：</span>{brief.animation_style.style}</span>
+            {asText(brief.animation_style.style) && (
+              <span className="block"><span className="text-on-surface-variant">动画风格：</span>{asText(brief.animation_style.style)}</span>
             )}
-            {brief.animation_style.tone && (
-              <span className="block"><span className="text-on-surface-variant">色调倾向：</span>{brief.animation_style.tone}</span>
+            {asText(brief.animation_style.tone) && (
+              <span className="block"><span className="text-on-surface-variant">色调倾向：</span>{asText(brief.animation_style.tone)}</span>
             )}
           </div>
         )}
         {brief.asset_ratio && (
-          <span className="block"><span className="text-on-surface-variant">素材/动画占比：</span>实拍 {brief.asset_ratio.footage} · MG {brief.asset_ratio.mg}</span>
+          <span className="block"><span className="text-on-surface-variant">素材/动画占比：</span>实拍 {asText(brief.asset_ratio.footage)} · MG {asText(brief.asset_ratio.mg)}</span>
         )}
       </div>
       <div className="flex gap-2 px-3 pb-3">

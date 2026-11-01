@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { Layers, Clock, X, MoreVertical, FolderOpen, Check, Trash2 } from 'lucide-react';
+import { asText } from '@/lib/render';
 
 /* ── shared project card type ──────────────────────────── */
 export interface ProjectCardData {
@@ -47,7 +48,7 @@ export const ProjectCard = memo(function ProjectCard({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
-  const [renameDraft, setRenameDraft] = useState(proj.name);
+  const [renameDraft, setRenameDraft] = useState(asText(proj.name));
   const [imgFailed, setImgFailed] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -68,7 +69,7 @@ export const ProjectCard = memo(function ProjectCard({
 
   const commitRename = () => {
     const trimmed = renameDraft.trim();
-    if (trimmed && trimmed !== proj.name) onRename?.(trimmed);
+    if (trimmed && trimmed !== asText(proj.name)) onRename?.(trimmed);
     setRenaming(false);
   };
 
@@ -110,7 +111,7 @@ export const ProjectCard = memo(function ProjectCard({
           className="absolute top-2 right-2 z-10 p-1.5 rounded-cw-sm bg-black/50 text-white/70 opacity-0
             group-hover:opacity-100 focus:opacity-100 hover:text-error hover:bg-black/70 transition-all cursor-pointer"
           title="删除项目"
-          aria-label={`删除项目 ${proj.name}`}
+          aria-label={`删除项目 ${asText(proj.name)}`}
         >
           <X className="w-3.5 h-3.5" />
         </button>
@@ -137,13 +138,13 @@ export const ProjectCard = memo(function ProjectCard({
                 rounded-cw-sm shadow-xl overflow-hidden text-caption text-on-surface"
               onClick={(e) => e.stopPropagation()}
             >
-              <MenuItem label="重命名" onClick={() => { setRenaming(true); setRenameDraft(proj.name); setMenuOpen(false); }} />
+              <MenuItem label="重命名" onClick={() => { setRenaming(true); setRenameDraft(asText(proj.name)); setMenuOpen(false); }} />
               {folders && folders.length > 0 && (
                 <MenuItem label="移动到文件夹" icon={<FolderOpen className="w-3 h-3" />}>
                   {folders.map((f) => (
                     <button key={f} onClick={() => { onSetFolder?.(f); setMenuOpen(false); }}
                       className={`block w-full text-left px-3 py-1.5 text-caption hover:bg-primary/10 transition-colors cursor-pointer ${f === proj.folder ? 'text-primary font-medium' : ''}`}>
-                      {f}
+                      {asText(f)}
                     </button>
                   ))}
                   <button onClick={() => {
@@ -181,7 +182,7 @@ export const ProjectCard = memo(function ProjectCard({
           : `linear-gradient(120deg, ${proj.grad[0]}33, ${proj.grad[1]}22)` }}
       >
         {proj.thumbnail && !imgFailed && (
-          <img src={proj.thumbnail} alt={proj.name}
+          <img src={proj.thumbnail} alt={asText(proj.name)}
             onError={() => setImgFailed(true)}
             className="absolute inset-0 w-full h-full object-cover" />
         )}
@@ -238,7 +239,7 @@ export const ProjectCard = memo(function ProjectCard({
           <div className="flex flex-wrap gap-1 mt-1.5">
             {proj.tags.map((tag) => (
               <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-cw-full text-caption bg-primary/10 text-primary border border-primary/20">
-                {tag}
+                {asText(tag)}
                 {onRemoveTag && (
                   <button onClick={(e) => { e.stopPropagation(); onRemoveTag(tag); }}
                     className="ml-0.5 hover:text-error cursor-pointer">

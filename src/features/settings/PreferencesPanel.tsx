@@ -3,6 +3,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { healthApi, assetApi, resetApiClient } from '@/services/api';
 import { getApiClient } from '@/services/api/client';
 import { Button, Badge, Slider } from '@/components/ui';
+import { asText } from '@/lib/render';
 import {
   Server, Palette, Ruler, Save, RefreshCw, FolderOpen, Gauge,
   Keyboard, SlidersHorizontal,
@@ -382,7 +383,7 @@ export function ToggleRow({ label, hint, checked, onChange }: {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="p-3 rounded-cw-sm bg-surface-container">
-      <p className="font-mono text-title-sm text-on-surface">{value}</p>
+      <p className="font-mono text-title-sm text-on-surface">{asText(value)}</p>
       <p className="text-caption text-on-surface-variant">{label}</p>
     </div>
   );

@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import { handleArtifactClick } from '@/features/copilot/artifactOpen';
 import type { TaskEvent } from '@/types/task';
 import { MAX_TASK_EVENTS } from '@/stores/taskStore';
@@ -139,7 +140,7 @@ function EventRow({ event, selected, onSelect }: {
       </span>
       <span className="min-w-0 flex-1 text-on-surface break-words">
         {/* checkpoint 默认折叠：行不丢，内容点开才看 */}
-        {(!_DEFAULT_COLLAPSED.has(event.type) || open) && event.message}
+        {(!_DEFAULT_COLLAPSED.has(event.type) || open) && asText(event.message)}
         {_semanticTags(detail).map((tag) => (
           <span
             key={tag}

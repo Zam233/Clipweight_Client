@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronRight, ListTree } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import { taskApi } from '@/services/api';
 import type { TaskToolCall, TaskToolCalls } from '@/types/task';
 
@@ -60,7 +61,7 @@ function TraceRow({ call }: { call: TaskToolCall }) {
       <span className={cn('w-1.5 shrink-0 self-center h-1.5 rounded-full',
         ok ? 'bg-primary' : 'bg-error')} />
       <span className="w-40 shrink-0 truncate font-mono text-on-surface" title={call.tool}>
-        {call.tool}
+        {asText(call.tool)}
       </span>
       <span className={cn('w-16 shrink-0', ok ? 'text-on-surface-variant/70' : 'text-error')}>
         {call.status || 'ok'}
@@ -80,12 +81,12 @@ function TraceRow({ call }: { call: TaskToolCall }) {
       )}
       {call.args_brief && (
         <span className="min-w-0 truncate text-on-surface-variant/70" title={call.args_brief}>
-          {call.args_brief}
+          {asText(call.args_brief)}
         </span>
       )}
       {call.error && (
         <span className="min-w-0 truncate text-error/80" title={call.error}>
-          {call.error}
+          {asText(call.error)}
         </span>
       )}
     </li>

@@ -12,6 +12,7 @@
  */
 
 import { cn } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import type { TaskFinish, TaskStatus } from '@/types/task';
 
 import { finishReasonLabel } from './labels';
@@ -70,7 +71,7 @@ export function TaskFinishSummary({ status, finish, className }: Props) {
       {finish.conclusion && (
         <p className="mb-1 whitespace-pre-wrap break-words text-caption text-on-surface-variant"
           data-testid="finish-conclusion">
-          {finish.conclusion}
+          {asText(finish.conclusion)}
         </p>
       )}
 

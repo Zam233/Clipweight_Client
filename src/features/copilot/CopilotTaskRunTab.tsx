@@ -8,6 +8,7 @@
 import React from 'react';
 import { useTaskStore } from '@/stores/taskStore';
 import { cn } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import { LogPanel } from '@/features/agent/AgentPanel';
 import { TraceInspector } from './TraceInspector';
 import { useTaskEvents } from '@/features/task/useTaskEvents';
@@ -193,7 +194,7 @@ function ModelTurnRows({ events }: { events: Ev }) {
               <span className="w-16 shrink-0 text-on-surface-variant/70">
                 {isPreamble ? '动手前' : e.type}
               </span>
-              <span className="truncate text-on-surface-variant/90">{e.message}</span>
+              <span className="truncate text-on-surface-variant/90">{asText(e.message)}</span>
             </li>
           );
         })}
@@ -534,7 +535,7 @@ function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
               <span className="w-16 shrink-0 text-on-surface-variant/70">
                 {e.type === 'approval_request' ? '待授权' : '结果'}
               </span>
-              <span className="truncate">{e.message}</span>
+              <span className="truncate">{asText(e.message)}</span>
               {risk ? (
                 <span className="shrink-0 text-error/80">risk={risk}</span>
               ) : null}

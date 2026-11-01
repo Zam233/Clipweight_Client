@@ -1162,3 +1162,99 @@ ease-out-elastic / ease-out-bounce
   `tsc --noEmit` 干净、`vitest` 136 文件 / 1171 例全绿。
 - **顺带确认**：需求对话 reasoning 帧、工具三路合并、任务问答卡、导出快照重试在真实
   链路里都没报错（E2E 走的就是这些页面）。
+
+## 执行记录（2026-10-31 · 第 12 轮 · 渲染边界收口：Object 当子节点导致整页崩）
+
+- **现象**：用户贴出 `Objects are not valid as a React child (found: object with keys {name})`，
+  `ErrorBoundary` 兜住 → 「界面渲染中断」整页不可用。这个报错的含义只有一个：
+  **把对象直接塞进了 JSX**，而声明是 `string` 的字段在运行时来的是 `{"name": "..."}`。
+- **为什么之前查不到**：`ErrorBoundary` 只显示 `error.message`，没有组件栈 —— 只知道崩了，
+  不知道崩在哪。19 个页面 + 120 条时间线点击的 Playwright 全扫 0 报错，说明它依赖特定数据形状，
+  不是某个固定路由的必然崩溃。
+- **本轮改动（前端仓）**：
+  1. `src/lib/render.ts`（新增）：`asText` / `asNode` / `textList` —— 标量原样、null→空串、
+     对象→JSON 文本、React 元素透传；`textList` 还能把 `[{name}]` 这种脏列表取成字符串数组。
+  2. `ErrorBoundary`：记录并展示 `componentStack`（`getDerivedStateFromError` + `componentDidCatch`），
+     「复制详情」带上路由 + 组件栈，同时落盘 `localStorage["cw:lastRenderError"]`（刷新后仍可查）。
+  3. 渲染边界一律过 `asText`（**模型产物与接口数据**优先）：创意简报卡（`BriefCard`：标题/概述/
+     目标受众/核心信息/风格/结构/时长/关键元素/特殊要求/制作方案/参考风格/BGM/年代/素材要求/
+     动画风格/占比）、`ReviewPanel` 简报块、轨迹检查器 `KV`、`EventFeed` 行、`TaskQuestionCard`
+     选项、时间线问题选项与 `title`、子 agent 筹码（`stage/role/kind`）、`RunningSubagents`、
+     `TaskRuns`/`TaskToolTrace`/`TaskFinishSummary`/`CopilotTaskRunTab`/`CopilotSubagentTab`、
+     `PlanReviewPanel` 自定义维度、`WorkspaceMaterialsPanel` 事件行、`ProjectCard`/`TemplateGallery`
+     标签、`ExportPage` 检查项。
+  4. 后端 `services/task_events.py`：`_as_message()` 在 `emit`/`_build` 收口 —— 非字符串
+     `message` 转 JSON 文本。事件 message 里塞 dict 是这条崩溃链最上游的成因，Pydantic 直接
+     拒收会让事件丢失，比"转字符串"更糟。
+- **纪律（后续新增渲染一律遵守）**：凡是要显示的字段来自 ①模型输出 ②接口响应 ③事件 `detail`，
+  **不得直接 `{field}`**，必须过 `asText`；列表用 `textList`。TS 只能保证声明，保证不了运行时。
+- **验证**：`npx tsc --noEmit` 干净（本轮不做单测/E2E，按用户裁定由人来跑）。
+
+## 执行记录（2026-10-31 · 第 13 轮 · 崩溃可诊断化 + 局部兜底）
+
+第 12 轮的 `asText` 收口没有消掉这条报错（用户复报"依旧"）。复盘结论：**只靠"逐个点位加固"
+治不好——声明是 `string`、运行时是对象，类型系统帮不上忙**：`scripts/audit-jsx-children.mjs`
+扫了 2442 个 JSX 子表达式，`any/unknown/object` 命中 **0 处**，问题全在"声明撒谎"上。
+所以这一轮改成三步：
+
+1. **崩溃自己写进后端日志**（不再依赖人复制控制台）
+   - 后端新增 `clipwright/api/diagnostics.py`：`POST /api/diagnostics/client-error` →
+     `logs/client-errors.jsonl`（字段截断 + 4MB 轮转 + 永远 204，写不进去也不影响前端）；
+     `GET /api/diagnostics/client-errors?limit=N` 读最近若干条。已用 `curl` 实测 204 且落盘。
+   - 前端 `src/lib/reportCrash.ts`：`reportCrash()` 用 `sendBeacon`（退化 `fetch(keepalive)`）
+     上报；`installGlobalCrashReporter()` 在 `main.tsx` 挂 `error` / `unhandledrejection`；
+     同一条崩溃 10s 内去重。`ErrorBoundary.componentDidCatch` 一并上报。
+2. **局部兜底：一处崩不等于整页崩**
+   - `ErrorBoundary` 新增 `region` 属性：给了就是局部错误卡（说出"哪块没渲染出来"、可复制
+     详情、可重试），页面其余部分继续可用。
+   - 已挂：`CopilotDock`（按标签 key 重置，切标签即恢复）、`StandardLayout` 的 `<main>`、
+     `EditorLayout` 的预览 / 时间线 / 属性 / 素材四个面板。
+3. **继续加宽 `asText` 覆盖面**：事件流行、子 agent 报告与运行摘要、通用 `Stat` 组件
+   （`PluginsPanel` / `PreferencesPanel` / `PipelineAdminPage` / `TypeMakerPage` /
+   `PersonaDetailPage`）、简报卡与审阅卡、计划自定义维度、导出检查项、项目/模板标签。
+
+**纪律**：`asText` 只是把"炸页面"降级为"显示 JSON 文本"，**不是**合格修法；一旦崩溃日志里出现
+组件栈，必须回到源头把那处数据形状修对。
+
+## 执行记录（2026-10-31 · 第 14 轮 · 真凶落网：项目名是对象）
+
+**根因（实测数据，不是推测）**：`GET /api/project` 里 274 个项目中有 **3 条记录的
+`name` 字段是对象** —— `{"name":"guard-smoke"}` / `{"name":"sync-smoke"}`（早期冒烟脚本
+直接写盘留下）。`ProjectCard` 的 `{proj.name}` 把这个对象当子节点渲染 → 首页/项目页整页崩在
+`Objects are not valid as a React child (found: object with keys {name})`。
+这也解释了为什么前两轮"逐点加固"没打中：**没人想到项目名这种最普通的字段会是对象**，
+而且 `{names:…}` 的候选点位清单里它看起来最无害。
+
+**修法（三层，缺一不可）**：
+1. **源头数据修复**：把 3 条脏记录 `PATCH /rename` 成正常字符串 + 移入回收站
+   （它们是测试残渣）。修后 `GET /api/project` → 271 条，**非字符串 name = 0**。
+2. **后端读接口收口**（`api/project.py`）：新增 `_as_label()` / `_normalize_project_row()`，
+   `list_projects` 与 `get_project` 出站前把 `name` / `folder` 收成字符串、`tags` 收成
+   字符串数组（`{"name":"x"}` 会取内层字符串）。脏数据以后永远出不了 API。
+3. **前端双层兜底**：`projectApi.list/load` 用 `asText`/`textList` 归一化（挡旧后端/插件/缓存），
+   展示层 `ProjectCard`、`ProjectsPage`、`HomePage`、`TimelinePanel` 的 `{proj.name}` /
+   `{track.name}` 全部过 `asText`。
+
+**验证**：`GET /api/project` → `nonstring=0`；Playwright 打开 `/` 与 `/projects`，
+`pageerror=0`、`console 只有 401（无鉴权）`、页面文字里项目名正常显示；
+`npx tsc --noEmit` 干净。
+
+## 执行记录（2026-10-31 · 第 15 轮 · 「加载项目中…」卡死：可选增强不许挡道）
+
+**现象**：后端 `GET /api/project/{id}` 明确 200 OK（日志可见），界面却永远停在「加载项目中…」。
+
+**根因**：`EditorPage` 的初始化把**可选增强**排在 `setLoading(false)` 之前——
+IndexedDB 草稿快照（`listMediaSnapshots` / `getDraft`）、`/api/requirements/{sid}` 回填、
+任务列表自查。任何一步卡住（IndexedDB 被其他标签页的旧版本事务挡住 → `open` 永不 resolve，
+是最常见的那种），编辑器就永远不出现，而且界面无从判断卡在哪。
+
+**修法**：
+1. **快速放行**：拿到项目 JSON 后立刻 `setLoading(false)`，把草稿 / 需求回填 / 任务自查
+   整体挪进后台续跑（`void (async () => { … })()`），卡住只影响它自己，不再拖住整页。
+2. **给 IndexedDB 加超时**：`withTimeout` 3s，等不到就放弃（草稿本来就是可选项）。
+3. **卡住时自己说话**：`loadTraceRef` 记录每一步；加载超过 15s 就把「卡在哪一步」上报到
+   `logs/client-errors.jsonl`（`source=stuck`）；界面 12s 起显示「后端可能没启动/刚重启，
+   要 20–30 秒」+ 重试按钮。
+
+**验证**：Playwright 打开两个真实项目，编辑器 **~1.4s / ~1.3s** 就绪（改造前要等完全部增强步骤），
+`slowHint=0`、`pageerror=0`；`npx tsc --noEmit` 干净。

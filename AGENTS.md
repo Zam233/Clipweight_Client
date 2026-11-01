@@ -1,4 +1,4 @@
-﻿# Clipwright / 帧艺 — AI Agent 项目地图
+# Clipwright / 帧艺 — AI Agent 项目地图
 
 ## 快速入口
 
@@ -61,7 +61,14 @@ J:\Clipwright
 10. **实时链路为 SSE-only**：pipeline trace / requirements chat / render queue 流；WebSocket 已移除
 11. **Agent 不写死工具名**：业务 Agent 通过**语义能力名**（`frame_check` / `video_trim` / `pv_audit` …）经
     `clipwright/tool/capabilities.py` 在调用时刻解析到具体工具；插件给工具声明 `capability` 即可接管，
-    装卸/配置变化下一次调用立即生效。新增能力先加 `CAPABILITY_ALIASES` 与 `TIER_MAP`。
+    装卸/配置变化下一次调用立即生效。
+12. **工具自声明权限档位（2026-10-31 迁移完成）**：每个 Tool 类自己写 `capability` / `capability_priority` /
+    `permission_tier`（`read|write_local|costly|dangerous`）/ `dry_run_capable`；引擎侧
+    `capability_matrix.TIER_MAP` 已清空并**必须保持为空**（有值即为写死的旧接线）。能力缺失时
+    `call_tool` 返回 `ToolStatus.NOT_FOUND`，不抛异常。
+13. **渲染边界必须收口**：凡是显示**模型输出 / 接口响应 / 事件 `detail`** 的字段，不得直接 `{field}`，
+    一律过 `src/lib/render.ts` 的 `asText`（列表用 `textList`）。TS 只保证声明，保证不了运行时形状 ——
+    已经因为 `{"name": …}` 当子节点抛出 `Objects are not valid as a React child` 把整页打崩过一次。
 
 ## 鉴权三模式
 

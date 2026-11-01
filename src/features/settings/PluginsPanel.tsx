@@ -6,6 +6,7 @@ import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
 import { ConfigValueInput } from '@/components/ConfigValueInput';
 import { cn } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import type { PluginConfigField, PluginConfigResponse } from '@/types/api';
 import {
   Puzzle, Power, Loader2, RefreshCw, Zap, Settings, X, Save, Trash2, Eye, Box,
@@ -741,7 +742,7 @@ function Modal({ title, icon, children, onClose, maxWidth = 'max-w-lg', headerEx
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-surface rounded-cw-xs border border-outline-variant/20 px-3 py-2">
-      <p className="font-mono text-title-sm text-on-surface">{value}</p>
+      <p className="font-mono text-title-sm text-on-surface">{asText(value)}</p>
       <p className="text-caption text-on-surface-variant">{label}</p>
     </div>
   );

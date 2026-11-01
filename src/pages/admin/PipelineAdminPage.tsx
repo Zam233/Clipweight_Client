@@ -6,6 +6,7 @@ import { TaskListSection } from '@/features/task/TaskListSection';
 import { TypeConformancePanel } from '@/features/pipeline/TypeConformancePanel';
 import { EvalPanel } from '@/features/pipeline/EvalPanel';
 import { cn } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import {
   Activity, Gauge, Coins, Timer, ChevronDown, ChevronRight,
   RefreshCw, FileJson, Loader2, Layers, AlertTriangle, Cpu,
@@ -350,7 +351,7 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
           <Icon className="w-3.5 h-3.5" />
         </span>
       </div>
-      <p className="font-mono text-[26px] leading-none font-semibold text-on-surface">{value}</p>
+      <p className="font-mono text-[26px] leading-none font-semibold text-on-surface">{asText(value)}</p>
       <p className="font-mono text-caption text-on-surface-variant/60 mt-1.5 uppercase tracking-wider">{sub}</p>
     </div>
   );

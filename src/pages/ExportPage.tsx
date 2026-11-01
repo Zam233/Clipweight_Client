@@ -10,6 +10,7 @@ import { createEmptyTimeline, type Timeline } from '@/types/timeline';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge } from '@/components/ui';
 import { uid, formatTimecode } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import { resolveContainerExt, type ExportPresetDef } from './exportPreset';
 import { clampPreroll, prerollPayload } from '@/services/api/preroll';
 import { fingerprintLabel, timelineChanged, timelineFingerprint } from './exportSnapshot';
@@ -744,7 +745,7 @@ function QueueCard({ item, onRetry, onCancel, currentFingerprint }: {
             : <Loader2 className="w-4 h-4 animate-spin" />}
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-body-sm font-medium text-on-surface truncate">{item.label}</p>
+          <p className="text-body-sm font-medium text-on-surface truncate">{asText(item.label)}</p>
           <p className="text-caption text-on-surface-variant font-mono">
             {item.presetName} · {item.startedAt}
             {active && item.phase ? ` · ${phaseLabel(item.phase)}` : ''}
@@ -853,7 +854,7 @@ function QueueCard({ item, onRetry, onCancel, currentFingerprint }: {
       </div>
       {/* 失败详情（U14） */}
       {item.status === 'failed' && item.detail && (
-        <p className="mt-1.5 text-caption text-error">{item.detail}</p>
+        <p className="mt-1.5 text-caption text-error">{asText(item.detail)}</p>
       )}
       {/* 时间线指纹：让"重试跑的是哪一版"可核对，而不是嘴上说说 */}
       {item.retryFingerprint && (

@@ -3,6 +3,7 @@ import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
 import { typeMakerApi } from '@/services/api';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import {
   Plus, Copy, Trash2, Pencil, Film, Eye, X, SlidersHorizontal, ScanSearch,
 } from 'lucide-react';
@@ -542,7 +543,7 @@ const SAMPLE_TIMELINE_JSON = JSON.stringify(
 function Spec({ label, value }: { label: string; value: string }) {  return (
     <div className="bg-surface rounded-cw-xs py-1.5 px-1">
       <p className="text-caption text-on-surface-variant">{label}</p>
-      <p className="text-label-sm font-mono text-on-surface mt-0.5">{value}</p>
+      <p className="text-label-sm font-mono text-on-surface mt-0.5">{asText(value)}</p>
     </div>
   );
 }

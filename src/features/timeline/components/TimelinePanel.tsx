@@ -9,6 +9,7 @@ import { Tooltip } from '@/components/ui';
 import { TimelineContextMenu } from './TimelineContextMenu';
 import type { TimelineContextMenuItem } from './TimelineContextMenu';
 import { formatTimecode, cn } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import type { ClipKind } from '@/types/timeline';
 import { TRACK_COLORS } from '@/types/timeline';
 import { HEADER_W } from '../engine/types';
@@ -764,7 +765,7 @@ function TrackManagerDropdown({ onClose }: { onClose: () => void }) {
                 className="flex items-center gap-2 px-2 py-1.5 rounded-cw-sm bg-surface-container hover:bg-surface
                   border border-outline-variant/20 transition-colors duration-short3 group">
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
-                <span className="text-label-sm text-on-surface truncate flex-1">{track.name}</span>
+                <span className="text-label-sm text-on-surface truncate flex-1">{asText(track.name)}</span>
 
                 <button onClick={() => toggleTrackLock(track.id)} title={track.locked ? '解锁' : '锁定'}
                   className={cn('p-1 rounded-cw-xs transition-colors cursor-pointer',

@@ -20,6 +20,7 @@ import { CopilotArtifactTab } from './CopilotArtifactTab';
 import { CopilotStageTab } from './CopilotStageTab';
 import { CopilotSubagentTab } from './CopilotSubagentTab';
 import { useCopilotStore } from '@/stores/copilotStore';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 function Placeholder({ title, hint }: { title: string; hint: string }) {
   return (
@@ -74,7 +75,11 @@ export function CopilotDock() {
     <div className="flex h-full min-h-0 flex-col" data-testid="copilot-dock">
       <CopilotTabBar />
       <div className="min-h-0 flex-1 overflow-auto" data-testid="copilot-body">
-        {body}
+        {/* 局部兜底：某个标签的数据形状炸了，只坏这一个面板，别把整个编辑器带走。
+            key 用标签 id —— 切标签会重置错误状态，换一个面板就能继续工作。 */}
+        <ErrorBoundary key={active?.id ?? 'none'} region={active?.title ?? '副驾驶'}>
+          {body}
+        </ErrorBoundary>
       </div>
     </div>
   );

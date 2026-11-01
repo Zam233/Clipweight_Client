@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui';
+import { asText } from '@/lib/render';
 
 export interface PlanSectionView {
   id: string;
@@ -222,9 +223,11 @@ export function PlanReviewPanel({ plan, brief, onConfirm, onBack, readOnly }: Pr
           {(draft.custom_sections?.length ?? 0) > 0 && (
             <div className="mt-2 space-y-1">
               <p className="font-mono text-caption text-on-surface-variant">自定义维度</p>
-              {draft.custom_sections?.map((section) => (
-                <p key={section.name} className="font-mono text-caption text-on-surface-variant">
-                  · {section.name}：{section.reason ? section.reason : <span className="text-error">缺少理由</span>}
+              {draft.custom_sections?.map((section, si) => (
+                <p key={asText(section.name) || si} className="font-mono text-caption text-on-surface-variant">
+                  · {asText(section.name)}：{asText(section.reason)
+                    ? asText(section.reason)
+                    : <span className="text-error">缺少理由</span>}
                 </p>
               ))}
             </div>
