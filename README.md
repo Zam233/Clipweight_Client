@@ -1,6 +1,6 @@
 # 帧艺 ClipWright — Web 视频编辑器（前端）
 
-> **Phase 5** · 全功能时间轴编辑器 · React 19 + TypeScript + Canvas 2D
+> **Phase 8** · 全功能时间轴编辑器 + 主 Agent 任务化 · React 19 + TypeScript + Canvas 2D
 >
 > 这是 [帧艺 ClipWright](../Clipweight) AI 辅助视频创作系统的**前端子系统**。后端编排引擎位于 `J:\Clipwright`。
 
@@ -22,13 +22,13 @@ ClipWright 前端是一个**独立完整的 Web 视频编辑器**，基础能力
 |----|------|
 | 框架 | React 19 + TypeScript 5.5 |
 | 构建 | Vite 6 |
-| 状态 | Zustand 5（12 个 store） |
-| 路由 | TanStack Router（28 条路由） |
+| 状态 | Zustand 5（按域拆分的 store） |
+| 路由 | TanStack Router（路由级懒加载） |
 | 数据 | TanStack Query + Axios |
 | UI | Radix UI + 自建 shadcn 风格组件 + Tailwind CSS 4 |
 | 时间轴 | **自研 Canvas 2D 引擎**（帧级精度） |
 | 预览 | Canvas 合成 + 关键帧插值 |
-| 实时 | SSE（管线追踪 / 渲染进度 / 需求对话流） |
+| 实时 | SSE（任务事件 / 会话时间线 / 渲染进度 / 需求对话流） |
 
 ---
 
@@ -65,10 +65,16 @@ src/
 │   ├── history/      # 撤销历史面板（选择快照）
 │   ├── plugins/      # 插件 UI 槽位（slots）与控件集
 │   ├── keyboard/     # 全局快捷键引擎 + 速查表
-│   └── agent/        # ★ Agent 副驾驶（需求工作流 + 管线 + 时间线Diff）
-│                     #   IntentCard(意图确认卡) · TimelineDiffView · ReviewPanel
-├── stores/           # timeline · selection · agent · asset · preview · workspace
-│                     # project · settings · history · voice · auth · toast
+│   ├── agent/        # ★ 需求 Agent（简报/规划书/确认实施 + 时间线Diff）
+│   │                 #   IntentCard(意图确认卡) · TimelineDiffView · ReviewPanel
+│   │                 #   proceedResult(统一 /proceed 返回 → Task 切换)
+│   ├── task/         # 主 Agent 任务：事件流 · 工具栏 · 收尾摘要 · 子会话 · 全量轨迹
+│   ├── copilot/      # 副驾驶标签（固定「需求对话」「轨迹」+ 子 Agent/产物/文档）
+│   ├── sessionTimeline/ # 需求会话单一有序流（按 seq 渲染 + SSE 增量）
+│   └── supervisor/   # 调度/审核组件（入口已下线，保留 store 与事件能力）
+├── stores/           # timeline · selection · agent · task · sessionTimeline · copilot
+│                     # asset · preview · workspace · project · settings · history
+│                     # voice · auth · toast
 ├── services/         # api/(各端点 · SSE 流) · storage/(草稿与迁移)
 │                     # media/(媒体管理) · tabSync
 ├── types/            # 与后端 Schema 对齐的 TS 类型
@@ -149,8 +155,14 @@ src/
 - 播放循环、逐帧步进、安全框、静音、全屏
 
 ### Agent 副驾驶
-- **需求 Agent 两阶段工作流**：创意简报 → 制作规划书（带 TOC）→ 一键生产
-- **七 Agent 管线**：需求→结构→素材→剪辑→动画→音效→质检，SSE 实时追踪
+- **主 Agent 是唯一创作通道**：需求对话 → 创意简报 → 制作规划书 → 确认实施 → Task。
+  任务事件是唯一事实来源，`task.status` 只是缓存；确认实施后会原子切到新生产 Task。
+- **需求对话是单一有序流**：需求消息、思考、工具、子 Agent、产物按服务端 `seq` 渲染；
+  「轨迹」是固定专业视图，标签不随任务切换而丢失。
+- **子 Agent 全程可见**：`agent_run_start/update/end` 驱动筹码与详情；可看状态、
+  失败原因、缺输入、耗时、报告与全量工具轨迹，也能追问（排队到下次派发）或真重放。
+- **SSE 生命周期收敛**：一个任务一条共享流，先 REST 水合再带 `since_seq` 续传；
+  收到 `task_end` 主动关闭，终态不再重连。
 - 初稿时间线预览 + 一键接受载入时间轴
 - **一句话改片**（前端入口 `POST /api/requirements/{sid}/intent`）：
   - **意图确认卡 `IntentCard`**：把后端解析出的结构化操作**摊开给用户看**（改哪几个片段、每个字段改成什么值），而不是黑箱执行；
@@ -161,7 +173,8 @@ src/
 
 ### 前后端互操作
 - 时间线 JSON 与后端 `clipwright/schema/timeline.py` 完全对齐
-- API 客户端覆盖 pipeline / requirements（含 intent 与 SSE 流）/ persona / asset / render / template / provider / webhook / market 等端点
+- API 客户端覆盖 task（事件/问答/子 Agent run/全量轨迹）/ requirements（含 intent 与 SSE 流）/
+  pipeline（兼容读）/ persona / asset / render / template / provider / webhook / market 等端点
 - **时间线不变量在前端同样成立**：改时长后片段位置与总时长由后端统一收拢，前端只渲染结果，不各自重算
 
 ---
@@ -214,20 +227,22 @@ VITE_API_BASE_URL=http://localhost:8080
 - ✅ Phase 5 Persona 管理（列表/详情/Forge 交互式创建）/ 语音克隆 / 键盘快捷键系统
 - ✅ Phase 6 账号与市场 / 插件 UI 槽位 / 模板 / 提供方配置 / 管线管理 / 字幕工具 / 预处理 / 草稿与迁移 / 撤销历史面板
 - ✅ Phase 7 **一句话改片闭环**：意图确认卡 + 时间线 Diff + 复核面板（配套后端 R1–R10 素材内容理解）
-- 🔄 后续：WebCodecs 真实解码（当前预览为 Canvas 合成）、多方案并排对比
+- ✅ Phase 8 **主 Agent 任务化**：需求对话单流、固定轨迹、子 Agent 可寻址/可追问/可重放、
+  任务事件 SSE 收敛、切任务不串游标；前后端 run 契约与收尾字段对齐（2026-11-01）
+- 🔄 后续：WebCodecs 真实解码（当前预览为 Canvas 合成）、多方案并排对比、后端重启后的完整运行态恢复
 
 ### 验证基线
 
 | 检查 | 命令 | 当前基线 |
 | --- | --- | --- |
-| 单测 | `npm run test` | **779 passed / 90 files** |
+| 单测 | `npm run test` | **1125 passed / 5 skipped / 0 failed（134 files）** |
 | 类型检查 | `npx tsc --noEmit` | 无错误 |
-| 生产构建 | `npm run build` | 通过（`✓ built in 18.80s`） |
+| 生产构建 | `npm run build` | 通过 |
 
-> 后端（`J:\Clipwright`）对应基线：`python -m pytest tests -q` = **3190 passed / 0 failed**；
-> 内容理解指标门禁 `python scripts/verify_all_metrics.py` = **9/9 PASS**；
-> PowerShell 脚本 `python scripts/fix_ps1_bom.py --check` = 3/3（必须带 UTF-8 BOM，
-> 否则 Windows PowerShell 5.1 会按 cp936 解码 → 中文乱码 / ParseException）。
+> 后端（`J:\Clipwright`）本次改动的相关回归：`test_task_api.py` / `test_event_contract.py` /
+> `test_run_addressing_api.py` / `test_agent_run_replay.py` 及 Agent/Kernel/Loop/Stage 共 **139 passed**。
+> 后端全量套件在本机跑到 53% 附近长时间无进展（既有长跑用例/环境问题），完整数字待补跑；
+> 内容理解指标门禁与 PowerShell BOM 检查仍按后端文档执行。
 
 ---
 
@@ -237,4 +252,8 @@ VITE_API_BASE_URL=http://localhost:8080
 - `ClipWright-Frontend-Design-Plan.md` — 前端架构与分阶段实施计划
 - `J:\Clipwright\docs\api_reference.md` — 后端 API 参考
 - `J:\Clipwright\design.md` — 系统总体设计
-- `docs/frontend-backend-parity.md` — 前后端对账报告（路由/客户端/差距清单）
+- `docs/frontend-backend-parity.md` — 前后端对账报告（含任务/子 Agent §8）
+- `docs/api_reference.md` — 前后端 API 参考（含任务与子 Agent `/api/task` 契约）
+- `docs/agent-runtime-frontend-prd-2026-10-30.md` — 主/子 Agent 运行态前端设计与执行记录
+- `docs/agent-session-timeline-prd-2026-10-31.md` — 需求会话单一有序流
+- `docs/agent-continuation-and-context-2026-10-31.md` — 中止续跑与主 Agent 上下文
