@@ -37,6 +37,13 @@ function _statusOf(type: string, detail: Record<string, unknown>): string {
   return String(detail.status || 'done');
 }
 
+/** 兼容旧事件：failure 曾经只发 category 字符串，新契约发完整对象。 */
+function _failureOf(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value === 'string') return value ? { category: value } : undefined;
+  if (value && typeof value === 'object') return value as Record<string, unknown>;
+  return undefined;
+}
+
 function _needsOf(detail: Record<string, unknown>): string[] | undefined {
   if (!Array.isArray(detail.needs)) return undefined;
   const names = (detail.needs as Array<Record<string, unknown>>)
@@ -58,7 +65,7 @@ export function foldRunChips(
     const stage = asText(detail.stage);
     const role = asText(detail.role);
     const prev = map.get(runId);
-    const failure = (detail.failure as Record<string, unknown> | undefined)
+    const failure = _failureOf(detail.failure)
       ?? (prev?.failure ? { blocking_point: prev.failure } : undefined);
     map.set(runId, {
       runId,
@@ -83,10 +90,11 @@ export function chipStatusText(chip: RunChip): string {
 }
 
 export function RunningSubagents({ taskId, active }: { taskId: string; active?: boolean }) {
-  const events = useTaskStore((s) => s.events);
+  // 用专门的 run 生命周期窗口：原始事件只有 400 条，长阶段会把 start 挤掉。
+  const runEvents = useTaskStore((s) => s.runEvents);
   const openTab = useCopilotStore((s) => s.openTab);
 
-  const chips = React.useMemo(() => foldRunChips(events), [events]);
+  const chips = React.useMemo(() => foldRunChips(runEvents), [runEvents]);
   // `active` 只用于决定"是否只显示在跑的那些"；事件本身由 SSE 推送，不再轮询。
   const shown = active
     ? chips.filter((c) => ['running', 'needs', 'needs_review'].includes(c.status))

@@ -26,6 +26,7 @@ import { usePreviewStore } from '@/stores/previewStore';
 import { useAssetStore } from '@/stores/assetStore';
 import { useVoiceStore } from '@/stores/voiceStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useCopilotStore } from '@/stores/copilotStore';
 import { toast } from '@/stores/toastStore';
 import { projectApi, requirementsApi, taskApi, getApiClient } from '@/services/api';
 import { session } from '@/services/api/session';
@@ -176,6 +177,9 @@ export function EditorPage() {
         }
         if (!alive) return;
         useProjectStore.getState().setProjectId(project.id);
+        // 副驾驶标签按项目绑定/恢复。生产代码此前从未调用 bindProject，
+        // projectId 恒为空 → persist() 早退，标签既不会保存也不会按项目恢复。
+        useCopilotStore.getState().bindProject(project.id);
         useProjectStore.getState().setProjectName(project.name);
         if (project.persona_id) useProjectStore.getState().setPersonaId(project.persona_id);
         if (project.plugin_id) useProjectStore.getState().setPluginId(project.plugin_id);
@@ -210,9 +214,11 @@ export function EditorPage() {
             // IndexedDB 可能被其他标签页的旧版本事务挡住 → open 永不 resolve。
             // 草稿是可选项，最多等 3s，等不到就放弃（编辑器不等它）。
             const snapshots = await withTimeout(repo.listMediaSnapshots(), 3000, 'listMediaSnapshots');
+            if (!alive) return;
             mark(`snapshots:${snapshots.length}`);
             if (snapshots.length > 0) mediaManager.applySnapshots(snapshots);
             const draft = await withTimeout(repo.getDraft(project.id), 3000, 'getDraft');
+            if (!alive) return;
             if (isDraftNewer(draft, project.updated_at)) {
               draftRef.current = draft;
               setDraftPrompt(draft);
@@ -220,8 +226,10 @@ export function EditorPage() {
             mark('draft:checked');
           } catch (e) {
             // 草稿是可选的增强：读写失败/超时静默降级，不阻断编辑器
+            if (!alive) return;
             loadTraceRef.current.push(`draft:sank:${(e as Error)?.message || 'err'}`);
           }
+        if (!alive) return;
         // Restore requirements data so AgentPanel auto-start can consume it
         if (pendingTopic) {
           const pending = pendingReqRef.current!;
@@ -265,9 +273,13 @@ export function EditorPage() {
                 creative_brief?: unknown;
                 production_plan?: unknown;
               };
+              if (!alive) return;   // 已切项目：旧会话响应不许写进新项目
               const ag = useAgentStore.getState();
+              // 状态本身就是权威值，不该依附于“有没有消息”才同步。
+              if (remote?.status) {
+                ag.setRequirementsStatus(remote.status as never);
+              }
               if (Array.isArray(remote?.messages) && remote.messages.length > 0) {
-                ag.setRequirementsStatus((remote.status as never) ?? ag.requirementsStatus);
                 ag.addRequirementsMessage({
                   id: uid('m'), role: 'assistant', content: '已从后端同步会话',
                   timestamp: new Date().toISOString(),
@@ -312,6 +324,7 @@ export function EditorPage() {
           if (useAgentStore.getState().requirementsStatus === 'pipeline_running') {
             try {
               const res = await taskApi.list(10);
+              if (!alive) return;
               const active = (res?.items ?? []).some((it) =>
                 ['running', 'pending', 'planning', 'paused'].includes(String(it.status)),
               );

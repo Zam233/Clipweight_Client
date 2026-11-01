@@ -103,7 +103,9 @@ describe('B12 / N8：结构化详情与产物路径', () => {
     }, { message: '写入 docs/script.md' })];
     render(<EventFeed events={events} />);
 
-    const pathBtn = screen.getByTitle('复制路径');
+    // 路径按钮的 title 随交互语义变过（现在是“应用内打开 / Ctrl+点击系统打开”），
+    // 断言应落在稳定契约 data-event-path 上，而不是文案。
+    const pathBtn = document.querySelector('[data-event-path]') as HTMLElement;
     expect(pathBtn.getAttribute('data-event-path')).toBe('J:/ws/proj/docs/script.md');
 
     fireEvent.click(screen.getByRole('button', { name: /详情/ }));

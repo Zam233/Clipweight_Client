@@ -140,6 +140,23 @@ describe('useTaskEvents', () => {
     renderHook(() => useTaskEvents('task_1', false));
     expect(connectSseStream).not.toHaveBeenCalled();
   });
+
+  it('终态任务不再建立实时流（否则会回放→EOF→重连死循环）', async () => {
+    vi.clearAllMocks();
+    useTaskStore.setState({ task: makeTask({ status: 'done' }), activeTaskId: 'task_1' });
+    renderHook(() => useTaskEvents('task_1', true));
+    await new Promise((r) => { setTimeout(r, 20); });
+    expect(connectSseStream).not.toHaveBeenCalled();
+  });
+
+  it('收到 task_end 主动关闭流', async () => {
+    vi.clearAllMocks();
+    useTaskStore.setState({ task: makeTask(), activeTaskId: 'task_1' });
+    renderHook(() => useTaskEvents('task_1', true));
+    await waitFor(() => expect(connectSseStream).toHaveBeenCalledTimes(1));
+    stream.onMessage?.({ seq: 1, type: 'task_end', detail: { reason: 'tool_loop_completed' } });
+    expect(stream.close).toHaveBeenCalled();
+  });
 });
 
 describe('PlanPanel', () => {
@@ -264,5 +281,22 @@ describe('EventFeed', () => {
   it('空态给明确说明', () => {
     render(<EventFeed events={[]} />);
     expect(screen.getByText(/还没有执行记录/)).toBeTruthy();
+  });
+
+  it('点击行回传选中项（轨迹右侧检查器靠它切换）', () => {
+    const onSelect = vi.fn();
+    render(
+      <EventFeed
+        events={[
+          { seq: 1, type: 'tool_call', ts: '', message: 'media_probe', detail: {} },
+          { seq: 2, type: 'tool_result', ts: '', message: 'media_probe → ok', detail: {} },
+        ]}
+        selectedSeq={2}
+        onSelect={onSelect}
+      />,
+    );
+    fireEvent.click(document.querySelector('[data-event-seq="1"]')!);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ seq: 1 }));
+    expect(document.querySelector('[data-event-seq="2"]')!.className).toContain('ring-1');
   });
 });

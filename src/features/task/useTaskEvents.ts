@@ -12,6 +12,7 @@
 import { useEffect } from 'react';
 
 import { connectSseStream } from '@/services/api/sseStream';
+import type { SseStreamHandle } from '@/services/api/sseStream';
 import { taskApi } from '@/services/api/task';
 import { useTaskStore } from '@/stores/taskStore';
 import type { TaskEvent } from '@/types/task';
@@ -38,11 +39,25 @@ export function toTaskEvent(raw: unknown): TaskEvent | null {
 }
 
 /**
- * 同一 taskId 的**引用计数**：M3 合流后，时间线宿主与任务面板可能同时挂这个 hook，
- * 两个组件各自订阅同一条 SSE 会导致事件重复应用、成本翻倍（PRD §8 反模式 3）。
- * 这里保证一条任务只有一条活跃流，最后一个卸载时才关闭。
+ * 同一 taskId 的共享流。**引用计数与连接必须放在同一条记录里**：
+ * 旧实现只计 refs，首个订阅者卸载时无条件 close——即使还有别的组件在看，
+ * 剩余那些就永久失联了。
  */
-const _taskSubs = new Map<string, number>();
+interface TaskSub {
+  refs: number;
+  handle: SseStreamHandle | null;
+  closed: boolean;
+}
+
+const _taskSubs = new Map<string, TaskSub>();
+
+function _terminal(): boolean {
+  const st = useTaskStore.getState();
+  if (st.task && ['done', 'failed', 'cancelled', 'unknown_terminal'].includes(st.task.status)) {
+    return true;
+  }
+  return st.events[st.events.length - 1]?.type === 'task_end';
+}
 
 export function useTaskEvents(taskId: string | null, enabled = true): void {
   const applyEvent = useTaskStore((s) => s.applyEvent);
@@ -50,52 +65,63 @@ export function useTaskEvents(taskId: string | null, enabled = true): void {
 
   useEffect(() => {
     if (!taskId || !enabled) return;
-    // 已有别的组件在订阅同一条任务流 → 本组件不重复订阅
-    const refs = _taskSubs.get(taskId) ?? 0;
-    _taskSubs.set(taskId, refs + 1);
-    if (refs > 0) {
-      return () => {
-        const left = (_taskSubs.get(taskId) ?? 1) - 1;
-        if (left <= 0) _taskSubs.delete(taskId);
-        else _taskSubs.set(taskId, left);
-      };
+    let entry = _taskSubs.get(taskId);
+    if (!entry) {
+      entry = { refs: 0, handle: null, closed: false };
+      _taskSubs.set(taskId, entry);
     }
-    let closed = false;
-    let handle: { close: () => void } | null = null;
+    entry.refs += 1;
+
+    const close = () => {
+      entry!.closed = true;
+      entry!.handle?.close();
+      entry!.handle = null;
+    };
 
     /**
      * 顺序很重要（PRD §7.2）：
      * 1. **先** REST 水合（把刷新/断线期间漏掉的历史补齐）；
-     * 2. **再** 订 SSE（只收新事件）；
+     * 2. **再** 订 SSE（从 `lastSeq` 继续，不重放整段历史）；
      * 3. SSE 断开时用 store 的 `lastSeq` 再补一段，然后重连。
-     *
-     * 旧实现直接订 SSE，一刷新就只剩"从此刻起"的事件；热层淘汰掉的历史
-     * 更是永远看不到——用户会以为任务前面什么都没发生。
      */
     const start = async () => {
+      if (entry!.refs <= 0 || entry!.closed) return;
       await hydrateEvents(taskId, { sinceSeq: 0, limit: 2000 });
-      if (closed) return;
-      handle = connectSseStream({
-        url: taskApi.eventsStreamUrl(taskId),
+      if (entry!.closed || entry!.refs <= 0) return;
+      if (useTaskStore.getState().activeTaskId !== taskId) return;
+      // 终态任务不再建立实时流：后端发完 task_end 就 EOF，前端若仍重连会形成
+      // “回放 → EOF → 重连”的死循环（实测无限请求）。
+      if (_terminal()) {
+        close();
+        return;
+      }
+      const since = useTaskStore.getState().lastSeq;
+      entry!.handle = connectSseStream({
+        url: taskApi.eventsStreamUrl(taskId, since),
         onMessage: (raw) => {
           const event = toTaskEvent(raw);
-          if (event) applyEvent(event);
+          if (!event) return;
+          applyEvent(event, taskId);
+          if (event.type === 'task_end') close();
         },
         // 每次重连**前**补一段：EventSource 重连只会从"新消息"开始发，
         // 断开那段时间的事件必须靠 REST 补回来（PRD §7.2）。
         onRetry: () => {
-          if (closed) return;
+          if (entry!.closed) return;
           const last = useTaskStore.getState().lastSeq;
           void hydrateEvents(taskId, { sinceSeq: last, limit: 2000 });
         },
       });
     };
-    void start();
+
+    if (entry.refs === 1) void start();
 
     return () => {
-      closed = true;
-      handle?.close();
-      _taskSubs.delete(taskId);
+      entry!.refs -= 1;
+      if (entry!.refs <= 0) {
+        close();
+        _taskSubs.delete(taskId);
+      }
     };
   }, [taskId, enabled, applyEvent, hydrateEvents]);
 }

@@ -12,7 +12,7 @@
  * - 可以切阶段、切第几次尝试，也能「加载更多」往下翻。
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, ListTree } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -107,10 +107,15 @@ export function TaskToolTrace({
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  /** 请求序号：慢响应回来时若已切阶段/任务，不能再覆盖当前列表 */
+  const reqSeq = useRef(0);
+  /** 已额外加载的条数：翻了历史页后，后台刷新第一页不能把窗口缩回去 */
+  const pagedRef = useRef(0);
 
   const load = useCallback(
     async (nextStage: string, nextAttempt: number, offset: number) => {
       if (!taskId) return;
+      const requestId = ++reqSeq.current;
       setLoading(true);
       setError('');
       try {
@@ -120,22 +125,27 @@ export function TaskToolTrace({
           limit: pageSize,
           offset,
         });
+        if (requestId !== reqSeq.current) return;
         setData(res);
+        if (offset > 0) pagedRef.current += res.items.length;
         setItems((prev) => (offset > 0 ? [...prev, ...res.items] : res.items));
       } catch (e) {
+        if (requestId !== reqSeq.current) return;
         setError((e as Error)?.message || '轨迹读取失败');
         if (offset === 0) {
           setData(null);
           setItems([]);
         }
       } finally {
-        setLoading(false);
+        if (requestId === reqSeq.current) setLoading(false);
       }
     },
     [taskId, pageSize],
   );
 
   useEffect(() => {
+    reqSeq.current += 1;
+    pagedRef.current = 0;
     setItems([]);
     setData(null);
     if (!taskId) return;
@@ -147,7 +157,10 @@ export function TaskToolTrace({
   // 任务在跑时每 10s 刷新第一页（轨迹文件是每次尝试写一次，不需要更密）
   useEffect(() => {
     if (!active || !taskId) return;
-    const timer = setInterval(() => void load(stage, attempt, 0), 10_000);
+    const timer = setInterval(() => {
+      if (pagedRef.current > 0) return;   // 用户已经往后翻，不打断当前窗口
+      void load(stage, attempt, 0);
+    }, 10_000);
     return () => clearInterval(timer);
   }, [active, taskId, stage, attempt, load]);
 
@@ -166,6 +179,8 @@ export function TaskToolTrace({
   }, [data?.available]);
 
   const pick = (nextStage: string, nextAttempt: number) => {
+    reqSeq.current += 1;   // 作废仍在飞的旧阶段请求
+    pagedRef.current = 0;
     setStage(nextStage);
     setAttempt(nextAttempt);
     setItems([]);

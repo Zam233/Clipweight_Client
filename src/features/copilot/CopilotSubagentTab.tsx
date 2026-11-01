@@ -11,6 +11,7 @@
 import React from 'react';
 import { supervisorApi } from '@/services/api';
 import { useTaskStore } from '@/stores/taskStore';
+import { useTaskEvents } from '@/features/task/useTaskEvents';
 import type { TaskEvent } from '@/types/task';
 import { asText } from '@/lib/render';
 
@@ -55,7 +56,10 @@ export function foldRunDetail(events: TaskEvent[], runId: string): RunDetail | n
       cost: typeof d.cost_usd === 'number' ? d.cost_usd : prev?.cost,
       durationMs: typeof d.duration_ms === 'number' ? d.duration_ms : prev?.durationMs,
       reportPath: String(d.report_path || prev?.reportPath || '') || undefined,
-      failure: (d.failure as Record<string, unknown> | undefined) ?? prev?.failure,
+      // 旧事件发的是分类字符串，新契约发完整对象；两种都要能显示。
+      failure: (typeof d.failure === 'string'
+        ? { category: d.failure }
+        : (d.failure as Record<string, unknown> | undefined)) ?? prev?.failure,
       needs: Array.isArray(d.needs)
         ? (d.needs as Array<Record<string, unknown>>)
         : (prev?.needs ?? []),
@@ -66,12 +70,15 @@ export function foldRunDetail(events: TaskEvent[], runId: string): RunDetail | n
 }
 
 export function CopilotSubagentTab({ taskId, subagentId }: { taskId?: string; subagentId?: string }) {
-  const events = useTaskStore((s) => s.events);
+  // Dock 只挂载激活标签：从轨迹切到本标签时轨迹会卸载。若这里不自己订阅，
+  // 共享流会被关掉，详情就冻结在点击那一刻（收不到后续 update/end）。
+  useTaskEvents(taskId ?? null, Boolean(taskId));
+  const runEvents = useTaskStore((s) => s.runEvents);
   const [snapshot, setSnapshot] = React.useState<Node | null>(null);
   const [error, setError] = React.useState('');
   const run = React.useMemo(
-    () => (taskId && subagentId ? foldRunDetail(events, subagentId) : null),
-    [events, subagentId, taskId],
+    () => (taskId && subagentId ? foldRunDetail(runEvents, subagentId) : null),
+    [runEvents, subagentId, taskId],
   );
 
   React.useEffect(() => {

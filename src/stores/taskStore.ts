@@ -17,10 +17,25 @@ import { toTaskEvent } from '@/features/task/useTaskEvents';
 import type { PlanStep, Task, TaskEvent, TaskListItem } from '@/types/task';
 
 export const MAX_TASK_EVENTS = 400;
+/**
+ * 子 Agent 生命周期事件单独保留（start/update/end）。
+ *
+ * 原始事件只留最近 400 条，长跑阶段能把 `agent_run_start` 挤出窗口——
+ * RunningSubagents 随后会认为“没有在跑的子 agent”，chip 凭空消失。
+ * 生命周期与原始日志的生命周期不同，必须单独有界存放。
+ */
+export const MAX_RUN_EVENTS = 600;
 
 export interface TaskState {
   task: Task | null;
+  /**
+   * 当前选中的任务 id。它先于 `task` 生效：切换任务时立刻改写，
+   * 用来挡住上一个任务尚未完成的请求/SSE 回调（否则旧响应会污染新任务）。
+   */
+  activeTaskId: string;
   events: TaskEvent[];
+  /** 只含 agent_run_* 的长期窗口（不受 MAX_TASK_EVENTS 裁剪） */
+  runEvents: TaskEvent[];
   lastSeq: number;
   /** 当前窗口里最小的 seq；用来判断"还能不能往上翻" */
   oldestLoadedSeq: number;
@@ -41,7 +56,7 @@ export interface TaskState {
   ) => Promise<void>;
   /** 往前翻一页历史（M3） */
   loadEarlierEvents: (taskId: string, limit?: number) => Promise<void>;
-  applyEvent: (event: TaskEvent) => void;
+  applyEvent: (event: TaskEvent, forTaskId?: string) => void;
   start: (taskId: string) => Promise<void>;
   pause: (taskId: string) => Promise<void>;
   resume: (taskId: string) => Promise<void>;
@@ -54,7 +69,9 @@ export interface TaskState {
 
 const EMPTY = {
   task: null as Task | null,
+  activeTaskId: '',
   events: [] as TaskEvent[],
+  runEvents: [] as TaskEvent[],
   lastSeq: 0,
   // M3：恢复元数据也要随 reset 归零，否则切任务/重进会把上一个任务的历史范围带过来
   oldestLoadedSeq: 0,
@@ -64,6 +81,12 @@ const EMPTY = {
   error: '',
 };
 
+/**
+ * 任务代际。每次切任务/重置自增，异步请求返回时据此丢弃过期结果。
+ * 单靠 taskId 不够：同一任务快速 re-load 也会产生两条竞态响应。
+ */
+let _taskEpoch = 0;
+
 /** 事件 → plan/step 状态推导（前端不向"后端已算好的状态"二次确认，双份状态必然漂移）。 */
 /** `task_end.detail.reason` → 前端 status（口径与后端 TaskFinish.reason 对齐）。 */
 export function terminalStatusOf(reason: string): Task['status'] {
@@ -72,7 +95,8 @@ export function terminalStatusOf(reason: string): Task['status'] {
   if (r === 'paused') return 'paused';
   // 成功：正式跑完 / 预览跑完（预览是"如实完成了一次预览"，不是失败）
   if (r === 'tool_loop_completed' || r === 'plan_completed'
-      || r === 'dry_run_preview' || r === 'task_completed') return 'done';
+      || r === 'dry_run_preview' || r === 'plan_only_completed'
+      || r === 'task_completed') return 'done';
   // 已知失败口径：触闸中止 / 循环报错 / provider 不可用 / 收尾守门没过 / 空原因
   if (r === '' || r.startsWith('gate:') || r.startsWith('step_failed')
       || r.startsWith('tool_loop_error') || r.startsWith('tool_loop_unavailable')
@@ -145,23 +169,59 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   ...EMPTY,
 
   createTask: async (body) => {
+    const epoch = ++_taskEpoch;
     set({ loading: true, error: '' });
     try {
       const res = await taskApi.create(body);
-      set({ task: res.task, events: [], lastSeq: 0, loading: false });
+      if (epoch !== _taskEpoch) return null;
+      set({
+        task: res.task,
+        activeTaskId: res.task.id,
+        events: [],
+        runEvents: [],
+        lastSeq: 0,
+        oldestLoadedSeq: 0,
+        hasEarlierEvents: false,
+        seqGap: null,
+        loading: false,
+      });
       return res.task;
     } catch (e) {
+      if (epoch !== _taskEpoch) return null;
       set({ loading: false, error: e instanceof Error ? e.message : String(e) });
       return null;
     }
   },
 
   load: async (taskId) => {
-    set({ loading: true, error: '' });
+    const id = String(taskId || '');
+    if (!id) return;
+    const switching = get().activeTaskId !== id;
+    const epoch = ++_taskEpoch;
+    set({
+      loading: true,
+      error: '',
+      activeTaskId: id,
+      // 切任务必须原子清空事件游标。seq 只在单个任务内单调，拿旧任务的 lastSeq
+      // 给新任务去重会把新任务的前 N 条事件整段吞掉。
+      ...(switching
+        ? {
+          task: null,
+          events: [],
+          runEvents: [],
+          lastSeq: 0,
+          oldestLoadedSeq: 0,
+          hasEarlierEvents: false,
+          seqGap: null,
+        }
+        : {}),
+    });
     try {
-      const res = await taskApi.get(taskId);
+      const res = await taskApi.get(id);
+      if (epoch !== _taskEpoch || get().activeTaskId !== id) return;
       set({ task: res.task, loading: false });
     } catch (e) {
+      if (epoch !== _taskEpoch || get().activeTaskId !== id) return;
       set({ loading: false, error: e instanceof Error ? e.message : String(e) });
     }
   },
@@ -176,12 +236,18 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   hydrateEvents: async (taskId, opts = {}) => {
     const cfg = typeof opts === 'number' ? { sinceSeq: opts } : opts;
     const sinceSeq = cfg.sinceSeq ?? 0;
+    const current = get().activeTaskId;
+    if (current && current !== taskId) return;   // 已经在看别的任务：这段历史不属于它
+    if (!current) set({ activeTaskId: taskId });
+    const epoch = _taskEpoch;
     try {
       const res = await taskApi.events(taskId, {
         sinceSeq,
         beforeSeq: cfg.beforeSeq,
         limit: cfg.limit,
       });
+      // 请求期间可能已切任务/re-load：过期响应绝不能写进当前窗口。
+      if (epoch !== _taskEpoch || get().activeTaskId !== taskId) return;
       const items = res.items ?? [];
       let expected = sinceSeq + 1;
       let gap: { from: number; to: number } | null = null;
@@ -191,7 +257,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
           gap = { from: expected, to: event.seq - 1 };
         }
         if (typeof event.seq === 'number') expected = Math.max(expected, event.seq + 1);
-        get().applyEvent(event);
+        get().applyEvent(event, taskId);
       }
       const seqs = items.map((e) => e.seq).filter((n) => typeof n === 'number');
       const oldest = seqs.length ? Math.min(...seqs) : 0;
@@ -203,18 +269,22 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         seqGap: gap ?? get().seqGap,
       });
     } catch (e) {
+      if (epoch !== _taskEpoch || get().activeTaskId !== taskId) return;
       set({ error: e instanceof Error ? e.message : String(e) });
     }
   },
 
   loadEarlierEvents: async (taskId, limit = 200) => {
+    if (get().activeTaskId !== taskId) return;
     const before = get().oldestLoadedSeq;
     if (!before || before <= 1) {
       set({ hasEarlierEvents: false });
       return;
     }
+    const epoch = _taskEpoch;
     try {
       const res = await taskApi.events(taskId, { beforeSeq: before, limit });
+      if (epoch !== _taskEpoch || get().activeTaskId !== taskId) return;
       const items = (res.items ?? []).map((raw) => toTaskEvent(raw) ?? (raw as TaskEvent));
       if (!items.length) {
         set({ hasEarlierEvents: false });
@@ -231,14 +301,20 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         };
       });
     } catch (e) {
+      if (epoch !== _taskEpoch || get().activeTaskId !== taskId) return;
       set({ error: e instanceof Error ? e.message : String(e) });
     }
   },
 
-  applyEvent: (event) => {
+  applyEvent: (event, forTaskId) => {
     if (!event || typeof event.seq !== 'number' || typeof event.type !== 'string') return;
+    // SSE 回调带着它订阅的 taskId；切任务后旧流再吐出的事件必须丢弃。
+    if (forTaskId && get().activeTaskId !== forTaskId) return;
     if (event.seq <= get().lastSeq) return;      // 重连回放会重发，按 seq 去重
     const events = [...get().events, event].slice(-MAX_TASK_EVENTS);
+    const runEvents = event.type.startsWith('agent_run_')
+      ? [...get().runEvents, event].slice(-MAX_RUN_EVENTS)
+      : get().runEvents;
     const task = get().task;
     let nextTask = task;
     if (task) {
@@ -246,16 +322,23 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       nextTask = folded ?? task;
       if (event.type === 'task_end') {
         // 收尾口径（modern agent）：后端已不再用 plan_completed 这一个名字。
-        // 现网会发 tool_loop_completed / dry_run_preview / cancelled / gate:* / tool_loop_error:*，
-        // 只有"没跑成"的那几类才算失败——否则成功任务在 UI 上显示失败（P0）。
+        // 现网会发 tool_loop_completed / dry_run_preview / plan_only_completed /
+        // cancelled / gate:* / tool_loop_error:*；只有"没跑成"的那几类才算失败。
+        const detail = event.detail || {};
+        const prevFinish = (nextTask as Task).finish;
         nextTask = {
           ...(nextTask as Task),
-          status: terminalStatusOf(String(event.detail?.reason || '')),
+          status: terminalStatusOf(String(detail.reason || '')),
           finish: {
-            conclusion: event.message,
-            completed: (event.detail?.completed as string[]) || [],
-            unfinished: (event.detail?.unfinished as string[]) || [],
-            reason: String(event.detail?.reason || ''),
+            // 字段缺省时保留已有收尾信息，不能用空数组把后端刚写好的未完成项抹掉。
+            conclusion: event.message || prevFinish?.conclusion || '',
+            completed: Array.isArray(detail.completed)
+              ? (detail.completed as string[])
+              : (prevFinish?.completed ?? []),
+            unfinished: Array.isArray(detail.unfinished)
+              ? (detail.unfinished as string[])
+              : (prevFinish?.unfinished ?? []),
+            reason: String(detail.reason || prevFinish?.reason || ''),
           },
         };
       } else if (event.type === 'gate_hit' && nextTask) {
@@ -263,7 +346,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         nextTask = { ...(nextTask as Task) };
       }
     }
-    set({ events, lastSeq: event.seq, task: nextTask });
+    set({ events, runEvents, lastSeq: event.seq, task: nextTask });
   },
 
   start: async (taskId) => {
@@ -334,5 +417,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     }
   },
 
-  reset: () => set({ ...EMPTY, list: [] }),
+  reset: () => {
+    _taskEpoch += 1;
+    set({ ...EMPTY, list: [] });
+  },
 }));

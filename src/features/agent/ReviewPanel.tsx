@@ -4,6 +4,7 @@ import { applyProceedResult } from './proceedResult';
 import { useAgentStore } from '@/stores/agentStore';
 import { requirementsApi } from '@/services/api';
 import { useProjectStore } from '@/stores/projectStore';
+import { useTaskStore } from '@/stores/taskStore';
 import { Button } from '@/components/ui';
 import { Markdown } from '@/components/shared/Markdown';
 import { resolveMessageAttachments } from './requirementsAttachments';
@@ -153,6 +154,8 @@ export function ReviewPanel({ brief, planMarkdown, planView, onBack }: ReviewPan
         // 必须跳 /task/{id} 走 Task 事件流；否则才挂老管线 SSE。
         const target = applyProceedResult(res);
         if (target?.mode === 'task') {
+          // 与 AgentPanel 同一收口：新生产任务必须成为当前任务数据源。
+          void useTaskStore.getState().load(target.id);
           useAgentStore.getState().updatePhase('structure', 5);
           // PRD §19.3：不跳页——任务在编辑器右侧的「任务运行」标签里就地跑（applyProceedResult 已开标签）
         } else if (target) {

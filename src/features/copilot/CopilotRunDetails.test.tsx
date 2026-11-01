@@ -32,7 +32,7 @@ vi.mock('@/services/api', () => ({
 vi.mock('@/features/task/useTaskEvents', () => ({ useTaskEvents: () => undefined }));
 vi.mock('@/stores/taskStore', () => ({
   useTaskStore: (sel: (s: Record<string, unknown>) => unknown) => sel({
-    task: null, events: mocks.events, loading: false,
+    task: null, events: mocks.events, runEvents: mocks.events, loading: false,
     pause: vi.fn(), resume: vi.fn(), cancel: vi.fn(), inject: vi.fn(),
   }),
 }));

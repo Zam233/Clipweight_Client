@@ -228,7 +228,12 @@ export function EventFeed({ events, className, hasEarlierEvents, onLoadEarlier, 
       )}
       <ol className={cn('space-y-1', className)} aria-label="调用记录">
         {visible.map((event) => (
-          <EventRow key={event.seq} event={event} />
+          <EventRow
+            key={event.seq}
+            event={event}
+            selected={selectedSeq === event.seq}
+            onSelect={onSelect}
+          />
         ))}
       </ol>
     </>

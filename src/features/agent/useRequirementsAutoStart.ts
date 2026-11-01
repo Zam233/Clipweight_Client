@@ -41,6 +41,7 @@ export function useRequirementsAutoStart(ready: boolean) {
     firstMsg += `预估时长：${st.requirementsAudioDuration}秒。请帮我生成创意简报。`;
     ag.addRequirementsMessage({ id: uid('m'), role: 'user', content: firstMsg, timestamp: new Date().toISOString() });
 
+    let cancelled = false;
     (async () => {
       try {
         const res = await requirementsApi.init({
@@ -65,6 +66,8 @@ export function useRequirementsAutoStart(ready: boolean) {
             workspace_vision: st.workspaceVisionIndex,
           },
         });
+        // 初始化期间切了项目/卸载：旧会话不能写进新项目的全局 store。
+        if (cancelled) return;
         useAgentStore.getState().setRequirementsSession(res.session_id);
         try {
           // unified-stream PRD §M1：首轮必须走**流式**，否则思考与逐字输出在自动开始的
@@ -92,6 +95,7 @@ export function useRequirementsAutoStart(ready: boolean) {
           } catch {
             chatRes = await requirementsApi.chat({ session_id: res.session_id, message: firstMsg });
           }
+          if (cancelled) return;
           const brief = (chatRes.creative_brief ?? null) as CreativeBrief | null;
           const plan = (chatRes.production_plan ?? null) as ProductionPlan | null;
           const ag2 = useAgentStore.getState();
@@ -112,6 +116,7 @@ export function useRequirementsAutoStart(ready: boolean) {
             });
           }
         } catch {
+          if (cancelled) return;
           if (!useSettingsStore.getState().allowDemoFallback) {
             useAgentStore.getState().addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '后端暂不可达，无法生成简报（可在设置中开启离线演示回退）' });
             useAgentStore.getState().setRequirementsStatus('idle');
@@ -124,6 +129,7 @@ export function useRequirementsAutoStart(ready: boolean) {
           ag2.addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '已为你生成创意简报，请审阅后确认。', creative_brief: brief });
         }
       } catch {
+        if (cancelled) return;
         if (!useSettingsStore.getState().allowDemoFallback) {
           const ag2 = useAgentStore.getState();
           ag2.addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '后端暂不可达，无法生成简报（可在设置中开启离线演示回退）' });
@@ -136,8 +142,9 @@ export function useRequirementsAutoStart(ready: boolean) {
         ag2.setRequirementsStatus('brief_ready');
         ag2.addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '已为你生成创意简报，请审阅后确认。', creative_brief: brief });
       } finally {
-        useAgentStore.getState().setRequirementsBusy(false);
+        if (!cancelled) useAgentStore.getState().setRequirementsBusy(false);
       }
     })();
+    return () => { cancelled = true; };
   }, [ready, requirementsTopic]);
 }

@@ -7,7 +7,6 @@ import { useProjectStore } from '@/stores/projectStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { createDefaultClip } from '@/types/timeline';
-import { pipelineApi } from '@/services/api';
 import type { CreativeBrief } from '@/types/persona';
 
 vi.mock('@/pages/useBackendHealth', () => ({
@@ -333,7 +332,7 @@ describe('G7: reference file upload', () => {
     });
   });
 
-  it('无会话时提示先开始会话', async () => {
+  it('无会话时不渲染上传入口（没有会话就没有归属，不能发起上传）', () => {
     useAgentStore.setState({
       requirementsSessionId: null,
       requirementsMessages: [
@@ -343,14 +342,10 @@ describe('G7: reference file upload', () => {
     });
     render(<AgentPanel />);
 
-    const file = new File(['内容'], 'ref.txt', { type: 'text/plain' });
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [file] } });
-
-    await waitFor(() => {
-      const msgs = useAgentStore.getState().requirementsMessages;
-      expect(msgs.some((m) => m.content.includes('请先开始需求会话'))).toBe(true);
-    });
+    // 现行门控：输入区只在有 requirementsSessionId 时出现；无会话时连文件输入都不存在，
+    // 因此不存在“先上传再提示先开始会话”的旁路。
+    expect(document.querySelector('input[type="file"]')).toBeNull();
+    expect(screen.queryByTitle('上传参考文件')).toBeNull();
   });
 });
 
@@ -393,7 +388,7 @@ describe('U13: brief/plan card dedupe', () => {
     window.localStorage.setItem('cw.unifiedTimeline', '0');
   });
 
-  it('skips markdown body when message carries a creative_brief attachment', () => {
+  it('renders markdown body together with the creative_brief card（正文不再被附件顶掉）', () => {
     useAgentStore.setState({
       requirementsStatus: 'brief_ready',
       requirementsMessages: [
@@ -409,10 +404,10 @@ describe('U13: brief/plan card dedupe', () => {
 
     render(<AgentPanel />);
 
-    // 正文 markdown 不再渲染（内嵌的重复段落消失）
-    expect(screen.queryByText(/创作方案已完成/)).toBeNull();
-    expect(screen.queryByText(/正文内嵌重复内容/)).toBeNull();
-    // 卡片仍然渲染
+    // 用户 2026-10-31 裁定：正文始终渲染，附件卡另附；不能把模型输出整段丢掉。
+    expect(screen.getByText(/创作方案已完成/)).toBeTruthy();
+    expect(screen.getByText(/正文内嵌重复内容/)).toBeTruthy();
+    // 卡片也照常渲染
     expect(screen.getAllByText('独特简报标题XYZ').length).toBeGreaterThan(0);
     expect(screen.getByText('创意简报')).toBeTruthy();
   });
@@ -435,46 +430,14 @@ describe('U13: brief/plan card dedupe', () => {
 });
 
 describe('G2: pipeline cancel', () => {
-  it('renders stop button when running, disabled while cancelling', () => {
+  it('底部不再渲染第二个「停止」入口（用户 2026-10-31 已撤掉）', () => {
     useAgentStore.setState({ pipelineId: 'p1', phase: 'structure', cancelling: false });
     render(<AgentPanel />);
 
-    expect(screen.getByText('停止')).toBeTruthy();
-
-    // cancelling: true → 按钮禁用且文案切换
-    act(() => {
-      useAgentStore.setState({ cancelling: true });
-    });
-    const btn = screen.getByText('取消中…') as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
-  });
-
-  it('clicking stop calls pipelineApi.cancel with the pipelineId', async () => {
-    useAgentStore.setState({ pipelineId: 'p1', phase: 'structure', cancelling: false });
-    const cancel = vi.mocked(pipelineApi.cancel).mockResolvedValue({});
-    vi.spyOn(window, 'confirm').mockReturnValue(true); // 批B：取消前确认
-    render(<AgentPanel />);
-
-    fireEvent.click(screen.getByText('停止'));
-
-    expect(cancel).toHaveBeenCalledWith('p1');
-  });
-
-  it('cancel failure logs error and keeps SSE open', async () => {
-    useAgentStore.setState({ pipelineId: 'p1', phase: 'structure', cancelling: false });
-    vi.mocked(pipelineApi.cancel).mockRejectedValue(new Error('boom'));
-    vi.spyOn(window, 'confirm').mockReturnValue(true); // 批B：取消前确认
-    render(<AgentPanel />);
-    await act(async () => {}); // flush SSE 挂接
-    expect(MockEventSource.instances.length).toBe(1);
-
-    fireEvent.click(screen.getByText('停止'));
-    await act(async () => { await Promise.resolve(); });
-
-    const logs = useAgentStore.getState().logEntries;
-    expect(logs.some((e) => e.type === 'error' && e.summary.includes('取消失败'))).toBe(true);
-    // 取消请求失败 → 不关闭 SSE，继续追踪管线
-    expect(MockEventSource.instances[0].closed).toBe(false);
+    // 生成中的中断由输入区发送按钮承担；底部大停止按钮已删除，
+    // 否则同一件事有两个入口（测试锁住“不要再加回来”）。
+    expect(screen.queryByText('停止')).toBeNull();
+    expect(screen.queryByText('取消中…')).toBeNull();
   });
 
   it('SSE cancelled event → phase failed, requirements error, SSE closed, sessionStorage cleared', async () => {
@@ -1069,6 +1032,12 @@ describe('B5：推理强度入口（reasoning_effort）', () => {
 });
 
 describe('M5c：需求会话 ask_user 问答卡', () => {
+  // 本组测的是旧视图的面板低部问题卡；单流视图的问题是时间线条目
+  // （见 SessionTimeline 的 session-item-question），两种形态不同源。
+  beforeEach(() => {
+    window.localStorage.setItem('cw.unifiedTimeline', '0');
+  });
+
   const api = () => import('@/services/api') as unknown as Promise<{
     requirementsApi: {
       questions: ReturnType<typeof vi.fn>;
@@ -1171,6 +1140,19 @@ describe('单流视图（session-timeline）：服务端条目按 seq 渲染', (
     };
   }>;
 
+  /**
+   * 单流组件直连 `services/api/requirements`，不经过 `services/api` 聚合桶；
+   * 只 mock 聚合桶会让它去发真实请求（测试里表现为一直空态）。两边同时给同一页。
+   */
+  async function setTimelinePage(page: Record<string, unknown>) {
+    const direct = await import('@/services/api/requirements') as unknown as {
+      requirementsApi: { timeline: (...args: unknown[]) => Promise<unknown> };
+    };
+    direct.requirementsApi.timeline = vi.fn(async () => page);
+    const r = await api();
+    r.requirementsApi.timeline.mockResolvedValue(page);
+  }
+
   /** 造一条服务端时间线条目（字段与后端 SessionLog 一致） */
   const item = (seq: number, type: string, content: unknown, meta: Record<string, unknown> = {}) => ({
     seq,
@@ -1189,8 +1171,7 @@ describe('单流视图（session-timeline）：服务端条目按 seq 渲染', (
   it('用户与模型条目都在同一条流里，顺序由 seq 决定', async () => {
     const { setSessionTimelineEnabled } = await import('@/features/sessionTimeline/flag');
     setSessionTimelineEnabled(true);
-    const r = await api();
-    r.requirementsApi.timeline.mockResolvedValue({
+    await setTimelinePage({
       session_id: 'req_seq',
       items: [
         item(1, 'content', '做一期数码评测', { role: 'user' }),
@@ -1226,8 +1207,7 @@ describe('单流视图（session-timeline）：服务端条目按 seq 渲染', (
   it('简报卡 / 规划书卡 / Markdown / 时间戳 在单流里照常渲染', async () => {
     const { setSessionTimelineEnabled } = await import('@/features/sessionTimeline/flag');
     setSessionTimelineEnabled(true);
-    const r = await api();
-    r.requirementsApi.timeline.mockResolvedValue({
+    await setTimelinePage({
       session_id: 'req_func',
       items: [
         item(1, 'content', '**加粗结论** 与普通文字', { role: 'assistant' }),
@@ -1268,8 +1248,7 @@ describe('单流视图（session-timeline）：服务端条目按 seq 渲染', (
   it('单流容器撑满高度，且只保留一层滚动', async () => {
     const { setSessionTimelineEnabled } = await import('@/features/sessionTimeline/flag');
     setSessionTimelineEnabled(true);
-    const r = await api();
-    r.requirementsApi.timeline.mockResolvedValue({
+    await setTimelinePage({
       session_id: 'req_h',
       items: [item(1, 'content', '嗨', { role: 'user' })],
       has_more: false, latest_seq: 1, archived_until_seq: 0,

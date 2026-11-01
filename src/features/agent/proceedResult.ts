@@ -11,7 +11,7 @@
  */
 
 import { savePipelineId } from '@/services/storage/pipelineSession';
-import { REQUIREMENTS_TAB, useCopilotStore } from '@/stores/copilotStore';
+import { REQUIREMENTS_TAB, TRACE_TAB, useCopilotStore } from '@/stores/copilotStore';
 import { isSessionTimelineEnabled } from '@/features/sessionTimeline/flag';
 
 export interface ProceedResultLike {
@@ -43,13 +43,10 @@ export function applyProceedResult(res: ProceedResultLike | null | undefined): P
         useCopilotStore.getState().openTab(REQUIREMENTS_TAB);
         useCopilotStore.getState().setActive(REQUIREMENTS_TAB.id);
       } else {
-        useCopilotStore.getState().openTab({
-          id: `task-run:${taskId}`,
-          kind: 'task-run',
-          title: '轨迹',
-          closable: true,
-          payload: { taskId },
-        });
+        // 轨迹是**固定**标签（不绑 taskId，跟 taskStore 走）。动态 task-run
+        // 会被 normalizeTabs 丢弃，旧实现于是"点了没反应"。
+        useCopilotStore.getState().openTab(TRACE_TAB);
+        useCopilotStore.getState().setActive(TRACE_TAB.id);
       }
     } catch {
       /* store 不可用（极端场景）不影响返回值 */

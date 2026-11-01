@@ -849,13 +849,17 @@ function RequirementsView() {
         // 终态由后端驱动（C4）：轮询会话状态，等它离开 planning 再放开 busy。
         // 不做"本地推断 plan_ready"——两套真相必然互相覆盖。
         void (async () => {
+          const stillCurrent = () => useAgentStore.getState().requirementsSessionId === sid;
           for (let i = 0; i < 900; i += 1) {
             await new Promise((r) => { setTimeout(r, 2000); });
+            // 用户已切到别的会话：这个轮询不得再改全局状态，也不得替新会话清 busy。
+            if (!stillCurrent()) return;
             let st = '';
             try {
               const s = await requirementsApi.getSession(sid) as { status?: string };
               st = String(s?.status || '');
             } catch { /* 后端暂时不可用：继续等，不谎报状态 */ }
+            if (!stillCurrent()) return;
             if (st && st !== 'planning') {
               useAgentStore.getState().setRequirementsStatus(
                 st as Parameters<typeof setStatus>[0],
@@ -864,7 +868,7 @@ function RequirementsView() {
               break;
             }
           }
-          useAgentStore.getState().setRequirementsBusy(false);
+          if (stillCurrent()) useAgentStore.getState().setRequirementsBusy(false);
         })();
         return;
       }
@@ -945,6 +949,9 @@ function RequirementsView() {
       if (target?.mode === 'task') {
         setStatus('pipeline_running');
         updatePhase('structure', 5);
+        // 生产任务是**新** task：必须把 taskStore 从上一轮 plan_only 任务切过去。
+        // 只开标签不换数据源，轨迹/暂停/子 Agent 列表会继续指向规划任务。
+        void useTaskStore.getState().load(target.id);
         // PRD §19.3：不跳页——任务在编辑器右侧的「任务运行」标签里就地跑（applyProceedResult 已开标签）
       } else if (target) {
         // 设置 pipelineId + 运行相位，BottomBar 的 effect 会自动挂接 SSE 追踪

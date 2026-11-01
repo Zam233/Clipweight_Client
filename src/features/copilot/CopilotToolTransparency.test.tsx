@@ -20,7 +20,7 @@ const store: { task: Record<string, unknown> | null; events: TaskEvent[] } = { t
 vi.mock('@/features/task/useTaskEvents', () => ({ useTaskEvents: () => undefined }));
 vi.mock('@/stores/taskStore', () => ({
   useTaskStore: (sel: (s: Record<string, unknown>) => unknown) => sel({
-    task: store.task, events: store.events, loading: false,
+    task: store.task, events: store.events, runEvents: store.events, loading: false,
     pause: vi.fn(), resume: vi.fn(), cancel: vi.fn(), inject: vi.fn(),
   }),
 }));

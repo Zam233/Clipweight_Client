@@ -12,7 +12,8 @@ import { ListChecks } from 'lucide-react';
 import { Badge } from '@/components/ui';
 import { taskApi } from '@/services/api/task';
 import type { TaskListItem } from '@/types/task';
-import { useCopilotStore } from '@/stores/copilotStore';
+import { useCopilotStore, TRACE_TAB } from '@/stores/copilotStore';
+import { useTaskStore } from '@/stores/taskStore';
 
 import { statusLabel } from '@/features/task/labels';
 
@@ -26,15 +27,12 @@ function variantOf(status: string) {
 }
 
 export function TaskListSection() {
-  // /task/$taskId 页已删除（PRD §19.3）：点任务改为在编辑器副驾驶里开「任务运行」标签
+  // /task/$taskId 页已删除（PRD §19.3）：点任务改为切到固定的「轨迹」标签。
+  // 动态 task-run 标签会被 normalizeTabs 丢弃，必须先把该任务装进 store。
   const openInCopilot = (taskId: string) => {
-    useCopilotStore.getState().openTab({
-      id: `task-run:${taskId}`,
-      kind: 'task-run',
-      title: '任务运行',
-      closable: true,
-      payload: { taskId },
-    });
+    void useTaskStore.getState().load(taskId);
+    useCopilotStore.getState().openTab(TRACE_TAB);
+    useCopilotStore.getState().setActive(TRACE_TAB.id);
   };
   const [items, setItems] = useState<TaskListItem[]>([]);
   const [error, setError] = useState('');

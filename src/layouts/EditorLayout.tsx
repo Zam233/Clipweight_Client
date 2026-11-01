@@ -13,7 +13,6 @@ import { TimelinePanel } from '@/features/timeline/components/TimelinePanel';
 import { PropertiesPanel } from '@/features/properties/PropertiesPanel';
 import { CopilotDock } from '@/features/copilot/CopilotDock';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { SupervisorLauncher } from '@/features/supervisor/SupervisorLauncher';
 import { ReviewPanel } from '@/features/agent/ReviewPanel';
 import type { PlanView } from '@/features/plan/PlanReviewPanel';
 import { EditorToolbar } from '@/features/timeline/components/EditorToolbar';
@@ -316,9 +315,6 @@ export function EditorLayout() {
 
       {/* Status Bar */}
       <StatusBar />
-
-      {/* 调度面板入口（F1 集成）：浮动按钮 + 右侧抽屉 */}
-      <SupervisorLauncher />
 
       {/* 轮69 响应式 3b：<lg 折叠抽屉——右侧滑出，遮罩点击/Esc 关闭 */}
       {!isDesktop && mobilePanel && (

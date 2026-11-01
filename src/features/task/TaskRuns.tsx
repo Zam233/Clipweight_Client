@@ -13,6 +13,7 @@ import { MessageSquarePlus, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { asText } from '@/lib/render';
 import { taskApi } from '@/services/api';
+import { useTaskStore } from '@/stores/taskStore';
 import type { TaskRunSummary } from '@/types/task';
 
 import { TaskRunDetail } from './TaskRunDetail';
@@ -53,7 +54,18 @@ export function TaskRuns({ taskId, active = false, className }: Props) {
     }
   }, [taskId]);
 
-  useEffect(() => { void load(); }, [load]);
+  // 后端只在 run 结束时写列表；运行中的占位记录现在 /runs 也会返回。
+  // 监听 agent_run_* 事件去抖刷新，否则新 run 与状态变化要等手工刷新才出现。
+  const lastRunSeq = useTaskStore((s) => {
+    for (let i = s.events.length - 1; i >= 0; i -= 1) {
+      if (s.events[i].type.startsWith('agent_run_')) return s.events[i].seq;
+    }
+    return 0;
+  });
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load(); }, 300);
+    return () => window.clearTimeout(timer);
+  }, [load, lastRunSeq]);
 
   const message = async (run: TaskRunSummary) => {
     const text = (draft[run.run_id] || '').trim();

@@ -54,9 +54,14 @@ export const taskApi = {
     return data as TaskEventPage;
   },
 
-  /** SSE 订阅地址（token 由 `connectSseStream` 附加）。 */
-  eventsStreamUrl(taskId: string): string {
-    return `${apiBase()}/api/task/${taskId}/events/stream`;
+  /**
+   * SSE 订阅地址（token 由 `connectSseStream` 附加）。
+   *
+   * `sinceSeq` 让服务端从已水合的位置继续推，避免每次重连都把整段历史再放一遍。
+   */
+  eventsStreamUrl(taskId: string, sinceSeq = 0): string {
+    const base = `${apiBase()}/api/task/${taskId}/events/stream`;
+    return sinceSeq > 0 ? `${base}?since_seq=${sinceSeq}` : base;
   },
 
   async pause(taskId: string): Promise<{ status: string }> {
