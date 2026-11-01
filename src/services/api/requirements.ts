@@ -28,10 +28,14 @@ export const requirementsApi = {
     message: string,
     onChunk?: (chunk: { type: string; data: unknown }) => void,
     signal?: AbortSignal,
+    projectId?: string,
   ): Promise<Record<string, unknown>> {
     const base = apiBase();
     const form = new URLSearchParams();
     form.append('message', message);
+    // 带上项目 id：中止后「续跑」要靠它定位原工作区，否则会新建一个工作区,
+    // docs/ 与成片都写不到当前项目里。
+    if (projectId) form.append('project_id', projectId);
     const token = await fetchSseToken();
     // P1-36：一次性 SSE token 走 query（后端 _consume_sse_token 只消费 qtok）——
     // 旧实现放 Authorization 头在 token/jwt 模式下必 401 且无回退

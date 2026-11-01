@@ -481,28 +481,59 @@ export function EditorPage() {
   }, [taskStatus, taskId]);
 
   // 时间轴**实时**同步（用户 2026-10-31）：任务运行期间后端每派完一个阶段就把当前
-  // 时间线增量写回项目；这里每 4s 拉一次，只在"轨道数/片段数变化"时才更新 store——
-  // 否则会把用户正在拖动/调整的片段位置冲掉。
+  // 时间线增量写回项目。这里两条路：① 收到任务事件 `artifact(kind=timeline)` 立刻刷
+  // （后端每写回一次就发一条，几乎零延迟）；② 4s 轮询兜底（事件流断线/漏帧也不会停）。
+  // 只有"轨道数/片段数变化"时才更新 store —— 否则会把用户正在拖动/调整的片段位置冲掉。
+  const reqStatus = useAgentStore((s) => s.requirementsStatus);
+  const taskEvents = useTaskStore((s) => s.events);
+  const lastSyncToastRef = useRef(0);
+  const clipCountOf = (tl: { tracks?: { clips?: unknown[] }[] } | null | undefined) =>
+    (tl?.tracks || []).reduce((n, tr) => n + ((tr?.clips || []).length), 0);
+
+  const syncTimelineFromProject = useCallback(async (pid: string) => {
+    const project = await projectApi.load(pid);
+    const tl = project?.timeline;
+    if (!tl || !Array.isArray(tl.tracks) || tl.tracks.length === 0) return;
+    const cur = useTimelineStore.getState().timeline;
+    const sameTracks = (tl.tracks || []).length === (cur?.tracks || []).length;
+    if (sameTracks && clipCountOf(tl) === clipCountOf(cur)) return;
+    useTimelineStore.getState().setTimeline(tl);
+    mediaManager.registerTimeline(tl);
+    // 防刷屏：两次提示至少间隔 1.5s（阶段回写可能很密）
+    const now = Date.now();
+    if (now - lastSyncToastRef.current > 1500) {
+      lastSyncToastRef.current = now;
+      toast(`时间轴已同步：${(tl.tracks || []).length} 轨 / ${clipCountOf(tl)} 片段`, 'info');
+    }
+  }, []);
+
+  // ① 事件驱动：后端每写回一次时间线就发一条 `artifact`（detail.kind = "timeline"）
+  const lastTimelineEventRef = useRef(0);
   useEffect(() => {
-    if (!taskId) return;
-    if (!['running', 'planning', 'waiting_user', 'paused'].includes(String(taskStatus))) return;
+    const last = taskEvents[taskEvents.length - 1];
+    if (!last || last.type !== 'artifact') return;
+    const detail = (last.detail || {}) as Record<string, unknown>;
+    if (String(detail.kind || '') !== 'timeline') return;
+    if (lastTimelineEventRef.current === last.seq) return;
+    lastTimelineEventRef.current = last.seq;
+    const pid = useProjectStore.getState().projectId;
+    if (!pid) return;
+    void syncTimelineFromProject(pid).catch(() => { /* 下一轮轮询兜底 */ });
+  }, [taskEvents, syncTimelineFromProject]);
+
+  // ② 轮询兜底：任务在跑（或会话报 pipeline_running）时每 4s 拉一次
+  useEffect(() => {
+    const runningTask = Boolean(taskId)
+      && ['running', 'planning', 'waiting_user', 'paused'].includes(String(taskStatus));
+    const sessionRunning = String(reqStatus) === 'pipeline_running';
+    if (!runningTask && !sessionRunning) return;
     const pid = useProjectStore.getState().projectId;
     if (!pid) return;
     let alive = true;
-    const clipCount = (tl: { tracks?: { clips?: unknown[] }[] } | null | undefined) =>
-      (tl?.tracks || []).reduce((n, tr) => n + ((tr?.clips || []).length), 0);
     const tick = async () => {
+      if (!alive) return;
       try {
-        const project = await projectApi.load(pid);
-        if (!alive) return;
-        const tl = project?.timeline;
-        if (!tl || !Array.isArray(tl.tracks) || tl.tracks.length === 0) return;
-        const cur = useTimelineStore.getState().timeline;
-        const sameTracks = (tl.tracks || []).length === (cur?.tracks || []).length;
-        if (sameTracks && clipCount(tl) === clipCount(cur)) return;
-        useTimelineStore.getState().setTimeline(tl);
-        mediaManager.registerTimeline(tl);
-        toast(`时间轴已同步：${(tl.tracks || []).length} 轨 / ${clipCount(tl)} 片段`, 'info');
+        await syncTimelineFromProject(pid);
       } catch {
         /* 后端忙/网络抖动：下一轮再来，不打扰用户 */
       }
@@ -510,7 +541,8 @@ export function EditorPage() {
     void tick();
     const h = window.setInterval(() => void tick(), 4000);
     return () => { alive = false; window.clearInterval(h); };
-  }, [taskId, taskStatus]);
+  }, [taskId, taskStatus, reqStatus, syncTimelineFromProject]);
+
 
   // Manual save trigger via saveNonce
   const saveNonce = useProjectStore((s) => s.saveNonce);

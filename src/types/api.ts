@@ -194,6 +194,8 @@ export interface RequirementsInitRequest {
 export interface RequirementsChatRequest {
   session_id: string;
   message: string;
+  /** 当前编辑器项目 id（中止后续跑要靠它定位原工作区/成片写回） */
+  project_id?: string;
 }
 
 // ── Persona Forge ──

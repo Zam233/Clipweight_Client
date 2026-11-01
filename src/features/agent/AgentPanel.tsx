@@ -584,6 +584,7 @@ function RequirementsView() {
       } = {};
       // 批B：流式失败不再自动整跑一次性 chat（会重复消耗一次完整 LLM 生成），
       // 如实上屏错误；仅在流正常返回但无内容时回退
+      const _pid = useProjectStore.getState().projectId || '';
       res = await requirementsApi.streamChat(sessionId, message, (chunk) => {
         // P2-33: 按后端权威状态映射（旧实现硬编码 gathering，会把 planning
         // 阶段打回 gathering 导致输入框在错误时机出现）
@@ -632,9 +633,9 @@ function RequirementsView() {
               : [...prev, q]));
           }
         }
-      }, signal);
+      }, signal, _pid);
       if (Object.keys(res).length === 0) {
-        res = await requirementsApi.chat({ session_id: sessionId, message }, signal);
+        res = await requirementsApi.chat({ session_id: sessionId, message, project_id: _pid }, signal);
       }
       const brief = res.creative_brief ? (res.creative_brief as CreativeBrief) : null;
       const plan = res.production_plan ? (res.production_plan as ProductionPlan) : null;
@@ -648,6 +649,14 @@ function RequirementsView() {
       else if (plan) setStatus('plan_ready');
       else if (brief) setStatus('brief_ready');
       const att = resolveMessageAttachments(st, brief, plan);
+      // 续跑（中止后再发指令）：后端重新拉起主 agent 并返回新 task_id，
+      // 这里把 task 装进 store，「轨迹」标签就会立刻跟到新任务上（否则还停在旧任务）。
+      const contTaskId = typeof (res as { task_id?: unknown }).task_id === 'string'
+        ? String((res as { task_id?: string }).task_id)
+        : '';
+      if (contTaskId) {
+        void useTaskStore.getState().load(contTaskId).catch(() => { /* 拿不到就让轨迹自己轮询 */ });
+      }
       const finalContent = (res.reply ?? res.message ?? '已收到。') as string;
       if (streamId) {
         // 流式气泡已存在 → 用权威回复替换（delta 与最终 reply 内容一致，此处兜底差异）

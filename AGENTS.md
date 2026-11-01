@@ -69,6 +69,11 @@ J:\Clipwright
 13. **渲染边界必须收口**：凡是显示**模型输出 / 接口响应 / 事件 `detail`** 的字段，不得直接 `{field}`，
     一律过 `src/lib/render.ts` 的 `asText`（列表用 `textList`）。TS 只保证声明，保证不了运行时形状 ——
     已经因为 `{"name": …}` 当子节点抛出 `Objects are not valid as a React child` 把整页打崩过一次。
+14. **会话状态只由任务终态驱动，且必须有兜底**：任务 `done` → `pipeline_done`，其它终态 → `plan_ready`。
+    任务不在内存（重启/被淘汰）时**不许空等** —— `watch_task_session` 连续 5 次取不到即释放，
+    另有 `release_stale_pipeline_sessions()` 周期扫存量（实测一次放开 34 个卡死会话）。中止后用户再说一句，
+    `_continue_as_task` 重新拉起主 agent，并把「本轮指令 / 会话对话 / 上一轮工具·技能·子 agent 轨迹」
+    装进新任务上下文（见 [docs/agent-continuation-and-context-2026-10-31.md](docs/agent-continuation-and-context-2026-10-31.md)）。
 
 ## 鉴权三模式
 
