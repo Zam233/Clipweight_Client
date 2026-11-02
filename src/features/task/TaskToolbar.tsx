@@ -64,6 +64,15 @@ export const STATUS_ACTIONS: Record<TaskStatus, StatusAction> = {
   cancelled: {
     label: '已取消', hint: '任务已结束，不能继续', view: true,
   },
+  // devplan 2026-11-02（用户裁定 3）：撞上限但已交付收尾报告。
+  // 按钮只给「查看结果」——不给继续/取消/插话，因为任务已经真的停了；
+  // 要接着做必须回需求页说一句，走续跑建新任务（黑板与 Goal 会继承）。
+  capped: {
+    label: '已封顶·已交付收尾报告',
+    hint: '跑满了运行上限，已按要求交付收尾报告；这不是"全部完成"，可以看结果，'
+      + '要接着做请在需求对话里说一句（会新建任务并继承上一轮上下文）',
+    view: true,
+  },
   unknown_terminal: {
     label: '后端终态（待适配）', hint: '后端给了前端还不认识的终态原因；任务已结束，不能继续',
     view: true,

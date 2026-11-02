@@ -746,7 +746,14 @@ export function CopilotTaskRunTab({ taskId }: { taskId: string }) {
       </div>
 
       {task && (
-        <TaskFinishSummary status={status} finish={task.finish ?? null} />
+        <TaskFinishSummary
+          status={status}
+          finish={task.finish ?? null}
+          terminalReason={task.terminal_reason ?? null}
+          blockerCode={task.blocker_code}
+          closeout={task.closeout ?? null}
+          escrow={task.escrow ?? null}
+        />
       )}
 
       {/* 只有拿到**完整** task（含 usage/limits）才渲染用量；只有 id 的半成品对象

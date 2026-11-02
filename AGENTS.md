@@ -85,6 +85,58 @@ J:\Clipwright
     卸载才关闭；收到 `task_end` 主动 close，终态任务不再建流；恢复先 REST 水合、再带 `since_seq` 接流。
     `task_end.detail` 必须带 `completed/unfinished`，前端缺省时保留已有 `finish`，不得用空数组覆盖。
 
+18. **阶段输入：相对路径与 artifact 引用都是一等公民**（2026-11-02）：工具收到的相对路径按
+    **任务工作区根**解析（`read_file` / `list_dir` / `write_file` / `read_artifact` 都接受
+    `workspace_root` / `project_id`），`ToolRegistry` 的通用校验只拦绝对路径；
+    `stage_inputs.resolve_refs()` 在装配前把 `{artifact|path}` 引用换成真实内容（否则
+    `EditInput.candidate_clips: list` 会抛 `ValidationError`，edit 永远起不来）。**续跑任务必须先
+    `seed_blackboard(prev, new)`** 继承上一轮黑板（script_skeleton / candidate_clips / timeline…），
+    否则新任务黑板是空的 → 「阶段 edit 缺输入」。缺键回报必须**每个字段一条 needs**，不能拼成一个字符串。
+    详见 [docs/agent-stage-input-and-template-fixes-2026-11-02.md](docs/agent-stage-input-and-template-fixes-2026-11-02.md)。
+
+19. **判断交给模型、能力交给插件，都不许写死在 agent 里**（2026-11-02）：
+    - **判断**：「这场要不要联网找事实」交给模型——能力 `fact_need`（插件 `web_media` 提供，
+      一次批量调用；`animation_fact_judge=llm|heuristic|off`）。正则只能作为 offline 回退实现，
+      且必须收在插件里，不得散布到 agent。
+    - **能力**：抓网页 / 解析 HTML / 抽图 / 落盘素材 / 事实判断都属于**插件**（`plugins/web_media/`：
+      工具 `web_images`、`fact_need`；纯函数落在插件内部 `html_images.py`），**不要**沉到
+      `clipwright/services` 或内置工具里。agent 只允许 `call_tool("<能力名>")`；
+      **禁止**在工具不可用时直连 `WebSearchService` / `WebFetchService` 当后门。
+      能力缺失是一等状态（如实跳过 + 日志），不是异常分支。
+    - 注意：解析能力前必须已完成 `settings_store.apply_all(settings)`（启动顺序），
+      否则 `enable_web_search` 等覆盖还没生效，`resolve()` 会给出与实际执行不一致的结果。
+    详见 [docs/animation-capability-migration-2026-11-02.md](docs/animation-capability-migration-2026-11-02.md)。
+
+20. **「停止」必须由后端真中止并留痕**（2026-11-02）：任务运行期前端隐藏 composer，用户唯一
+    的中止手段是运行条上的停止按钮 → `POST /api/requirements/{session_id}/stop`。后端
+    `RequirementsService.stop_task()` 一次做三件事：`kernel.cancel()` **打断协程**（只改状态会让
+    阶段跑满墙钟）、会话回 `plan_ready`（前端据此把编辑框/附件/发送原样恢复）、消息流与时间线
+    各写一条 `metadata.user_stopped=true` 的说明（`context_loader` 带进下一轮上下文，主 agent
+    才知道是**用户主动喊停**而不是异常终止）。**没有活任务时必须 `stopped=false` 且不伪造说明**。
+    与 `watch_task_session` 的分工：后者管"任务自己结束"，前者管"人要它结束"，只有前者写
+    `user_stopped`。详见 [docs/agent-stop-control-2026-11-02.md](docs/agent-stop-control-2026-11-02.md)。
+
+21. **终止机制：软着陆 → 收口 → capped，判定单点、原因编码**（2026-11-02 用户裁定，devplan 已全部落地）：
+    - **撞上限 ≠ 收尾**。`agent_kernel._gate_hit` 撞到结构上限（`Goal.max_rounds`=600 / 4000 次调用）、
+      显式预算、金额耗尽、连续 6 次无进展时，先 `_enter_closeout()` 进**收口模式**：工具面按
+      `permission_tier` 收成只读（71→25 个，`build_tools(closeout=True)`），系统提示词换成
+      `_CLOSEOUT_BLOCK`（到上限不是停止交付的理由、不许声称未验证的事已完成），收口窗口独立
+      （8 轮 / 128 次收尾调用 / 600s）。
+    - **capped 是第三类终态**：`TaskStatus='capped'`，既不算 done 也不算 failed；会话映射
+      `plan_ready`（只有 done 才 `pipeline_done`），`evaluation` 把它从成功率分子/分母里排除并单列
+      `capped_count`。旧 `finish.reason` 字符串继续产出（暂不停用），新代码只读 `terminal_reason`。
+    - **清单必须有内容**：`_write_closeout_report()` 落 `reports/agent-closeout.json`，模型收口失败时
+      由 `_closeout_evidence()` 从黑板/台账**确定性**生成 `completed/unfinished`，不许空数组。
+    - **质量预算托管（escrow）**：`budget_usd` 非空时任务创建即冻结 `20% / floor 0.05 / cap 2.00`
+      （且不超总额一半），主 agent 金额闸只看 `budget - reserve`；质量阶段派发是收口期**唯一**被
+      放行的付费通道，余额用尽即收回；结算只在 `_on_tool_call` 一处发生，`usage.cost_usd` 仍是账单
+      总和（主 + 质量），绝不双计。`budget_usd=null` 时 escrow 恒 `disabled`，不凭空造上限。
+    - **目标语义**：`Goal` 携带完成标准、轮次、blocker 指纹；同一 blocker 连续 3 轮才允许 `blocked`
+      且必须写 `blocked_reason`；续跑任务通过 `previous_terminal_reason / blocker_code / closeout_status`
+      继承上一轮为什么结束（`context_loader._instruction_digest`）。
+    详见 [docs/agent-termination-devplan-2026-11-02.md](docs/agent-termination-devplan-2026-11-02.md)
+    与 [docs/agent-termination-prd-2026-11-02.md](docs/agent-termination-prd-2026-11-02.md) §15。
+
 ## 鉴权三模式
 
 `CLIPWRIGHT_ACCOUNT_VERIFY_MODE = off | token | jwt`（默认 off）。jwt 模式本地验签共享密钥，中间件写 `request.state.user_id/user_role`；前端 access token 仅内存 + refresh 走 Server httpOnly cookie（`cw_refresh`）。

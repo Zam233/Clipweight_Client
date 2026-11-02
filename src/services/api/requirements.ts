@@ -12,6 +12,18 @@ export const requirementsApi = {
   },
 
   /** Send a chat message */
+  /**
+   * 用户点「停止」：中止本会话正在跑的任务。
+   * 后端会：真取消任务 → 会话回 plan_ready（输入区恢复）→ 写一条「你点了停止」的记录
+   * （续跑的主 agent 因此知道是用户主动喊停，不会当成异常终止）。
+   */
+  async stop(sessionId: string) {
+    const { data } = await getApiClient().post(
+      `/api/requirements/${encodeURIComponent(sessionId)}/stop`, {},
+    );
+    return data as { stopped: boolean; task_id: string; status: string; note: string };
+  },
+
   async chat(request: RequirementsChatRequest, signal?: AbortSignal) {
     // 规划书生成需要结构 Agent + 翻译，耗时可达 2-5 分钟，
     // 覆盖 axios 默认 60s 超时。P1-35: signal 支持取消长请求。

@@ -24,7 +24,7 @@
 > **数据来源已改为生成物**：`docs/route_inventory.txt`（`python scripts/route_inventory.py --out docs/route_inventory.txt`）。
 > 旧口径 `Select-String ... -Pattern "@router\.(get|post|put|delete|patch)"` 只数装饰器、且会把
 > `admin_router`（`/api/supervisor/*`）漏掉，已停用。
-> 排除：`errors.py`（无路由）、`__init__.py`（聚合）。`/health` 在 `main.py`（非 `api/*.py`），由 `healthApi.check()` 消费。
+> 下表是按前缀的人工分组（便于读），**数量以生成物为准**；两者不一致时以下表之外的生成物为准。
 
 | 前缀 | 文件 | 数量 | 路由 |
 |---|---|---|---|
@@ -64,6 +64,16 @@
 | `/api/webhook` | webhook.py | 8 | GET `/events` · GET `/list` · POST `/register` · DELETE `/{webhook_id}` · PUT `/{webhook_id}/toggle` · POST `/{webhook_id}/test` · POST `/notify` · GET `/deliveries` |
 | **合计** | **按文件分组（人工维护）** | 见 `docs/route_inventory.txt` | 生成物为准：`python scripts/route_inventory.py --out docs/route_inventory.txt` |
 
+### 1.1 调度中枢路由（`api/supervisor.py`，v1.4 新增）
+
+| 前缀 | 路由数 | 端点 | 客户端 |
+|---|---|---|---|
+| `/api/pipeline`（supervisor 部分） | 13 | GET `/{pid}/ledger` · GET `/{pid}/attribution` · GET `/{pid}/diagnosis` · GET `/{pid}/decisions` · GET `/{pid}/budget` · POST `/{pid}/dispatch` · POST `/{pid}/accept-suggestion` · GET `/{pid}/subagents` · POST `/{pid}/subagents` · POST `/{pid}/subagents/{sid}/cancel` · POST `/{pid}/exec` · GET `/{pid}/exec` · GET `/{pid}/exec/pending-approvals` + POST `/exec/{aid}/approve|reject` + GET/PUT `/exec/auto-mode` | `supervisorApi` |
+| `/api/supervisor`（admin） | 5 | GET `/workers/pending-review` · POST `/workers/{wid}/review` · GET `/tools` · GET/PUT `/routes` · GET/PUT `/mode` | `supervisorApi` |
+
+> 这两组端点与 `pipeline.py` 共用 `/api/pipeline` 前缀，但**归属不同文件**：`api/supervisor.py` 注册的 `router` 与 `admin_router`。
+> 「改派 / 建议」不是只登记：`POST /dispatch` 与 `POST /accept-suggestion` 会走 `api/pipeline.start_agent_retry` 真跑一次重跑，跑不起来时返回 `retry.retried=false` + 原因。
+
 ---
 
 ## 2. 前端客户端清单（② 客户端 inventory）
@@ -96,6 +106,7 @@
 | `vision.ts` | `visionApi` | 2 | `/api/vision`（2/2） |
 | `market.ts` | `marketApi` | 8 | `/api/market`（插件/Persona 市场安装） |
 | `client.ts` | `getApiClient` / `resetApiClient` | — | Axios 工厂（baseURL 同源/8080，SSE 见 sse.ts） |
+| `supervisor.ts` | `supervisorApi` | 22 | `/api/pipeline`（调度中枢：账本/归因/诊断书/决策/预算/改派/子代理/执行/授权）+ `/api/supervisor`（审核队列/工具/路由表/模式） |
 | `index.ts` | 聚合桶 | — | 导出全部业务模块 |
 
 ### 2.1 聚合桶导出（index.ts）
@@ -328,27 +339,56 @@ P6/P7 阶段新增/变更的路由与客户端（均已完成接线与回归）�
 1. `/api/test/*` 无专属客户端模块（ModelsPage 内联），如后续统一 API 管理可抽取 `modelTestApi`。
 2. `SettingsPage.tsx:51`「WebSocket 地址」为 WsClient 移除后的遗留字段，属 UI 清理项，不影响对账结论。
 3. 本报告基于 2026-08-04 工作区快照；路由新增/变更后需重跑 §6 命令并更新本报告。
+## 7. 工作区（2026-10-24 增量）
 
----
-
-## 8. 任务与子 Agent 增量对账（2026-11-01）
-
-| 后端路由 | 前端消费 | 状态 / 契约 |
+| 后端路由 | 前端客户端 | 状态 |
 |---|---|---|
-| `POST /api/task`、`GET /api/task/{id}` | `taskApi.create/get` → `taskStore.createTask/load` | ✅ 切任务原子清空事件与 seq；`activeTaskId` 先于 `task` 生效 |
-| `GET /api/task/{id}/events` | `taskStore.hydrateEvents/loadEarlierEvents` | ✅ 带 taskId + 代际校验，旧响应不写新任务 |
-| `GET /api/task/{id}/events/stream?since_seq=` | `useTaskEvents`（共享单流） | ✅ 终态不建流、`task_end` 主动 close、从 `lastSeq` 续传 |
-| `POST /api/task/{id}/resume|pause|cancel|inject|plan` | `taskStore` / `TaskToolbar` | ✅ 终态 resume/replay 由后端 409，前端显示原因 |
-| `GET /api/task/{id}/runs` | `TaskRuns` | ✅ 含 `live=true` 运行中记录；`agent_run_*` 事件 300ms 去抖刷新 |
-| `GET /api/task/{id}/runs/{run_id}` | `TaskRunDetail` / 子 Agent 详情 | ✅ run 不属于该任务时 404 |
-| `POST /api/task/{id}/runs/{run_id}/message|replay` | `TaskRuns` | ✅ 追问排队到下次派发；replay 生成 `#r…` 新 run_id |
-| `GET /api/task/{id}/tool-calls` | `TaskToolTrace` | ✅ 请求序号防乱序；翻页后后台刷新不清空历史 |
-| `POST /api/requirements/proceed` 幂等命中 | `proceedResult.applyProceedResult` | ✅ 返回 `task_id` + `mode=task` 时切生产 Task，不再误走老管线 |
-| `agent_run_end` / `task_end` 事件 | `foldRunChips` / `foldRunDetail` / `taskStore.applyEvent` | ✅ failure 完整对象、needs、duration_ms、completed/unfinished 均已对齐 |
+| `POST/GET /api/workspace`、`/enable`、`/scan`、`/materials`、`/events` | `src/services/api/workspace.ts`（`workspaceApi`） | ✅ 已接：首页 04 步（开关+路径）、`/task/{id}` 工作区面板（计数/扫描/上传/素材表） |
+| `POST /api/requirements/proceed` | `AgentPanel.confirmPlan` / `ReviewPanel.confirm` → `features/agent/proceedResult.ts` | ✅ 单轨：恒返回 `task_id` + `mode=task`（幂等命中同样同形）→ 前端 `taskStore.load(task_id)` 并订阅 Task 事件 |
+| `POST /api/requirements/{session_id}/stop` | `requirementsApi.stop` → `AgentPanel.stopRunningTask`（运行条停止按钮） | ✅ 真中止任务 + 会话回 `plan_ready` + 留 `user_stopped` 记录（见 [docs/agent-stop-control-2026-11-02.md](agent-stop-control-2026-11-02.md)） |
+| `GET /api/workspace/{id}/media-tree` | `workspaceApi.mediaTree` → `features/assets/WorkspaceMediaTree.tsx` | ✅ 左侧资源库「工作区」标签按目录树呈现全部媒体 |
+| `GET`/`PATCH /api/project/{id}/termination` | 项目级终止策略（devplan 2026-11-02）：软着陆轮次 / 收口窗口 / 质量预算预留 | ✅ 后端已落（`services/agent_policy.py`），前端端点待页面接入；策略在任务创建时快照，改后只影响新任务 |
+| `GET /api/task/{id}` 新增 `terminal_reason` / `goal` / `closeout` / `escrow` | `types/task.ts` 同名字段 → `TaskFinishSummary`（终态/收口/预算三行）+ `taskStore.terminalStatusOf`（`capped → 'capped'`） | ✅ 新旧并行：旧 `finish.reason` 继续产出，前端未知值回退 `unknown_terminal` |
 
-前端约束：
+说明：`/api/workspace/{id}/events` 已改成 **JSON**（`/events/stream` 才是 SSE），面板仍用"操作后 reload"，
+未挂常驻订阅——避免首页/任务页各开一条长连接；需要实时进度时改挂 `/events/stream`。
 
-- 子 Agent 筹码/详情使用 `runEvents`（独立 600 条），不使用会被 400 条上限裁剪的原始 `events`。
-- 同一 task 的 SSE 由 `useTaskEvents` 共享引用计数，最后一个订阅者卸载才关闭；
-  打开子 Agent 详情时轨迹标签卸载不会中断详情更新。
-- `seq` 只在单任务内比较；任务切换必须清游标，禁止跨任务去重。
+## 8. 主 Actor 化（2026-10-26 增量）
+
+| 变化 | 影响面 | 状态 |
+|---|---|---|
+| `POST /api/pipeline/run-async` 在 `pipeline_enabled=false` 时返回 **410** | 老前端若有入口会拿到明确错误而非"管线卡住" | ✅ 新入口只走 `/api/requirements/proceed` → Task |
+| `GET /api/pipeline/trace/{id}`、`/trace/stream/{id}` 接受 `task_*` | `AgentPanel`/管理页复用同一订阅面板（事件映射为 trace 形状，含 `source:"task"`） | ✅ 无需为两条链路写两套订阅 |
+| 新增能力 `run_stage/spawn_stage/get_stage/list_stages/replan_closure/validate_stage_plan` | 主 Agent 内部通道（暂未做独立 UI；任务页已有阶段事件卡片） | ⚠️ 无独立 UI（不需要：阶段结果经 `step_end` 事件展示） |
+| `POST /api/render/*` 新增 `workspace_root` | 成片落 `workspace/renders/`（留空 = 全局 `renders/`） | ✅ 后端就绪；前端渲染调用暂未传（保持旧落点） |
+
+## 9. 会话时间线单一真相（2026-10-31 增量）
+
+| 后端 | 前端 | 状态 |
+|---|---|---|
+| `GET /api/requirements/{sid}/timeline`（`since_seq`/`until_seq`/`before_seq`/`limit`） | `requirementsApi.timeline` → `stores/sessionTimelineStore.hydrate` | ✅ 刷新/翻页的唯一数据源 |
+| `GET /api/requirements/{sid}/timeline/stream`（SSE：`snapshot`/`append`/`chunk`/`patch`/`finish`/`ping`） | `requirementsApi.timelineStreamUrl` + `features/sessionTimeline/useSessionTimeline` | ✅ `chunk` 按 seq 追加 = 流式渲染 |
+| `services/session_log.py` | `src/features/sessionTimeline/*`、`src/stores/sessionTimelineStore.ts` | ✅ 前端不再合并第二数据源（旧 `unifiedTimelineStore` 已删除） |
+| `services/session_projection.py`（task 事件投影，`proceed` 时 `bind`） | 「轨迹」面板仍直连任务事件流（那是投影条目的原始 ref） | ✅ 需求面板不再订阅任务 SSE，避免重复应用 |
+| `GET /{sid}/messages`、`/{sid}/events`、`chat/stream` 的 `delta/reasoning/stage` 帧 | 旧视图（`?unifiedTimeline=0`）仍用 | ⚠️ 保留为兼容读；单流视图已不依赖 |
+
+## 10. 子 Agent run 与任务事件契约（2026-11-01 增量）
+
+| 后端 | 前端 | 状态 / 契约 |
+|---|---|---|
+| `GET /api/task/{id}/runs` | `TaskRuns` | ✅ 完成记录 + `_LIVE` 运行中占位（`live=true`）；`report_path` 取 `AgentResult.report_path` 顶层 |
+| `GET /api/task/{id}/runs/{run_id}` | 子 Agent 详情 | ✅ 统一 `_run_for_task()` 校验归属；跨任务 404，不泄露存在性 |
+| `POST .../runs/{run_id}/message` | `TaskRuns` | ✅ 归属校验后按 `task_id + stage` 排队，下次派发生效 |
+| `POST .../runs/{run_id}/replay` | `TaskRuns` | ✅ `refresh=true`；终态任务 409；新执行生成 `#r…` run_id |
+| `services/agent_run.py` | `foldRunChips` / `foldRunDetail` | ✅ `agent_run_end.detail` 发完整 failure、needs、duration_ms、attempt、report_path |
+| `StageSpec.run_id` → `subagent_tool.run_id` | 子 Agent 工具透明化 | ✅ 重放/降级重跑的工具事件挂到本次执行，不再归旧 run |
+| `GET /api/task/{id}/events/stream?since_seq=` | `features/task/useTaskEvents` | ✅ 共享单流；终态不建流、`task_end` 主动 close；先水合再带 since_seq 续传 |
+| `task_end.detail.completed/unfinished` | `taskStore.applyEvent` | ✅ 字段缺省时保留已有 `task.finish`，不被空数组覆盖 |
+| `POST /api/requirements/proceed` 幂等命中 | `proceedResult` | ✅ 目标为 `task_*` 时同形返回 `task_id` + `mode=task` |
+
+未完成：进程重启后完整事件历史与统一 AgentRun 的恢复链仍不完整——Mongo 只有写路径，
+普通任务事件不会全量落 JSONL，`/runs` 也无法重建重启前的阶段结果。UI 暂以“重启后历史可能不可用”
+处理，后续需补读取恢复或全量持久化。
+
+
+

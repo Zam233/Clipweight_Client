@@ -93,6 +93,9 @@ export function terminalStatusOf(reason: string): Task['status'] {
   const r = String(reason || '').trim();
   if (r === 'cancelled' || r === 'cancel') return 'cancelled';
   if (r === 'paused') return 'paused';
+  // devplan 2026-11-02（用户裁定 3）：撞上限但已交付收尾报告 —— 独立终态，
+  // 既不能算 done（不能进成功率），也不能算 failed（它确实交付了）。
+  if (r === 'capped') return 'capped';
   // 成功：正式跑完 / 预览跑完（预览是"如实完成了一次预览"，不是失败）
   if (r === 'tool_loop_completed' || r === 'plan_completed'
       || r === 'dry_run_preview' || r === 'plan_only_completed'
@@ -311,6 +314,29 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     // SSE 回调带着它订阅的 taskId；切任务后旧流再吐出的事件必须丢弃。
     if (forTaskId && get().activeTaskId !== forTaskId) return;
     if (event.seq <= get().lastSeq) return;      // 重连回放会重发，按 seq 去重
+    // thinking 增量合并（2026-11-02）：一轮思考会发几百条 delta 事件，每条都入数组
+    // 意味着"上限 400 条里 300 条是思考碎片"——每次 set 复制整表 + 整表重渲染，
+    // 高频阶段（二次派发）足以把页面拖死甚至让标签页被回收。
+    // 同一 `round` 的连续 delta 就地合并成一条：信息等价，条数降一个量级。
+    const prevEvent = get().events[get().events.length - 1];
+    const curDetail = (event.detail || {}) as Record<string, unknown>;
+    const prevDetail = (prevEvent?.detail || {}) as Record<string, unknown>;
+    if (event.type === 'thinking' && prevEvent?.type === 'thinking'
+        && String(prevDetail.round) === String(curDetail.round)) {
+      const merged: TaskEvent = {
+        ...prevEvent,
+        seq: event.seq,
+        message: event.message || prevEvent.message,
+        detail: {
+          ...prevDetail,
+          ...curDetail,
+          // 只保留尾部 8000 字：思考是过程信息，撑大内存没有意义
+          delta: (String(prevDetail.delta || '') + String(curDetail.delta || '')).slice(-8000),
+        },
+      };
+      set({ events: [...get().events.slice(0, -1), merged], lastSeq: event.seq });
+      return;
+    }
     const events = [...get().events, event].slice(-MAX_TASK_EVENTS);
     const runEvents = event.type.startsWith('agent_run_')
       ? [...get().runEvents, event].slice(-MAX_RUN_EVENTS)

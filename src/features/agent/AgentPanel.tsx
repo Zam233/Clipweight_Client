@@ -545,11 +545,41 @@ function RequirementsView() {
 
   // P1-35：长请求可取消——进行中的对话/编辑请求可被「停止」或组件卸载中断
   const chatAbortRef = useRef<AbortController | null>(null);
+  const [stopping, setStopping] = useState(false);
   const cancelInFlight = () => {
     chatAbortRef.current?.abort();
     chatAbortRef.current = null;
   };
   useEffect(() => () => cancelInFlight(), []);
+
+  /**
+   * 任务运行期间点「停止」：中止任务 → 会话回可对话 → 输入区恢复。
+   *
+   * 为什么要调后端而不是只掐本地流：任务是在后端跑的，掐掉 SSE 只是"我这边不看了"，
+   * 任务会继续烧钱；而且中止这件事必须在会话里留痕——续跑的主 agent 得知道
+   * "是用户主动喊停"，而不是自己跑完/异常退出（后端会写一条 user_stopped 记录）。
+   */
+  const stopRunningTask = async (sessionId: string) => {
+    if (stopping) return;
+    setStopping(true);
+    try {
+      const res = await requirementsApi.stop(sessionId);
+      setStatus('plan_ready');
+      useAgentStore.getState().setRequirementsBusy(false);
+      cancelInFlight();
+      if (res?.note) {
+        addMessage({
+          id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: String(res.note),
+        });
+      }
+      void refreshQuestions(sessionId);
+    } catch (e) {
+      toast(`停止失败：${asText((e as Error)?.message || e)}`, 'error');
+    } finally {
+      setStopping(false);
+    }
+  };
 
   const sendChat = async (sessionId: string, message: string) => {
     addMessage({ id: uid('m'), role: 'user', content: message, timestamp: new Date().toISOString() });
@@ -1164,6 +1194,33 @@ function RequirementsView() {
       {/* B17: 管线运行/规划生成期间隐藏输入；完成/失败后恢复 */}
       {/* 输入框门控看'有没有会话'，不看 messages：单流视图的 messages 只是旧视图遗留数据，
           用它做门控会让刷新后的会话整块输入区消失（T3.5） */}
+      {/* 任务运行中：输入区让位给「停止」——用户说过，跑任务时必须能一键停下，
+          并且停下之后输入框/附件/发送要立刻回来（后端把会话放回 plan_ready）。 */}
+      {requirementsSessionId && ['pipeline_running', 'planning'].includes(status) && (
+        <div className="shrink-0 border-t border-outline-variant/20 p-3"
+          data-testid="requirements-running-bar">
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+            <span className="text-caption text-on-surface-variant">
+              主 agent 正在执行（{status === 'planning' ? '生成规划书' : '跑任务'}）…
+            </span>
+            <button
+              type="button"
+              data-testid="requirements-stop"
+              disabled={stopping}
+              onClick={() => void stopRunningTask(requirementsSessionId)}
+              className="ml-auto flex items-center gap-1 rounded-cw-sm border border-error/50 px-2.5 py-1 text-caption text-error hover:bg-error/10 disabled:opacity-50"
+            >
+              {stopping ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
+              {stopping ? '停止中…' : '停止任务'}
+            </button>
+          </div>
+          <p className="mt-1 text-caption text-on-surface-variant/60">
+            停止后会留一条记录：主 agent 知道是你主动叫停，继续说一句就能接着做。
+          </p>
+        </div>
+      )}
+
       {requirementsSessionId && !['pipeline_running', 'planning'].includes(status) && (
         <div className="p-3 border-t border-outline-variant/20 shrink-0">
           {/* B5（2026-10-28 PRD）：推理强度入口。'' = 不下发（跟随模型配置）；

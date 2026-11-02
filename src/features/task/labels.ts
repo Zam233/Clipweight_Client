@@ -24,6 +24,9 @@ export const STATUS_CN: Record<TaskStatus, string> = {
   done: '已完成',
   failed: '未完成',
   cancelled: '已取消',
+  // devplan 2026-11-02（用户裁定 3）：撞上限但已交付收尾报告。
+  // 文案必须**两边都不靠**：不能读成"完成"，也不能读成"失败"。
+  capped: '已封顶·已交付收尾报告',
   // PRD B5：后端给了前端还不认识的终态原因——如实说"后端终态"，不冒充失败
   unknown_terminal: '后端终态（待适配）',
 };
@@ -69,6 +72,9 @@ export const EVENT_CN: Record<TaskEventType, string> = {
   question: '向你提问',
   answer: '已回答',
   progress: '阶段进度',
+  // 终止机制收口（devplan 2026-11-02 §4）
+  goal_update: '目标进度',
+  soft_landing: '进入收口模式',
 };
 
 /**

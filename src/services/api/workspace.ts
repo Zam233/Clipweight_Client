@@ -146,6 +146,27 @@ export const workspaceApi = {
     return data;
   },
 
+  /** 工作区媒体树（按目录结构；含未索引文件，视频/图片/音频） */
+  async mediaTree(projectId: string, limit = 2000): Promise<{
+    project_id: string;
+    root: string;
+    count: number;
+    kinds: Record<string, number>;
+    dirs: Array<{
+      dir: string;
+      count: number;
+      files: Array<{
+        path: string; rel: string; name: string; kind: string; size: number; mtime: number;
+      }>;
+    }>;
+  }> {
+    const { data } = await getApiClient().get(
+      `/api/workspace/${encodeURIComponent(projectId)}/media-tree`,
+      { params: { limit } },
+    );
+    return data;
+  },
+
   async materials(projectId: string, kind = ''): Promise<{
     project_id: string; root: string; count: number; items: WorkspaceMaterial[]; pending: number;
   }> {

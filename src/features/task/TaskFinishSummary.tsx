@@ -13,7 +13,7 @@
 
 import { cn } from '@/lib/utils';
 import { asText } from '@/lib/render';
-import type { TaskFinish, TaskStatus } from '@/types/task';
+import type { BudgetEscrow, Closeout, TaskFinish, TaskStatus, TerminalReason } from '@/types/task';
 
 import { finishReasonLabel } from './labels';
 
@@ -21,15 +21,24 @@ interface Props {
   status: TaskStatus;
   finish: TaskFinish | null;
   className?: string;
+  /* ── 终止机制（devplan 2026-11-02 §4）：全部可选，旧调用点不传照常工作 ── */
+  terminalReason?: TerminalReason | null;
+  blockerCode?: string;
+  closeout?: Closeout | null;
+  escrow?: BudgetEscrow | null;
 }
 
-export function TaskFinishSummary({ status, finish, className }: Props) {
+export function TaskFinishSummary({
+  status, finish, className, terminalReason, blockerCode, closeout, escrow,
+}: Props) {
   const reason = finish?.reason || '';
   const completed = finish?.completed ?? [];
   const unfinished = finish?.unfinished ?? [];
+  const reasonEnum = terminalReason ?? finish?.terminal_reason ?? null;
+  const closeoutMode = closeout?.mode === 'soft_landing';
 
   if (!finish) {
-    const terminal = ['done', 'failed', 'cancelled', 'unknown_terminal'].includes(status);
+    const terminal = ['done', 'failed', 'cancelled', 'capped', 'unknown_terminal'].includes(status);
     if (!terminal) return null;
     return (
       <div
@@ -67,6 +76,37 @@ export function TaskFinishSummary({ status, finish, className }: Props) {
           </span>
         ) : null}
       </p>
+
+      {closeoutMode && (
+        <p className="mb-1 text-caption text-on-surface-variant/80"
+          data-testid="finish-closeout">
+          跑满了运行上限（第 {closeout?.trigger_round ?? 0} 轮），已切到收口模式
+          {closeout?.deliverable_status === 'delivered'
+            ? '并交付了收尾报告'
+            : closeout?.deliverable_status === 'partial'
+              ? '，收尾报告只写出一部分'
+              : '，但收尾报告没有落盘'}。
+          {closeout?.report_path ? `报告位置：${closeout.report_path}` : ''}
+        </p>
+      )}
+
+      {escrow && escrow.state !== 'disabled' && (
+        <p className="mb-1 text-caption text-on-surface-variant/80"
+          data-testid="finish-escrow">
+          质量预算预留 ${escrow.reserve_usd.toFixed(4)}：主 agent 用了
+          ${escrow.main_spent_usd.toFixed(4)}，质量阶段用了
+          ${escrow.quality_spent_usd.toFixed(4)}，未使用释放
+          ${escrow.released_usd.toFixed(4)}（预留不回流主 agent）
+        </p>
+      )}
+
+      {reasonEnum && reasonEnum !== 'achieved' && (
+        <p className="mb-1 text-caption text-on-surface-variant/60"
+          data-testid="finish-terminal-reason">
+          终态：{reasonEnum}
+          {blockerCode ? `（卡点：${blockerCode}）` : ''}
+        </p>
+      )}
 
       {finish.conclusion && (
         <p className="mb-1 whitespace-pre-wrap break-words text-caption text-on-surface-variant"

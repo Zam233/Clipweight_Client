@@ -12,16 +12,18 @@ import { Button } from '@/components/ui';
 import { uid, normalizeClipKind } from '@/lib/utils';
 import { DubView } from './DubView';
 import { PluginPanel } from './PluginPanel';
+import { WorkspaceMediaTree } from './WorkspaceMediaTree';
 import type { Asset, MaterialSearchResult } from '@/types/api';
 import type { MaterialAsset } from '@/services/api/asset';
 import type { ClipKind } from '@/types/timeline';
 import { Sparkles, FolderOpen, History, Upload, Search, Plus, Mic, Puzzle, X, Heart, Check, Info, Trash2, Wand2 } from 'lucide-react';
 
-type Tab = 'ai' | 'library' | 'history' | 'dub' | 'plugins';
+type Tab = 'ai' | 'library' | 'workspace' | 'history' | 'dub' | 'plugins';
 
 const TABS: { id: Tab; label: string; icon: typeof Sparkles }[] = [
   { id: 'ai', label: 'AI 匹配', icon: Sparkles },
   { id: 'library', label: '素材库', icon: FolderOpen },
+  { id: 'workspace', label: '工作区', icon: FolderOpen },
   { id: 'history', label: '历史', icon: History },
   { id: 'dub', label: '配音', icon: Mic },
   { id: 'plugins', label: '插件', icon: Puzzle },
@@ -276,6 +278,8 @@ export function AssetPanel() {
         {activeTab === 'ai' && <AIMatchView />}
 
         {activeTab === 'dub' && <DubView />}
+
+        {activeTab === 'workspace' && <div className="p-1"><WorkspaceMediaTree search={searchQuery} /></div>}
 
         {activeTab === 'plugins' && <PluginPanel />}
 

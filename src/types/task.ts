@@ -16,11 +16,82 @@ export type TaskStatus =
   | 'failed'
   | 'cancelled'
   /**
+   * devplan 2026-11-02（用户裁定 3）：撞结构上限后完成了收口交付。
+   * **既不算 done 也不算 failed**，不计入成功率；UI 不能说"完成"，也不能说"失败"。
+   * 后端 `agent_capped_status_v1=true` 时才会出现这个值。
+   */
+  | 'capped'
+  /**
    * PRD B5（2026-10-29 / G10）：后端 `task_end.reason` 出现前端不认识的值时用这个状态，
    * 而不是一律塞进 `failed`。UI 显示「后端终态：<reason>」，用户能区分"真的失败"
    * 与"前端还没适配的新终态"。
    */
   | 'unknown_terminal';
+
+/** 任务终态的唯一机器原因（对齐后端 `schema/task.py:TerminalReason`）。 */
+export type TerminalReason =
+  | 'achieved'
+  | 'plan_only_completed'
+  | 'capped'
+  | 'blocked'
+  | 'user_cancelled'
+  | 'externally_interrupted'
+  | 'model_error'
+  | 'invalid_completion'
+  | 'dry_run_completed';
+
+export type GoalStatus = 'active' | 'achieved' | 'capped' | 'blocked' | 'paused';
+
+/**
+ * 任务的「完成约束」。撞上限 ≠ 做完了，这两件事必须能分开查询。
+ * 后端 `schema/task.py:Goal`；旧任务没有这个字段（`null`）。
+ */
+export interface Goal {
+  id: string;
+  title: string;
+  completion_criteria: string[];
+  max_rounds: number;
+  rounds_used: number;
+  status: GoalStatus;
+  blocked_reason: string;
+  blocker_fingerprint: string;
+  blocker_streak: number;
+  blocked_after_consecutive_rounds: number;
+  closeout_required: boolean;
+  created_at?: string;
+}
+
+/** 收口模式（软着陆）状态；`mode: 'soft_landing'` 表示已在只读+写报告模式。 */
+export interface Closeout {
+  mode: 'normal' | 'soft_landing';
+  trigger: string;
+  trigger_round: number;
+  max_rounds: number;
+  max_tool_calls: number;
+  max_wall_sec: number;
+  rounds_used: number;
+  tool_calls_used: number;
+  deliverable_status: '' | 'delivered' | 'partial';
+  report_path: string;
+  started_at?: string | null;
+}
+
+export type EscrowState = 'disabled' | 'frozen' | 'in_use' | 'settled' | 'released';
+
+/** 质量 agent 的预算托管（后端 `BudgetEscrow`）。`disabled` = 未配置金额上限。 */
+export interface BudgetEscrow {
+  state: EscrowState;
+  reserve_usd: number;
+  main_budget_usd: number | null;
+  main_spent_usd: number;
+  quality_spent_usd: number;
+  released_usd: number;
+  ratio: number;
+  floor_usd: number;
+  cap_usd: number;
+  quality_remaining_usd: number;
+  frozen_at?: string | null;
+}
 
 export type StepStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped';
 
@@ -59,7 +130,10 @@ export type TaskEventType =
   // 反思流 / 主动询问 / 进度播报（后端 2026-10-30，PRD §13/§14/§15）
   | 'question'
   | 'answer'
-  | 'progress';
+  | 'progress'
+  // 终止机制收口（devplan 2026-11-02 §4）
+  | 'goal_update'
+  | 'soft_landing';
 
 export interface PlanStep {
   id: string;
@@ -117,6 +191,8 @@ export interface TaskFinish {
   completed: string[];
   unfinished: string[];
   reason: string;
+  /** devplan 2026-11-02：终态机器原因；旧任务可能没有（读 `reason` 回退） */
+  terminal_reason?: TerminalReason | null;
 }
 
 export interface TaskRequestView {
@@ -138,6 +214,12 @@ export interface Task {
   usage: TaskUsage;
   finish: TaskFinish | null;
   context_digest: Array<Record<string, unknown>>;
+  // ── 终止机制（devplan 2026-11-02 §3；纯新增，缺失时按旧契约读）──
+  goal?: Goal | null;
+  terminal_reason?: TerminalReason | null;
+  blocker_code?: string;
+  closeout?: Closeout;
+  escrow?: BudgetEscrow | null;
   created_at: string;
   updated_at: string;
 }

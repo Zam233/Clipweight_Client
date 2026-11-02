@@ -67,4 +67,66 @@ AgentPanel/ReviewPanel（C7 随老入口删除）、PipelineAdminPage（并入�
 > C4 的自动化证据：`src/stores/taskStore.test.ts`(15) + `src/features/task/task-ui.test.tsx`(12)，
 > 前端全量 891 passed、tsc 0 错、eslint 0 error、build 通过。
 
+## 4. 路线 C 验收（2026-11-02 复核）
 
+本轮按代码逐项复核，**只勾有证据的**；新增项来自 2026-11-02 用户裁定。
+
+| # | 模块 | 状态 | 证据 |
+|---|---|---|---|
+| 1 | `services/api/task.ts` | ✅ | 8 方法 + `eventsStreamUrl` |
+| 2 | `types/task.ts` | ✅ | `Task/Plan/PlanStep/TaskEvent`（29 事件类型联合） |
+| 3 | `stores/taskStore.ts` | ✅ | 事件折叠 + `seq` 去重 + 400 上限 + 同轮 thinking 合并（2026-11-02 新增，防高频事件把页面拖死） |
+| 4 | `features/task/*` | ✅ | `PlanPanel` / `TaskToolbar` / `EventFeed` / `TaskQuestionCard` / `RunningSubagents` |
+| 5 | `pages/TaskPage.tsx` | ✅ | 工作台 + 收尾三件套 |
+| 6 | `features/task/useTaskEvents.ts` | ✅ | 共享 SSE（引用计数 + 终态 close + `since_seq` 续传，不变量 #17） |
+| 7 | `router.tsx` | ✅ | `/task`、`/task/$taskId` |
+| 8 | `pages/HomePage.tsx` | ✅ | 主 CTA 走「新建制作 → 需求对话 → 主 Agent」 |
+| 9 | `pages/ExportPage.tsx` | ✅ 不需要改 | 渲染队列独立于编排 |
+| 10 | `features/agent/AgentPanel.tsx` | ⚠️ 部分 | 需求对话主路径已改用**会话时间线**（`SessionTimeline` + `/chat/stream` SSE），轨迹是固定标签；文件里仍留有 `pipelineApi.getTraceStreamUrl` / `getResult` 的 legacy 分支（等 C7 随老入口一起删） |
+| 11 | `ReviewPanel.tsx` / `TimelineDiffView.tsx` | ❌ | 仍读 `agentStore.suggestions`（管线自愈语义）；C7 下线 |
+| 12 | 配置建议条（Q2） | ❌ 仍缺 | 后端还没有"配置建议"事件类型；agent 目前只能在正文里提议 |
+| 13 | 错误/降级文案 | ✅ | `TaskFinishSummary` 三件套 + `degradation` 条目 + 降级收据（`acknowledge_degradation`） |
+| 14 | 编辑器内任务入口 | ✅ | 编辑器右侧 `CopilotDock`：`需求对话` + `轨迹`（固定），产物新开 `artifact` 标签 |
+
+### 4.1 本轮新增（2026-11-02 用户裁定）
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| 能力解析是唯一入口 | ✅ | `BaseAgent.call_tool` 删除 `fallback_name()` 名称兼容路径；解析不到 → `NOT_FOUND`，不再绕过插件/配置状态执行 |
+| 主 Agent 墙钟不设上限 | ✅ | `TaskLimits.max_wall_sec` 默认 `3600 → 0`（0 = 不限）；回合/工具预算闸保留。**其余中止条件待用户确认**（见下） |
+| 时间线「谁最后写的」 | ✅ | `task_project_sync.stamp_writer()`：`metadata.last_writer = agent:<task_id> / editor[:<user>]` + `written_at` + `agent_sig`；编辑器保存时打 `editor`（内容未变则保留 agent_sig，变了就清掉，agent 中间回写停手） |
+| 各 agent 实时生成时间轴 | ✅ | `agent_kernel` 每派完阶段即 `sync_timeline_to_project(incremental=True)`，本轮把 `degraded` 也纳入；前端收到 `artifact(kind=timeline)` 事件即时刷新（+4s 轮询兜底） |
+| 资源库按工作区目录呈现 | ✅ | 新端点 `GET /api/workspace/{id}/media-tree`（实时目录树，含未索引媒体，跳过系统目录）+ 左侧资源库新增「工作区」标签（`WorkspaceMediaTree`） |
+
+### 4.2 待确认：主 Agent 新中止条件
+
+墙钟去掉后，建议保留/新增这些终止条件（**等你拍板**）：
+
+1. **回合预算**（`max_turns`，现在 proceed 建任务给 160）
+2. **工具调用预算**（`max_tool_calls`，现在 800）
+3. **金额/令牌预算**（未配置 = 无上限）
+4. **无进展**：连续 N 轮没有任何新产物/黑板变化（建议 N=6）
+5. **重复动作**：同一工具+参数的连续失败熔断（已有：per-tool 连续 5 次）
+6. **降级未处置**：`degradation_unresolved` 收尾门（已有）
+7. **完成标准达成**：`final_timeline` 写入且收尾校验通过（已有）
+8. **用户取消/暂停**（已有）
+
+**已确认（2026-11-02 用户裁定）**：只保留 **完成标准达成 / 用户取消暂停 / 降级未处置**，
+**新增无进展检测 N=6**、**扩展跨阶段重复动作熔断**；回合 / 工具调用 / 金额三道闸
+改为 `0 = 不限`（`TaskLimits` 默认全 0，`agent_loop` 只留结构性护栏 400/4000/24）。
+实现位置：`agent_kernel._gate_hit`（无进展 `_PROGRESS` + 熔断 `_REPEAT_FAILS`）、
+`agent_kernel._on_tool_call`（跨阶段失败指纹计数）、`schema/task.py:TaskLimits`。
+
+### 4.3 任务执行期「停止」控制（2026-11-02 落地）
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| 运行条上的停止按钮 | ✅ | `AgentPanel` 运行条 `data-testid="requirements-running-bar"`（出现在 `status ∈ {pipeline_running, planning}`），右侧 `data-testid="requirements-stop"`；点击进入 `stopping`（转圈 + 禁用，防连点） |
+| 输入区原样恢复 | ✅ | composer 渲染条件是 `!['pipeline_running','planning'].includes(status)`；`stopRunningTask()` 拿到响应即 `setStatus('plan_ready')` + 清 `requirementsBusy`，编辑框 / 附件按钮 / 发送按钮**不刷新就回来** |
+| 后端真中止 | ✅ | `POST /api/requirements/{session_id}/stop` → `RequirementsService.stop_task()`：`kernel.cancel()` 打断协程（只改状态会让阶段跑满墙钟）+ 作废待答问题 + `task_end{reason:"cancelled"}` |
+| 中止留痕 | ✅ | 会话消息与时间线各写一条 `metadata.user_stopped=true` 的说明，`context_loader` 带进下一轮上下文——续跑的主 agent 知道是**用户主动喊停**，接着做而不是从头再来 |
+| 无活任务不伪造 | ✅ | 没有在跑的任务时 `stopped=false`、`note` 为空，只把悬空状态修正为 `plan_ready` |
+
+代码侧自检（单进程 TestClient）：任务 `pending → cancelled`、会话 `pipeline_running → plan_ready`、
+末条消息 `user_stopped=True`、时间线条目出现、二次点击 `stopped=false`。
+详见 `docs/agent-stop-control-2026-11-02.md`。
