@@ -8,6 +8,17 @@ import { TRACK_COLORS } from '@/types/timeline';
 import type { Clip, Timeline, Track } from '@/types/timeline';
 import { captionFontSize, textLayout } from './captionLayout';
 import { orderTracksForComposite } from './compositeOrder';
+import { publishPlaybackStats, resetPlaybackStats } from './playbackStats';
+import { clearMgImageCache, drawMgFrame, emptyFidelity, mgSpecOf } from './mgRenderer';
+import { reportMgFidelity, resetMgFidelity, useMgFidelityStore } from './mgFidelity';
+
+/**
+ * 同时连续解码的视频路数上限（devplan T1.2）。
+ *
+ * 为什么是 2：主画面 1 路 + 叠化/叠轨时另一路 1 路。再往上会同时占满浏览器硬解器与显存，
+ * 实测表现为「第一帧出来了、之后一直卡」——不是渲染慢，是解码排队。
+ */
+const DECODE_BUDGET = 2;
 import { computePreviewFrameRect, xToScrubTime } from './frameGeometry';
 import type { FrameRect } from './frameGeometry';
 import { formatTimecode, clamp } from '@/lib/utils';
@@ -54,6 +65,11 @@ export function PreviewPanel() {
   const volume = usePreviewStore((s) => s.volume);
   const setVolume = usePreviewStore((s) => s.setVolume);
   const showPerfPanel = useSettingsStore((s) => s.showPerfPanel);
+  // devplan T2.4：MG 渲染还原度台账（有差异才显示角标）
+  // devplan M1 回滚开关：default false = 旧路径（每帧 seek），开 = 连续解码新路径
+  const continuousPlayback = useSettingsStore((s) => s.previewContinuousPlayback);
+  const mgFidelityCount = useMgFidelityStore((s) => s.clipCount);
+  const fidelityLabels = useMgFidelityStore((s) => s.labels);
   const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
 
   // C1: 画布双击编辑文字 — 命中 text/caption 片段时打开内联编辑
@@ -109,49 +125,78 @@ export function PreviewPanel() {
   }, [timeline.duration_sec, timeline.fps]);
 
   // Audio sync: play/pause/seek audio clips' media elements with the playhead.
-  // 播放期间节流至 ~10fps，避免每帧遍历全部 clip（seek 阈值本身为 0.25s）
+  //
+  // devplan T1.5：两处改动。
+  // ① 节流 100ms → 20ms：100ms 的节流意味着音画最大可以差出 100ms，人耳对这种
+  //    "口型对不上"很敏感；20ms 约等于一帧，且比"每帧都做"便宜（每帧约 16ms）。
+  // ② 预缓冲单独节流（500ms）：它要扫全时间线找未来 3 秒的片段，没必要跟着 20ms 走。
   const lastAudioSyncRef = useRef(0);
+  const lastPrebufferRef = useRef(0);
   const audioStateRef = useRef({ playing: false, muted: false, tl: timeline as unknown });
+  /** 只在时间线对象变化时重建音频片段索引——旧实现每次同步都遍历全部轨道 */
+  const audioClips = useMemo(() => {
+    const out: Array<{
+      assetId: string; start: number; end: number; speed: number;
+      volume: number; trackMuted: boolean; offset: number;
+    }> = [];
+    for (const track of timeline.tracks) {
+      if (track.kind !== 'audio' && track.kind !== 'waveform') continue;
+      for (const clip of track.clips) {
+        if (clip.enabled === false) continue;
+        out.push({
+          assetId: clip.asset_id,
+          start: clip.start_sec,
+          end: clip.start_sec + clip.duration_sec,
+          speed: clip.speed,
+          volume: clip.volume,
+          trackMuted: !!track.muted,
+          offset: clip.source_offset_sec,
+        });
+      }
+    }
+    return out;
+  }, [timeline]);
+
   useEffect(() => {
     const prev = audioStateRef.current;
     const stateChanged = prev.playing !== isPlaying || prev.muted !== isMuted;
     audioStateRef.current = { playing: isPlaying, muted: isMuted, tl: timeline };
     const now = performance.now();
-    if (!stateChanged && now - lastAudioSyncRef.current < 100) return;
+    if (!stateChanged && now - lastAudioSyncRef.current < 20) return;
     lastAudioSyncRef.current = now;
 
     const t = currentTimeSec;
     const playing = isPlaying;
     const muted = isMuted;
-    for (const track of timeline.tracks) {
-      if (track.kind !== 'audio' && track.kind !== 'waveform') continue;
-      for (const clip of track.clips) {
-        if (clip.enabled === false) continue; // 禁用的片段不发声（与画面渲染一致）
-        const entry = mediaManager.get(clip.asset_id);
-        const el = entry?.audioEl ?? entry?.videoEl;
-        if (!el) continue;
-        const inClip = t >= clip.start_sec && t < clip.start_sec + clip.duration_sec;
-        // Account for clip speed so audio stays in sync with sped-up/slowed video
-        const localT = (t - clip.start_sec) * clip.speed + clip.source_offset_sec;
-        el.volume = applyMasterVolume(clip.volume, volume);
-        el.muted = muted || track.muted;
-        if (Math.abs(el.playbackRate - clip.speed) > 0.01) {
-          try { el.playbackRate = clip.speed; } catch { /* not supported */ }
+    for (const item of audioClips) {
+      const entry = mediaManager.get(item.assetId);
+      const el = entry?.audioEl ?? entry?.videoEl;
+      if (!el) continue;
+      const inClip = t >= item.start && t < item.end;
+      // Account for clip speed so audio stays in sync with sped-up/slowed video
+      const localT = (t - item.start) * item.speed + item.offset;
+      el.volume = applyMasterVolume(item.volume, volume);
+      el.muted = muted || item.trackMuted;
+      if (Math.abs(el.playbackRate - item.speed) > 0.01) {
+        try { el.playbackRate = item.speed; } catch { /* not supported */ }
+      }
+      if (inClip && playing) {
+        // 校正阈值 0.08s（约 2 帧@30fps）：再小会频繁 seek，反而听得出断续
+        if (Math.abs(el.currentTime - localT) > 0.08) {
+          try { el.currentTime = localT; } catch { /* seek not available */ }
         }
-          if (inClip && playing) {
-          // P1-33：校正阈值 0.25s→0.08s（约 2 帧@30fps）——缩短音画最大漂移
-          if (Math.abs(el.currentTime - localT) > 0.08) { try { el.currentTime = localT; } catch { /* seek not available */ } }
-          if (el.paused) {
-            mediaManager.attachAnalyser(clip.asset_id);
-            el.play().catch(() => {});
-          }
-        } else {
-          if (!el.paused) el.pause();
+        if (el.paused) {
+          mediaManager.attachAnalyser(item.assetId);
+          el.play().catch(() => {});
         }
+      } else {
+        if (!el.paused) el.pause();
       }
     }
-    // V9: 预缓冲——播放头后 3s 内的画面片段升级 preload=auto，消除跨片段边界闪白
-    if (playing) {
+    // V9: 预缓冲——播放头后 3s 内的画面片段升级解码预载，消除跨片段边界闪白。
+    // 与音频同步解耦：它扫全时间线，500ms 一次足够。
+    if (playing && now - lastPrebufferRef.current >= 500) {
+      lastPrebufferRef.current = now;
       const upcoming = new Set<string>();
       for (const track of timeline.tracks) {
         if (track.kind !== 'video' && track.kind !== 'image') continue;
@@ -163,19 +208,47 @@ export function PreviewPanel() {
       }
       if (upcoming.size > 0) mediaManager.prebuffer([...upcoming]);
     }
-  }, [currentTimeSec, isPlaying, isMuted, timeline, volume]);
+  }, [currentTimeSec, isPlaying, isMuted, timeline, volume, audioClips]);
 
   // Playback loop
+  //
+  // devplan T1.3：**绝对时间锚点**时钟。
+  // 旧实现（本函数改造前）是 `next = current + min(dt, 1/15) * speed`：卡一帧就丢一段墙钟，
+  // 连续卡顿会让播放头越跑越慢（看起来像放慢动作）；且 dt 截断本身就等于主动丢时间。
+  // 现在起播时打一个锚点 `(墙钟, 时间线, 速度)`，每帧用绝对差算时间线位置——中间卡多久
+  // 都能一次性追平，丢的是画面帧而不是时间。
+  // 外部改时间（拖动播放头/seek/step）或改速度时，通过"当前值 ≠ 本循环上次写入值"识别并重新打锚点。
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying) {
+      publishPlaybackStats({ clockRunning: false, driftMs: 0 });
+      return;
+    }
     let raf = 0;
-    let last = performance.now();
+    const speedOf = (st: ReturnType<typeof usePreviewStore.getState>): number => (
+      st.shuttleSpeed !== 0 ? st.shuttleSpeed * Math.abs(st.playbackSpeed) : st.playbackSpeed
+    );
+    let anchorWall = performance.now();
+    let anchorTl = usePreviewStore.getState().currentTimeSec;
+    let anchorSpeed = speedOf(usePreviewStore.getState());
+    let written = anchorTl;
+    // 播放诊断（T1.1）：期望帧数由经过的墙钟×fps 估算，已呈现帧由 mediaManager 的 rVFC 计数
+    const startedWall = anchorWall;
+    mediaManager.resetFrameStats();
+    let lastPublish = 0;
+
     const tick = (now: number) => {
-      const dt = Math.min((now - last) / 1000, 1 / 15);
-      last = now;
       const st = usePreviewStore.getState();
-      const speed = st.shuttleSpeed !== 0 ? st.shuttleSpeed * Math.abs(st.playbackSpeed) : st.playbackSpeed;
-      let next = st.currentTimeSec + dt * speed;
+      const speed = speedOf(st);
+      // 外部改动：时间被别处写过，或速度变了 → 重新打锚点（否则会把播放头拽回旧位置）
+      if (Math.abs(st.currentTimeSec - written) > 1e-3 || speed !== anchorSpeed) {
+        anchorWall = now;
+        anchorTl = st.currentTimeSec;
+        anchorSpeed = speed;
+        written = st.currentTimeSec;
+      }
+      const elapsedSec = (now - anchorWall) / 1000;
+      let next = anchorTl + elapsedSec * speed;
+      let rewound = false;
       const dur = useTimelineStore.getState().timeline.duration_sec;
       const region = st.loopRegion;
       const looping = st.isLooping;
@@ -187,17 +260,45 @@ export function PreviewPanel() {
         const hi = Math.min(Math.max(region ? region.end : dur, lo + 0.01), dur);
         const span = hi - lo;
         if (span > 0) {
-          if (next >= hi) next = lo + ((next - hi) % span); // carry overshoot
-          else if (next < lo) next = hi - ((lo - next) % span);
+          if (next >= hi) { next = lo + ((next - hi) % span); rewound = true; }
+          else if (next < lo) { next = hi - ((lo - next) % span); rewound = true; }
         }
       } else if (next >= dur) {
         next = dur;
         st.setPlaying(false);
+        rewound = true;
       } else if (next < 0) {
         next = 0;
         st.setPlaying(false);
+        rewound = true;
+      }
+      // 回绕/到端点后必须重打锚点，否则 elapsed 会一直变大、每帧都再回绕一次
+      if (rewound) {
+        anchorWall = now;
+        anchorTl = next;
+        anchorSpeed = speed;
       }
       st.setCurrentTime(next);
+      written = next;
+
+      // ── 诊断发布（节流 250ms，与合成采样同频）─────────────────────────────
+      if (now - lastPublish >= 250) {
+        lastPublish = now;
+        const fps = usePreviewStore.getState().fps || 30;
+        const expected = ((now - startedWall) / 1000) * fps;
+        const presented = mediaManager.frameStats().presented;
+        const wallTl = anchorTl + ((now - anchorWall) / 1000) * speed;
+        publishPlaybackStats({
+          clockRunning: true,
+          activeDecodes: mediaManager.activeDecodeCount(),
+          frozenCount: mediaManager.frozenAssets().length,
+          presentedFrames: presented,
+          droppedFrames: Math.max(0, Math.round(expected - presented)),
+          // 漂移 = 实际播放头 − 锚点推出来的墙钟位置（正常应在几毫秒内）
+          driftMs: Math.round((next - wallTl) * 1000),
+        });
+      }
+
       if (usePreviewStore.getState().isPlaying) {
         raf = requestAnimationFrame(tick);
       }
@@ -206,10 +307,22 @@ export function PreviewPanel() {
     return () => cancelAnimationFrame(raf);
   }, [isPlaying]);
 
+  // devplan T1.2：暂停时把解码池收空——元素在后台继续解码白占解码器与显存，
+  // 切回播放时还可能撞上"同时解码太多"导致前几帧全丢。
+  useEffect(() => {
+    if (isPlaying) return;
+    mediaManager.setActiveVideos([], { budget: 1 });
+  }, [isPlaying]);
+
   // Pause all media when the preview unmounts (avoid audio playing after leaving the editor)
   useEffect(() => () => {
     cancelAnimationFrame(scrubRef.current.raf);
     mediaManager.pauseAll();
+    resetPlaybackStats();
+    // devplan T2.3/T2.4：切项目/卸载时清掉 MG spec 图片缓存与还原度台账，
+    // 否则下一个项目可能命中上一个项目的图片，或带着别人的"差异角标"。
+    resetMgFidelity();
+    clearMgImageCache();
   }, []);
 
   // V10: 页面隐藏时暂停播放——RAF 停摆但音频元素继续出声，回切后音画错位
@@ -461,7 +574,11 @@ export function PreviewPanel() {
 
       // Composite order: lowest track index drawn first (bottom layer), highest index last (top layer) — matches backend render.py is_overlay = track.index > 0.
       // 合成顺序：轨道 index 升序，低 index 先画（底层），高 index 最后（顶层）。
-      compositeTimelineClips(ctx, tl, t, { fx, fy, fw, fh }, dpr, perf);
+      compositeTimelineClips(ctx, tl, t, { fx, fy, fw, fh }, dpr, perf,
+        // 只有「连续播放」开启时才按播放态取帧（不逐帧 seek）；关掉即回到旧的
+        // 每帧 seek 路径——这是 devplan M1 的回滚开关。
+        useSettingsStore.getState().previewContinuousPlayback
+          && usePreviewStore.getState().isPlaying);
 
       // Empty frame hint
       if (tl.tracks.length === 0) {
@@ -499,6 +616,39 @@ export function PreviewPanel() {
       previewPerf.record(perf);
     };
 
+    /**
+     * devplan T1.2：按播放头维护「活跃解码集合」。
+     *
+     * 为什么必须显式维护：`mediaManager.registerTimeline()` 会把时间线里所有 video clip
+     * 都注册成元素，旧实现还给每个 `preload='auto'`——全片几十个镜头就是几十路解码，
+     * 浏览器硬解上限一超就排队，seek 变慢、画面开始跳帧。
+     * 现在的规则：**正在播放的才连续解码**，取画面最上层的前 `DECODE_BUDGET` 路；
+     * 其余 pause 保留最后一帧（合成仍能用），并按 clip 自己的变速设 playbackRate。
+     */
+    const applyDecodePool = (tl: Timeline, t: number, playing: boolean) => {
+      if (!playing) {
+        mediaManager.setActiveVideos([], { budget: 1 });
+        return;
+      }
+      const ids: string[] = [];
+      const rates: Record<string, number> = {};
+      const speed = usePreviewStore.getState().playbackSpeed || 1;
+      // 从上往下取（z 序高的先满足预算）：最上层通常就是用户正在看的画面
+      const ordered = orderTracksForComposite(tl.tracks).slice().reverse();
+      for (const track of ordered) {
+        if (track.kind !== 'video' || track.hidden) continue;
+        for (const clip of track.clips) {
+          if (clip.enabled === false) continue;
+          if (t < clip.start_sec || t >= clip.start_sec + clip.duration_sec) continue;
+          if (ids.includes(clip.asset_id)) continue;
+          ids.push(clip.asset_id);
+          rates[clip.asset_id] = clip.speed * speed;
+        }
+        if (ids.length >= DECODE_BUDGET) break;
+      }
+      mediaManager.setActiveVideos(ids, { budget: DECODE_BUDGET, rates });
+    };
+
     const loop = () => {
       const pst = usePreviewStore.getState();
       const tl = useTimelineStore.getState().timeline;
@@ -514,6 +664,10 @@ export function PreviewPanel() {
         last.zoom = zoom;
         last.mv = mediaVersion;
         last.guides = guidesEpoch;
+        // devplan T1.2：按当前播放头维护解码池（只在播放时连续解码）。
+        // 活跃集合 = 当前时刻可见的 video clip，按轨道 z 序从上往下取前 2 个；
+        // 其余 pause 保留最后一帧，超出预算的会进 frozen 列表（浮层与徽标用）。
+        applyDecodePool(tl, t, pst.isPlaying && useSettingsStore.getState().previewContinuousPlayback);
         draw();
       }
       raf = requestAnimationFrame(loop);
@@ -538,12 +692,26 @@ export function PreviewPanel() {
           <span className="text-label font-medium text-on-surface-variant uppercase tracking-wide">
             节目监视器
           </span>
-          {/* P1-32：明示预览近似性——MG 动画为占位、部分转场/滤镜为简化呈现 */}
+          {/* P1-32 / devplan T2.4：明示预览近似性。
+              MG 现在**真的画了**（结构化 spec → canvas display-list），但浏览器与后端
+              Hyperframes/FFmpeg 的字体/滤镜/阴影不可能完全一致，所以这条说明保留；
+              真正有差异的片段数由 `useMgFidelityStore` 统计，**有差异才额外标红点**。 */}
           <span
-            className="px-1.5 py-0.5 rounded-cw-full bg-surface-container-high border border-outline-variant/40 text-caption text-on-surface-variant cursor-help"
-            title="近似预览：MG/文字动画为占位示意，部分转场（叠化/滑动/擦除）与滤镜为简化呈现；最终效果以渲染成片为准。"
+            className="px-1.5 py-0.5 rounded-cw-full bg-surface-container-high border border-outline-variant/40 text-caption text-on-surface-variant cursor-help flex items-center gap-1"
+            data-testid="preview-fidelity-badge"
+            title={fidelityLabels.length > 0
+              ? `近似预览：${fidelityLabels.join('；')}。最终效果以渲染成片为准。`
+              : '近似预览：MG 动画在浏览器内实时渲染，字体/滤镜/阴影与后端成片可能有细微差异；最终效果以渲染成片为准。'}
           >
             近似预览
+            {mgFidelityCount > 0 && (
+              <span
+                className="inline-flex items-center rounded-cw-full bg-error/15 px-1 text-[10px] leading-4 text-error"
+                data-testid="preview-fidelity-count"
+              >
+                {mgFidelityCount} 处差异
+              </span>
+            )}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -592,6 +760,19 @@ export function PreviewPanel() {
             <button onClick={toggleSafeArea}
               className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${showSafeArea ? 'text-snap-guide bg-snap-guide/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
               <Shield className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+          {/* devplan M1 回滚/对比开关：连续播放（默认关，验收后开启）。
+              关 = 旧路径（每帧 seek，会看到一帧一帧）；开 = 连续解码 + 解码池。 */}
+          <Tooltip content={continuousPlayback ? '连续播放：开（关掉可对比旧路径）' : '连续播放：关（开启后预览才平滑）'}>
+            <button
+              type="button"
+              onClick={() => useSettingsStore.getState().setPreviewContinuousPlayback(!continuousPlayback)}
+              aria-pressed={continuousPlayback}
+              aria-label="连续播放"
+              data-testid="preview-continuous-playback"
+              className={`p-1.5 rounded-cw-xs transition-colors cursor-pointer ${continuousPlayback ? 'text-primary bg-primary/10' : 'text-on-surface-variant hover:text-on-surface'}`}>
+              <Play className="w-3.5 h-3.5" />
             </button>
           </Tooltip>
           {/* O6: 性能诊断开关（偏好持久化；关掉即零开销） */}
@@ -925,6 +1106,8 @@ export function compositeTimelineClips(
   geom: FrameRect,
   dpr = 1,
   perf?: FramePerf,
+  /** 是否连续播放：播放中视频层不 seek（devplan T1.4） */
+  playing = false,
 ): number {
   const { fx, fy, fw, fh } = geom;
   let drawn = 0;
@@ -941,7 +1124,7 @@ export function compositeTimelineClips(
         drawn += 1;
         continue;
       }
-      drawClipToPreview(ctx, clip, track, fx, fy, fw, fh, t, dpr, perf);
+      drawClipToPreview(ctx, clip, track, fx, fy, fw, fh, t, dpr, perf, playing);
       drawn += 1;
     }
   }
@@ -958,6 +1141,14 @@ interface ClipPaintEnv {
   entry: ReturnType<typeof mediaManager.get>;
   perf?: FramePerf;
   now: () => number;
+  /**
+   * 是否处于「连续播放」（devplan T1.4）。
+   *
+   * 播放时元素由解码池连续 `play()`，画面来自它**当前已解码的帧**——这时再调
+   * `seek()` 只会让元素一直处于 seek 中、合成到上一帧（用户看到的"一帧一帧"就是这个）。
+   * 只有暂停/拖动时才需要"seek 到精确时刻再画"。
+   */
+  playing?: boolean;
 }
 
 /**
@@ -1002,11 +1193,23 @@ function paintClipContent(
           drewReal = true;
         }
       } else if (videoEl && videoEl.readyState >= 2) {
-        // Real video frame: seek to clip-local time and draw
+        // devplan T1.4：播放中**不再 seek**——元素由解码池连续解码，直接取它当前帧。
+        // 旧实现每帧 seek 一次（见 mediaManager.seekVideo 的 P1-33 注释：seek 后立即
+        // drawImage 画的是旧帧），这就是"一帧一帧"的直接成因。
         const sourceT = (t - clip.start_sec) * speed + clip.source_offset_sec;
-        const seekStart = env.now();
-        mediaManager.seekVideo(clip.asset_id, sourceT);
-        if (env.perf) env.perf.resolveMs += env.now() - seekStart;
+        if (env.playing) {
+          // 播放中只做漂移校正：偏差超过 250ms 才纠一次，避免打断连续解码
+          if (Math.abs(videoEl.currentTime - sourceT) > 0.25) {
+            const seekStart = env.now();
+            mediaManager.seekVideo(clip.asset_id, sourceT);
+            if (env.perf) env.perf.resolveMs += env.now() - seekStart;
+          }
+        } else {
+          // 暂停/拖动：必须 seek 到精确时刻（异步 seeked 通知会触发重绘）
+          const seekStart = env.now();
+          mediaManager.seekVideo(clip.asset_id, sourceT);
+          if (env.perf) env.perf.resolveMs += env.now() - seekStart;
+        }
         drawCover(ctx, videoEl, fx, fy, fw, fh, tf);
         drewReal = true;
       }
@@ -1127,9 +1330,28 @@ function paintClipContent(
       return true;
     }
     case 'animation': {
-      // 关键帧插值已在 switch 之前统一执行（opacity/tf 已含插值结果），此处不重复调用
-      // interpolateProperties，只把 translate/rotate/opacity 应用到形状渲染上。
-      // 无关键帧时保留正弦缩放作为退化行为。
+      // ── devplan T2.3：有 MG spec 就**真渲染**（前端 display-list），否则退回占位形 ──
+      // 为什么要走这条路：时间线里每个 animation clip 的 `metadata.mg_def` 就存着
+      // 结构化 spec（后端 `mg/generator.py` 产物），浏览器完全可以直接画；
+      // 旧的"脉冲占位形 + 未渲染预览"是能力缺口，不是设计意图。
+      const spec = mgSpecOf(clip.metadata);
+      if (spec) {
+        const mgFidelity = emptyFidelity();
+        // clip-local 时间（吃 clip.speed 与 source_offset，与视频层同一套换算）
+        const specLocal = Math.max(0, (t - clip.start_sec) * speed + clip.source_offset_sec);
+        ctx.save();
+        ctx.globalAlpha = clamp(env.opacity, 0, 1);
+        if (tf.rotation !== 0) {
+          ctx.translate(fx + fw / 2, fy + fh / 2);
+          ctx.rotate((tf.rotation * Math.PI) / 180);
+          ctx.translate(-(fx + fw / 2), -(fy + fh / 2));
+        }
+        drawMgFrame(ctx, spec, specLocal, { x: fx, y: fy, w: fw, h: fh }, mgFidelity);
+        ctx.restore();
+        reportMgFidelity(clip.asset_id, mgFidelity);
+        return false; // 时间相关 → 不入层缓存
+      }
+      // 无 spec：保留占位形（旧行为），并明确标注"未渲染预览"，不伪装成真实效果
       const cx = fx + fw / 2 + tf.x * fw;
       const cy = fy + fh / 2 + tf.y * fh;
       const pulse = clip.keyframes.length > 0 ? 1 : 0.8 + 0.2 * Math.sin(localT * Math.PI * 2);
@@ -1166,6 +1388,7 @@ function paintClipContent(
       }
       ctx.fill();
       ctx.restore();
+      reportMgFidelity(clip.asset_id, { ...emptyFidelity(), missingSpec: true });
       return false; // 时间相关（正弦脉冲）+ 自带 alpha → 不入缓存
     }
     case 'shape': {
@@ -1346,6 +1569,8 @@ function drawClipToPreview(
   t: number,
   dpr = 1,
   perf?: FramePerf,
+  /** 是否连续播放（devplan T1.4）：播放中不 seek，只画元素当前已解码帧 */
+  playing = false,
 ) {
   const localT = (t - clip.start_sec) / clip.duration_sec; // 0-1
   const color = TRACK_COLORS[track.kind] ?? '#4F8CFF';
@@ -1384,7 +1609,7 @@ function drawClipToPreview(
     perf.layers += 1;
   }
 
-  const env: ClipPaintEnv = { tf, localT, speed, color, opacity, entry, perf, now: perfNow };
+  const env: ClipPaintEnv = { tf, localT, speed, color, opacity, entry, perf, now: perfNow, playing };
 
   ctx.save();
   ctx.globalAlpha = clamp(opacity, 0, 1);
@@ -1661,3 +1886,12 @@ export function nextPlaybackSpeed(current: number, speeds: number[]): number {
   const nextIndex = idx === -1 ? 0 : (idx + 1) % speeds.length;
   return speeds[nextIndex];
 }
+
+
+
+
+
+
+
+
+

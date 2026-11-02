@@ -17,6 +17,10 @@ import { shouldPush } from './historyCoalesce';
 import { sectionsForKind } from './sectionsForKind';
 import { Slot } from '@/features/plugins/Slot';
 import { useProjectStore } from '@/stores/projectStore';
+// 不变量 #13：显示模型输出/接口响应的字段一律过 asText，不得直接当子节点渲染
+import { asText } from '@/lib/render';
+// MG spec 的解析与类型以预览渲染器为唯一来源（不另造一套 TypeScript 类型）
+import { mgSpecOf } from '@/features/preview/mgRenderer';
 import {
   extractCopyableAttributes, filterFieldsForKind,
   useClipAttributeClipboard,
@@ -26,7 +30,7 @@ import type { Clip, ClipKind } from '@/types/timeline';
 import {
   SlidersHorizontal, Type, Diamond, Plus, Trash2, ChevronLeft, ChevronRight,
   Move, RotateCcw, Wand2, Eye, EyeOff, Shapes, BarChart3, Image as ImageIcon,
-  Copy, ClipboardPaste, Gauge, X, Layers2, UnfoldVertical,
+  Copy, ClipboardPaste, Gauge, X, Layers2, UnfoldVertical, Sparkles,
 } from 'lucide-react';
 
 // Coalesce rapid history pushes (slider drag / number input / typing) into a single
@@ -352,14 +356,26 @@ export function PropertiesPanel() {
                   >
                     {(() => {
                       const cur = clip.blend_mode ?? 'normal';
-                      const opts = BLEND_MODES.includes(cur) ? BLEND_MODES : [...BLEND_MODES, cur];
-                      return opts.map((m) => (
-                        <option key={m} value={m}>
-                          {BLEND_LABELS[m] ?? m}{(BLEND_MODES.includes(m) || m === 'normal') ? '' : '（仅预览）'}
-                        </option>
+                      // PRD W1.3 不匹配项 2：后端 schema 接受任意字符串，但导出（FFmpeg blend）
+                      // 只认 normal/screen/multiply/overlay。旧实现把历史值也塞进选项列表，
+                      // 用户能选到"仅预览"的值并保存成功 → 导出静默不生效。
+                      // 现在：选项**只给导出真正支持的**；历史遗留值单独只读展示 + 可清除。
+                      return BLEND_MODES.map((m) => (
+                        <option key={m} value={m}>{BLEND_LABELS[m] ?? m}</option>
                       ));
                     })()}
                   </select>
+                  {clip.blend_mode && !BLEND_MODES.includes(clip.blend_mode) && (
+                    <p className="mt-0.5 text-caption text-warning"
+                      data-testid="blend-mode-legacy">
+                      当前值「{asText(clip.blend_mode)}」导出不支持（仅预览生效）。
+                      <button
+                        type="button"
+                        onClick={() => { pushHistory(); set({ blend_mode: null }); }}
+                        className="ml-1 underline hover:text-primary"
+                      >改回 normal</button>
+                    </p>
+                  )}
                 </Row>
               )}
             </Section>
@@ -537,6 +553,12 @@ export function PropertiesPanel() {
             {/* Animation presets + keyframe timeline */}
             <AnimationSection clip={clip} />
 
+            {/* PRD W2.2：MG 动画的结构化信息（只读）。
+                为什么只读：spec 由 animation agent 生成、由后端 validator 校验，
+                面板里手改 spec 很容易绕过白名单（写进非法元素/easing → 渲染回退模板）。
+                本期只做"看得见"：元素类型、文本、关键帧区间、缓动、时长。 */}
+            {clip.kind === 'animation' && <MgSpecSection clip={clip} />}
+
             {/* Keyframes */}
             <KeyframeEditor clip={clip} />
 
@@ -566,6 +588,123 @@ export function PropertiesPanel() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * MgSpecSection — MG 动画的结构化信息（PRD W2.2，只读）。
+ *
+ * 数据来源：`clip.metadata.mg_def`（后端动画 agent 写入的结构化 JSON spec）。
+ * **绝不渲染 `metadata.mg_html`**——那是给后端 Hyperframes 出帧用的 HTML，
+ * 在面板里当成可执行内容展示既不安全也误导（AGENTS #22）。
+ *
+ * 全部字符串过 `asText`（不变量 #13）：spec 来自模型生成，形状不可信。
+ */
+function MgSpecSection({ clip }: { clip: Clip }) {
+  const spec = useMemo(() => mgSpecOf(clip.metadata), [clip.metadata]);
+  const [expanded, setExpanded] = useState(false);
+
+  if (!spec) {
+    return (
+      <Section title="动画详情 (MG)" icon={<Sparkles className="w-3 h-3" />}>
+        <p className="text-caption text-on-surface-variant/80" data-testid="mg-spec-missing">
+          这个动画片段没有结构化定义（`metadata.mg_def` 为空）：预览只能显示占位形，
+          导出会走后端默认渲染。重新生成动画或让 agent 重派 animation 阶段可恢复。
+        </p>
+      </Section>
+    );
+  }
+
+  const elements = Array.isArray(spec.elements) ? spec.elements : [];
+  const duration = typeof spec.duration_sec === 'number' ? spec.duration_sec : clip.duration_sec;
+  const width = typeof spec.width === 'number' ? spec.width : 0;
+  const height = typeof spec.height === 'number' ? spec.height : 0;
+  const animId = typeof spec.animation_id === 'string' ? spec.animation_id : '';
+
+  return (
+    <Section title="动画详情 (MG)" icon={<Sparkles className="w-3 h-3" />}>
+      <Row label="动画 ID">
+        <span className="text-body-sm font-mono text-on-surface truncate" title={animId}>
+          {animId ? asText(animId) : '—'}
+        </span>
+      </Row>
+      <Row label="时长 / 画布">
+        <span className="text-body-sm text-on-surface">
+          {duration.toFixed(2)}s{width > 0 && height > 0 ? ` · ${width}×${height}` : ''}
+        </span>
+      </Row>
+      <Row label="元素数">
+        <span className="text-body-sm text-on-surface" data-testid="mg-spec-element-count">
+          {elements.length}
+        </span>
+      </Row>
+
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="mt-1 w-full rounded-cw-xs border border-outline-variant/40 px-2 py-1 text-caption
+          text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
+        data-testid="mg-spec-toggle"
+      >
+        {expanded ? '收起元素明细' : `展开元素明细（${elements.length} 项）`}
+      </button>
+
+      {expanded && (
+        <ul className="mt-1 space-y-1" data-testid="mg-spec-elements">
+          {elements.slice(0, 30).map((el, i) => {
+            const kfs = Array.isArray(el.keyframes) ? el.keyframes : [];
+            const types = new Set<string>();
+            for (const kf of kfs) {
+              const props = (kf?.properties && typeof kf.properties === 'object')
+                ? kf.properties as Record<string, unknown>
+                : {};
+              for (const [k, v] of Object.entries(props)) {
+                // easing 是段属性而不是动画值，单独标出来更有用
+                if (k === 'easing' && typeof v === 'string') types.add(`easing:${v}`);
+              }
+            }
+            const first = kfs[0]?.time;
+            const last = kfs[kfs.length - 1]?.time;
+            const span = (typeof first === 'number' && typeof last === 'number')
+              ? `${first.toFixed(2)}s → ${last.toFixed(2)}s`
+              : '—';
+            const text = typeof el.content === 'string' ? el.content : '';
+            return (
+              <li key={`${el.type}-${i}`}
+                className="rounded-cw-xs bg-surface-container px-2 py-1 text-caption text-on-surface">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="font-mono text-primary">{asText(String(el.type || '?'))}</span>
+                  <span className="text-on-surface-variant/70">{kfs.length} 帧</span>
+                  <span className="ml-auto text-on-surface-variant/70">{span}</span>
+                </div>
+                {text && (
+                  <p className="mt-0.5 truncate text-on-surface-variant"
+                    title={text}>
+                    「{asText(text.length > 60 ? `${text.slice(0, 60)}…` : text)}」
+                  </p>
+                )}
+                {[...types].length > 0 && (
+                  <p className="mt-0.5 truncate text-on-surface-variant/60"
+                    title={[...types].join(' ')}>
+                    {asText([...types].slice(0, 4).join(' · '))}
+                  </p>
+                )}
+              </li>
+            );
+          })}
+          {elements.length > 30 && (
+            <li className="text-caption text-on-surface-variant/60">
+              还有 {elements.length - 30} 个元素未列出
+            </li>
+          )}
+        </ul>
+      )}
+
+      <p className="mt-1 text-caption text-on-surface-variant/50">
+        只读：这份定义由动画 agent 生成并经后端校验；手改容易绕过白名单，
+        所以面板只展示、不改写。要改请在需求对话里描述。
+      </p>
+    </Section>
   );
 }
 
@@ -828,6 +967,9 @@ function ImageSection({ clip, pushHistory, set }: {
   pushHistory: () => void;
   set: (u: Partial<Clip>) => void;
 }) {
+  // 裁切区域按整幅画面初始化：四个控件都基于「当前值 ?? 整幅」写回，
+  // 避免只改一个字段时其它三个变 undefined（后端按 None 处理 → 裁出空画面）。
+  const IMG_RECT = clip.image_rect ?? { x: 0, y: 0, w: 1, h: 1 };
   return (
     <Section title="适配" icon={<ImageIcon className="w-3 h-3" />}>
       <Row label="适配方式">
@@ -852,6 +994,34 @@ function ImageSection({ clip, pushHistory, set }: {
         <RotateCcw className="w-3 h-3" /> 重置裁切区域
       </button>
 
+      {/* PRD W1.3 不匹配项 5：`image_rect` 前后端都有，但旧面板只给「重置」、没有可见数值编辑。
+          现在补四个数值控件（归一化 0–1，与 schema 的 image_rect 语义一致）；
+          没有值时先按整幅画面初始化，避免"点开就是空"。 */}
+      <Row label="裁切 x">
+        <NumberInput
+          value={clip.image_rect?.x ?? 0}
+          onChange={(v) => { pushHistory(); set({ image_rect: { ...IMG_RECT, x: clampNum(v, 0, 1) } }); }}
+        />
+      </Row>
+      <Row label="裁切 y">
+        <NumberInput
+          value={clip.image_rect?.y ?? 0}
+          onChange={(v) => { pushHistory(); set({ image_rect: { ...IMG_RECT, y: clampNum(v, 0, 1) } }); }}
+        />
+      </Row>
+      <Row label="裁切宽">
+        <NumberInput
+          value={clip.image_rect?.w ?? 1}
+          onChange={(v) => { pushHistory(); set({ image_rect: { ...IMG_RECT, w: clampNum(v, 0.01, 1) } }); }}
+        />
+      </Row>
+      <Row label="裁切高">
+        <NumberInput
+          value={clip.image_rect?.h ?? 1}
+          onChange={(v) => { pushHistory(); set({ image_rect: { ...IMG_RECT, h: clampNum(v, 0.01, 1) } }); }}
+        />
+      </Row>
+
       {/* M4: 蒙版 */}
       <div className="pt-2 border-t border-outline-variant/20">
         <p className="text-label font-medium text-on-surface-variant mb-2">蒙版</p>
@@ -868,7 +1038,33 @@ function ImageSection({ clip, pushHistory, set }: {
           </select>
         </Row>
         {clip.mask_type && clip.mask_type !== 'none' && (
-          <MaskRectEditor clip={clip} pushHistory={pushHistory} set={set} />
+          <>
+            <MaskRectEditor clip={clip} pushHistory={pushHistory} set={set} />
+            {/* PRD W1.3 不匹配项 4：后端 schema 支持 mask_feather / mask_rotation /
+                mask_inverted，旧面板一个都没暴露。羽毛与旋转是 FFmpeg 侧真实生效的
+                （render.py 的蒙版滤镜），倒置是布尔开关，三个都补上；
+                `mask_points`（多边形顶点）结构复杂，本期保持只读不新增编辑。 */}
+            <Slider label="羽化" min={0} max={100} step={1} value={clip.mask_feather ?? 0}
+              onChange={(v) => { pushHistory(); set({ mask_feather: v }); }} />
+            <Row label="旋转">
+              <NumberInput value={clip.mask_rotation ?? 0}
+                onChange={(v) => { pushHistory(); set({ mask_rotation: v }); }} />
+            </Row>
+            <Row label="倒置">
+              <input
+                type="checkbox"
+                checked={!!clip.mask_inverted}
+                onChange={(e) => { pushHistory(); set({ mask_inverted: e.target.checked }); }}
+                className="h-3.5 w-3.5 accent-primary cursor-pointer"
+                data-testid="mask-inverted"
+              />
+            </Row>
+            {clip.mask_points != null && (
+              <p className="text-caption text-on-surface-variant/70" data-testid="mask-points-note">
+                该片段带 {clip.mask_points} 个多边形蒙版顶点；本期面板不编辑顶点，导出仍按原值生效。
+              </p>
+            )}
+          </>
         )}
       </div>
     </Section>
@@ -1313,6 +1509,12 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** 把数值夹到 [lo, hi]：面板写回前统一收口，避免把越界值写进时间线。 */
+function clampNum(v: number, lo: number, hi: number): number {
+  if (!Number.isFinite(v)) return lo;
+  return Math.min(Math.max(v, lo), hi);
+}
+
 /** 轮73：关键帧属性取值域（未列出的属性不钳制）。 */
 const KEYFRAME_PROP_RANGES: Record<string, [number, number]> = {
   opacity: [0, 1],
@@ -1339,3 +1541,6 @@ function shortPropLabel(prop: string): string {
 function fadeMaxSec(durationSec: number): number {
   return Math.max(0.1, Math.round(durationSec * 100) / 100);
 }
+
+
+

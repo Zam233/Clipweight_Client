@@ -1,4 +1,5 @@
 import { usePreviewPerfStore } from './perf';
+import { usePlaybackStatsStore } from './playbackStats';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 function ms(value: number): string {
@@ -33,11 +34,15 @@ function Row({ label, value, hint }: { label: string; value: string; hint?: stri
 export function PreviewPerfOverlay() {
   const enabled = useSettingsStore((s) => s.showPerfPanel);
   const snapshot = usePreviewPerfStore((s) => s.snapshot);
+  const playback = usePlaybackStatsStore((s) => s.stats);
   if (!enabled) return null;
 
   const { cache } = snapshot;
   const resolveShare = snapshot.avgTotalMs > 0
     ? Math.round((snapshot.avgResolveMs / snapshot.avgTotalMs) * 100)
+    : 0;
+  const dropShare = playback.presentedFrames + playback.droppedFrames > 0
+    ? Math.round((playback.droppedFrames / (playback.presentedFrames + playback.droppedFrames)) * 100)
     : 0;
 
   return (
@@ -60,6 +65,15 @@ export function PreviewPerfOverlay() {
         <Row label="缓存命中率" value={`${(cache.hitRate * 100).toFixed(0)}%`}
              hint={`${cache.hits}/${cache.hits + cache.misses}`} />
         <Row label="缓存层数" value={`${cache.entries}`} hint={`淘汰 ${cache.evictions} · ${bytes(cache.approxBytes)}`} />
+      </div>
+      {/* devplan T1.1：播放链路指标——解码路数、已呈现/丢帧、播放头漂移 */}
+      <div className="pt-1 mt-1 border-t border-outline-variant/30 space-y-0.5">
+        <Row label="解码路数" value={`${playback.activeDecodes}/2`}
+             hint={playback.frozenCount > 0 ? `${playback.frozenCount} 路冻结` : undefined} />
+        <Row label="已呈现" value={`${playback.presentedFrames} 帧`}
+             hint={playback.clockRunning ? '播放中' : '未播放'} />
+        <Row label="丢帧" value={`${playback.droppedFrames}`} hint={`${dropShare}%`} />
+        <Row label="播放头漂移" value={`${playback.driftMs > 0 ? '+' : ''}${playback.driftMs} ms`} />
       </div>
     </div>
   );

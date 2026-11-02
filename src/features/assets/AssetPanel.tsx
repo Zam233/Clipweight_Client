@@ -6,6 +6,7 @@ import { useProjectStore } from '@/stores/projectStore';
 import { useHistoryStore } from '@/stores/historyStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { assetApi, visionApi, toolApi } from '@/services/api';
+import { workspaceApi } from '@/services/api/workspace';
 import { mediaManager } from '@/services/media/mediaManager';
 import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
@@ -19,6 +20,13 @@ import type { ClipKind } from '@/types/timeline';
 import { Sparkles, FolderOpen, History, Upload, Search, Plus, Mic, Puzzle, X, Heart, Check, Info, Trash2, Wand2 } from 'lucide-react';
 
 type Tab = 'ai' | 'library' | 'workspace' | 'history' | 'dub' | 'plugins';
+
+/** 上传落到 materials/<kind>/（与后端 workspace.kind_of 同一套分类）。 */
+function kindFolderOf(file: File): 'video' | 'image' | 'audio' {
+  if (file.type.startsWith('video')) return 'video';
+  if (file.type.startsWith('audio')) return 'audio';
+  return 'image';
+}
 
 const TABS: { id: Tab; label: string; icon: typeof Sparkles }[] = [
   { id: 'ai', label: 'AI 匹配', icon: Sparkles },
@@ -108,55 +116,63 @@ export function AssetPanel() {
     }
   };
 
+  /**
+   * 上传（devplan T3.2）：**目标目录改为工作区** `materials/<kind>/`。
+   *
+   * 旧实现走 `assetApi.upload`（旧素材库 `assets/files` + `assets/index.json`），
+   * 于是同一批文件在“素材库”和“工作区目录树”里是两套身份。现在统一到工作区：
+   * 上传即写入 `<workspace>/materials/<kind>/`，目录树（唯一真相）立刻能看到。
+   *
+   * 三条前端侧的边界处理：
+   * - 超过 2 GiB 直接拦（后端也会 413，但没必要先传 2 GiB 再报错）；
+   * - 同名 409 时明确告诉用户“改名或覆盖”，不是静默失败；
+   * - 上传成功后把文件注册给 mediaManager，预览/缩略图/波形立刻可用。
+   */
+  const UPLOAD_MAX_BYTES = 2 * 1024 ** 3;
+
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    const pid = useProjectStore.getState().projectId;
+    if (!pid) {
+      toast('还没有打开工作区：先新建/打开一个项目再上传', 'error');
+      return;
+    }
     setLoading(true);
-    // P2-22: 逐文件独立失败域——旧实现整批一个 try，第 N 个失败会把已成功
-    // 上传的文件再降级成一份本地演示素材（重复素材 + 假数据混入）
-    const fallbackFiles: File[] = [];
-    // B9：同内容文件重传 → 后端 200 复用（deduplicated），要明确告知而不是当成失败
-    let reused = 0;
+    setUploadNote(null);
+    let ok = 0;
+    const failures: string[] = [];
     for (const file of Array.from(files)) {
-      try {
-        const pid = useProjectStore.getState().projectId;
-        const res = await assetApi.upload(file, setUploadProgress, pid ?? undefined);
-        if (res.deduplicated) reused += 1;
-        // Register uploaded file with MediaManager for local preview/thumbnails
-        const assetId = res.id || res.asset_id || uid('asset');
-        mediaManager.registerFile(assetId, file);
-      } catch {
-        fallbackFiles.push(file);
+      if (file.size > UPLOAD_MAX_BYTES) {
+        failures.push(`${file.name}：超过 2 GiB 上限`);
+        continue;
       }
+      try {
+        await workspaceApi.upload(pid, file);
+        // 注册真实媒体：预览/缩略图/波形都靠它；asset_id 用文件名路径保证稳定
+        const assetId = `materials/${kindFolderOf(file)}/${file.name}`;
+        mediaManager.registerFile(assetId, file);
+        ok += 1;
+      } catch (e) {
+        const status = (e as { response?: { status?: number } })?.response?.status;
+        const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+        const text = typeof detail === 'string' ? detail : '';
+        if (status === 409) failures.push(`${file.name}：同名文件已存在（改名后重传）`);
+        else if (status === 413) failures.push(`${file.name}：超过 2 GiB 上限`);
+        else failures.push(`${file.name}：${text || '上传失败'}`);
+      }
+    }
+    if (ok > 0) {
+      setUploadNote(`${ok} 个文件已上传到工作区 materials/`);
+      toast(`${ok} 个文件已上传到工作区`, 'success');
+      useAssetStore.setState((s) => ({ refreshCounter: s.refreshCounter + 1 }));
+      // 目录树是磁盘真相：bump refreshCounter 让 WorkspaceMediaTree 重新拉一次
+    }
+    if (failures.length > 0) {
+      toast(failures.slice(0, 3).join('；'), 'error');
     }
     try {
       await loadAssets();
     } catch { /* 列表刷新失败不影响已上传 */ }
-    if (reused > 0) {
-      // PRD B10：复用也要在**页面内**可见（toast 会消失），并提供稳定的测试锚点
-      setUploadNote(`${reused} 个文件已存在，已复用`);
-      toast(`${reused} 个文件已存在，已复用`, 'info');
-    } else {
-      setUploadNote(null);
-    }
-    if (fallbackFiles.length > 0) {
-      setDemoMode(true);
-      const newAssets: Asset[] = fallbackFiles.map((f) => {
-        const id = uid('asset');
-        const kind = normalizeClipKind(f.type.startsWith('video') ? 'video' : f.type.startsWith('audio') ? 'audio' : 'image') as Asset['kind'];
-        // Register real media so preview/thumbnails/waveforms work
-        mediaManager.registerFile(id, f);
-        return {
-          id,
-          filename: f.name,
-          path: f.name,
-          kind,
-          tags: ['本地上传'],
-          created_at: new Date().toISOString(),
-        };
-      });
-      setAssets([...newAssets, ...useAssetStore.getState().assets]);
-      toast(`${fallbackFiles.length} 个文件上传失败 — 已添加本地演示素材（不持久化）`, 'info');
-    }
     setLoading(false);
     setUploadProgress(null);
   };
@@ -215,28 +231,41 @@ export function AssetPanel() {
         ))}
       </div>
 
-      {/* Search + upload */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-outline-variant/20 shrink-0">
-        <div className="flex-1 flex items-center gap-2 bg-surface-container rounded-cw-sm px-2.5 py-1.5">
-          <Search className="w-3.5 h-3.5 text-on-surface-variant shrink-0" />
-          <input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="搜索素材…"
-            className="flex-1 bg-transparent outline-none text-body-sm text-on-surface placeholder:text-on-surface-variant/50"
-          />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery('')} className="p-0.5 text-on-surface-variant/50 hover:text-on-surface cursor-pointer">
-              <X className="w-3 h-3" />
-            </button>
+      {/* Search + upload —— devplan T3.2（用户裁定 4）：**只属于「工作区」Tab**。
+          旧实现把这条渲染在 Tab 容器外层，于是 AI 匹配/配音/插件页顶部也挂着
+          "搜索素材 + 上传"，层级是错的：那些 Tab 各有自己的搜索与操作。
+          「素材库」Tab 保留只读搜索（它读旧的 assets 索引，待迁移完成后下线）。 */}
+      {(activeTab === 'workspace' || activeTab === 'library') && (
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-outline-variant/20 shrink-0"
+          data-testid="asset-search-bar">
+          <div className="flex-1 flex items-center gap-2 bg-surface-container rounded-cw-sm px-2.5 py-1.5">
+            <Search className="w-3.5 h-3.5 text-on-surface-variant shrink-0" />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={activeTab === 'workspace' ? '搜索工作区文件…' : '搜索素材…'}
+              className="flex-1 bg-transparent outline-none text-body-sm text-on-surface placeholder:text-on-surface-variant/50"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="p-0.5 text-on-surface-variant/50 hover:text-on-surface cursor-pointer">
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          {/* 上传只在工作区：上传目标就是 `<workspace>/materials/<kind>/` */}
+          {activeTab === 'workspace' && (
+            <label
+              className="p-2 rounded-cw-sm bg-primary-container text-on-primary-container hover:opacity-90 transition-opacity cursor-pointer"
+              title="上传到工作区 materials/（同名文件会被拒绝，改名后重传）"
+              data-testid="workspace-upload-button"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <input id="asset-upload-input" type="file" multiple className="hidden"
+                onChange={(e) => { handleUpload(e.target.files); e.target.value = ''; }} />
+            </label>
           )}
         </div>
-        <label className="p-2 rounded-cw-sm bg-primary-container text-on-primary-container hover:opacity-90 transition-opacity cursor-pointer">
-          <Upload className="w-3.5 h-3.5" />
-          <input id="asset-upload-input" type="file" multiple className="hidden"
-            onChange={(e) => { handleUpload(e.target.files); e.target.value = ''; }} />
-        </label>
-      </div>
+      )}
 
       {/* Upload progress */}
       {uploadProgress !== null && (
@@ -862,3 +891,4 @@ function demoAssets(): Asset[] {
     mk('LOGO.png', 'image'),
   ];
 }
+

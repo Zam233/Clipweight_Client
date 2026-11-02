@@ -26,7 +26,9 @@ interface AssetState {
 }
 
 export const useAssetStore = create<AssetState>((set) => ({
-  activeTab: 'library',
+  // devplan T3.4：默认落到「工作区」——合并后它才是素材的唯一真相；
+  // 旧 library 仍保留可点（回滚只需把这一行改回 'library'）。
+  activeTab: 'workspace',
   assets: [],
   searchResults: [],
   history: loadPrefArray<Asset>('assetHistory'),
@@ -51,3 +53,4 @@ export const useAssetStore = create<AssetState>((set) => ({
   setUploadProgress: (progress) => set({ uploadProgress: progress }),
   clearAssets: () => set((s) => ({ assets: [], searchResults: [], isLoading: false, uploadProgress: null, refreshCounter: s.refreshCounter + 1 })),
 }));
+

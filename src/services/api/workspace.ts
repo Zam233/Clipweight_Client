@@ -293,4 +293,36 @@ export const workspaceApi = {
     const { data } = await getApiClient().post('/api/workspace/reveal', { path });
     return data;
   },
+
+  // ── 旧素材库兼容（devplan T3.3/T3.4）────────────────────────────────────
+  /** 只读列出旧素材库条目（带"是否已在工作区"）。 */
+  async legacyAssets(projectId: string): Promise<{
+    count: number;
+    assets: Array<{
+      asset_id: string; filename: string; kind: string; sha256: string;
+      path: string; exists: boolean; in_workspace: boolean;
+    }>;
+  }> {
+    const { data } = await getApiClient().get(
+      `/api/workspace/${encodeURIComponent(projectId)}/legacy-assets`,
+    );
+    return data;
+  },
+
+  /**
+   * 把旧素材**复制**进工作区（不移动、不删源）。
+   * `dryRun=true` 只拿计划；`false` 才真复制（SHA256 去重，已在库里的算 reused）。
+   */
+  async legacyImport(projectId: string, dryRun = true): Promise<{
+    dry_run: boolean; migrated: number; reused: number; missing: number; failed: number;
+    planned: Array<{ filename: string; status: string; target?: string }>;
+  }> {
+    const { data } = await getApiClient().post(
+      `/api/workspace/${encodeURIComponent(projectId)}/legacy-import`,
+      null,
+      { params: { dry_run: dryRun } },
+    );
+    return data;
+  },
 };
+

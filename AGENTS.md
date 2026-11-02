@@ -137,6 +137,40 @@ J:\Clipwright
     详见 [docs/agent-termination-devplan-2026-11-02.md](docs/agent-termination-devplan-2026-11-02.md)
     与 [docs/agent-termination-prd-2026-11-02.md](docs/agent-termination-prd-2026-11-02.md) §15。
 
+22. **预览是「连续解码 + 单一时钟 + 统一合成」，动画只消费结构化 spec**（预览 devplan 2026-11-02 全部落地）：
+    - **播放头时钟**：`PreviewPanel` 用**绝对时间锚点**（起播打 `(墙钟, 时间线, 速度)`，每帧用绝对差算位置；
+      外部 seek/变速/回绕才重打锚点）。**禁止**逐帧累加，也**禁止**截断 `dt`——旧实现
+      `Math.min(dt, 1/15)` 会在卡顿时丢掉墙钟时间，看起来像慢动作。
+    - **视频帧供给**：播放中**不再每帧 `seekVideo`**（seek 异步，`drawImage` 拿到的是上一帧，
+      这正是"一帧一帧"的成因），只画元素当前已解码帧，漂移 >250ms 才纠一次；暂停/拖动仍走精确 seek。
+    - **解码池**：`mediaManager.setActiveVideos(ids,{budget,rates})` 决定"谁真的在解码"，同时活跃
+      **≤2 路**（主画面 + 叠化），其余 `pause()` 保留最后一帧；`registerTimeline()` 注册的元素
+      `preload` 一律 `metadata`，**禁止**全量 `auto`（整条时间线几十路解码会把硬解器打满）。
+    - **MG 动画预览**：只消费 `clip.metadata.mg_def`（结构化 JSON，元素/可动画属性白名单对齐后端
+      `mg/validator.py`）→ `mgRenderer.ts` 画 canvas display-list；**禁止执行 `metadata.mg_html`**
+      或任何模型生成的 HTML 进主文档，外链图片一律拦截。浏览器渲染与后端成片必然有差异，
+      预览头常驻「近似预览」，真有差异时由 `mgFidelity.ts` 挂「N 处差异」角标，**最终成片以后端渲染为准**。
+    - **资源库单一真相**：工作区目录树（`GET /api/workspace/{id}/media-tree`）是文件存在性的唯一真相；
+      旧素材库 `assets/files` 只做**只读清单 + 用户显式迁移**（`legacy-assets` / `legacy-import`，
+      复制不移动、SHA256 去重）。上传一律 `workspaceApi.upload` → `materials/<kind>/`，
+      流式分块写 `.part` 后原子替换，2 GiB 上限、同名 409（覆盖需显式 `overwrite=true`）。
+    详见 [docs/frontend-preview-and-library-prd-2026-11-02.md](docs/frontend-preview-and-library-prd-2026-11-02.md)
+    与 [docs/frontend-preview-and-library-devplan-2026-11-02.md](docs/frontend-preview-and-library-devplan-2026-11-02.md)。
+
+23. **提示词只有一处：`clipwright/prompts.py`**（PRD W4，2026-11-02）：
+    - 模块级提示词常量（7 个 agent 的系统提示、kernel/loop 的规划·收口·常规提示、MG 生成约束）
+      **一律从 `clipwright/prompts.py` 导入**；原模块保留**同名别名**（`from clipwright.prompts import X as 旧名`），
+      调用点一行不改，避免大面积 diff。
+    - **搬运必须逐字不变**：迁移后要用"值快照对比"证明每个符号字符串与搬运前完全相同
+      （累计 **26 常量 + 8 builder / 常量 10314 字符**，五批全部差异 0）；不许顺手改标点或换行。
+      动态 prompt 的验证用**运行时捕获**（stub `LLMService.ask`，改动前后各跑一次真实路径比对
+      实际发出的 prompt），比只比常量文本更硬。
+    - 需要运行时数字的提示用**参数化函数**（如 `prompts.build_budget_note(remaining, max_turns, used)`），
+      文案留常量、数字由调用方传参；**禁止**再把长文案写回 f-string 内联。
+    - 覆盖顺序（PRD 裁定）：全局 `prompts.py` < Category < Persona < Skill < 插件；下游覆盖走既有
+      persona/插件注入机制，**不要**在 `prompts.py` 里读配置或做业务判断。
+    - 详见 [docs/property-panel-and-prompt-extraction-prd-2026-11-02.md](docs/property-panel-and-prompt-extraction-prd-2026-11-02.md) §7。
+
 ## 鉴权三模式
 
 `CLIPWRIGHT_ACCOUNT_VERIFY_MODE = off | token | jwt`（默认 off）。jwt 模式本地验签共享密钥，中间件写 `request.state.user_id/user_role`；前端 access token 仅内存 + refresh 走 Server httpOnly cookie（`cw_refresh`）。

@@ -39,6 +39,8 @@ export function WorkspaceMediaTree({ search = '' }: { search?: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [folded, setFolded] = useState<Record<string, boolean>>({});
+  // 旧素材库里"不在工作区"的文件数（0 = 没有要迁的，不显示任何入口）
+  const [legacyPending, setLegacyPending] = useState(0);
 
   const load = async () => {
     if (!projectId) { setTree(null); return; }
@@ -47,8 +49,49 @@ export function WorkspaceMediaTree({ search = '' }: { search?: string }) {
     try {
       const data = await workspaceApi.mediaTree(projectId);
       setTree(data as MediaTree);
+      // 顺带问一次旧库（失败不影响主流程：旧库可能根本不存在）
+      try {
+        const legacy = await workspaceApi.legacyAssets(projectId);
+        setLegacyPending((legacy.assets || []).filter((a) => !a.in_workspace && a.exists).length);
+      } catch {
+        setLegacyPending(0);
+      }
     } catch (e) {
       setError(`读取工作区失败：${asText((e as Error)?.message || e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * 显式迁移旧素材（devplan T3.3）。
+   *
+   * 两步走：先 dry-run 拿"将复制几个 / 复用几个"，把数字摆给用户看；确认后才真复制。
+   * 迁移是**复制**（不移动、不删源），所以即使中途失败也不会丢素材。
+   */
+  const importLegacy = async () => {
+    if (!projectId) return;
+    setBusy(true);
+    try {
+      const plan = await workspaceApi.legacyImport(projectId, true);
+      const willCopy = (plan.planned || []).filter((p) => p.status === 'planned' || p.status === 'copy').length;
+      if (willCopy === 0) {
+        setLegacyPending(0);
+        setBusy(false);
+        return;
+      }
+      const ok = window.confirm(
+        `把旧素材库的 ${willCopy} 个文件复制到工作区 materials/？\n`
+        + '（只复制不移动，源文件保留；同内容文件会被去重跳过）',
+      );
+      if (!ok) { setBusy(false); return; }
+      const res = await workspaceApi.legacyImport(projectId, false);
+      setLegacyPending(
+        res.migrated + res.failed > 0 ? Math.max(0, legacyPending - res.migrated) : legacyPending,
+      );
+      await load();
+    } catch (e) {
+      setError(`导入旧素材失败：${asText((e as Error)?.message || e)}`);
     } finally {
       setBusy(false);
     }
@@ -94,6 +137,28 @@ export function WorkspaceMediaTree({ search = '' }: { search?: string }) {
       </div>
 
       {error && <p className="text-caption text-error">{error}</p>}
+
+      {/* devplan T3.3/T3.4：旧素材库的**显式**迁移入口。
+          为什么不自动搬：旧库里可能是几十 GB 的素材，静默复制会吃掉磁盘；
+          迁移只复制不移动，源文件永远留着。先 dry-run 拿计划，再确认执行。 */}
+      {legacyPending > 0 && (
+        <div className="flex items-center gap-2 rounded-cw-xs border border-outline-variant/40 px-1.5 py-1"
+          data-testid="legacy-assets-banner">
+          <span className="text-caption text-on-surface-variant/80">
+            旧素材库里还有 {legacyPending} 个文件不在工作区
+          </span>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void importLegacy()}
+            className="ml-auto shrink-0 rounded-cw-xs border border-primary/50 px-1.5 py-0.5 text-caption text-primary hover:bg-primary/10 disabled:opacity-50"
+            data-testid="legacy-import-button"
+          >
+            导入到工作区
+          </button>
+        </div>
+      )}
+
       {tree && tree.count === 0 && (
         <p className="text-caption text-on-surface-variant/70">
           工作区里还没有媒体文件：上传或让 Agent 跑一轮后，这里会按目录结构列出来。

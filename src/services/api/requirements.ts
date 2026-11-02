@@ -118,6 +118,9 @@ export const requirementsApi = {
     message: string;
     timeline: unknown;
     selected_clip_ids?: string[];
+    /** PRD W3：发送时冻结的选区摘要（服务端会做子集/上限校验） */
+    selection_summary?: string;
+    selection_truncated?: boolean;
     region_start_sec?: number;
     region_end_sec?: number;
     project_id?: string;
@@ -153,6 +156,8 @@ export const requirementsApi = {
     message: string;
     timeline: unknown;
     selected_clip_ids?: string[];
+    selection_summary?: string;
+    selection_truncated?: boolean;
     region_start_sec?: number;
     region_end_sec?: number;
     project_id?: string;
@@ -329,3 +334,4 @@ export const requirementsApi = {
     return data;
   },
 };
+

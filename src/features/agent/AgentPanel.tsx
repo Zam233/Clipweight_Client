@@ -29,6 +29,8 @@ import {
 import { useTaskStore } from '@/stores/taskStore';
 import { useTaskEvents } from '@/features/task/useTaskEvents';
 import { uid } from '@/lib/utils';
+// PRD W3.1：选区快照（发送时冻结，预览与确认执行共用同一份，避免确认前改选导致错配）
+import { buildSelectionSnapshot, selectionHint, type SelectionSnapshot } from './selectionSnapshot';
 import { asText, textList } from '@/lib/render';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline, Clip, ClipKind } from '@/types/timeline';
@@ -466,7 +468,11 @@ function RequirementsView() {
   const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
   // R6：待确认的意图（有未答问题或解析失败时挂起，用户确认后再执行）
   const [intentPending, setIntentPending] = useState<
-    { sid: string; message: string; preview: IntentPreviewPayload } | null
+    {
+      sid: string; message: string; preview: IntentPreviewPayload;
+      /** PRD W3：确认卡上冻结的选区快照（执行时用它，不再重新读选区） */
+      selection: SelectionSnapshot;
+    } | null
   >(null);
   const timeline = useTimelineStore((s) => s.timeline);
   const selectedClips = selectedClipIds
@@ -726,6 +732,8 @@ function RequirementsView() {
     message: string,
     preview: IntentPreviewPayload,
     answers: Record<string, string>,
+    /** PRD W3.3：确认卡上冻结的选区快照；执行时用它，不重新读选区 */
+    frozen?: SelectionSnapshot,
   ) => {
     setBusy(true);
     cancelInFlight();
@@ -736,15 +744,34 @@ function RequirementsView() {
       const region = (sel.rangeStart != null && sel.rangeEnd != null)
         ? { region_start_sec: sel.rangeStart, region_end_sec: sel.rangeEnd }
         : {};
+      // 执行用的是**冻结快照**：如果用户在确认卡停留期间改了选区，这里不会跟着变，
+      // 否则就会"按旧意图去改新选中的片段"。发现变化时明确告知（不静默）。
+      const selection = frozen ?? buildSelectionSnapshot(
+        useSelectionStore.getState().selectedClipIds,
+        useTimelineStore.getState().timeline,
+      );
+      const nowIds = useSelectionStore.getState().selectedClipIds;
+      const selectionChanged = frozen
+        ? !(nowIds.length === frozen.ids.length && nowIds.every((id) => frozen.ids.includes(id)))
+        : false;
       const res = await requirementsApi.intentApply(sid, {
         message,
         timeline: useTimelineStore.getState().timeline,
-        selected_clip_ids: selectedClipIds,
+        selected_clip_ids: selection.ids,
+        selection_summary: selection.summary,
+        selection_truncated: selection.truncated,
         intent_raw: preview.intent_raw,
         answers,
         apply: true,
         ...region,
       }, signal);
+      if (selectionChanged) {
+        addMessage({
+          id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: `注意：确认卡生成后你的选区变了。这次仍按**确认时选中的 ${selection.ids.length} 个片段**执行；`
+            + '要按当前选区来，请重新发一次指令。',
+        });
+      }
       if (res.applied && res.timeline) {
         // 走既有 diff 审阅：接受/合并时才注册真实媒体并写入 store
         useAgentStore.getState().setAgentTimeline(res.timeline as never);
@@ -764,7 +791,8 @@ function RequirementsView() {
         setIntentPending({
           sid, message,
           // 把"为什么没执行"挂回卡上（hardProblems 是卡上唯一会拦住确认的字段），
-          // 用户改口径或换选项后可以再来一次
+          // 用户改口径或换选项后可以再来一次；**选区快照沿用本次这份**（不乱换目标）
+          selection,
           preview: { ...preview, problems: [...(preview.problems ?? []), ...(res.report?.problems ?? [])] },
         });
       }
@@ -799,21 +827,31 @@ function RequirementsView() {
       const region = (sel.rangeStart != null && sel.rangeEnd != null)
         ? { region_start_sec: sel.rangeStart, region_end_sec: sel.rangeEnd }
         : {};
+      // PRD W3.1：**发送那一刻**冻结选区快照。后续预览/确认/执行都用这一份，
+      // 不再各自去读 useSelectionStore（那就是"确认时改选导致改错片段"的根因）。
+      const selection = buildSelectionSnapshot(
+        selectedClipIds, useTimelineStore.getState().timeline,
+      );
+      const selectionPayload = {
+        selected_clip_ids: selection.ids,
+        selection_summary: selection.summary,
+        selection_truncated: selection.truncated,
+      };
       // R6：任何一次自然语言改动**都先落位一遍**（不再有"跳过检查"的旁路——
       // 确认卡是唯一的执行入口，两个入口对同一句话给出不同理解是最难查的那类 bug）。
       try {
         const preview = await requirementsApi.intent(sessionId, {
           message,
           timeline: useTimelineStore.getState().timeline,
-          selected_clip_ids: selectedClipIds,
+          ...selectionPayload,
           ...region,
         }, editSignal);
         const needsConfirm = Boolean(preview?.blocked)
           || (preview?.resolution?.questions?.length ?? 0) > 0
           || (preview?.problems ?? []).some((p) => p.level === 'error');
         if (needsConfirm) {
-          // 停在确认卡：把原始指令与意图一起存下来，确认后按**这份意图**执行（R7）
-          setIntentPending({ sid: sessionId, message, preview });
+          // 停在确认卡：把原始指令、意图**和那份选区快照**一起存下来，确认后按它们执行
+          setIntentPending({ sid: sessionId, message, preview, selection });
           setBusy(false);
           chatAbortRef.current = null;
           return;
@@ -828,7 +866,7 @@ function RequirementsView() {
         session_id: sessionId,
         message,
         timeline: useTimelineStore.getState().timeline,
-        selected_clip_ids: selectedClipIds,
+        ...selectionPayload,
         ...region,
       }, editSignal);
       if (res.proposed_timeline) {
@@ -1257,7 +1295,7 @@ function RequirementsView() {
                 onConfirm={(answers) => {
                   const pending = intentPending;
                   setIntentPending(null);
-                  void applyIntent(pending.sid, pending.message, pending.preview, answers);
+                  void applyIntent(pending.sid, pending.message, pending.preview, answers, pending.selection);
                 }}
                 onCancel={() => {
                   setIntentPending(null);
@@ -1321,8 +1359,21 @@ function RequirementsView() {
                 if (input.trim() && sid) {
                   const m = input; setInput('');
                   (e.target as HTMLTextAreaElement).style.height = 'auto';
-                  if (selectedClipIds.length > 0) sendEdit(sid, m);
-                  else sendChat(sid, m);
+                  // PRD W3.4：按**有效选区**路由（快照里真能在这条时间线找到的片段），
+                  // 而不是原始 id 数组——过期选区（片段已删/来自别的项目）不当成"在改选中素材"。
+                  const snap = buildSelectionSnapshot(
+                    useSelectionStore.getState().selectedClipIds,
+                    useTimelineStore.getState().timeline,
+                  );
+                  if (snap.ids.length > 0) {
+                    if (snap.truncated) toast(selectionHint(snap), 'info');
+                    sendEdit(sid, m);
+                  } else {
+                    if (selectedClipIds.length > 0) {
+                      toast('选区已失效（片段可能已被删除）：这次按普通对话处理', 'info');
+                    }
+                    sendChat(sid, m);
+                  }
                 }
               }}
               placeholder={selectedClipIds.length > 0 ? '描述对选中素材的修改…（Shift+Enter 换行）' : '继续与需求 Agent 对话…（Shift+Enter 换行）'}
@@ -1338,8 +1389,19 @@ function RequirementsView() {
                 const sid = useAgentStore.getState().requirementsSessionId;
                 if (input.trim() && sid) {
                   const m = input; setInput('');
-                  if (selectedClipIds.length > 0) sendEdit(sid, m);
-                  else sendChat(sid, m);
+                  const snap = buildSelectionSnapshot(
+                    useSelectionStore.getState().selectedClipIds,
+                    useTimelineStore.getState().timeline,
+                  );
+                  if (snap.ids.length > 0) {
+                    if (snap.truncated) toast(selectionHint(snap), 'info');
+                    sendEdit(sid, m);
+                  } else {
+                    if (selectedClipIds.length > 0) {
+                      toast('选区已失效（片段可能已被删除）：这次按普通对话处理', 'info');
+                    }
+                    sendChat(sid, m);
+                  }
                 }
               }} disabled={!input.trim()}>
                 <Send className="w-3.5 h-3.5" />
@@ -2035,4 +2097,6 @@ function clipText(clip: Clip, kind: string): string {
 function demoPlanMarkdown(topic: string) {
   return `# 制作规划书：${topic || '未命名选题'}\n\n## 一、整体结构\n- 00:00-00:20  钩子\n- 00:20-01:00  背景\n- 01:00-03:30  三个核心论点\n- 03:30-04:00  总结\n\n## 二、场景列表\n1. 开场钩子\n2. 数据展示\n3. 论点一\n4. 论点二\n5. 论点三\n6. 结尾引导`;
 }
+
+
 
