@@ -462,6 +462,23 @@ export function HomePage() {
     }
   };
 
+  /**
+   * 裁定 C / PRD §15.9 第 10 项（2026-11-02 补）：上传配音的**入口**也归插件
+   * （`create.dub` 的 `file` 控件），但**上传执行与回执归宿主** —— 插件拿不到
+   * 上传 API、工作区路径与凭据。宿主只做一件事：插件回传的值里出现 `File`
+   * 就交给既有 `pickAudio`（时长探测 → 上传 → 去重提示），并记住已处理的那个
+   * `File`（同一对象不重复上传）。
+   */
+  const pluginPickedFileRef = useRef<File | null>(null);
+  useEffect(() => {
+    const picked = Object.values(pluginDub).find(
+      (v): v is File => typeof File !== 'undefined' && v instanceof File,
+    );
+    if (!picked || pluginPickedFileRef.current === picked) return;
+    pluginPickedFileRef.current = picked;
+    void pickAudio(picked);
+  }, [pluginDub]);
+
   /** PRD B4：向后端要几条候选选题（只填候选，不覆盖用户已写的标题） */
   const suggestTopics = async () => {
     setSuggesting(true);
@@ -1178,13 +1195,36 @@ export function HomePage() {
                         optionSources={dubOptionSources} onValuesChange={setPluginDub} />
                     )}
 
+                    {/* 内置上传入口：只在「无插件贡献」时渲染——插件用 `file` 控件提供同一入口
+                        （裁定 C：有贡献时内置配音控件整块让位）。 */}
                     {dubSlotContribs.length === 0 && (
-                    <>
-                    <input
-                      ref={audioInputRef} type="file" accept=".wav,.mp3,.m4a,.mp4" className="hidden"
-                      onChange={(e) => { const f = e.target.files?.[0]; if (f) pickAudio(f); e.target.value = ''; }}
-                    />
-                    {audio ? (
+                      <>
+                        <input
+                          ref={audioInputRef} type="file" accept=".wav,.mp3,.m4a,.mp4" className="hidden"
+                          onChange={(e) => { const f = e.target.files?.[0]; if (f) pickAudio(f); e.target.value = ''; }}
+                        />
+                        {!audio && (
+                          <button
+                            onClick={() => audioInputRef.current?.click()}
+                            disabled={uploading}
+                            className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-outline-variant/40 hover:border-track-audio/60
+                              rounded-cw-sm py-3 text-label-sm text-on-surface-variant hover:text-track-audio transition-colors cursor-pointer disabled:opacity-60"
+                          >
+                            {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                            {uploading ? '上传中…' : '上传配音文件（wav / mp3 / m4a）· 也可不上传，用自动配音'}
+                          </button>
+                        )}
+                      </>
+                    )}
+
+                    {/* 上传**执行与回执**归宿主（插件只提供入口，拿不到上传 API / 工作区路径 /
+                        凭据）：两种模式下渲染同一份回执，空值时不占位。 */}
+                    {uploading && dubSlotContribs.length > 0 && (
+                      <p className="flex items-center gap-1.5 text-caption text-on-surface-variant mt-1.5">
+                        <Loader2 className="w-3 h-3 animate-spin" />上传中…
+                      </p>
+                    )}
+                    {audio && (
                       <div className="flex items-center gap-3 bg-track-audio/8 border border-track-audio/40 rounded-cw-sm px-3 py-2.5">
                         <AudioLines className="w-4 h-4 text-track-audio shrink-0" />
                         <div className="flex-1 min-w-0">
@@ -1202,16 +1242,6 @@ export function HomePage() {
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                    ) : (
-                      <button
-                        onClick={() => audioInputRef.current?.click()}
-                        disabled={uploading}
-                        className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-outline-variant/40 hover:border-track-audio/60
-                          rounded-cw-sm py-3 text-label-sm text-on-surface-variant hover:text-track-audio transition-colors cursor-pointer disabled:opacity-60"
-                      >
-                        {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                        {uploading ? '上传中…' : '上传配音文件（wav / mp3 / m4a）· 也可不上传，用自动配音'}
-                      </button>
                     )}
                     {uploadErr && <p className="text-caption text-error mt-1.5">{uploadErr}</p>}
                     {uploadNote && (
@@ -1224,8 +1254,6 @@ export function HomePage() {
                       <p className="text-caption text-on-surface-variant/70 mt-1.5">
                         自动配音需要先选择音色；未选音色时按「画面优先」处理，不生成旁白。也可以直接上传配音文件。
                       </p>
-                    )}
-                    </>
                     )}
 
                     {captions.length > 0 && (

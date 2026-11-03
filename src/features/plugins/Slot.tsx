@@ -1,7 +1,7 @@
 /**
  * D-2：通用 Slot 壳 —— 拉取并渲染指定插槽的插件贡献。
  *
- * 面板/分区类贡献复用现有 PluginLayoutRenderer（13 种控件 + UIAction），
+ * 面板/分区类贡献复用现有 PluginLayoutRenderer（14 种控件 + UIAction），
  * 不重写；其余 slot 类型由各自的渲染器（D-3 逐点迁移时接入）扩展。
  */
 import type { ReactNode } from 'react';

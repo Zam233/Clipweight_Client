@@ -8,7 +8,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApiClient } from '@/services/api';
 import { Button } from '@/components/ui';
-import { Loader2, AlertCircle, CheckCircle2, Info } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, Info, Upload, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { UILayout, UIWidget, UIRenderState } from './types';
 
@@ -371,6 +371,57 @@ export function PluginLayoutRenderer({
               <div key={`group-${idx}`} className="rounded-cw-sm border border-outline-variant/20 p-3 space-y-3">
                 {widget.title && <h4 className="text-label font-medium text-on-surface-variant">{widget.title}</h4>}
                 {widget.children.map((w, i) => renderWidget(w, i))}
+              </div>
+            );
+          }
+
+          // 文件选择（2026-11-02 补）：值 = `File` 对象，经 onChange 交给宿主上传。
+          // 控件本身不发起网络请求（UIAction 只支持 JSON body，上传是多部分表单），
+          // 插件也就拿不到上传 API / 工作区路径 / 凭据 —— 这与「判断交给模型、
+          // 能力交给插件、执行归宿主」同一条边界。
+          case 'file': {
+            const raw = getValue(widget.key);
+            const picked = typeof File !== 'undefined' && raw instanceof File ? raw : null;
+            // 宿主回填的字符串（上传后的路径/文件名）也要显示，否则上传完成控件看起来是空的
+            const uploaded = typeof raw === 'string' ? raw : '';
+            const fileName = picked?.name ?? (uploaded ? uploaded.split(/[\\/]/).pop() || uploaded : '');
+            return (
+              <div key={widget.key}>
+                {widget.label && (
+                  <div className="block text-label text-on-surface-variant mb-1">{widget.label}</div>
+                )}
+                <label
+                  className={cn(
+                    'w-full flex items-center justify-center gap-2 rounded-cw-sm py-2.5 px-3 text-label-sm cursor-pointer',
+                    'border-2 border-dashed border-outline-variant/40 hover:border-primary/60 transition-colors',
+                    fileName ? 'text-on-surface' : 'text-on-surface-variant',
+                  )}
+                >
+                  <input
+                    type="file"
+                    accept={widget.accept}
+                    className="sr-only"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      // 同一个文件再次选择必须能触发 onChange，所以清空原生 input 的值
+                      e.target.value = '';
+                      setUIState(widget.key, f);
+                    }}
+                  />
+                  <Upload className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{fileName || widget.placeholder || '选择文件'}</span>
+                  {fileName && (
+                    <button
+                      type="button"
+                      title="清除已选文件"
+                      // label 包裹的按钮默认会继续触发文件选择，必须阻止
+                      onClick={(e) => { e.preventDefault(); setUIState(widget.key, null); }}
+                      className="p-0.5 rounded-cw-xs text-on-surface-variant hover:text-error cursor-pointer shrink-0"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </label>
               </div>
             );
           }

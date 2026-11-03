@@ -23,7 +23,8 @@ export type UIWidget =
   | UIText
   | UIRow
   | UIColumn
-  | UIGroup;
+  | UIGroup
+  | UIFile;
 
 export interface UIWidgetBase {
   key?: string;
@@ -143,6 +144,23 @@ export interface UIGroup extends UIWidgetBase {
   type: 'group';
   title?: string;
   children: UIWidget[];
+}
+
+/**
+ * 文件选择（2026-11-02 补，PRD §15.9 第 10 项）。
+ *
+ * **边界**：控件值以 `File` 对象回传宿主（`onChange` → `Slot.onValuesChange`），
+ * **上传/落盘归宿主**——插件拿不到上传 API、工作区路径与凭据，也不参与重试与去重。
+ * 因此这里没有 `action` / `endpoint` 字段：插件只声明「我要一个文件」。
+ */
+export interface UIFile extends UIWidgetBase {
+  type: 'file';
+  key: string;
+  label?: string;
+  /** 直接映射到 `<input accept>`，如 `.wav,.mp3,.m4a,.mp4` */
+  accept?: string;
+  /** 未选择文件时的按钮文案 */
+  placeholder?: string;
 }
 
 /** Action triggered by button click */

@@ -57,6 +57,30 @@ describe('PluginLayoutRenderer M11 控件集', () => {
       { headers: { 'Content-Type': 'application/json' } });
   });
 
+  it('file 控件把选中的 File 交给宿主（上传执行归宿主，控件本身不发请求）', () => {
+    mocks.post.mockClear();
+    const onChange = vi.fn();
+    const layout: UILayout = {
+      widgets: [
+        { type: 'file', key: 'upload_voice', label: '上传配音', accept: '.wav,.mp3', placeholder: '选择配音文件' },
+      ],
+    };
+    render(<PluginLayoutRenderer layout={layout} onChange={onChange} />);
+
+    const input = screen.getByLabelText('选择配音文件') as HTMLInputElement;
+    expect(input.type).toBe('file');
+    expect(input.accept).toBe('.wav,.mp3');
+
+    const file = new File(['x'], 'narration.wav', { type: 'audio/wav' });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    // 已选文件名可见，且值以 File 对象回传宿主（宿主负责上传）
+    expect(screen.getByText('narration.wav')).toBeTruthy();
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ upload_voice: file }));
+    // 控件自身绝不发起请求（插件拿不到上传 API）
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
   it('visibleWhen 隐藏条件生效', () => {
     const layout: UILayout = {
       widgets: [
