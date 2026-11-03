@@ -6,7 +6,7 @@
  * `detail as Record<string, unknown>` 再猜字段名，后端改名叫 `stage`→`phase` 时
  * 静默变成空白——所以这里做成**集中式 parser**，并用跨仓契约测试锁住键集合：
  * `tests/test_event_contract.py` 断言后端 `EVENT_TYPES` 与本文件的
- * `EVENT_TYPE_KEYS` 集合完全相等（数量 29）。
+ * `EVENT_TYPE_KEYS` 集合完全相等（数量 31）。
  *
  * 设计约束：
  * 1. **只补默认值、不丢字段**：未知键原样保留在 `raw` 里，方便排查；
@@ -48,6 +48,11 @@ export const EVENT_TYPE_KEYS = [
   'question',
   'answer',
   'progress',
+  // 目标语义与软着陆（后端 2026-11-02，终止机制 devplan §6 / PRD §15）
+  // - goal_update：Goal 的轮次/完成标准/blocker 指纹更新（同一 blocker 连续 3 轮才允许 blocked）
+  // - soft_landing：撞上限进入收口模式（工具面收成只读 + 换提示词），是状态广播不是终态
+  'goal_update',
+  'soft_landing',
 ] as const satisfies readonly TaskEventType[];
 
 export type KnownEventKind = (typeof EVENT_TYPE_KEYS)[number];
@@ -234,6 +239,8 @@ export type ParsedEvent =
   | (ParsedEventBase & { kind: 'question'; question: QuestionDetail })
   | (ParsedEventBase & { kind: 'answer'; answer: AnswerDetail })
   | (ParsedEventBase & { kind: 'progress'; stageProgress: StageProgressDetail })
+  // 目标语义 / 软着陆（后端 2026-11-02）：状态广播，不是终态；字段见 `control`
+  | (ParsedEventBase & { kind: 'goal_update' | 'soft_landing'; control: Record<string, unknown> })
   | (ParsedEventBase & { kind: 'task_end' | 'gate_hit' | 'degradation' | 'artifact'
       | 'checkpoint' | 'inject' | 'plan' | 'replan' | 'task_start'; end: TaskEndDetail & Record<string, unknown> })
   | (ParsedEventBase & { kind: 'unknown' });
@@ -440,6 +447,23 @@ export function parseTaskEvent(event: TaskEvent): ParsedEvent {
           status: str(raw.status),
           bullets: strArr(raw.bullets),
           tool_calls: num(raw.tool_calls),
+        },
+      };
+    case 'goal_update':
+    case 'soft_landing':
+      // 两者都是"运行中状态广播"：goal_update 说目标轮次/blocker 变到哪一步，
+      // soft_landing 说已经进入收口模式（工具面收成只读）。未知键仍由 `...raw` 保留。
+      return {
+        ...base,
+        kind,
+        control: {
+          rounds: num(raw.rounds),
+          max_rounds: num(raw.max_rounds),
+          blocker_code: str(raw.blocker_code),
+          completion_criteria: str(raw.completion_criteria),
+          mode: str(raw.mode),
+          reason: str(raw.reason),
+          ...raw,
         },
       };
     default:
