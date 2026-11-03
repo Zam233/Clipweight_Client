@@ -54,7 +54,17 @@ export interface UISelect extends UIWidgetBase {
   type: 'select';
   label?: string;
   key: string;
-  options: string[];
+  /**
+   * 静态选项。当选项来自业务数据（例如音色列表）时用 `optionsFrom` 指向宿主提供的
+   * **白名单数据源**（宿主解析后传入，插件拿不到任意数据）。两者至少给一个；
+   * 都缺则渲染为空并给可读提示，不静默丢弃。
+   */
+  options?: string[];
+  /**
+   * 动态选项数据源（宿主白名单）。已知值：
+   * - `voices`：「语音克隆」页的音色列表（宿主从 `/api/voice/list` 取）
+   */
+  optionsFrom?: string;
   defaultValue?: string;
 }
 

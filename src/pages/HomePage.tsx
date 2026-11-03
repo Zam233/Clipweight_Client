@@ -368,11 +368,35 @@ export function HomePage() {
   // 裁定 C（2026-11-02）：03 配音步骤的内容由 TTS 功能插件通过 `create.dub` 贡献；
   // 没有贡献时才回落到下面的内置控件（过渡期，PRD §15.9 第 3 项最终删除内置块）。
   const dubSlotContribs = usePluginSlots('create.dub');
+  // 插件贡献的配音控件值（裁定 C）：插件声明 optionsFrom/控件 key，宿主只提供数据与回填。
+  const [pluginDub, setPluginDub] = useState<Record<string, unknown>>({});
+  const dubOptionSources = useMemo(
+    () => ({ voices: voices.map((v) => ({ value: v.voice_id, label: `${v.voice_name}（${v.provider}）` })) }),
+    [voices],
+  );
+  // 插件选的音色/自动配音要回填进工程状态（引擎侧仍读这两个字段，不改成插件私有约定）
+  useEffect(() => {
+    const vid = typeof pluginDub.voice_id === 'string' ? pluginDub.voice_id : '';
+    const auto = typeof pluginDub.auto_dub === 'boolean' ? pluginDub.auto_dub : undefined;
+    if (vid) {
+      setVoicePick(vid);
+      useProjectStore.getState().setVoiceId(vid || null);
+    }
+    if (auto !== undefined) {
+      setAutoDubPref(auto);
+      useProjectStore.getState().setAutoDub(auto);
+    }
+  }, [pluginDub]);
   const stepDone = {
     script: Boolean(topic.trim() || script.trim()),
     style: Boolean(personaId || pluginId),
     // 有上传配音，或「自动配音 + 已选音色」才算这一步完成；纯画面模式不需要配音
-    dub: mode === 'visual' ? true : Boolean(audio) || Boolean(voicePick),
+    // 有插件贡献时以插件控件值为准（否则创作页永远显示「未完成」）
+    dub: mode === 'visual'
+      ? true
+      : (Object.keys(pluginDub).length > 0
+          ? Boolean(pluginDub.voice_id) || Boolean(pluginDub.auto_dub) || Boolean(audio)
+          : Boolean(audio) || Boolean(voicePick)),
     // 工作区是可选步骤：默认值即可启动（开关会随会话下发）
     workspace: true,
   };
@@ -1150,7 +1174,8 @@ export function HomePage() {
                     {/* 裁定 C：插件通过 create.dub 贡献配音入口时，内置控件整块让位；
                         没有贡献才回落到下面这段（过渡期，PRD §15.9 第 3 项最终删除）。 */}
                     {dubSlotContribs.length > 0 && (
-                      <Slot name="create.dub" context={{ mode, hasTimeline: false }} />
+                      <Slot name="create.dub" context={{ mode, hasTimeline: false }}
+                        optionSources={dubOptionSources} onValuesChange={setPluginDub} />
                     )}
 
                     {dubSlotContribs.length === 0 && (
@@ -1758,6 +1783,7 @@ function RulerStrip() {
 }
 
 // RulerStrip 与旧 TopBar 已由图一左侧栏（HomeSidebar）替代，不再使用。
+
 
 
 

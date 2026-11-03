@@ -5,7 +5,7 @@
  * 不重写；其余 slot 类型由各自的渲染器（D-3 逐点迁移时接入）扩展。
  */
 import type { ReactNode } from 'react';
-import { PluginLayoutRenderer } from './PluginLayoutRenderer';
+import { PluginLayoutRenderer, type PluginOptionSource } from './PluginLayoutRenderer';
 import { PluginBundleFrame } from './PluginBundleFrame';
 import { evalVisibleWhen, type SlotName, type SlotVisibilityContext } from './slots';
 import { usePluginSlots } from './usePluginSlots';
@@ -20,9 +20,13 @@ interface SlotProps {
   renderLayout?: (layout: NonNullable<ReturnType<typeof usePluginSlots>[number]['layout']>, title: string) => ReactNode;
   /** D-3g 等按宿主上下文过滤（如 props.section 的 payload.kinds）；缺省全通过。 */
   filter?: (contribution: import('./slots').SlotContribution) => boolean;
+  /** 宿主提供的动态选项数据源（`UISelect.optionsFrom` 用它取选项）。 */
+  optionSources?: Record<string, PluginOptionSource[]>;
+  /** 控件值变化回调（宿主据此把插件控件接入业务流程）。 */
+  onValuesChange?: (values: Record<string, unknown>) => void;
 }
 
-export function Slot({ name, context = {}, fallback = null, renderLayout, filter }: SlotProps) {
+export function Slot({ name, context = {}, fallback = null, renderLayout, filter, optionSources, onValuesChange }: SlotProps) {
   const items = usePluginSlots(name);
   const visible = items
     .filter((c) => (filter ? filter(c) : true))
@@ -50,7 +54,11 @@ export function Slot({ name, context = {}, fallback = null, renderLayout, filter
                 <span className="text-label font-medium text-on-surface">{c.title}</span>
               </header>
               <div className="p-3">
-                <PluginLayoutRenderer layout={c.layout as never} />
+                <PluginLayoutRenderer
+                  layout={c.layout as never}
+                  optionSources={optionSources}
+                  onChange={onValuesChange}
+                />
               </div>
             </section>
           );
@@ -60,3 +68,4 @@ export function Slot({ name, context = {}, fallback = null, renderLayout, filter
     </>
   );
 }
+

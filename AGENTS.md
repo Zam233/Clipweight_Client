@@ -188,9 +188,13 @@ J:\Clipwright
     - `HomePage` 在 `03 配音与字幕` 步骤里渲染 `<Slot name="create.dub" />`；**有贡献时**
       内置配音控件（音色下拉 / 自动配音开关 / 上传配音）整块让位，**无贡献时**回落——这是
       过渡期写法，最终态是「无插件即无入口」，等插件 UI 上线后删除内置块（PRD §15.9 #3）。
-    - **插件侧 UI 尚未落地**：现有 widget schema 只有静态 `options`，表达不了「音色列表」
-      （数据来自 `GET /api/voice/list`）。要真正接管入口，得先给 `select` 之类加动态数据源
-      （`optionsFrom` / `data_source`），否则插件只能让用户手填音色 ID = 体验倒退。
+    - **动态选项契约已补（2026-11-02）**：`UISelect.optionsFrom` 指向宿主**白名单**数据源
+      （当前支持 `voices`，由 `HomePage` 从音色列表解析后经 `Slot.optionSources` 传入），
+      插件只声明「要哪个源」，拿不到任意数据；未知源名渲染成「暂无可用选项」+ 提示，不静默丢弃。
+    - **控件值回传**：`PluginLayoutRenderer.onChange` → `Slot.onValuesChange`。回调里**别传内联
+      箭头函数**（渲染器内部用 ref 持有最新回调、依赖只跟 state 走；若依赖 onChange 身份会
+      每次渲染都触发 → setState 死循环）。`HomePage` 用 `setPluginDub` 接收并回填
+      `voicePick`/`autoDub`（引擎侧字段不变）。
     - 宿主侧不要读插件内部 state 来判断步骤完成度；`stepDone.dub` 目前仍由 `audio`/`voicePick`
       推导，插件贡献上线后要改成「由贡献值或能力可用性驱动」（PRD §15.9 #4）。
 
