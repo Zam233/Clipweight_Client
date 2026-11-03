@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import {
   providersApi, providersForKind, buildSourcePayload, KIND_ROLES, ROLE_LABELS,
   validateGeneration, GENERATION_LIMITS,
   type AvailableProviders, type ProviderKind, type ProviderModel, type ProviderRole,
   type ProviderSource, type RoleBindings, type ModelGeneration,
-  type ProviderDeclaredSchema, schemaFor,
+  type ProviderDeclaredSchema, schemaFor, type ProviderCapabilities,
 } from '@/services/api/providers';
 import {
   Plus, Trash2, RefreshCw, Loader2, Save, KeyRound, Star, StarOff, Pencil, Check, X, Activity, SlidersHorizontal,
@@ -90,6 +91,8 @@ export function ProvidersPage() {
   const [newModel, setNewModel] = useState('');
   /** B1-T6：插件声明的 provider config schema（schema 驱动表单） */
   const [schemas, setSchemas] = useState<Record<string, ProviderDeclaredSchema[]>>({});
+  /** H-066：当前 provider 的能力协商结果（后端按实现返回） */
+  const [caps, setCaps] = useState<ProviderCapabilities | null>(null);
 
   const reload = useCallback(async () => {
     setBusy('load');
@@ -123,6 +126,15 @@ export function ProvidersPage() {
   /** 当前 (kind, provider) 的插件声明；空 = 只有内置字段 */
   const declared = useMemo(() => schemaFor(schemas, kind, form.provider), [schemas, kind, form.provider]);
   const declaredFields = useMemo(() => Object.entries(declared?.config_schema ?? {}), [declared]);
+  // H-066：能力协商结果随「类型 + 提供商」变化重新拉取；失败静默（诊断信息不该阻塞表单）
+  useEffect(() => {
+    let alive = true;
+    if (!form.provider) { setCaps(null); return () => { alive = false; }; }
+    void providersApi.capabilities(kind, form.provider)
+      .then((res) => { if (alive) setCaps(res); })
+      .catch(() => { if (alive) setCaps(null); });
+    return () => { alive = false; };
+  }, [kind, form.provider]);
 
   const selectSource = (src: ProviderSource) => {
     setSelectedId(src.id);
@@ -442,6 +454,37 @@ export function ProvidersPage() {
                   {providerOptions.map((p) => <option key={p} value={p}>{p}</option>)}
                 </select>
               </Field>
+              {/* H-066：能力协商徽标——按实现真实返回，不按 provider 名字猜 */}
+              {caps && (
+                <div className="md:col-span-2 flex flex-wrap items-center gap-1.5" data-testid="f-capabilities">
+                  <span className="text-label-sm text-on-surface-variant">能力：</span>
+                  {caps.error ? (
+                    <span className="text-caption text-error">{asText(caps.error)}</span>
+                  ) : !caps.capabilities ? (
+                    <span className="text-caption text-on-surface-variant/60">未知</span>
+                  ) : (
+                    [
+                      ['streaming', '流式'],
+                      ['tool_calls', '工具调用'],
+                      ['vision', '视觉'],
+                      ['json_mode', 'JSON 模式'],
+                      ['reasoning_effort', '思考强度'],
+                      ['reasoning_content', '思考内容'],
+                    ]
+                      .filter(([key]) => Boolean(caps.capabilities?.[key as keyof NonNullable<ProviderCapabilities['capabilities']>]))
+                      .map(([key, label]) => (
+                        <span key={key} className="px-1.5 py-0.5 rounded-cw-xs bg-surface-container-high text-caption text-on-surface-variant">
+                          {label}
+                        </span>
+                      ))
+                  )}
+                  {caps.plugin_id && (
+                    <span className="px-1.5 py-0.5 rounded-cw-xs bg-primary/10 text-caption text-primary">
+                      插件：{caps.plugin_id}
+                    </span>
+                  )}
+                </div>
+              )}
               <Field label="API Base URL">
                 <input value={form.baseUrl} onChange={(e) => setForm((f) => ({ ...f, baseUrl: e.target.value }))}
                   placeholder="https://api.deepseek.com" data-testid="f-base-url" className={INPUT} />
@@ -796,6 +839,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </label>
   );
 }
+
+
+
 
 
 

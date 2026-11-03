@@ -116,6 +116,28 @@ export interface AvailableProviders {
   tts_aliases: Record<string, string>;
 }
 
+/** provider 的能力协商结果（后端按实现真实返回，不是按名字猜）。 */
+export interface ProviderCapabilities {
+  provider: string;
+  kind: ProviderKind;
+  /** 空串 = 内置实现 */
+  plugin_id: string;
+  model: string;
+  capabilities: {
+    streaming?: boolean;
+    tool_calls?: boolean;
+    json_mode?: boolean;
+    vision?: boolean;
+    max_context_tokens?: number;
+    max_concurrency?: number;
+    arbitrary_models?: boolean;
+    reasoning_effort?: boolean;
+    reasoning_content?: boolean;
+    reasoning_streaming?: boolean;
+    generation_params?: string[];
+  } | null;
+  error?: string;
+}
 export interface ProviderSourceInput {
   name: string;
   kind?: ProviderKind;
@@ -222,6 +244,16 @@ export const providersApi = {
     };
   },
 
+  /**
+   * 某个 provider 的能力协商结果（H-066）。前端据此显示「支持 reasoning 强度 / 会回吐
+   * 思考内容」等徽标，避免按 provider 名字猜能力给出假按钮。
+   */
+  async capabilities(kind: ProviderKind, provider: string, model = ''): Promise<ProviderCapabilities> {
+    const { data } = await getApiClient().get('/api/providers/capabilities', {
+      params: { kind, provider, ...(model ? { model } : {}) },
+    });
+    return data as ProviderCapabilities;
+  },
   /** 插件声明的 provider 配置 schema（schema 驱动表单的唯一数据源） */
   async schemas(kind?: ProviderKind): Promise<Record<string, ProviderDeclaredSchema[]>> {
     const { data } = await getApiClient().get('/api/providers/schemas', {
@@ -345,4 +377,5 @@ export function buildSourcePayload(input: {
   if (input.timeoutSec.trim() && Number.isFinite(t) && t > 0) payload.timeout_sec = t;
   return payload;
 }
+
 
