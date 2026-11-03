@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useProjectStore } from '@/stores/projectStore';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
+import { Slot } from '@/features/plugins/Slot';
 import { safePluginPath } from '@/features/plugins/slots';
 import { clearRequirementsDraft } from '@/stores/agentStore';
 import {
@@ -364,6 +365,9 @@ export function HomePage() {
     return 60;
   }, [audio, script]);
 
+  // 裁定 C（2026-11-02）：03 配音步骤的内容由 TTS 功能插件通过 `create.dub` 贡献；
+  // 没有贡献时才回落到下面的内置控件（过渡期，PRD §15.9 第 3 项最终删除内置块）。
+  const dubSlotContribs = usePluginSlots('create.dub');
   const stepDone = {
     script: Boolean(topic.trim() || script.trim()),
     style: Boolean(personaId || pluginId),
@@ -1049,7 +1053,7 @@ export function HomePage() {
                         </p>
                       </div>
 
-                      {voices.length > 0 && (
+                      {dubSlotContribs.length === 0 && voices.length > 0 && (
                         <select
                           value={voicePick}
                           onChange={(e) => {
@@ -1100,6 +1104,7 @@ export function HomePage() {
                         />
                       )}
 
+                      {dubSlotContribs.length === 0 && (
                       <label className="flex items-center gap-1.5 px-1 text-label-sm text-on-surface-variant cursor-pointer select-none" title="关闭后不自动生成旁白（适合纯画面/B-roll 视频）；开启需先选择音色">
                           <input
                             type="checkbox"
@@ -1120,6 +1125,7 @@ export function HomePage() {
                           />
                           自动配音
                         </label>
+                      )}
 
                       <div className="flex bg-surface rounded-cw-sm border border-outline-variant/40 p-0.5">
                           <button
@@ -1141,6 +1147,14 @@ export function HomePage() {
                         </div>
                     </div>
 
+                    {/* 裁定 C：插件通过 create.dub 贡献配音入口时，内置控件整块让位；
+                        没有贡献才回落到下面这段（过渡期，PRD §15.9 第 3 项最终删除）。 */}
+                    {dubSlotContribs.length > 0 && (
+                      <Slot name="create.dub" context={{ mode, hasTimeline: false }} />
+                    )}
+
+                    {dubSlotContribs.length === 0 && (
+                    <>
                     <input
                       ref={audioInputRef} type="file" accept=".wav,.mp3,.m4a,.mp4" className="hidden"
                       onChange={(e) => { const f = e.target.files?.[0]; if (f) pickAudio(f); e.target.value = ''; }}
@@ -1185,6 +1199,8 @@ export function HomePage() {
                       <p className="text-caption text-on-surface-variant/70 mt-1.5">
                         自动配音需要先选择音色；未选音色时按「画面优先」处理，不生成旁白。也可以直接上传配音文件。
                       </p>
+                    )}
+                    </>
                     )}
 
                     {captions.length > 0 && (
@@ -1742,5 +1758,8 @@ function RulerStrip() {
 }
 
 // RulerStrip 与旧 TopBar 已由图一左侧栏（HomeSidebar）替代，不再使用。
+
+
+
 
 

@@ -182,6 +182,18 @@ J:\Clipwright
       表单下方列出来（`unknown_capability_keys`）。
     - 不允许为某个具体厂商写专属分支（如 `if provider === 'cosyvoice'`）。
 
+25. **「开始创作」页 03 配音步骤的入口归插件（`create.dub`）**（2026-11-02 裁定 C）：
+    - slot 名单已从 14 变 15：`src/features/plugins/slots.ts` 的 `SlotName` 与 `SLOT_NAMES`
+      都含 `'create.dub'`（**这是名单冻结后的第一次变更**，新增 slot 仍须走 SlotRegistry 评审）。
+    - `HomePage` 在 `03 配音与字幕` 步骤里渲染 `<Slot name="create.dub" />`；**有贡献时**
+      内置配音控件（音色下拉 / 自动配音开关 / 上传配音）整块让位，**无贡献时**回落——这是
+      过渡期写法，最终态是「无插件即无入口」，等插件 UI 上线后删除内置块（PRD §15.9 #3）。
+    - **插件侧 UI 尚未落地**：现有 widget schema 只有静态 `options`，表达不了「音色列表」
+      （数据来自 `GET /api/voice/list`）。要真正接管入口，得先给 `select` 之类加动态数据源
+      （`optionsFrom` / `data_source`），否则插件只能让用户手填音色 ID = 体验倒退。
+    - 宿主侧不要读插件内部 state 来判断步骤完成度；`stepDone.dub` 目前仍由 `audio`/`voicePick`
+      推导，插件贡献上线后要改成「由贡献值或能力可用性驱动」（PRD §15.9 #4）。
+
 ## 鉴权三模式
 
 `CLIPWRIGHT_ACCOUNT_VERIFY_MODE = off | token | jwt`（默认 off）。jwt 模式本地验签共享密钥，中间件写 `request.state.user_id/user_role`；前端 access token 仅内存 + refresh 走 Server httpOnly cookie（`cw_refresh`）。

@@ -1,7 +1,7 @@
 /**
  * 插件插槽契约 —— 可贡献的前端扩展点（方案 D / M1 契约冻结）。
  *
- * 名单冻结：新增 slot 需走 SlotRegistry 的契约评审（见
+ * 名单冻结：新增 slot 需走 SlotRegistry 的契约评审（2026-11-02 第一次变更：新增 `create.dub`，见
  * docs/pluginization-plan-2026-09-10.md §6 D-0）。
  *
  * 契约纪律：
@@ -24,6 +24,7 @@ export type SlotName =
   | 'props.section'        // 属性面板分区（按 clip kind 过滤）
   | 'export.preset'        // 导出预设
   | 'settings.section'     // 设置页分区
+  | 'create.dub'           // 「开始创作」向导 03 配音与字幕步骤的内容（裁定 C，2026-11-02）
   | 'app.overlay'          // 全局浮层（插件声明式提示/引导，如可安装依赖）
   | 'shortcut';            // 快捷键
 
@@ -40,6 +41,7 @@ export const SLOT_NAMES: readonly SlotName[] = [
   'props.section',
   'export.preset',
   'settings.section',
+  'create.dub',
   'app.overlay',
   'shortcut',
 ] as const;
@@ -176,3 +178,5 @@ export function safePluginPath(value: unknown): string | null {
   if (to.split('/').includes('..')) return null;
   return to.length > 1 && to.endsWith('/') ? to.slice(0, -1) : to;
 }
+
+
