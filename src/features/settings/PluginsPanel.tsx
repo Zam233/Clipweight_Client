@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { pluginApi } from '@/services/api';
 import { getApiClient } from '@/services/api/client';
-import type { PluginContributionItem, PluginHealthResponse } from '@/services/api/project';
+import type { PluginContributionItem, PluginHealthResponse, PluginPromptSymbolsResponse } from '@/services/api/project';
 import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
 import { ConfigValueInput } from '@/components/ConfigValueInput';
@@ -10,8 +10,7 @@ import { asText } from '@/lib/render';
 import type { PluginConfigField, PluginConfigResponse } from '@/types/api';
 import {
   Puzzle, Power, Loader2, RefreshCw, Zap, Settings, X, Save, Trash2, Eye, Box,
-  AlertTriangle, Activity, ShieldCheck, Link2, Wand2, GitBranch,
-} from 'lucide-react';
+  AlertTriangle, Activity, ShieldCheck, Link2, Wand2, GitBranch, FileText } from 'lucide-react';
 import { PluginLayoutRenderer } from '@/features/plugins';
 import { invalidatePluginSlots } from '@/features/plugins/usePluginSlots';
 import type { UILayout } from '@/features/plugins/types';
@@ -70,6 +69,10 @@ export function PluginsPanel() {
   const [contributions, setContributions] = useState<PluginContributionItem[]>([]);
   const [contribOwner, setContribOwner] = useState<string>('');
   const [contribLoading, setContribLoading] = useState(false);
+  // B5-T7：提示词符号清单与来源（插件覆盖了哪些符号 / 哪些还没接线）
+  const [promptSymsOpen, setPromptSymsOpen] = useState(false);
+  const [promptSyms, setPromptSyms] = useState<PluginPromptSymbolsResponse | null>(null);
+  const [promptSymsLoading, setPromptSymsLoading] = useState(false);
 
   const loadErrors = async () => {
     setErrorsLoading(true);
@@ -101,6 +104,17 @@ export function PluginsPanel() {
     }
   };
 
+  const loadPromptSymbols = async () => {
+    setPromptSymsLoading(true);
+    try {
+      const res = await pluginApi.promptSymbols();
+      setPromptSyms(res ?? null);
+    } catch {
+      setPromptSyms(null);
+    } finally {
+      setPromptSymsLoading(false);
+    }
+  };
   const openPreview = async (p: PluginItem) => {
     setPreviewId(p.id);
     setPreviewLayout(null);
@@ -361,6 +375,9 @@ export function PluginsPanel() {
         <Button size="sm" variant="outline" onClick={() => { setErrorsOpen(true); loadErrors(); }}>
           <AlertTriangle className="w-3.5 h-3.5" /> 错误通道
         </Button>
+        <Button size="sm" variant="outline" onClick={() => { setPromptSymsOpen(true); void loadPromptSymbols(); }}>
+          <FileText className="w-3.5 h-3.5" /> 提示词符号
+        </Button>
         <Button size="sm" onClick={loadAll} disabled={loadingAll}>
           {loadingAll ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />} 全部加载
         </Button>
@@ -616,6 +633,66 @@ export function PluginsPanel() {
         </Modal>
       )}
 
+      {promptSymsOpen && (
+        <Modal onClose={() => setPromptSymsOpen(false)} title="提示词符号与来源" maxWidth="max-w-2xl"
+          icon={<FileText className="w-4 h-4 text-primary" />}>
+          {promptSymsLoading ? (
+            <p className="text-caption text-on-surface-variant">加载中…</p>
+          ) : !promptSyms ? (
+            <p className="text-caption text-error">读取失败（后端可能未启动）</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-3 mb-3 font-mono text-caption text-on-surface-variant">
+                <span>常量 {promptSyms.constants.length}</span>
+                <span>builder {promptSyms.builders.length}</span>
+                <span>已接线 {[...promptSyms.constants, ...promptSyms.builders].filter((s) => s.wired).length}</span>
+                <span>被覆盖 {[...promptSyms.constants, ...promptSyms.builders].filter((s) => s.override).length}</span>
+              </div>
+              <p className="text-caption text-on-surface-variant/70 mb-3">
+                提示词默认值在 <code className="font-mono">clipwright/prompts.py</code>；插件可覆盖单个符号。
+                <b>“未接线”</b>表示该符号还没有消费方在运行时解析——覆盖了也不会生效。
+              </p>
+              {(['constants', 'builders'] as const).map((group) => (
+                <div key={group} className="mb-4">
+                  <p className="text-label-sm text-on-surface-variant mb-1.5">
+                    {group === 'constants' ? '常量' : 'builder'}
+                  </p>
+                  <div className="max-h-64 overflow-auto space-y-1">
+                    {promptSyms[group].map((s) => (
+                      <div key={s.name} className="flex items-start gap-2 text-caption">
+                        <span className={cn(
+                          'shrink-0 w-1.5 h-1.5 rounded-full mt-1.5',
+                          s.wired ? 'bg-track-audio' : 'bg-on-surface-variant/40',
+                        )} />
+                        <span className="font-mono text-on-surface break-all">{s.name}</span>
+                        {s.override && (
+                          <span className="shrink-0 px-1.5 rounded bg-primary-container text-on-primary-container font-mono">
+                            {s.override.plugin_id}
+                          </span>
+                        )}
+                        {!s.wired && (
+                          <span className="shrink-0 text-on-surface-variant/60">未接线</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {(promptSyms.errors?.length ?? 0) > 0 && (
+                <div className="mt-3 border-t border-outline-variant/30 pt-2">
+                  <p className="text-label-sm text-error mb-1">最近被拒绝的覆盖</p>
+                  {promptSyms.errors!.slice(-8).map((e, i) => (
+                    <p key={i} className="font-mono text-caption text-error/80 break-all">
+                      {e.plugin_id ? `[${e.plugin_id}] ` : ''}{asText(e.problem)}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </Modal>
+      )}
+
       {contribOpen && (
         <Modal onClose={() => setContribOpen(false)} title="插件贡献清单" maxWidth="max-w-2xl"
           icon={<GitBranch className="w-4 h-4 text-primary" />}>
@@ -782,3 +859,5 @@ function buildConfigYaml(fields: Record<string, PluginConfigField>): string | nu
   }
   return lines.join('\n');
 }
+
+

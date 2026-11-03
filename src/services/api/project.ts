@@ -62,6 +62,23 @@ export interface PluginHealthResponse {
   };
 }
 
+/** 提示词符号的一条（常量或 builder）。字段与后端 `/api/plugin/prompt-symbols` 对齐。 */
+export interface PluginPromptSymbol {
+  name: string;
+  /** 常量才有：默认值长度（不返回正文） */
+  chars?: number;
+  /** builder 才有：默认实现的签名 */
+  signature?: string;
+  /** 是否已被消费方在运行时解析（false = 覆盖了也不生效） */
+  wired: boolean;
+  override?: { plugin_id: string; kind: string; source: string } | null;
+}
+
+export interface PluginPromptSymbolsResponse {
+  constants: PluginPromptSymbol[];
+  builders: PluginPromptSymbol[];
+  errors?: Array<{ plugin_id?: string; problem?: string }>;
+}
 export interface PluginContributionItem {
   kind: string;
   id: string;
@@ -326,6 +343,16 @@ export const pluginApi = {
   },
 
   /** A-6/D-1: 已注册贡献（可按 kind / slot / owner 过滤）——「谁提供了这个工具/页面」的溯源。 */
+  /**
+   * 提示词符号清单与当前来源（B5-T7）。
+   *
+   * `wired=false` 表示该符号**尚未被任何消费方在运行时解析**——覆盖了也不会生效，
+   * UI 必须如实显示，避免「以为改了」。
+   */
+  async promptSymbols() {
+    const { data } = await getApiClient().get('/api/plugin/prompt-symbols');
+    return data as PluginPromptSymbolsResponse;
+  },
   async contributions(params: { kind?: string; slot?: string; owner?: string } = {}) {
     const qs = new URLSearchParams();
     if (params.kind) qs.set('kind', params.kind);
@@ -483,3 +510,4 @@ export const skillApi = {
     return data;
   },
 };
+
