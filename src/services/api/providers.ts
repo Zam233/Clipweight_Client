@@ -87,6 +87,11 @@ export interface ProviderSource {
   models?: ProviderModel[];
   /** 插件声明的 config（secret 字段读回是掩码；回传掩码 = 保留旧值） */
   config?: Record<string, unknown>;
+  /**
+   * 这条源的**实现提供方**（H-036）。空串 = 内置实现；否则是插件 id。
+   * 后端按当前注册表实时推导（不落盘），插件装卸后立刻准确。
+   */
+  plugin_id?: string;
   /** 每条密钥的掩码（顺序与后端一致，编辑时回传掩码=保留旧值） */
   api_keys_masked?: string[];
   key_count?: number;

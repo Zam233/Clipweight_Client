@@ -409,6 +409,10 @@ export function ProvidersPage() {
                     <span className="block font-mono text-caption text-on-surface-variant/70 mt-0.5">
                       {src.provider} · {src.key_count ?? 0} key(s) · {(src.models ?? []).length} model(s)
                     </span>
+                    {/* H-036：这条源的实现由谁提供（插件 id）——没装/内置时后端给空串 */}
+                    <span className="block text-caption text-on-surface-variant/60 mt-0.5">
+                      {src.plugin_id ? `插件：${src.plugin_id}` : '内置实现'}
+                    </span>
                     {boundRoles.length > 0 && (
                       <span className="block text-caption text-primary mt-0.5">
                         {boundRoles.map((r) => ROLE_LABELS[r]).join(' / ')}
