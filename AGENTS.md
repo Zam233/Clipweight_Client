@@ -171,6 +171,17 @@ J:\Clipwright
       persona/插件注入机制，**不要**在 `prompts.py` 里读配置或做业务判断。
     - 详见 [docs/property-panel-and-prompt-extraction-prd-2026-11-02.md](docs/property-panel-and-prompt-extraction-prd-2026-11-02.md) §7。
 
+24. **Provider 表单由后端 schema 驱动，前端不写死厂商字段**（2026-11-02，B1-T6）：
+    - `ProvidersPage` 的 provider 配置字段来自 `providersApi.schemas()` →
+      `GET /api/providers/schemas`（插件在 manifest 里声明的 `config_schema`）；
+      用 `schemaFor(schemas, kind, provider)` 取当前 provider 的声明，**没有声明才回落到
+      内置字段**（`base_url`/`api_keys` 那套）。
+    - `config_schema` 里 `secret: true` 的字段：输入框用 `password`，读回是**掩码**，
+      原样回传即「保留旧值」（与 `api_keys` 同一语义，服务端 Fernet 加密落盘）。
+    - 未知控件类型/未知能力键**不许静默丢弃**：控件未知就给可读错误，能力键未知只在
+      表单下方列出来（`unknown_capability_keys`）。
+    - 不允许为某个具体厂商写专属分支（如 `if provider === 'cosyvoice'`）。
+
 ## 鉴权三模式
 
 `CLIPWRIGHT_ACCOUNT_VERIFY_MODE = off | token | jwt`（默认 off）。jwt 模式本地验签共享密钥，中间件写 `request.state.user_id/user_role`；前端 access token 仅内存 + refresh 走 Server httpOnly cookie（`cw_refresh`）。

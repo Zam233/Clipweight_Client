@@ -7,6 +7,7 @@ import {
   validateGeneration, GENERATION_LIMITS,
   type AvailableProviders, type ProviderKind, type ProviderModel, type ProviderRole,
   type ProviderSource, type RoleBindings, type ModelGeneration,
+  type ProviderDeclaredSchema, schemaFor,
 } from '@/services/api/providers';
 import {
   Plus, Trash2, RefreshCw, Loader2, Save, KeyRound, Star, StarOff, Pencil, Check, X, Activity, SlidersHorizontal,
@@ -31,12 +32,21 @@ interface FormState {
   headers: HeaderRow[];
   keys: string[];
   models: ProviderModel[];
+  /** 插件声明的 config（键 = schema 字段名） */
+  config: Record<string, string>;
 }
 
 const EMPTY_FORM: FormState = {
   id: '', name: '', provider: '', baseUrl: '', timeoutSec: '',
-  proxy: '', headers: [], keys: [''], models: [],
+  proxy: '', headers: [], keys: [''], models: [], config: {},
 };
+
+/** config 值统一成字符串（表单只处理文本；secret 字段回显的是掩码） */
+function toConfigStrings(raw: Record<string, unknown> | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw ?? {})) out[k] = v == null ? '' : String(v);
+  return out;
+}
 
 function toForm(src: ProviderSource): FormState {
   return {
@@ -49,6 +59,7 @@ function toForm(src: ProviderSource): FormState {
     headers: Object.entries(src.headers ?? {}).map(([key, value]) => ({ key, value: String(value) })),
     // 掩码回显：后端只给掩码，编辑时原样回传即「保留旧值」
     keys: (src.api_keys_masked?.length ? src.api_keys_masked : ['']).slice(),
+    config: toConfigStrings(src.config),
     models: (src.models ?? []).map((m) => ({ ...m })),
   };
 }
@@ -77,15 +88,23 @@ export function ProvidersPage() {
   /** B4：正在编辑生成参数的模型 id（空 = 全部收起） */
   const [editingGeneration, setEditingGeneration] = useState('');
   const [newModel, setNewModel] = useState('');
+  /** B1-T6：插件声明的 provider config schema（schema 驱动表单） */
+  const [schemas, setSchemas] = useState<Record<string, ProviderDeclaredSchema[]>>({});
 
   const reload = useCallback(async () => {
     setBusy('load');
     setError('');
     try {
-      const [list, avail] = await Promise.all([providersApi.list(), providersApi.available()]);
+      const [list, avail, schemaMap] = await Promise.all([
+        providersApi.list(),
+        providersApi.available(),
+        // 插件声明不可用时不该整页失败：退化为「只有内置字段」
+        providersApi.schemas().catch(() => ({})),
+      ]);
       setSources(list.sources);
       setRoles(list.roles);
       setAvailable(avail);
+      setSchemas(schemaMap);
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败');
     } finally {
@@ -101,6 +120,9 @@ export function ProvidersPage() {
   );
   const providerOptions = useMemo(() => providersForKind(available, kind), [available, kind]);
   const kindRoles = KIND_ROLES[kind];
+  /** 当前 (kind, provider) 的插件声明；空 = 只有内置字段 */
+  const declared = useMemo(() => schemaFor(schemas, kind, form.provider), [schemas, kind, form.provider]);
+  const declaredFields = useMemo(() => Object.entries(declared?.config_schema ?? {}), [declared]);
 
   const selectSource = (src: ProviderSource) => {
     setSelectedId(src.id);
@@ -124,7 +146,7 @@ export function ProvidersPage() {
       const payload = buildSourcePayload({
         name: form.name, kind, provider: form.provider,
         baseUrl: form.baseUrl, timeoutSec: form.timeoutSec, proxy: form.proxy,
-        headers: form.headers, keys: form.keys,
+        headers: form.headers, keys: form.keys, config: form.config,
       });
       const saved = selectedId
         ? await providersApi.update(selectedId, payload)
@@ -461,6 +483,60 @@ export function ProvidersPage() {
               </div>
             </div>
 
+            {/* 插件声明的 config 字段（B1-T6：字段来自 schema，不写死厂商字段） */}
+            {declaredFields.length > 0 && (
+              <div className="mt-3" data-testid="plugin-config-fields">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-mono text-label-sm text-on-surface-variant">
+                    插件配置（由 {declared?.plugin_id ?? 'plugin'} 声明）
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {declaredFields.map(([name, spec]) => {
+                    const value = form.config[name] ?? '';
+                    const label = spec.label || name;
+                    const setValue = (next: string) => setForm((f) => ({
+                      ...f, config: { ...f.config, [name]: next },
+                    }));
+                    if (Array.isArray(spec.options) && spec.options.length) {
+                      return (
+                        <Field key={name} label={`${label}${spec.required ? ' *' : ''}`}>
+                          <select value={value} className={INPUT}
+                            data-testid={`f-plugin-${name}`}
+                            onChange={(e) => setValue(e.target.value)}>
+                            <option value="">（未设置）</option>
+                            {spec.options.map((opt) => {
+                              const optValue = typeof opt === 'string' ? opt : opt.value;
+                              const optLabel = typeof opt === 'string' ? opt : (opt.label || opt.value);
+                              return <option key={optValue} value={optValue}>{optLabel}</option>;
+                            })}
+                          </select>
+                        </Field>
+                      );
+                    }
+                    return (
+                      <Field key={name} label={`${label}${spec.required ? ' *' : ''}`}>
+                        <input
+                          value={value}
+                          type={spec.secret ? 'password' : 'text'}
+                          autoComplete="off"
+                          className={INPUT}
+                          data-testid={`f-plugin-${name}`}
+                          placeholder={value.includes('****') ? value : (spec.placeholder || name)}
+                          onChange={(e) => setValue(e.target.value)}
+                        />
+                      </Field>
+                    );
+                  })}
+                </div>
+                {declared?.unknown_capability_keys?.length ? (
+                  <p className="mt-2 text-label-sm text-on-surface-variant/70">
+                    该插件声明了未知能力键：{declared.unknown_capability_keys.join('、')}（本版本忽略）
+                  </p>
+                ) : null}
+              </div>
+            )}
+
             {/* 自定义请求头 */}
             <div className="mt-3">
               <div className="flex items-center justify-between mb-1.5">
@@ -716,3 +792,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </label>
   );
 }
+
+
+

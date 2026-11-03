@@ -85,6 +85,8 @@ export interface ProviderSource {
   proxy?: string;
   headers?: Record<string, string>;
   models?: ProviderModel[];
+  /** 插件声明的 config（secret 字段读回是掩码；回传掩码 = 保留旧值） */
+  config?: Record<string, unknown>;
   /** 每条密钥的掩码（顺序与后端一致，编辑时回传掩码=保留旧值） */
   api_keys_masked?: string[];
   key_count?: number;
@@ -119,6 +121,40 @@ export interface ProviderSourceInput {
   headers?: Record<string, string>;
   api_keys?: string[];
   models?: ProviderModel[];
+  /** 插件声明的 config（B1-T4：secret 字段服务端加密、回显掩码） */
+  config?: Record<string, string>;
+}
+
+/** 插件在 manifest 里声明的一个配置字段（`config_schema` 的一项）。 */
+export interface ProviderConfigField {
+  type?: string;
+  label?: string;
+  default?: string | number | boolean;
+  required?: boolean;
+  options?: Array<string | { value: string; label?: string }>;
+  /** true = 密钥：服务端加密落盘，读回只给掩码 */
+  secret?: boolean;
+  placeholder?: string;
+}
+
+/** 插件声明的 provider 配置 schema（后端 `/api/providers/schemas` 下发）。 */
+export interface ProviderDeclaredSchema {
+  id: string;
+  plugin_id: string;
+  config_schema: Record<string, ProviderConfigField>;
+  capabilities: Record<string, unknown>;
+  unknown_capability_keys: string[];
+}
+
+/** 取某个 (kind, provider) 的插件声明；没有声明 → null（走内置字段）。 */
+export function schemaFor(
+  schemas: Record<string, ProviderDeclaredSchema[]> | null,
+  kind: ProviderKind,
+  provider: string,
+): ProviderDeclaredSchema | null {
+  if (!schemas || !provider) return null;
+  const list = schemas[`${kind}_provider`] ?? [];
+  return list.find((s) => s.id === provider) ?? null;
 }
 
 /** 源类型 → 门面 provider 列表键（下拉选项的唯一来源） */
@@ -179,6 +215,15 @@ export const providersApi = {
       role_kinds: data?.role_kinds ?? ({} as Record<ProviderRole, ProviderKind>),
       tts_aliases: data?.tts_aliases ?? {},
     };
+  },
+
+  /** 插件声明的 provider 配置 schema（schema 驱动表单的唯一数据源） */
+  async schemas(kind?: ProviderKind): Promise<Record<string, ProviderDeclaredSchema[]>> {
+    const { data } = await getApiClient().get('/api/providers/schemas', {
+      params: kind ? { kind: `${kind}_provider` } : undefined,
+    });
+    const raw = data?.schemas;
+    return raw && typeof raw === 'object' ? (raw as Record<string, ProviderDeclaredSchema[]>) : {};
   },
 
   async create(payload: ProviderSourceInput): Promise<ProviderSource> {
@@ -272,6 +317,7 @@ export function buildSourcePayload(input: {
   proxy: string;
   headers: { key: string; value: string }[];
   keys: string[];
+  config?: Record<string, string>;
 }): ProviderSourceInput {
   const headers: Record<string, string> = {};
   for (const h of input.headers) {
@@ -287,7 +333,11 @@ export function buildSourcePayload(input: {
     headers,
     api_keys: input.keys.map((k) => k.trim()).filter(Boolean),
   };
+  const configEntries = Object.entries(input.config ?? {})
+    .map(([k, v]) => [k, String(v ?? '')] as const);
+  if (configEntries.length) payload.config = Object.fromEntries(configEntries);
   const t = Number(input.timeoutSec);
   if (input.timeoutSec.trim() && Number.isFinite(t) && t > 0) payload.timeout_sec = t;
   return payload;
 }
+
