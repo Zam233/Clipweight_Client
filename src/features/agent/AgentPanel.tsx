@@ -32,6 +32,10 @@ import { uid } from '@/lib/utils';
 // PRD W3.1：选区快照（发送时冻结，预览与确认执行共用同一份，避免确认前改选导致错配）
 import { buildSelectionSnapshot, selectionHint, type SelectionSnapshot } from './selectionSnapshot';
 import { asText, textList } from '@/lib/render';
+// GenUI：创意简报 / 规划书的只读结构化视图（spec 由后端产出并清洗，前端再洗一遍）
+import { GenUISpecRenderer } from '@/features/genui/GenUISpecRenderer';
+import { hasGenUI } from '@/features/genui/validate';
+import type { GenUIActionEvent } from '@/features/genui/types';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline, Clip, ClipKind } from '@/types/timeline';
 import type { RequirementsStatus, CreativeBrief, ProductionPlan, RequirementMessage } from '@/types/persona';
@@ -149,13 +153,15 @@ function timelineItemAsMessage(item: SessionTimelineItem): RequirementMessage {
  * 现在两个视图渲染同一个组件——功能只可能一起坏、一起好。
  */
 function RequirementsBubble({
-  m, busy, onConfirmBrief, onConfirmPlan, onReview,
+  m, busy, onConfirmBrief, onConfirmPlan, onReview, onGenUIAction,
 }: {
   m: RequirementMessage;
   busy: boolean;
   onConfirmBrief: () => void;
   onConfirmPlan: () => void;
   onReview: (mode: 'brief' | 'plan') => void;
+  /** GenUI 动作回调（目前只有 `ask` 有语义：把问题发回当前需求会话） */
+  onGenUIAction?: (event: GenUIActionEvent) => void;
 }) {
   const isUser = m.role === 'user';
   const isError = /^(会话创建失败|消息发送失败|时间线编辑失败|初始化失败|管线启动失败)/.test(m.content);
@@ -177,13 +183,18 @@ function RequirementsBubble({
         )}
         {m.creative_brief && (
           <div className="mt-2 pt-2 border-t border-outline-variant/20">
-            <BriefCard brief={m.creative_brief} onConfirm={onConfirmBrief} busy={busy}
+            <BriefCard brief={m.creative_brief}
+              genui={(m.creative_brief as { genui?: unknown }).genui}
+              onGenUIAction={onGenUIAction}
+              onConfirm={onConfirmBrief} busy={busy}
               onReview={() => onReview('brief')} />
           </div>
         )}
         {m.production_plan && (
           <div className="mt-2 pt-2 border-t border-outline-variant/20">
             <PlanCard markdown={m.production_plan.markdown_content || m.production_plan.markdown || ''}
+              genui={(m.production_plan as { genui?: unknown }).genui}
+              onGenUIAction={onGenUIAction}
               onConfirm={onConfirmPlan} busy={busy} onReview={() => onReview('plan')} />
           </div>
         )}
@@ -721,6 +732,24 @@ function RequirementsView() {
     } finally { setBusy(false); chatAbortRef.current = null; }
   };
 
+  /**
+   * GenUI 动作回落：只认 `ask`，且必须落在**当前需求会话**里。
+   *
+   * 为什么不让 spec 自带 endpoint/URL：那等于把"往哪发请求"交给模型（PRD §4.5 明令禁止）。
+   * 这里动作 → `sendChat(当前会话, prompt)` 一条固定通道；`select` / `confirm` 在简报/规划书
+   * 上没有宿主语义，渲染器会按 `supportedActions={['ask']}` 把它们画成禁用态。
+   */
+  const onGenUIAction = (event: GenUIActionEvent) => {
+    if (event.action.type !== 'ask') return;
+    const sid = useAgentStore.getState().requirementsSessionId;
+    const payload = event.action.payload || {};
+    const prompt = asText((payload as { prompt?: unknown }).prompt
+      || (payload as { message?: unknown }).message
+      || (payload as { question?: unknown }).question).trim();
+    if (!sid || !prompt) return;
+    void sendChat(sid, prompt);
+  };
+
   // R7：用户在确认卡上点了"确认执行"——走 `/intent/apply` 执行**用户刚看到的那份补丁**。
   //
   // 为什么不用 `/edit` 兜一圈：`/edit` 会让模型重新理解一遍原话，用户确认的
@@ -1112,7 +1141,7 @@ function RequirementsView() {
                       busy={busy}
                       onConfirmBrief={confirmBrief}
                       onConfirmPlan={confirmPlan}
-                      onReview={setReviewMode}
+                      onReview={setReviewMode} onGenUIAction={onGenUIAction}
                     />
                   </div>
                 );
@@ -1130,7 +1159,7 @@ function RequirementsView() {
                       busy={busy}
                       onConfirmBrief={confirmBrief}
                       onConfirmPlan={confirmPlan}
-                      onReview={setReviewMode}
+                      onReview={setReviewMode} onGenUIAction={onGenUIAction}
                     />
                   </div>
                 );
@@ -1142,7 +1171,7 @@ function RequirementsView() {
                     busy={busy}
                     onConfirmBrief={confirmBrief}
                     onConfirmPlan={confirmPlan}
-                    onReview={setReviewMode}
+                    onReview={setReviewMode} onGenUIAction={onGenUIAction}
                   />
                 </div>
               )}
@@ -1157,7 +1186,7 @@ function RequirementsView() {
             busy={busy}
             onConfirmBrief={confirmBrief}
             onConfirmPlan={confirmPlan}
-            onReview={setReviewMode}
+            onReview={setReviewMode} onGenUIAction={onGenUIAction}
           />
         ))}
 
@@ -1927,13 +1956,20 @@ function BottomBar() {
   );
 }
 
-function BriefCard({ brief, onConfirm, busy, onReview }: { brief: NonNullable<ReturnType<typeof useAgentStore.getState>['creativeBrief']>; onConfirm: () => void; busy: boolean; onReview?: () => void }) {
+function BriefCard({ brief, genui, onGenUIAction, onConfirm, busy, onReview }: { brief: NonNullable<ReturnType<typeof useAgentStore.getState>['creativeBrief']>; genui?: unknown; onGenUIAction?: (event: GenUIActionEvent) => void; onConfirm: () => void; busy: boolean; onReview?: () => void }) {
   return (
     <div className="bg-surface-container border border-primary/30 rounded-cw-md overflow-hidden text-left" data-testid="brief-card">
       <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-primary/20">
         <FileText className="w-3.5 h-3.5 text-primary" />
         <span className="text-label font-medium text-primary">创意简报</span>
       </div>
+      {/* GenUI 只读视图（spec 来自后端 / 模型；渲染前已过两道校验）。
+          它**不替代**下面的字段：权威数据永远是字段本身，spec 坏了这里就整块不渲染。 */}
+      {hasGenUI(genui) && (
+        <div className="px-3 pt-2.5 pb-2.5 border-b border-outline-variant/20" data-testid="brief-genui">
+          <GenUISpecRenderer rawSpec={genui} compact supportedActions={['ask']} onAction={onGenUIAction} />
+        </div>
+      )}
       <div className="p-3 space-y-1 text-label-sm">
         {/* 落地纪律：简报表单字段全是**模型产物**，运行时形状可能不是字符串
             （实测出现 `{"name": "..."}`，整页崩在 "Objects are not valid as a React child"）。
@@ -2008,7 +2044,7 @@ function BriefCard({ brief, onConfirm, busy, onReview }: { brief: NonNullable<Re
   );
 }
 
-function PlanCard({ markdown, onConfirm, busy, onReview }: { markdown?: string; onConfirm: () => void; busy: boolean; onReview?: () => void }) {
+function PlanCard({ markdown, genui, onGenUIAction, onConfirm, busy, onReview }: { markdown?: string; genui?: unknown; onGenUIAction?: (event: GenUIActionEvent) => void; onConfirm: () => void; busy: boolean; onReview?: () => void }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div className="bg-surface-container border border-primary/30 rounded-cw-md overflow-hidden text-left" data-testid="plan-card">
@@ -2016,6 +2052,13 @@ function PlanCard({ markdown, onConfirm, busy, onReview }: { markdown?: string; 
         <ListChecks className="w-3.5 h-3.5 text-primary" />
         <span className="text-label font-medium text-primary">制作规划书</span>
       </div>
+      {/* GenUI 只读概览（几段、多长、用了哪些镜头）；它不替代 markdown 正文——
+          用户确认的仍是下面这份规划书。 */}
+      {hasGenUI(genui) && (
+        <div className="px-3 pt-2.5 pb-2.5 border-b border-outline-variant/20" data-testid="plan-genui">
+          <GenUISpecRenderer rawSpec={genui} compact supportedActions={['ask']} onAction={onGenUIAction} />
+        </div>
+      )}
       <div className="p-3">
         <div className={`${expanded ? 'max-h-[300px] overflow-y-auto' : 'max-h-24 overflow-hidden'} transition-all`}>
           <Markdown text={markdown || ''} />

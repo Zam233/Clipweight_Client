@@ -203,6 +203,23 @@ J:\Clipwright
     - 宿主侧不要读插件内部 state 来判断步骤完成度；`stepDone.dub` 目前仍由 `audio`/`voicePick`
       （有插件值时以插件控件值为准）推导，最终要改成「由贡献值或能力可用性驱动」（PRD §15.9 #4）。
 
+26. **GenUI 渲染前必须再洗一遍；动作只能绑宿主回调**（2026-11-03）：
+    - 创意简报 / 规划书的 `genui` 是**只读展示 spec**（`version: 1` + 13 类组件白名单）。
+      渲染入口只有一处：`src/features/genui/GenUISpecRenderer.tsx`；挂载点是简报卡
+      （`AgentPanel` 的 `BriefCard`）与规划书卡（`PlanCard` 的 `data-testid="plan-genui"`）。
+      **不要**把 spec 塞进 `PluginLayoutRenderer`（那是插件静态表单，两套 schema 不能混）。
+    - **两道校验**：后端 `clipwright/schema/genui.py::sanitize_spec` 管写入；前端
+      `src/features/genui/validate.ts` 管渲染前（旧缓存 / 历史 session / 被改过的响应都不可信）。
+      改规则必须两边一起改，且 `src/features/genui/genui.test.tsx` 要跟着更。
+    - **没有 HTML**：不给 `dangerouslySetInnerHTML`、不执行模型给的 HTML/CSS/脚本、不放外链
+      图片/iframe；所有文本走 `asText`（不变量 #13 的同一条纪律）。首版不开放
+      `mermaid/echart/plot/scene3d/svg/image`。
+    - **动作**：只认 `ask/select/confirm`；渲染器按 `supportedActions` 决定是否可点，宿主没给
+      回调时按钮禁用。当前只有 `ask` 有语义 → `AgentPanel` 的 `onGenUIAction` 把它变成
+      `sendChat(当前需求会话, prompt)`。**禁止**让 spec 自带 endpoint/URL/method。
+    - 逐节点 `NodeBoundary` 容错：一个节点渲染失败只占一行占位，不让整张卡片白屏；
+      没有可用 spec 时整块不渲染（宿主显示原有字段/markdown）。
+
 ## 鉴权三模式
 
 `CLIPWRIGHT_ACCOUNT_VERIFY_MODE = off | token | jwt`（默认 off）。jwt 模式本地验签共享密钥，中间件写 `request.state.user_id/user_role`；前端 access token 仅内存 + refresh 走 Server httpOnly cookie（`cw_refresh`）。
