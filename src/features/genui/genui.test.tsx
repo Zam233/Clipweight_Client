@@ -222,3 +222,45 @@ describe('MAX_SPEC_BYTES（T3.2 前端补齐）', () => {
     expect(spec).not.toBeNull();
   });
 });
+
+// ── Batch 5（T5.1 表格本地排序 / 筛选）──────────────────────────────
+
+import { filterTableRows, sortTableRows } from './GenUISpecRenderer';
+
+const _tableRows = (n: number) => Array.from({ length: n }, (_, i) => [`r${i}`, String(n - i)]);
+const _tableSpec = (n: number) => ({
+  version: 1,
+  items: [{ type: 'table', columns: ['名称', '数值'], rows: _tableRows(n) }],
+});
+
+describe('表格本地排序/筛选（T5.1）', () => {
+  it('≥8 行出现控件；9 行表点表头后正文变化', () => {
+    render(<GenUISpecRenderer rawSpec={_tableSpec(9)} />);
+    expect(screen.getByTestId('genui-table-filter')).toBeTruthy();
+    const bodyText = () => screen.getByTestId('genui-table-body').textContent || '';
+    const before = bodyText();
+    fireEvent.click(screen.getByTestId('genui-table-sort-1'));
+    expect(bodyText()).not.toBe(before);
+  });
+
+  it('筛选后行数减少且计数可见', () => {
+    render(<GenUISpecRenderer rawSpec={_tableSpec(9)} />);
+    fireEvent.change(screen.getByTestId('genui-table-filter'), { target: { value: 'r1' } });
+    expect(screen.getByText(/1\/9\s*行/)).toBeTruthy();
+    expect(screen.getByTestId('genui-table-body').textContent).toContain('r1');
+    expect(screen.getByTestId('genui-table-body').textContent).not.toContain('r2');
+  });
+
+  it('6 行表不出现排序/筛选控件', () => {
+    render(<GenUISpecRenderer rawSpec={_tableSpec(6)} />);
+    expect(screen.queryByTestId('genui-table-filter')).toBeNull();
+    expect(screen.queryByTestId('genui-table-sort-1')).toBeNull();
+  });
+
+  it('纯函数：数字列按数值排序（不是字典序）、筛选不区分大小写', () => {
+    expect(sortTableRows([['a', '10'], ['b', '9']], 1, 1)[0][0]).toBe('b');
+    expect(sortTableRows([['a', '10'], ['b', '9']], 1, -1)[0][0]).toBe('a');
+    expect(filterTableRows([['Abc'], ['xyz']], 'ab')).toEqual([['Abc']]);
+    expect(filterTableRows([['Abc']], '')).toEqual([['Abc']]);
+  });
+});

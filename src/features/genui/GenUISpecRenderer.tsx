@@ -135,6 +135,111 @@ function ActionButton({
   );
 }
 
+/** 行数达到这个阈值才给排序/筛选控件（小表格不堆交互）——计划 T5.1。 */
+const TABLE_INTERACTIVE_MIN_ROWS = 8;
+
+/** 纯函数：按列排序（数字列按数值，其余按中文本地化字符串），**不改**原数组。 */
+export function sortTableRows(rows: string[][], col: number, dir: 1 | -1): string[][] {
+  return [...rows].sort((a, b) => {
+    const av = asText(a[col]);
+    const bv = asText(b[col]);
+    const an = Number(av);
+    const bn = Number(bv);
+    const bothNumeric =
+      av.trim() !== '' && bv.trim() !== '' && Number.isFinite(an) && Number.isFinite(bn);
+    if (bothNumeric) return (an - bn) * dir;
+    return av.localeCompare(bv, 'zh') * dir;
+  });
+}
+
+/** 纯函数：跨列子串筛选（大小写不敏感）；`query` 为空时原样返回。 */
+export function filterTableRows(rows: string[][], query: string): string[][] {
+  const q = query.trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter((row) => row.some((cell) => asText(cell).toLowerCase().includes(q)));
+}
+
+/**
+ * 表格节点：≥8 行时给**本地**排序 / 筛选（计划 T5.1）。
+ *
+ * 为什么是本地：排序、筛选是纯 UI 状态，不该回调宿主（不产生请求、不影响会话），
+ * 有状态上限（≤100 行 × ≤12 列），前端排一次的成本远低于一次往返。
+ * 表头按钮有 `aria-label`；筛选框有 `aria-label`，`data-testid` 供测试稳定选取。
+ */
+function GenUITableNode({ columns, rows }: { columns: string[]; rows: string[][] }) {
+  const [sort, setSort] = useState<{ col: number; dir: 1 | -1 } | null>(null);
+  const [query, setQuery] = useState('');
+  const interactive = rows.length >= TABLE_INTERACTIVE_MIN_ROWS;
+  const visible = useMemo(() => {
+    const filtered = interactive ? filterTableRows(rows, query) : rows;
+    return sort ? sortTableRows(filtered, sort.col, sort.dir) : filtered;
+  }, [rows, query, sort, interactive]);
+  const toggleSort = (col: number) => setSort((prev) => (
+    prev && prev.col === col ? { col, dir: prev.dir === 1 ? -1 : 1 } : { col, dir: 1 }
+  ));
+  return (
+    <div data-genui="table">
+      {interactive && (
+        <div className="flex items-center gap-2 mb-1">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="筛选…"
+            aria-label="筛选表格"
+            data-testid="genui-table-filter"
+            className="flex-1 min-w-0 px-2 py-1 rounded-cw-xs bg-surface border border-outline-variant/40 text-caption text-on-surface"
+          />
+          <span className="text-caption text-on-surface-variant tabular-nums whitespace-nowrap">
+            {visible.length}/{rows.length} 行
+          </span>
+        </div>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full text-body-sm border-collapse">
+          <thead>
+            <tr>
+              {columns.map((col, i) => (
+                <th
+                  key={i}
+                  className="text-left font-medium text-on-surface-variant border-b border-outline-variant/40 px-1.5 py-1 whitespace-nowrap"
+                >
+                  {interactive ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(i)}
+                      aria-label={`按「${asText(col)}」排序`}
+                      data-testid={`genui-table-sort-${i}`}
+                      className="inline-flex items-center gap-0.5 hover:text-on-surface cursor-pointer"
+                    >
+                      {asText(col)}
+                      <span className="text-caption">
+                        {sort?.col === i ? (sort.dir === 1 ? '↑' : '↓') : '↕'}
+                      </span>
+                    </button>
+                  ) : (
+                    asText(col)
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody data-testid="genui-table-body">
+            {visible.map((row, ri) => (
+              <tr key={ri} className="border-b border-outline-variant/20 last:border-0">
+                {row.map((cell, ci) => (
+                  <td key={ci} className="px-1.5 py-1 text-on-surface align-top break-words">
+                    {asText(cell)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function renderNode(
   node: GenUINode,
   nodeId: string,
@@ -238,35 +343,7 @@ function renderNode(
       );
     }
     case 'table': {
-      return (
-        <div className="overflow-x-auto" data-genui="table">
-          <table className="w-full text-body-sm border-collapse">
-            <thead>
-              <tr>
-                {node.columns.map((col, i) => (
-                  <th
-                    key={i}
-                    className="text-left font-medium text-on-surface-variant border-b border-outline-variant/40 px-1.5 py-1 whitespace-nowrap"
-                  >
-                    {asText(col)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {node.rows.map((row, ri) => (
-                <tr key={ri} className="border-b border-outline-variant/20 last:border-0">
-                  {row.map((cell, ci) => (
-                    <td key={ci} className="px-1.5 py-1 text-on-surface align-top break-words">
-                      {asText(cell)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
+      return <GenUITableNode columns={node.columns} rows={node.rows} />;
     }
     case 'steps': {
       return (
@@ -439,8 +516,5 @@ export function genuiActionEnabled(node: GenUINode, onAction?: unknown): boolean
 /** 兼容占位：某些宿主可能传 `spec` 而不是 `rawSpec` */
 export default GenUISpecRenderer;
 
-/** 本地状态占位（首版无跨渲染状态，保留导出给未来扩展） */
-export function useGenUILocalState<T>(initial: T): [T, (next: T) => void] {
-  const [state, setState] = useState<T>(initial);
-  return [state, setState];
-}
+// 注：首版那个 `useGenUILocalState` 占位导出已删除——表格排序/筛选（计划 T5.1）现在是
+// 真正的本地状态（见 `GenUITableNode`），不需要"给未来扩展"的空壳。
