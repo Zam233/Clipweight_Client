@@ -17,7 +17,7 @@ import { ChevronRight } from 'lucide-react';
 import { asText } from '@/lib/render';
 import { cn } from '@/lib/utils';
 import { validateGenUISpec } from './validate';
-import type { GenUIActionEvent, GenUIActionKind, GenUINode, GenUISpec } from './types';
+import type { GenUIActionEvent, GenUIActionKind, GenUIActionScope, GenUINode, GenUISpec } from './types';
 
 export interface GenUISpecRendererProps {
   /** 后端给的 spec（可能来自模型、可能脏、可能是空对象） */
@@ -29,6 +29,13 @@ export interface GenUISpecRendererProps {
    * 时按钮渲染为禁用态——不假装可点，也不静默吞掉。
    */
   supportedActions?: readonly GenUIActionKind[];
+  /**
+   * 这张卡片是简报还是规划书：`confirm` 动作要靠它决定确认哪一个（P4.2）。
+   * 其它动作不区分来源；不传时宿主按"未知来源"处理（当前实现会忽略 confirm）。
+   */
+  scope?: GenUIActionScope;
+  /** 只读场景（审阅覆盖层）：不渲染动作控件——避免第二个确认入口，也不摆点不动的按钮 */
+  hideActions?: boolean;
   /** 紧凑模式（卡片内嵌时用）：更小的间距与字号 */
   compact?: boolean;
   className?: string;
@@ -99,17 +106,17 @@ class NodeBoundary extends React.Component<
   }
 }
 
-function ActionButton({
-  node, nodeId, onAction, supported,
+function ActionControl({
+  node, nodeId, onAction, supported, scope,
 }: {
   node: GenUINode;
   nodeId: string;
   onAction?: (event: GenUIActionEvent) => void;
   supported?: readonly GenUIActionKind[];
+  scope?: GenUIActionScope;
 }) {
   const action = node.action;
   if (!action) return null;
-  const label = action.label || ACTION_LABEL[action.type] || action.type;
   const typeSupported = !supported || supported.includes(action.type);
   const disabled = !onAction || !typeSupported;
   const title = !onAction
@@ -117,18 +124,57 @@ function ActionButton({
     : !typeSupported
       ? '这个位置不支持该动作'
       : undefined;
+  const btnCls = (extra?: string) => cn(
+    'inline-flex items-center gap-1 rounded-cw-xs px-2 py-1 text-caption border transition-colors',
+    disabled
+      ? 'border-outline-variant/30 text-on-surface-variant/40 cursor-not-allowed'
+      : 'border-primary/40 text-primary hover:bg-primary/10 cursor-pointer',
+    extra,
+  );
+
+  // `select`：选项组。宿主收到的是 `{value}`，**发送文案由宿主模板拼**——
+  // 模型只能决定"有哪些选项"，不能决定"点下去会说什么"（C3 的延伸）。
+  if (action.type === 'select') {
+    const rawOptions = action.payload?.options;
+    const options = Array.isArray(rawOptions)
+      ? rawOptions.filter((x): x is string => typeof x === 'string' && x.trim() !== '')
+      : [];
+    if (options.length === 0) return null;
+    return (
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5" data-genui="select">
+        <span className="text-caption text-on-surface-variant">
+          {asText(action.label) || ACTION_LABEL.select}
+        </span>
+        {options.map((option) => (
+          <button
+            key={option}
+            type="button"
+            disabled={disabled}
+            title={title}
+            data-testid={`genui-select-${option}`}
+            onClick={() => onAction?.({
+              action: { type: 'select', label: action.label, payload: { value: option } },
+              nodeId,
+              scope,
+            })}
+            className={btnCls()}
+          >
+            {asText(option)}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  const label = action.label || ACTION_LABEL[action.type] || action.type;
   return (
     <button
       type="button"
       disabled={disabled}
       title={title}
-      onClick={() => onAction?.({ action, nodeId })}
-      className={cn(
-        'mt-1.5 inline-flex items-center gap-1 rounded-cw-xs px-2 py-1 text-caption border transition-colors',
-        disabled
-          ? 'border-outline-variant/30 text-on-surface-variant/40 cursor-not-allowed'
-          : 'border-primary/40 text-primary hover:bg-primary/10 cursor-pointer',
-      )}
+      data-testid={`genui-action-${action.type}`}
+      onClick={() => onAction?.({ action, nodeId, scope })}
+      className={btnCls('mt-1.5')}
     >
       {asText(label)}
     </button>
@@ -473,7 +519,7 @@ function renderNode(
 }
 
 export function GenUISpecRenderer({
-  rawSpec, onAction, supportedActions, compact = false, className,
+  rawSpec, onAction, supportedActions, scope, hideActions = false, compact = false, className,
 }: GenUISpecRendererProps) {
   const { spec, problems } = useMemo(() => validateGenUISpec(rawSpec), [rawSpec]);
   // 降级原因只在开发期可见（生产不打扰用户），但保留节点级占位提示
@@ -495,7 +541,9 @@ export function GenUISpecRenderer({
             >
               {renderNode(node, nodeId, onAction, compact, 0)}
             </NodeBoundary>
-            <ActionButton node={node} nodeId={nodeId} onAction={onAction} supported={supportedActions} />
+            {!hideActions && (
+              <ActionControl node={node} nodeId={nodeId} onAction={onAction} supported={supportedActions} scope={scope} />
+            )}
           </div>
         );
       })}

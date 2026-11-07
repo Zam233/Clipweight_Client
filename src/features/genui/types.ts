@@ -136,10 +136,15 @@ export interface GenUISpec {
   items: GenUINode[];
 }
 
+/** 动作来自哪类卡片：宿主据此把 `confirm` 路由到对应确认回调（P4.2）。 */
+export type GenUIActionScope = 'brief' | 'plan';
+
 /** 宿主接到的动作（渲染器把节点里的 action + 节点上下文一起交回来）。 */
 export interface GenUIActionEvent {
   action: GenUIAction;
   /** 触发它的节点 id（渲染时生成的稳定路径，用于日志/去重） */
   nodeId: string;
   title?: string;
+  /** 卡片归属；`confirm` 必须靠它决定"确认的是简报还是规划书" */
+  scope?: GenUIActionScope;
 }

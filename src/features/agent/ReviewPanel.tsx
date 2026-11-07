@@ -11,6 +11,8 @@ import { resolveMessageAttachments } from './requirementsAttachments';
 import { uid } from '@/lib/utils';
 import { asText, textList } from '@/lib/render';
 import { PlanReviewPanel, type PlanView } from '@/features/plan/PlanReviewPanel';
+import { GenUISpecRenderer } from '@/features/genui/GenUISpecRenderer';
+import { hasGenUI } from '@/features/genui/validate';
 import { MessageSquare, ThumbsDown, ThumbsUp, X, Send, Check, Loader2, ChevronLeft } from 'lucide-react';
 
 interface ReviewPanelProps {
@@ -18,12 +20,14 @@ interface ReviewPanelProps {
   planMarkdown?: string;
   /** F-06：结构化规划（有则渲染双栏确认视图；无则保持旧的 markdown 只读视图） */
   planView?: PlanView | null;
+  /** 规划书的 GenUI 展示 spec（只读；确认前最后一屏不提供动作，避免第二个确认入口） */
+  planGenui?: unknown;
   onBack: () => void;
 }
 
 type AnnType = 'comment' | 'dislike' | 'like';
 
-export function ReviewPanel({ brief, planMarkdown, planView, onBack }: ReviewPanelProps) {
+export function ReviewPanel({ brief, planMarkdown, planView, planGenui, onBack }: ReviewPanelProps) {
   const navigate = useNavigate();
   const addAnnotation = useAgentStore((s) => s.addAnnotation);
   const removeAnnotation = useAgentStore((s) => s.removeAnnotation);
@@ -217,6 +221,14 @@ export function ReviewPanel({ brief, planMarkdown, planView, onBack }: ReviewPan
           {brief && !planMarkdown && (
             <div className="space-y-3">
               <h3 className="text-title-sm font-bold text-on-surface">{asText(brief.title)}</h3>
+              {/* 审阅覆盖层的 GenUI：只读、不带动作（`hideActions`）。
+                  理由：这是确认前的最后一屏，动作应当只有下面那一个确认按钮——
+                  在卡片上再放一组可用按钮，就会变成第二个确认入口。 */}
+              {hasGenUI(brief.genui) && (
+                <div className="pb-3 border-b border-outline-variant/20" data-testid="review-brief-genui">
+                  <GenUISpecRenderer rawSpec={brief.genui} compact hideActions />
+                </div>
+              )}
               <div><span className="text-on-surface-variant">概述：</span>{asText(brief.overview)}</div>
               <div><span className="text-on-surface-variant">目标受众：</span>{asText(brief.target_audience)}</div>
               <div><span className="text-on-surface-variant">核心信息：</span>{asText(brief.core_message)}</div>
@@ -267,6 +279,11 @@ export function ReviewPanel({ brief, planMarkdown, planView, onBack }: ReviewPan
               {brief.asset_ratio && (
                 <div><span className="text-on-surface-variant">素材/动画占比：</span>实拍 {asText(brief.asset_ratio.footage)} · MG {asText(brief.asset_ratio.mg)}</div>
               )}
+            </div>
+          )}
+          {hasGenUI(planGenui) && (
+            <div className="mb-4" data-testid="review-plan-genui">
+              <GenUISpecRenderer rawSpec={planGenui} compact hideActions />
             </div>
           )}
           {planView && (

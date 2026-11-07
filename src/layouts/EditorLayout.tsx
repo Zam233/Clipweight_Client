@@ -359,6 +359,8 @@ export function EditorLayout() {
             brief={reviewMode === 'brief' ? creativeBrief : null}
             planMarkdown={reviewMode === 'plan' ? (productionPlan?.markdown_content || productionPlan?.markdown || '') : undefined}
             planView={reviewMode === 'plan' ? ((productionPlan?.plan as unknown as PlanView | undefined) ?? null) : undefined}
+            // 审阅覆盖层的结构化视图：规划书 spec 与简报一样只读展示，不带动作
+            planGenui={reviewMode === 'plan' ? productionPlan?.genui : undefined}
             onBack={handleCloseReview}
           />
         </div>

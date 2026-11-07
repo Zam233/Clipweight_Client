@@ -214,12 +214,14 @@ J:\Clipwright
     - **没有 HTML**：不给 `dangerouslySetInnerHTML`、不执行模型给的 HTML/CSS/脚本、不放外链
       图片/iframe；所有文本走 `asText`（不变量 #13 的同一条纪律）。首版不开放
       `mermaid/echart/plot/scene3d/svg/image`。
-    - **动作**：只认 `ask/select/confirm`；渲染器按 `supportedActions` 决定是否可点，宿主没给
-      回调时按钮禁用。当前只有 `ask` 有语义 → `AgentPanel` 的 `onGenUIAction` 把它变成
-      `sendChat(当前需求会话, prompt)`。**禁止**让 spec 自带 endpoint/URL/method。
-    - **白名单 ≠ 宿主支持**：`GENUI_ACTION_KINDS` 只保证老 spec 不被判非法；可点性由
-      `supportedActions` 决定（当前 `['ask']`）。`confirm` 若将来要接，必须带二次确认——
-      不能让模型写的按钮单击推进状态机（C10）。
+    - **动作三种都已实现**（2026-11-07 用户裁定）：`ask` → `sendChat(会话, payload.prompt)`；
+      `select` → 选项组按钮，点击发 `"选择：" + value`（**文案由宿主模板拼**，模型只能决定
+      "有哪些选项"，`payload.options` 两仓同规则校验：非空字符串、去重、截断、上限 6）；`confirm` →
+      卡片确认回调（按事件 `scope` 区分简报/规划书）+ **`window.confirm` 二次确认** + `busy` 不响应；
+      `scope` 缺失时忽略。**禁止**让 spec 自带 endpoint/URL/method。
+    - **白名单 ≠ 宿主支持**：`GENUI_ACTION_KINDS` 只保证老 spec 不被判非法；可点性由宿主传的
+      `supportedActions` 决定。审阅覆盖层（`ReviewPanel`）用 `hideActions` 不渲染动作按钮——
+      确认前最后一屏只保留一个确认按钮（C10）。
     - 逐节点 `NodeBoundary` 容错：一个节点渲染失败只占一行占位，不让整张卡片白屏；
       没有可用 spec 时整块不渲染（宿主显示原有字段/markdown）。
 

@@ -175,6 +175,8 @@ import {
   MAX_ACTION_PAYLOAD_CHARS,
   MAX_DEPTH,
   MAX_NODES,
+  MAX_OPTION_CHARS,
+  MAX_SELECT_OPTIONS,
   MAX_SPEC_BYTES,
   MAX_TABLE_COLS,
   MAX_TEXT_CHARS,
@@ -201,6 +203,8 @@ describe('ContractSingleSource（T3.1）', () => {
       max_array_items: MAX_ARRAY_ITEMS,
       max_table_cols: MAX_TABLE_COLS,
       max_action_payload_chars: MAX_ACTION_PAYLOAD_CHARS,
+      max_select_options: MAX_SELECT_OPTIONS,
+      max_option_chars: MAX_OPTION_CHARS,
     });
   });
 });
@@ -262,5 +266,71 @@ describe('表格本地排序/筛选（T5.1）', () => {
     expect(sortTableRows([['a', '10'], ['b', '9']], 1, -1)[0][0]).toBe('a');
     expect(filterTableRows([['Abc'], ['xyz']], 'ab')).toEqual([['Abc']]);
     expect(filterTableRows([['Abc']], '')).toEqual([['Abc']]);
+  });
+});
+
+// ── P4.2：select / confirm 动作 ──────────────────────────────────────
+
+describe('select / confirm 动作（P4.2）', () => {
+  const specWith = (action: unknown) => ({
+    version: 1,
+    items: [{ type: 'text', content: '要不要这样？', action }],
+  });
+
+  it('select 渲染选项组，点击回传 {value} 而不是模型自定义文案', () => {
+    const onAction = vi.fn();
+    render(<GenUISpecRenderer
+      rawSpec={specWith({ type: 'select', label: '选一个', payload: { options: ['4 分钟', '8 分钟'] } })}
+      supportedActions={['ask', 'select', 'confirm']}
+      onAction={onAction}
+    />);
+    fireEvent.click(screen.getByTestId('genui-select-8 分钟'));
+    expect(onAction).toHaveBeenCalledTimes(1);
+    const event = onAction.mock.calls[0][0];
+    expect(event.action.type).toBe('select');
+    expect(event.action.payload).toEqual({ value: '8 分钟' });
+    expect(event.action.label).toBe('选一个');
+  });
+
+  it('select 无可用选项时整条动作被丢弃（节点保留）', () => {
+    const { spec } = validateGenUISpec(specWith({ type: 'select', payload: { options: [] } }));
+    expect(spec?.items[0].action).toBeUndefined();
+    expect(spec?.items[0].type).toBe('text');
+  });
+
+  it('select 选项去重 + 封顶 + 逐项截断', () => {
+    const long = 'x'.repeat(MAX_OPTION_CHARS + 10);
+    // 长选项放最前：否则总数封顶会先截断，压根走不到「单选项截断」分支
+    const options = [long, 'A', 'A', '', 3, ...Array.from({ length: MAX_SELECT_OPTIONS + 3 }, (_, i) => `o${i}`)];
+    const { spec } = validateGenUISpec(specWith({ type: 'select', payload: { options } }));
+    const cleaned = (spec?.items[0].action?.payload?.options ?? []) as string[];
+    expect(cleaned.length).toBe(MAX_SELECT_OPTIONS);
+    expect(new Set(cleaned).size).toBe(cleaned.length);
+    // 纯截断：长度不超上限，且**不带**「…（已截断）」标记（按钮文案不该有它）
+    expect(cleaned.every((o) => o.length <= MAX_OPTION_CHARS)).toBe(true);
+    expect(cleaned.some((o) => o.includes('已截断'))).toBe(false);
+  });
+
+  it('confirm 可点并把 scope 一起回传（宿主据此决定确认哪个）', () => {
+    const onAction = vi.fn();
+    render(<GenUISpecRenderer
+      rawSpec={specWith({ type: 'confirm', label: '就按这个来' })}
+      scope="plan"
+      supportedActions={['ask', 'select', 'confirm']}
+      onAction={onAction}
+    />);
+    fireEvent.click(screen.getByTestId('genui-action-confirm'));
+    expect(onAction.mock.calls[0][0].scope).toBe('plan');
+  });
+
+  it('hideActions（审阅覆盖层）不渲染任何动作控件', () => {
+    render(<GenUISpecRenderer
+      rawSpec={specWith({ type: 'confirm', label: '确认' })}
+      supportedActions={['confirm']}
+      onAction={() => {}}
+      hideActions
+    />);
+    expect(screen.queryByTestId('genui-action-confirm')).toBeNull();
+    expect(screen.getByText('要不要这样？')).toBeTruthy();
   });
 });

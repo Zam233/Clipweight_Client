@@ -733,24 +733,53 @@ function RequirementsView() {
   };
 
   /**
-   * GenUI 动作回落：只认 `ask`，且必须落在**当前需求会话**里。
+   * GenUI 动作回落：三种动作各有**一条固定通道**，spec 只带参数、不带路由。
+   *
+   * - `ask` → `sendChat(当前需求会话, payload.prompt)`；
+   * - `select` → `sendChat(当前需求会话, "选择：" + payload.value)`：**文案由宿主模板拼**，
+   *   模型只能决定"有哪些选项"，不能决定"点下去会说什么"（C3 的延伸）；
+   * - `confirm` → 调当前卡片的确认回调（`confirmBrief` / `confirmPlan`，靠 `scope` 区分），
+   *   **必须过二次确认**：这是"模型写的按钮推进状态机"，不确认就单击直达等于把确认流程交给模型（C10）。
    *
    * 为什么不让 spec 自带 endpoint/URL：那等于把"往哪发请求"交给模型（PRD §4.5 明令禁止）。
-   * 这里动作 → `sendChat(当前会话, prompt)` 一条固定通道；`select` / `confirm` 在简报/规划书
-   * 上没有宿主语义，渲染器会按 `supportedActions={['ask']}` 把它们画成禁用态。
-   *
-   * 计划 T4.1：**白名单 ≠ 宿主支持**——`GENUI_ACTION_KINDS` 只保证老 spec 不被判非法；
-   * `confirm` 若将来要接，必须带二次确认（不能让模型写的按钮单击推进状态机，违反 C10）。
    */
   const onGenUIAction = (event: GenUIActionEvent) => {
-    if (event.action.type !== 'ask') return;
     const sid = useAgentStore.getState().requirementsSessionId;
-    const payload = event.action.payload || {};
-    const prompt = asText((payload as { prompt?: unknown }).prompt
-      || (payload as { message?: unknown }).message
-      || (payload as { question?: unknown }).question).trim();
-    if (!sid || !prompt) return;
-    void sendChat(sid, prompt);
+    const payload = (event.action.payload || {}) as Record<string, unknown>;
+    const text = (...keys: string[]) => {
+      for (const key of keys) {
+        const value = asText(payload[key]).trim();
+        if (value) return value;
+      }
+      return '';
+    };
+
+    if (event.action.type === 'ask') {
+      const prompt = text('prompt', 'message', 'question');
+      if (sid && prompt) void sendChat(sid, prompt);
+      return;
+    }
+
+    if (event.action.type === 'select') {
+      const value = text('value');
+      if (sid && value) void sendChat(sid, `选择：${value}`);
+      return;
+    }
+
+    if (event.action.type === 'confirm') {
+      // 正在跑（生成规划书 / 启动管线）时不允许再点：与卡片上的确认按钮同一道闸
+      if (busy) return;
+      const isPlan = event.scope === 'plan';
+      if (!isPlan && event.scope !== 'brief') return; // 来源不明不猜
+      const what = isPlan ? '制作规划书' : '创意简报';
+      const next = isPlan ? '启动制作管线' : '继续生成制作规划书';
+      const ok = typeof window === 'undefined'
+        ? false
+        : window.confirm(`确认提交这份${what}？确认后会${next}。`);
+      if (!ok) return;
+      if (isPlan) void confirmPlan();
+      else void confirmBrief();
+    }
   };
 
   // R7：用户在确认卡上点了"确认执行"——走 `/intent/apply` 执行**用户刚看到的那份补丁**。
@@ -1966,11 +1995,18 @@ function BriefCard({ brief, genui, onGenUIAction, onConfirm, busy, onReview }: {
         <FileText className="w-3.5 h-3.5 text-primary" />
         <span className="text-label font-medium text-primary">创意简报</span>
       </div>
-      {/* GenUI 只读视图（spec 来自后端 / 模型；渲染前已过两道校验）。
-          它**不替代**下面的字段：权威数据永远是字段本身，spec 坏了这里就整块不渲染。 */}
+      {/* GenUI 视图（spec 来自后端 / 模型；渲染前已过两道校验）。
+          它**不替代**下面的字段：权威数据永远是字段本身，spec 坏了这里就整块不渲染。
+          `scope="brief"` 让 `confirm` 动作知道要确认的是简报（P4.2）。 */}
       {hasGenUI(genui) && (
         <div className="px-3 pt-2.5 pb-2.5 border-b border-outline-variant/20" data-testid="brief-genui">
-          <GenUISpecRenderer rawSpec={genui} compact supportedActions={['ask']} onAction={onGenUIAction} />
+          <GenUISpecRenderer
+            rawSpec={genui}
+            compact
+            scope="brief"
+            supportedActions={['ask', 'select', 'confirm']}
+            onAction={onGenUIAction}
+          />
         </div>
       )}
       <div className="p-3 space-y-1 text-label-sm">
@@ -2055,11 +2091,17 @@ function PlanCard({ markdown, genui, onGenUIAction, onConfirm, busy, onReview }:
         <ListChecks className="w-3.5 h-3.5 text-primary" />
         <span className="text-label font-medium text-primary">制作规划书</span>
       </div>
-      {/* GenUI 只读概览（几段、多长、用了哪些镜头）；它不替代 markdown 正文——
-          用户确认的仍是下面这份规划书。 */}
+      {/* GenUI 概览（几段、多长、用了哪些镜头）；它不替代 markdown 正文——
+          用户确认的仍是下面这份规划书。`scope="plan"` 让 `confirm` 知道确认的是规划书。 */}
       {hasGenUI(genui) && (
         <div className="px-3 pt-2.5 pb-2.5 border-b border-outline-variant/20" data-testid="plan-genui">
-          <GenUISpecRenderer rawSpec={genui} compact supportedActions={['ask']} onAction={onGenUIAction} />
+          <GenUISpecRenderer
+            rawSpec={genui}
+            compact
+            scope="plan"
+            supportedActions={['ask', 'select', 'confirm']}
+            onAction={onGenUIAction}
+          />
         </div>
       )}
       <div className="p-3">

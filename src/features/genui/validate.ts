@@ -36,6 +36,10 @@ export const MAX_ACTION_PAYLOAD_CHARS = 2000;
  * `len(json.dumps(spec, ensure_ascii=False))` 同口径（中文按 1 个字符算）。
  */
 export const MAX_SPEC_BYTES = 64 * 1024;
+/** `select` 动作的选项上限（与后端 / `contract.json` 同值，计划 T4.2）。 */
+export const MAX_SELECT_OPTIONS = 6;
+/** 单个选项文案上限。 */
+export const MAX_OPTION_CHARS = 40;
 
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 export const GENUI_TONES: ReadonlySet<string> = new Set(['info', 'success', 'warning', 'error']);
@@ -100,6 +104,16 @@ function cleanAction(raw: unknown, problems: string[]): GenUIAction | undefined 
   if (isPlainObject(payload) && Object.keys(payload).length > 0) {
     action.payload = payload as Record<string, unknown>;
   }
+  if (kind === 'select') {
+    // 与后端 `_clean_select_options` 同规则：只收非空字符串、去重保序、逐项截断、总数封顶。
+    // 没有可用选项的 select 按钮点了什么也不会发生 → 整个动作丢弃（节点照常显示）。
+    const options = cleanSelectOptions(payload);
+    if (options.length === 0) {
+      problems.push('select 没有可用的 payload.options，动作已丢弃');
+      return undefined;
+    }
+    action.payload = { options };
+  }
   try {
     if (JSON.stringify(action).length > MAX_ACTION_PAYLOAD_CHARS) {
       problems.push('动作载荷超长，已丢弃');
@@ -109,6 +123,21 @@ function cleanAction(raw: unknown, problems: string[]): GenUIAction | undefined 
     return { type: action.type };
   }
   return action;
+}
+
+function cleanSelectOptions(payload: unknown): string[] {
+  if (!isPlainObject(payload)) return [];
+  const raw = payload.options;
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const item of raw.slice(0, MAX_SELECT_OPTIONS * 2)) {
+    if (typeof item !== 'string') continue;
+    // 选项是按钮文案：**纯截断**，不加「…（已截断）」标记（与后端同规则）
+    const text = item.trim().slice(0, MAX_OPTION_CHARS);
+    if (text && !out.includes(text)) out.push(text);
+    if (out.length >= MAX_SELECT_OPTIONS) break;
+  }
+  return out;
 }
 
 function cleanStringList(raw: unknown, problems: string[], field: string): string[] {
