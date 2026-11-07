@@ -163,3 +163,62 @@ describe('GenUISpecRenderer', () => {
     expect(screen.getByText('分组一')).toBeTruthy();
   });
 });
+
+// ── Batch 3（T3.1 契约同源 / T3.2 整块上限）──────────────────────────────
+
+import contract from './contract.json';
+import {
+  CONTAINER_TYPES,
+  GENUI_TEXT_SIZES,
+  GENUI_TONES,
+  MAX_ARRAY_ITEMS,
+  MAX_ACTION_PAYLOAD_CHARS,
+  MAX_DEPTH,
+  MAX_NODES,
+  MAX_SPEC_BYTES,
+  MAX_TABLE_COLS,
+  MAX_TEXT_CHARS,
+} from './validate';
+import { GENUI_ACTION_KINDS, GENUI_COMPONENT_TYPES, GENUI_VERSION } from './types';
+
+describe('ContractSingleSource（T3.1）', () => {
+  it('常量与 contract.json 逐项一致（改一边忘另一边必须红）', () => {
+    expect(contract.version).toBe(GENUI_VERSION);
+    expect([...contract.components].sort()).toEqual([...GENUI_COMPONENT_TYPES].sort());
+    expect(new Set(GENUI_COMPONENT_TYPES).size).toBe(contract.components.length);
+    expect([...contract.containers].sort()).toEqual([...CONTAINER_TYPES].sort());
+    expect([...contract.actions].sort()).toEqual([...GENUI_ACTION_KINDS].sort());
+    expect([...contract.tones].sort()).toEqual([...GENUI_TONES].sort());
+    expect([...contract.text_sizes].sort()).toEqual([...GENUI_TEXT_SIZES].sort());
+  });
+
+  it('上限与 contract.json 逐项一致', () => {
+    expect(contract.limits).toEqual({
+      max_nodes: MAX_NODES,
+      max_depth: MAX_DEPTH,
+      max_text_chars: MAX_TEXT_CHARS,
+      max_spec_bytes: MAX_SPEC_BYTES,
+      max_array_items: MAX_ARRAY_ITEMS,
+      max_table_cols: MAX_TABLE_COLS,
+      max_action_payload_chars: MAX_ACTION_PAYLOAD_CHARS,
+    });
+  });
+});
+
+describe('MAX_SPEC_BYTES（T3.2 前端补齐）', () => {
+  it('清洗后超过 64K 字符 → 整块丢弃', () => {
+    const filler = 'x'.repeat(4000);
+    const items = Array.from({ length: 40 }, () => ({ type: 'text', content: filler }));
+    const { spec, problems } = validateGenUISpec({ version: 1, items });
+    expect(spec).toBeNull();
+    expect(problems.join()).toContain('字符');
+  });
+
+  it('未超限的 spec 照常通过', () => {
+    const { spec } = validateGenUISpec({
+      version: 1,
+      items: [{ type: 'text', content: 'x'.repeat(1000) }],
+    });
+    expect(spec).not.toBeNull();
+  });
+});

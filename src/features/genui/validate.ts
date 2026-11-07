@@ -21,17 +21,26 @@ import {
   type GenUITone,
 } from './types';
 
+// 上限与后端 `clipwright/schema/genui.py` 一一对应，统一真相在
+// `contract.json`（后端 `genui_contract.json` 的逐字节副本）；
+// `genui.test.tsx::ContractSingleSource` 逐项断言常量与 JSON 相等，改一边忘另一边会红。
 export const MAX_NODES = 100;
 export const MAX_DEPTH = 6;
 export const MAX_TEXT_CHARS = 4000;
 export const MAX_ARRAY_ITEMS = 100;
 export const MAX_TABLE_COLS = 12;
 export const MAX_ACTION_PAYLOAD_CHARS = 2000;
+/**
+ * 整块上限（计划 T3.2 补齐；后端 `MAX_SPEC_BYTES` 同值）。
+ * 量的是**清洗后**的 `JSON.stringify(spec).length`——字符数近似字节，与后端
+ * `len(json.dumps(spec, ensure_ascii=False))` 同口径（中文按 1 个字符算）。
+ */
+export const MAX_SPEC_BYTES = 64 * 1024;
 
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-const TONES: ReadonlySet<string> = new Set(['info', 'success', 'warning', 'error']);
+export const GENUI_TONES: ReadonlySet<string> = new Set(['info', 'success', 'warning', 'error']);
 const BADGE_TONES: ReadonlySet<string> = new Set(['success', 'warn', 'danger', 'accent']);
-const TEXT_SIZES: ReadonlySet<string> = new Set(['display', 'h1', 'h2', 'h3', 'body', 'muted', 'caption']);
+export const GENUI_TEXT_SIZES: ReadonlySet<string> = new Set(['display', 'h1', 'h2', 'h3', 'body', 'muted', 'caption']);
 const CONTAINER_TYPES: ReadonlySet<string> = new Set(['row', 'col', 'card', 'accordion']);
 
 export interface GenUIValidateResult {
@@ -206,8 +215,8 @@ function cleanNode(raw: unknown, depth: number, ctx: CleanContext): GenUINode | 
       const size = asText(raw.size).trim().toLowerCase();
       const tone = asText(raw.tone).trim().toLowerCase();
       node = { type: 'text', content: clip(asText(raw.content)) };
-      if (TEXT_SIZES.has(size)) node.size = size as GenUITextSize;
-      if (TONES.has(tone)) node.tone = tone as GenUITone;
+      if (GENUI_TEXT_SIZES.has(size)) node.size = size as GenUITextSize;
+      if (GENUI_TONES.has(tone)) node.tone = tone as GenUITone;
       break;
     }
     case 'list':
@@ -217,7 +226,7 @@ function cleanNode(raw: unknown, depth: number, ctx: CleanContext): GenUINode | 
       const tone = asText(raw.tone).trim().toLowerCase();
       node = {
         type: 'callout',
-        tone: (TONES.has(tone) ? tone : 'info') as GenUITone,
+        tone: (GENUI_TONES.has(tone) ? tone : 'info') as GenUITone,
         content: clip(asText(raw.content)),
       };
       const title = clip(asText(raw.title), 120);
@@ -285,7 +294,7 @@ function cleanNode(raw: unknown, depth: number, ctx: CleanContext): GenUINode | 
       const title = clip(asText(raw.title), 120);
       if (title) node.title = title;
       const tone = asText(raw.tone).trim().toLowerCase();
-      if (TONES.has(tone)) node.tone = tone as GenUITone;
+      if (GENUI_TONES.has(tone)) node.tone = tone as GenUITone;
       break;
     }
     case 'accordion': {
@@ -346,6 +355,15 @@ export function validateGenUISpec(raw: unknown): GenUIValidateResult {
   if (title) spec.title = title;
   const source = asText(raw.source);
   if (source) spec.source = source;
+  // 体量检查放在**清洗之后**（T3.2）：后端丢的东西前端不该照渲。字符数近似字节，
+  // 与后端 `len(json.dumps(spec, ensure_ascii=False))` 同口径。
+  try {
+    if (JSON.stringify(spec).length > MAX_SPEC_BYTES) {
+      return { spec: null, problems: [...problems, `spec 超过 ${MAX_SPEC_BYTES} 字符，整块丢弃`] };
+    }
+  } catch {
+    return { spec: null, problems: [...problems, 'spec 无法序列化（含非 JSON 值）'] };
+  }
   return { spec, problems };
 }
 
