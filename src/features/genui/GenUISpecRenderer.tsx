@@ -65,6 +65,14 @@ const TEXT_SIZE: Record<string, string> = {
   caption: 'text-caption text-on-surface-variant',
 };
 
+/**
+ * 动作的**默认**按钮文案。
+ *
+ * ⚠️ 白名单 ≠ 宿主支持（计划 T4.1）：`GENUI_ACTION_KINDS` 是**词法**契约（老 spec 写
+ * `select`/`confirm` 不该被判非法），但**是否可点**由宿主传的 `supportedActions` 决定。
+ * 当前只实现 `ask`（→ 发回当前需求会话）；`select`/`confirm` 一律渲染为禁用态——
+ * 尤其 `confirm` 不能单击直达，否则等于"模型写的按钮推进状态机"（违反 C10）。
+ */
 const ACTION_LABEL: Record<string, string> = {
   ask: '继续追问',
   select: '选这个',

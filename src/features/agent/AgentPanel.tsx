@@ -738,6 +738,9 @@ function RequirementsView() {
    * 为什么不让 spec 自带 endpoint/URL：那等于把"往哪发请求"交给模型（PRD §4.5 明令禁止）。
    * 这里动作 → `sendChat(当前会话, prompt)` 一条固定通道；`select` / `confirm` 在简报/规划书
    * 上没有宿主语义，渲染器会按 `supportedActions={['ask']}` 把它们画成禁用态。
+   *
+   * 计划 T4.1：**白名单 ≠ 宿主支持**——`GENUI_ACTION_KINDS` 只保证老 spec 不被判非法；
+   * `confirm` 若将来要接，必须带二次确认（不能让模型写的按钮单击推进状态机，违反 C10）。
    */
   const onGenUIAction = (event: GenUIActionEvent) => {
     if (event.action.type !== 'ask') return;

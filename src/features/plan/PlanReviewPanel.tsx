@@ -1,3 +1,14 @@
+/**
+ * 规划书审阅面板（**当前无挂载点**，计划 T6.1）。
+ *
+ * 全仓只有 `src/layouts/EditorLayout.tsx` import 了本文件的 `PlanView` **类型**；
+ * 组件本体没有任何渲染点。规划书确认的现役入口是 `AgentPanel` 的 `PlanCard`
+ * （→ `confirmPlan` → `requirementsService`）。
+ *
+ * 所以：**不要**把 GenUI 接进来——本组件自带 `onConfirm(plan)` 与"自定义维度缺 reason
+ * 禁止确认"等独立确认语义，接入即产生**第二个确认入口**，违反"确认唯一权威"。
+ * 若要复活本组件，必须先回答：确认入口是否唯一、GenUI 是否也要挂进来。
+ */
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui';
 import { asText } from '@/lib/render';
