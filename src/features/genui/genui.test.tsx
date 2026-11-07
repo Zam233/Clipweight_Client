@@ -87,6 +87,17 @@ describe('validateGenUISpec', () => {
     expect(hasGenUI(valid)).toBe(true);
     expect(hasGenUI({})).toBe(false);
   });
+
+  // 计划 T2.2：老会话 / 无 spec 三种形态都必须"整块不渲染、原卡片完好"
+  it.each([
+    ['undefined', undefined],
+    ['空对象', {}],
+    ['空 items', { version: 1, items: [] }],
+  ])('%s 不可用 → hasGenUI=false 且渲染器返回 null', (_label, raw) => {
+    expect(hasGenUI(raw)).toBe(false);
+    const { container } = render(<GenUISpecRenderer rawSpec={raw} />);
+    expect(container.querySelector('[data-testid="genui-spec"]')).toBeNull();
+  });
 });
 
 describe('GenUISpecRenderer', () => {
