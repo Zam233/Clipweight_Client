@@ -3,7 +3,7 @@
  * PRD B5（2026-10-29 / G10）：事件契约 parser。
  *
  * 证伪点：
- * 1. 29 类事件逐个 parse 都不抛异常，且 `kind` 就是事件类型；
+ * 1. 31 类事件逐个 parse 都不抛异常，且 `kind` 就是事件类型；
  * 2. 缺键给默认值、未知键保留在 `raw`（不丢信息）；
  * 3. 未知事件类型 → `kind: 'unknown'`（不崩）；
  * 4. 与后端契约：`EVENT_TYPE_KEYS` 数量 29 且无重复（跨仓一致性由
@@ -17,12 +17,13 @@ const ev = (type: TaskEventType, detail: Record<string, unknown> = {}, message =
   ({ seq: 1, type, ts: '', message, detail });
 
 describe('B5 事件契约', () => {
-  it('EVENT_TYPE_KEYS 覆盖 29 类且无重复', () => {
-    expect(EVENT_TYPE_KEYS).toHaveLength(29);
-    expect(new Set(EVENT_TYPE_KEYS).size).toBe(29);
+  it('EVENT_TYPE_KEYS 覆盖 31 类且无重复', () => {
+    // 2026-11-08：后端 EVENT_TYPES 增至 31（+progress / goal_update / soft_landing）。
+    expect(EVENT_TYPE_KEYS).toHaveLength(31);
+    expect(new Set(EVENT_TYPE_KEYS).size).toBe(31);
   });
 
-  it('29 类事件逐个 parse 不抛异常，kind 与类型一致', () => {
+  it('31 类事件逐个 parse 不抛异常，kind 与类型一致', () => {
     for (const type of EVENT_TYPE_KEYS) {
       const parsed = parseTaskEvent(ev(type));
       expect(parsed.kind, `type=${type}`).toBe(type);

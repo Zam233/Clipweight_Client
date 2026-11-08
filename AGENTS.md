@@ -181,6 +181,10 @@ J:\Clipwright
     - 未知控件类型/未知能力键**不许静默丢弃**：控件未知就给可读错误，能力键未知只在
       表单下方列出来（`unknown_capability_keys`）。
     - 不允许为某个具体厂商写专属分支（如 `if provider === 'cosyvoice'`）。
+    - **provider 的展示元数据也由后端下发（2026-11-08）**：`GET /api/providers/available`
+      的 `provider_meta[kind][id]` 带 `name` / `needs_uploader` / `clone_supported` / `local` /
+      `env_key`；`VoicePage` 的 label 与上传提示读它，**不得**再按厂商名硬编码（插件新增
+      provider 会以裸 id 出现、提示语也会错）。缺 meta 时只许用内置兜底表，不许猜能力。
 
 25. **「开始创作」页 03 配音步骤的入口归插件（`create.dub`）**（2026-11-02 裁定 C）：
     - slot 名单已从 14 变 15：`src/features/plugins/slots.ts` 的 `SlotName` 与 `SLOT_NAMES`

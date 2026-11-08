@@ -24,6 +24,9 @@ vi.mock('@/services/api/providers', async (importOriginal) => {
       remove: mocks.remove, setRole: mocks.setRole, setModels: mocks.setModels,
       upsertModel: mocks.upsertModel, deleteModel: mocks.deleteModel, fetchModels: mocks.fetchModels,
       testSource: mocks.testSource,
+      // B1-T5 起表单字段来自 provider 声明的 config_schema；缺它会整页渲染失败
+      schemas: vi.fn(async () => ({})),
+      capabilities: vi.fn(async () => null),
     },
   };
 });

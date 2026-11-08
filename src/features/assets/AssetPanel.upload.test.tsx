@@ -34,6 +34,9 @@ vi.mock('@/services/api', () => ({
   toolApi: { list: vi.fn(async () => ({ tools: [] })), execute: vi.fn() },
 }));
 
+// AGENTS #22：上传统一走工作区（materials/ 是唯一用户写入区），旧 assetApi.upload 已退役。
+vi.mock('@/services/api/workspace', () => ({ workspaceApi: { upload: mocks.upload } }));
+
 vi.mock('@/services/media/mediaManager', () => ({
   mediaManager: { registerFile: vi.fn(), getUrl: vi.fn(() => ''), getEntry: vi.fn() },
 }));
@@ -50,17 +53,24 @@ vi.mock('@/stores/projectStore', () => ({
 vi.mock('@/stores/assetStore', () => {
   const state = {
     assets: [],
+    // T3.2：上传入口只在「工作区」Tab 渲染（AI 匹配/配音/插件页不挂上传）。
+    activeTab: 'workspace',
     uploadProgress: null,
     refreshCounter: 0,
     setUploadProgress: vi.fn(),
     setAssets: vi.fn(),
     setLoading: vi.fn(),
     removeAsset: vi.fn(),
+    setState: vi.fn(),
   };
   return {
     useAssetStore: Object.assign(
       (sel?: (s: Record<string, unknown>) => unknown) => sel ? sel(state) : state,
-      { getState: () => state },
+      {
+        getState: () => state,
+        setState: (updater: (s: Record<string, unknown>) => Record<string, unknown>) =>
+          Object.assign(state, updater(state)),
+      },
     ),
   };
 });
@@ -98,9 +108,13 @@ vi.mock('./PluginPanel', () => ({ PluginPanel: () => <div /> }));
 
 const PNG = new File([new Uint8Array([1, 2, 3])], 'a.png', { type: 'image/png' });
 
-function pickFile(): void {
-  const input = document.querySelector('#asset-upload-input') as HTMLInputElement;
-  expect(input).toBeTruthy();
+async function pickFile(): Promise<void> {
+  // 首次 list 拉取完成前是骨架屏；等 input 出现再改文件（B10 用例旧写法是同步取，已不稳）。
+  const input = await waitFor(() => {
+    const el = document.querySelector('#asset-upload-input') as HTMLInputElement | null;
+    if (!el) throw new Error('upload input 尚未渲染');
+    return el;
+  });
   fireEvent.change(input, { target: { files: [PNG] } });
 }
 
@@ -110,41 +124,36 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-describe('B10 素材上传复用', () => {
-  it('200 + deduplicated → 页面内提示「已存在，已复用」，不当成错误', async () => {
-    mocks.upload.mockResolvedValue({
-      id: 'asset_1', asset_id: 'asset_1', filename: 'a.png', file_path: 'J:/lib/a.png',
-      media_type: 'image', deduplicated: true, status: 'reused', used_count: 2,
-    });
+describe('素材上传（工作区路径，AGENTS #22）', () => {
+  it('上传成功 → 页面内提示已写入 materials/，并刷新列表', async () => {
+    mocks.upload.mockResolvedValue({ ok: true });
     render(<AssetPanel />);
-    pickFile();
+    await pickFile();
 
     const note = await screen.findByTestId('asset-upload-note');
-    expect(note.textContent).toContain('已存在，已复用');
-    expect(note.getAttribute('data-dedup')).toBe('true');
-    // 复用仍算成功：列表照常刷新，且没有 "上传失败" 提示
+    expect(note.textContent).toContain('已上传到工作区 materials/');
     await waitFor(() => expect(mocks.list).toHaveBeenCalled());
-    expect(mocks.toast).not.toHaveBeenCalledWith(expect.stringContaining('上传失败'), 'error');
+    expect(mocks.toast).not.toHaveBeenCalledWith(expect.stringContaining('失败'), 'error');
   });
 
-  it('首次上传（deduplicated 缺省）→ 不显示复用提示', async () => {
-    mocks.upload.mockResolvedValue({
-      id: 'asset_2', asset_id: 'asset_2', filename: 'a.png', file_path: 'J:/lib/b.png',
-      media_type: 'image',
-    });
+  it('同名 409 → 提示改名，不假装成功', async () => {
+    mocks.upload.mockRejectedValue({ response: { status: 409, data: { detail: 'exists' } } });
     render(<AssetPanel />);
-    pickFile();
-    await waitFor(() => expect(mocks.upload).toHaveBeenCalled());
+    await pickFile();
+
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(expect.stringContaining('同名文件已存在'), 'error'),
+    );
     expect(screen.queryByTestId('asset-upload-note')).toBeNull();
   });
 
-  it('400（真错误）→ 落到 fallback 提示，不假装成功', async () => {
+  it('400（真错误）→ 透出后端 detail，不假装成功', async () => {
     mocks.upload.mockRejectedValue({ response: { status: 400, data: { detail: '格式不支持' } } });
     render(<AssetPanel />);
-    pickFile();
+    await pickFile();
 
     await waitFor(() =>
-      expect(mocks.toast).toHaveBeenCalledWith(expect.stringContaining('上传失败'), 'info'),
+      expect(mocks.toast).toHaveBeenCalledWith(expect.stringContaining('格式不支持'), 'error'),
     );
     expect(screen.queryByTestId('asset-upload-note')).toBeNull();
   });

@@ -107,6 +107,17 @@ export interface RoleBinding {
 
 export type RoleBindings = Partial<Record<ProviderRole, RoleBinding>>;
 
+export interface ProviderDisplayMeta {
+  /** 显示名（插件声明；前端不得按厂商硬编码补 label） */
+  name?: string;
+  /** 参考音频是否需要宿主上传为公网 URL */
+  needs_uploader?: boolean;
+  /** 是否支持本项目的音色克隆协议 */
+  clone_supported?: boolean;
+  local?: boolean;
+  env_key?: string;
+}
+
 export interface AvailableProviders {
   llm_provider: string[];
   tts_provider: string[];
@@ -114,6 +125,8 @@ export interface AvailableProviders {
   rerank_provider: string[];
   role_kinds: Record<ProviderRole, ProviderKind>;
   tts_aliases: Record<string, string>;
+  /** kind -> provider id -> 展示元数据（B7/B8 后 provider 归插件，label 由能力方声明） */
+  provider_meta?: Record<string, Record<string, ProviderDisplayMeta>>;
 }
 
 /** provider 的能力协商结果（后端按实现真实返回，不是按名字猜）。 */
@@ -241,6 +254,7 @@ export const providersApi = {
       rerank_provider: data?.rerank_provider ?? [],
       role_kinds: data?.role_kinds ?? ({} as Record<ProviderRole, ProviderKind>),
       tts_aliases: data?.tts_aliases ?? {},
+      provider_meta: data?.provider_meta ?? {},
     };
   },
 

@@ -703,6 +703,13 @@ function RequirementsView() {
       if (contTaskId) {
         void useTaskStore.getState().load(contTaskId).catch(() => { /* 拿不到就让轨迹自己轮询 */ });
       }
+      // 确认「确认」后后端改走**任务派发**：返回 `plan_dispatch.task_id` 而不是顶层 task_id。
+      // 这里同样把 task 装进 store——否则用户点「轨迹」看到的还是上一个任务（旧缺陷）。
+      const dispatch = (res as { plan_dispatch?: { task_id?: unknown } }).plan_dispatch;
+      const dispatchTaskId = typeof dispatch?.task_id === 'string' ? dispatch.task_id : '';
+      if (dispatchTaskId && dispatchTaskId !== contTaskId) {
+        void useTaskStore.getState().load(dispatchTaskId).catch(() => { /* 轮询兜底 */ });
+      }
       const finalContent = (res.reply ?? res.message ?? '已收到。') as string;
       if (streamId) {
         // 流式气泡已存在 → 用权威回复替换（delta 与最终 reply 内容一致，此处兜底差异）

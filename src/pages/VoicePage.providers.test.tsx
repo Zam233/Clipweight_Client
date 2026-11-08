@@ -59,4 +59,20 @@ describe('P4 语音 provider 列表门面驱动', () => {
     await openCloneDialog();
     expect(screen.getByRole('button', { name: 'Qwen TTS' })).toBeTruthy();
   });
+
+  it('插件 provider 的显示名与能力位由 provider_meta 下发（不按厂商猜）', async () => {
+    mocks.available.mockResolvedValue({
+      tts_provider: ['qwen-tts', 'elevenlabs'],
+      provider_meta: {
+        tts_provider: {
+          'qwen-tts': { name: 'Qwen TTS', needs_uploader: false },
+          elevenlabs: { name: 'ElevenLabs', needs_uploader: false, clone_supported: false },
+        },
+      },
+    });
+    await openCloneDialog();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'ElevenLabs' })).toBeTruthy());
+    // needs_uploader=false → 提示"直接按文本合成"，而不是"需要公网 URL"
+    expect(screen.getByText(/直接按文本合成/)).toBeTruthy();
+  });
 });
