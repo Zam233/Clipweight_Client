@@ -9,7 +9,6 @@ import {
 import { lazy, Suspense } from 'react';
 import { HomePage } from './pages/HomePage';
 import { RouteErrorFallback } from './components/RouteErrorFallback';
-import { useAuthStore } from '@/stores/authStore';
 
 // Route-level code splitting: every page (except the landing HomePage) is
 // lazy-loaded into its own chunk to keep the initial bundle small.
@@ -49,33 +48,6 @@ const PipelineAdminPage = lazyPage(() => import('./pages/admin/PipelineAdminPage
 const SupervisorAdminPage = lazyPage(() => import('./pages/admin/SupervisorAdminPage'), 'SupervisorAdminPage');
 const VoicePage = lazyPage(() => import('./pages/VoicePage'), 'VoicePage');
 const ProjectsPage = lazyPage(() => import('./pages/ProjectsPage'), 'ProjectsPage');
-const LoginPage = lazyPage(() => import('./pages/LoginPage'), 'LoginPage');
-const MarketPage = lazyPage(() => import('./pages/MarketPage'), 'MarketPage');
-
-/** 管理页鉴权守卫（审计 P1 修复）：
- * - 存在账号会话（restore 成功）时，仅 role === 'admin' 可访问管理页；
- * - 无会话时为本地/离线单用户模式，保持可用（桌面端部署形态）。 */
-async function requireAdmin() {
-  const auth = useAuthStore.getState();
-  await auth.restore();
-  const user = useAuthStore.getState().user;
-  if (user && user.role !== 'admin') {
-    sessionStorage.setItem('cw_guard_notice', '该页面需要管理员权限');
-    throw redirect({ to: '/' });
-  }
-}
-
-/** 数据页会话守卫（E2）：
- * - 曾登录过（cw_had_session 标记）且当前无有效会话 → 跳转登录页；
- * - 从未登录过视为 off/token 本地模式，照旧放行（不影响桌面部署形态）。 */
-async function requireSession() {
-  const auth = useAuthStore.getState();
-  await auth.restore();
-  const hadSession = localStorage.getItem('cw_had_session') === '1';
-  if (hadSession && !useAuthStore.getState().user) {
-    throw redirect({ to: '/login' });
-  }
-}
 
 /** E1: 404 页——此前未知 URL 显示 TanStack Router 默认英文界面 */
 function NotFoundView() {
@@ -125,7 +97,6 @@ const editorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/editor/$projectId',
   beforeLoad: async ({ params }) => {
-    await requireSession(); // E2
     const { projectId } = params;
     // Validate id format only; EditorPage handles loading + offline fallback
     // (avoids a redundant double-fetch and allows offline/demo editor access)
@@ -148,7 +119,6 @@ const settingsRoute = createRoute({
 const exportRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/export/$projectId',
-  beforeLoad: requireSession,
   component: ExportPage,
   errorComponent: RouteErrorFallback,
 });
@@ -156,7 +126,6 @@ const exportRoute = createRoute({
 const personaRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/persona',
-  beforeLoad: requireSession,
   component: PersonaPage,
   errorComponent: RouteErrorFallback,
 });
@@ -164,7 +133,6 @@ const personaRoute = createRoute({
 const personaDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/persona/$personaId',
-  beforeLoad: requireSession,
   component: PersonaDetailPage,
   errorComponent: RouteErrorFallback,
 });
@@ -194,7 +162,6 @@ const pluginPageRoute = createRoute({
 const modelsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/models',
-  beforeLoad: requireAdmin,
   component: ModelsPage,
   errorComponent: RouteErrorFallback,
 });
@@ -202,7 +169,6 @@ const modelsRoute = createRoute({
 const providersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/providers',
-  beforeLoad: requireAdmin,
   component: ProvidersPage,
   errorComponent: RouteErrorFallback,
 });
@@ -210,7 +176,6 @@ const providersRoute = createRoute({
 const backendConfigRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/backend-config',
-  beforeLoad: requireAdmin,
   component: BackendConfigPage,
   errorComponent: RouteErrorFallback,
 });
@@ -218,7 +183,6 @@ const backendConfigRoute = createRoute({
 const toolsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/tools',
-  beforeLoad: requireAdmin,
   component: ToolsPage,
   errorComponent: RouteErrorFallback,
 });
@@ -227,7 +191,6 @@ const toolsRoute = createRoute({
 const scriptToolsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/script-tools',
-  beforeLoad: requireAdmin,
   component: ScriptToolsPage,
   errorComponent: RouteErrorFallback,
 });
@@ -236,7 +199,6 @@ const scriptToolsRoute = createRoute({
 const schedulerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/scheduler',
-  beforeLoad: requireAdmin,
   component: SchedulerPage,
   errorComponent: RouteErrorFallback,
 });
@@ -244,7 +206,6 @@ const schedulerRoute = createRoute({
 const pluginsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/plugins',
-  beforeLoad: requireAdmin,
   component: PluginsPage,
   errorComponent: RouteErrorFallback,
 });
@@ -252,7 +213,6 @@ const pluginsRoute = createRoute({
 const typeMakerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/type-maker',
-  beforeLoad: requireAdmin,
   component: TypeMakerPage,
   errorComponent: RouteErrorFallback,
 });
@@ -261,7 +221,6 @@ const typeMakerRoute = createRoute({
 const typeCatalogRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/types',
-  beforeLoad: requireAdmin,
   component: TypeCatalogPage,
   errorComponent: RouteErrorFallback,
 });
@@ -269,7 +228,6 @@ const typeCatalogRoute = createRoute({
 const templatesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/templates',
-  beforeLoad: requireAdmin,
   component: TemplatesPage,
   errorComponent: RouteErrorFallback,
 });
@@ -277,7 +235,6 @@ const templatesRoute = createRoute({
 const webhooksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/webhooks',
-  beforeLoad: requireAdmin,
   component: WebhooksPage,
   errorComponent: RouteErrorFallback,
 });
@@ -285,7 +242,6 @@ const webhooksRoute = createRoute({
 const learningRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/learning',
-  beforeLoad: requireAdmin,
   component: LearningPage,
   errorComponent: RouteErrorFallback,
 });
@@ -293,7 +249,6 @@ const learningRoute = createRoute({
 const videoEditorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/video-editor',
-  beforeLoad: requireAdmin,
   component: VideoEditorPage,
   errorComponent: RouteErrorFallback,
 });
@@ -301,7 +256,6 @@ const videoEditorRoute = createRoute({
 const fontsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/fonts',
-  beforeLoad: requireAdmin,
   component: FontsPage,
   errorComponent: RouteErrorFallback,
 });
@@ -309,7 +263,6 @@ const fontsRoute = createRoute({
 const mgPreviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/mg-preview',
-  beforeLoad: requireAdmin,
   component: MgPreviewPage,
   errorComponent: RouteErrorFallback,
 });
@@ -317,7 +270,6 @@ const mgPreviewRoute = createRoute({
 const subtitleToolsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/subtitle-tools',
-  beforeLoad: requireAdmin,
   component: SubtitleToolsPage,
   errorComponent: RouteErrorFallback,
 });
@@ -325,7 +277,6 @@ const subtitleToolsRoute = createRoute({
 const preprocessRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/preprocess',
-  beforeLoad: requireAdmin,
   component: PreprocessPage,
   errorComponent: RouteErrorFallback,
 });
@@ -333,7 +284,6 @@ const preprocessRoute = createRoute({
 const pipelineAdminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/pipeline-admin',
-  beforeLoad: requireAdmin,
   component: PipelineAdminPage,
   errorComponent: RouteErrorFallback,
 });
@@ -341,7 +291,6 @@ const pipelineAdminRoute = createRoute({
 const supervisorAdminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/supervisor',
-  beforeLoad: requireAdmin,
   component: SupervisorAdminPage,
   errorComponent: RouteErrorFallback,
 });
@@ -356,22 +305,7 @@ const voiceRoute = createRoute({
 const projectsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/projects',
-  beforeLoad: requireSession,
   component: ProjectsPage,
-  errorComponent: RouteErrorFallback,
-});
-
-const loginRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/login',
-  component: LoginPage,
-  errorComponent: RouteErrorFallback,
-});
-
-const marketRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/market',
-  component: MarketPage,
   errorComponent: RouteErrorFallback,
 });
 
@@ -409,8 +343,6 @@ const routeTree = rootRoute.addChildren([
   supervisorAdminRoute,
   voiceRoute,
   projectsRoute,
-  loginRoute,
-  marketRoute,
 ]);
 
 export const router = createRouter({ routeTree });

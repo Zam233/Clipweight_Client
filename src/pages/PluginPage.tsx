@@ -12,26 +12,14 @@ import { Button } from '@/components/ui';
 import { Puzzle, ShieldAlert } from 'lucide-react';
 import { PluginLayoutRenderer } from '@/features/plugins/PluginLayoutRenderer';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
-import { useAuthStore } from '@/stores/authStore';
 
 export function PluginPage() {
   const { pageId } = useParams({ from: '/plugin/$pageId' });
   const navigate = useNavigate();
   const pages = usePluginSlots('page');
 
-  // P6：插件页默认对所有登录用户开放；声明 admin_only 的贡献只投递给管理员
-  // （后端已不下发，这里再按本地角色挡一次，避免缓存/刷新造成短暂可见）。
-  const [isAdmin, setIsAdmin] = useState(true); // 角色未知时不误报「无权限」
-  useEffect(() => {
-    let alive = true;
-    const auth = useAuthStore.getState();
-    void auth.restore().then(() => {
-      if (!alive) return;
-      const user = useAuthStore.getState().user;
-      setIsAdmin(!user || user.role === 'admin');
-    }).catch(() => { /* 离线/未登录：按 off/token 本地模式放行 */ });
-    return () => { alive = false; };
-  }, []);
+  // 账号系统已剥离：本地/单用户模式下一律视为管理员（admin_only 贡献照常可见）。
+  const [isAdmin] = useState(true);
 
   // 匹配规则：贡献 id 或 payload.path 与路由参数一致
   const page = pages.find((c) => {

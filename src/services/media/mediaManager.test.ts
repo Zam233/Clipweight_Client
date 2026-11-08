@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, beforeAll, afterEach } from 'vitest';
 import { mediaManager, resolveMediaUrl, withMediaToken } from './mediaManager';
-import { session } from '@/services/api/session';
+import { useSettingsStore } from '@/stores/settingsStore';
 import type { Timeline, Clip, Track } from '@/types/timeline';
 
 // jsdom doesn't implement object URL helpers — provide minimal stubs for registerFile tests
@@ -93,7 +93,7 @@ describe('mediaManager.registerTimeline', () => {
 
 describe('resolveMediaUrl', () => {
   afterEach(() => {
-    session.setToken(null); // V5: 不向其他用例泄漏 token
+    useSettingsStore.setState({ authToken: null }); // V5: 不向其他用例泄漏 token
   });
 
   it('returns http url directly', () => {
@@ -117,7 +117,7 @@ describe('resolveMediaUrl', () => {
 
 describe('V5 withMediaToken — by-path query token', () => {
   afterEach(() => {
-    session.setToken(null);
+    useSettingsStore.setState({ authToken: null });
   });
 
   it('no token → URL unchanged', () => {
@@ -125,7 +125,7 @@ describe('V5 withMediaToken — by-path query token', () => {
   });
 
   it('token set → appended to by-path URL only (http urls untouched)', () => {
-    session.setToken('tok123');
+    useSettingsStore.setState({ authToken: 'tok123' });
     const u1 = withMediaToken('/api/asset/by-path?path=a.mp4');
     expect(u1).toBe('/api/asset/by-path?path=a.mp4&token=tok123');
     const u2 = withMediaToken('http://cdn.example/v.mp4');
@@ -133,7 +133,7 @@ describe('V5 withMediaToken — by-path query token', () => {
   });
 
   it('resolveMediaUrl honors the session token', () => {
-    session.setToken('tok456');
+    useSettingsStore.setState({ authToken: 'tok456' });
     const url = resolveMediaUrl({ asset_id: 'x', metadata: { local_path: 'C:\\a.mp4' } })!;
     expect(url.endsWith('&token=tok456')).toBe(true);
   });
