@@ -34,7 +34,7 @@ import { buildSelectionSnapshot, selectionHint, type SelectionSnapshot } from '.
 import { asText, textList } from '@/lib/render';
 // GenUI：创意简报 / 规划书的只读结构化视图（spec 由后端产出并清洗，前端再洗一遍）
 import { GenUISpecRenderer } from '@/features/genui/GenUISpecRenderer';
-import { hasGenUI } from '@/features/genui/validate';
+import { DisplaySpecsBlock } from '@/features/genui/DisplaySpecsBlock';
 import type { GenUIActionEvent } from '@/features/genui/types';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline, Clip, ClipKind } from '@/types/timeline';
@@ -184,7 +184,6 @@ function RequirementsBubble({
         {m.creative_brief && (
           <div className="mt-2 pt-2 border-t border-outline-variant/20">
             <BriefCard brief={m.creative_brief}
-              genui={(m.creative_brief as { genui?: unknown }).genui}
               onGenUIAction={onGenUIAction}
               onConfirm={onConfirmBrief} busy={busy}
               onReview={() => onReview('brief')} />
@@ -193,7 +192,7 @@ function RequirementsBubble({
         {m.production_plan && (
           <div className="mt-2 pt-2 border-t border-outline-variant/20">
             <PlanCard markdown={m.production_plan.markdown_content || m.production_plan.markdown || ''}
-              genui={(m.production_plan as { genui?: unknown }).genui}
+              plan={m.production_plan}
               onGenUIAction={onGenUIAction}
               onConfirm={onConfirmPlan} busy={busy} onReview={() => onReview('plan')} />
           </div>
@@ -1988,27 +1987,23 @@ function BottomBar() {
   );
 }
 
-function BriefCard({ brief, genui, onGenUIAction, onConfirm, busy, onReview }: { brief: NonNullable<ReturnType<typeof useAgentStore.getState>['creativeBrief']>; genui?: unknown; onGenUIAction?: (event: GenUIActionEvent) => void; onConfirm: () => void; busy: boolean; onReview?: () => void }) {
+function BriefCard({ brief, onGenUIAction, onConfirm, busy, onReview }: { brief: NonNullable<ReturnType<typeof useAgentStore.getState>['creativeBrief']>; onGenUIAction?: (event: GenUIActionEvent) => void; onConfirm: () => void; busy: boolean; onReview?: () => void }) {
   return (
     <div className="bg-surface-container border border-primary/30 rounded-cw-md overflow-hidden text-left" data-testid="brief-card">
       <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-primary/20">
         <FileText className="w-3.5 h-3.5 text-primary" />
         <span className="text-label font-medium text-primary">创意简报</span>
       </div>
-      {/* GenUI 视图（spec 来自后端 / 模型；渲染前已过两道校验）。
-          它**不替代**下面的字段：权威数据永远是字段本身，spec 坏了这里就整块不渲染。
-          `scope="brief"` 让 `confirm` 动作知道要确认的是简报（P4.2）。 */}
-      {hasGenUI(genui) && (
-        <div className="px-3 pt-2.5 pb-2.5 border-b border-outline-variant/20" data-testid="brief-genui">
-          <GenUISpecRenderer
-            rawSpec={genui}
-            compact
-            scope="brief"
-            supportedActions={['ask', 'select', 'confirm']}
-            onAction={onGenUIAction}
-          />
-        </div>
-      )}
+      {/* 展示 spec（契约来自插件；渲染前已过前端第二道闸）。
+          它**不替代**下面的字段：权威数据永远是字段本身；插件未装/被禁用时整块不渲染。
+          `scope="brief"` 让 `confirm` 动作知道要确认的是简报。 */}
+      <DisplaySpecsBlock
+        obj={brief}
+        surface="brief"
+        testId="brief-genui"
+        scope="brief"
+        onAction={onGenUIAction}
+      />
       <div className="p-3 space-y-1 text-label-sm">
         {/* 落地纪律：简报表单字段全是**模型产物**，运行时形状可能不是字符串
             （实测出现 `{"name": "..."}`，整页崩在 "Objects are not valid as a React child"）。
@@ -2083,7 +2078,7 @@ function BriefCard({ brief, genui, onGenUIAction, onConfirm, busy, onReview }: {
   );
 }
 
-function PlanCard({ markdown, genui, onGenUIAction, onConfirm, busy, onReview }: { markdown?: string; genui?: unknown; onGenUIAction?: (event: GenUIActionEvent) => void; onConfirm: () => void; busy: boolean; onReview?: () => void }) {
+function PlanCard({ markdown, plan, onGenUIAction, onConfirm, busy, onReview }: { markdown?: string; plan?: unknown; onGenUIAction?: (event: GenUIActionEvent) => void; onConfirm: () => void; busy: boolean; onReview?: () => void }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div className="bg-surface-container border border-primary/30 rounded-cw-md overflow-hidden text-left" data-testid="plan-card">
@@ -2091,19 +2086,15 @@ function PlanCard({ markdown, genui, onGenUIAction, onConfirm, busy, onReview }:
         <ListChecks className="w-3.5 h-3.5 text-primary" />
         <span className="text-label font-medium text-primary">制作规划书</span>
       </div>
-      {/* GenUI 概览（几段、多长、用了哪些镜头）；它不替代 markdown 正文——
-          用户确认的仍是下面这份规划书。`scope="plan"` 让 `confirm` 知道确认的是规划书。 */}
-      {hasGenUI(genui) && (
-        <div className="px-3 pt-2.5 pb-2.5 border-b border-outline-variant/20" data-testid="plan-genui">
-          <GenUISpecRenderer
-            rawSpec={genui}
-            compact
-            scope="plan"
-            supportedActions={['ask', 'select', 'confirm']}
-            onAction={onGenUIAction}
-          />
-        </div>
-      )}
+      {/* 展示 spec 概览（几段、多长、用了哪些镜头）；它不替代 markdown 正文——
+          用户确认的仍是下面这份规划书。契约缺失时整块不渲染。 */}
+      <DisplaySpecsBlock
+        obj={plan}
+        surface="plan"
+        testId="plan-genui"
+        scope="plan"
+        onAction={onGenUIAction}
+      />
       <div className="p-3">
         <div className={`${expanded ? 'max-h-[300px] overflow-y-auto' : 'max-h-24 overflow-hidden'} transition-all`}>
           <Markdown text={markdown || ''} />

@@ -12,6 +12,27 @@ import { hasGenUI, validateGenUISpec } from './validate';
 
 afterEach(() => cleanup());
 
+
+import contractJson from './contract.json';
+import { contractFromContribution, type DisplaySpecContract } from './contractSource';
+import { hasGenUI as hasGenUIWithContract, validateGenUISpec as validateWithContract } from './validate';
+
+/**
+ * 测试用契约：**由插件契约副本构造**（不是手写一份"应该长这样"的规则），
+ * 这样前端校验器与插件契约之间的漂移会在测试里直接暴露。
+ */
+const CONTRACT = contractFromContribution({
+  kind: 'display_spec',
+  id: 'brief',
+  meta: { ...(contractJson as Record<string, unknown>), spec_id: 'brief', source: 'brief', order: 100, trust: 'sanitize' },
+}) as DisplaySpecContract;
+if (!CONTRACT) throw new Error('contract.json 形状不合法，无法构造测试契约');
+
+const validate = (raw: unknown, contract: DisplaySpecContract | null = CONTRACT) =>
+  validateWithContract(raw, contract);
+const has = (raw: unknown, contract: DisplaySpecContract | null = CONTRACT) =>
+  hasGenUIWithContract(raw, contract);
+
 const valid = {
   version: 1,
   title: '简报',
@@ -23,25 +44,25 @@ const valid = {
 
 describe('validateGenUISpec', () => {
   it('合法 spec 原样通过', () => {
-    const { spec, problems } = validateGenUISpec(valid);
+    const { spec, problems } = validate(valid);
     expect(problems).toEqual([]);
     expect(spec?.items).toHaveLength(2);
     expect(spec?.version).toBe(1);
   });
 
   it('缺省 version 视为当前版本', () => {
-    const { spec } = validateGenUISpec({ items: [{ type: 'text', content: 'x' }] });
+    const { spec } = validate({ items: [{ type: 'text', content: 'x' }] });
     expect(spec?.version).toBe(1);
   });
 
   it('版本不符整块丢弃（宿主回落原卡片）', () => {
-    const { spec, problems } = validateGenUISpec({ version: 9, items: [{ type: 'text', content: 'x' }] });
+    const { spec, problems } = validate({ version: 9, items: [{ type: 'text', content: 'x' }] });
     expect(spec).toBeNull();
     expect(problems.join()).toContain('版本');
   });
 
   it('未知组件降级为占位但兄弟节点保留', () => {
-    const { spec } = validateGenUISpec({
+    const { spec } = validate({
       items: [{ type: 'hero', title: 'x' }, { type: 'text', content: '兄弟节点' }],
     });
     expect(spec?.items.map((n) => n.type)).toEqual(['text', 'text']);
@@ -51,12 +72,12 @@ describe('validateGenUISpec', () => {
 
   it('危险键被剔除（原型污染防线）', () => {
     const dirty = JSON.parse('{"items":[{"type":"card","__proto__":{"polluted":true},"items":[{"type":"text","content":"in"}]}]}');
-    const { spec } = validateGenUISpec(dirty);
+    const { spec } = validate(dirty);
     expect(JSON.stringify(spec)).not.toContain('__proto__');
   });
 
   it('非白名单动作被丢弃，白名单动作保留', () => {
-    const { spec, problems } = validateGenUISpec({
+    const { spec, problems } = validate({
       items: [
         { type: 'text', content: '坏', action: { type: 'fetch', url: 'https://evil' } },
         { type: 'text', content: '好', action: { type: 'ask', payload: { prompt: '继续' } } },
@@ -70,7 +91,7 @@ describe('validateGenUISpec', () => {
   it('文本超长截断、表格列数封顶', () => {
     const long = '字'.repeat(5000);
     const cols = Array.from({ length: 20 }, (_, i) => `c${i}`);
-    const { spec } = validateGenUISpec({
+    const { spec } = validate({
       items: [
         { type: 'text', content: long },
         { type: 'table', columns: cols, rows: [[...cols]] },
@@ -81,11 +102,11 @@ describe('validateGenUISpec', () => {
   });
 
   it('空/非对象输入返回 null', () => {
-    expect(validateGenUISpec(null).spec).toBeNull();
-    expect(validateGenUISpec('').spec).toBeNull();
-    expect(validateGenUISpec({ items: [] }).spec).toBeNull();
-    expect(hasGenUI(valid)).toBe(true);
-    expect(hasGenUI({})).toBe(false);
+    expect(validate(null).spec).toBeNull();
+    expect(validate('').spec).toBeNull();
+    expect(validate({ items: [] }).spec).toBeNull();
+    expect(has(valid)).toBe(true);
+    expect(has({})).toBe(false);
   });
 
   // 计划 T2.2：老会话 / 无 spec 三种形态都必须"整块不渲染、原卡片完好"
@@ -94,25 +115,25 @@ describe('validateGenUISpec', () => {
     ['空对象', {}],
     ['空 items', { version: 1, items: [] }],
   ])('%s 不可用 → hasGenUI=false 且渲染器返回 null', (_label, raw) => {
-    expect(hasGenUI(raw)).toBe(false);
-    const { container } = render(<GenUISpecRenderer rawSpec={raw} />);
+    expect(has(raw)).toBe(false);
+    const { container } = render(<GenUISpecRenderer contract={CONTRACT} rawSpec={raw} />);
     expect(container.querySelector('[data-testid="genui-spec"]')).toBeNull();
   });
 });
 
 describe('GenUISpecRenderer', () => {
   it('渲染文本与表格，且没有 spec 时什么都不渲染', () => {
-    const { container, rerender } = render(<GenUISpecRenderer rawSpec={valid} />);
+    const { container, rerender } = render(<GenUISpecRenderer contract={CONTRACT} rawSpec={valid} />);
     expect(screen.getByText('核心目标')).toBeTruthy();
     expect(screen.getByText('年轻人')).toBeTruthy();
     expect(container.querySelector('[data-testid="genui-spec"]')).toBeTruthy();
 
-    rerender(<GenUISpecRenderer rawSpec={{ version: 42 }} />);
+    rerender(<GenUISpecRenderer contract={CONTRACT} rawSpec={{ version: 42 }} />);
     expect(container.querySelector('[data-testid="genui-spec"]')).toBeNull();
   });
 
   it('没有宿主回调时动作按钮禁用（不假装可点）', () => {
-    render(<GenUISpecRenderer rawSpec={{
+    render(<GenUISpecRenderer contract={CONTRACT} rawSpec={{
       items: [{ type: 'text', content: '带动作', action: { type: 'ask', label: '继续追问' } }],
     }} />);
     const btn = screen.getByRole('button', { name: '继续追问' }) as HTMLButtonElement;
@@ -120,7 +141,7 @@ describe('GenUISpecRenderer', () => {
   });
 
   it('宿主只支持 ask 时，其它类型仍禁用', () => {
-    render(<GenUISpecRenderer
+    render(<GenUISpecRenderer contract={CONTRACT}
       rawSpec={{ items: [{ type: 'text', content: 'a', action: { type: 'confirm', label: '确认' } }] }}
       supportedActions={['ask']}
       onAction={() => {}}
@@ -131,7 +152,7 @@ describe('GenUISpecRenderer', () => {
 
   it('宿主回调存在时 ask 可点并回传节点 id', () => {
     const onAction = vi.fn();
-    render(<GenUISpecRenderer
+    render(<GenUISpecRenderer contract={CONTRACT}
       rawSpec={{ items: [{ type: 'text', content: 'a', action: { type: 'ask', label: '追问', payload: { prompt: '再细一点' } } }] }}
       supportedActions={['ask']}
       onAction={onAction}
@@ -145,7 +166,7 @@ describe('GenUISpecRenderer', () => {
   });
 
   it('模型给的文本一律按字符串渲染（不执行 HTML）', () => {
-    const { container } = render(<GenUISpecRenderer rawSpec={{
+    const { container } = render(<GenUISpecRenderer contract={CONTRACT} rawSpec={{
       items: [{ type: 'text', content: '<img src=x onerror=alert(1)>' }],
     }} />);
     expect(container.querySelector('img')).toBeNull();
@@ -153,7 +174,7 @@ describe('GenUISpecRenderer', () => {
   });
 
   it('手风琴用原生 details（本地展开，不发请求）', () => {
-    const { container } = render(<GenUISpecRenderer rawSpec={{
+    const { container } = render(<GenUISpecRenderer contract={CONTRACT} rawSpec={{
       items: [{
         type: 'accordion',
         items: [{ title: '分组一', items: [{ type: 'text', content: '里面' }] }],
@@ -213,13 +234,13 @@ describe('MAX_SPEC_BYTES（T3.2 前端补齐）', () => {
   it('清洗后超过 64K 字符 → 整块丢弃', () => {
     const filler = 'x'.repeat(4000);
     const items = Array.from({ length: 40 }, () => ({ type: 'text', content: filler }));
-    const { spec, problems } = validateGenUISpec({ version: 1, items });
+    const { spec, problems } = validate({ version: 1, items });
     expect(spec).toBeNull();
     expect(problems.join()).toContain('字符');
   });
 
   it('未超限的 spec 照常通过', () => {
-    const { spec } = validateGenUISpec({
+    const { spec } = validate({
       version: 1,
       items: [{ type: 'text', content: 'x'.repeat(1000) }],
     });
@@ -239,7 +260,7 @@ const _tableSpec = (n: number) => ({
 
 describe('表格本地排序/筛选（T5.1）', () => {
   it('≥8 行出现控件；9 行表点表头后正文变化', () => {
-    render(<GenUISpecRenderer rawSpec={_tableSpec(9)} />);
+    render(<GenUISpecRenderer contract={CONTRACT} rawSpec={_tableSpec(9)} />);
     expect(screen.getByTestId('genui-table-filter')).toBeTruthy();
     const bodyText = () => screen.getByTestId('genui-table-body').textContent || '';
     const before = bodyText();
@@ -248,7 +269,7 @@ describe('表格本地排序/筛选（T5.1）', () => {
   });
 
   it('筛选后行数减少且计数可见', () => {
-    render(<GenUISpecRenderer rawSpec={_tableSpec(9)} />);
+    render(<GenUISpecRenderer contract={CONTRACT} rawSpec={_tableSpec(9)} />);
     fireEvent.change(screen.getByTestId('genui-table-filter'), { target: { value: 'r1' } });
     expect(screen.getByText(/1\/9\s*行/)).toBeTruthy();
     expect(screen.getByTestId('genui-table-body').textContent).toContain('r1');
@@ -256,7 +277,7 @@ describe('表格本地排序/筛选（T5.1）', () => {
   });
 
   it('6 行表不出现排序/筛选控件', () => {
-    render(<GenUISpecRenderer rawSpec={_tableSpec(6)} />);
+    render(<GenUISpecRenderer contract={CONTRACT} rawSpec={_tableSpec(6)} />);
     expect(screen.queryByTestId('genui-table-filter')).toBeNull();
     expect(screen.queryByTestId('genui-table-sort-1')).toBeNull();
   });
@@ -279,7 +300,7 @@ describe('select / confirm 动作（P4.2）', () => {
 
   it('select 渲染选项组，点击回传 {value} 而不是模型自定义文案', () => {
     const onAction = vi.fn();
-    render(<GenUISpecRenderer
+    render(<GenUISpecRenderer contract={CONTRACT}
       rawSpec={specWith({ type: 'select', label: '选一个', payload: { options: ['4 分钟', '8 分钟'] } })}
       supportedActions={['ask', 'select', 'confirm']}
       onAction={onAction}
@@ -293,7 +314,7 @@ describe('select / confirm 动作（P4.2）', () => {
   });
 
   it('select 无可用选项时整条动作被丢弃（节点保留）', () => {
-    const { spec } = validateGenUISpec(specWith({ type: 'select', payload: { options: [] } }));
+    const { spec } = validate(specWith({ type: 'select', payload: { options: [] } }));
     expect(spec?.items[0].action).toBeUndefined();
     expect(spec?.items[0].type).toBe('text');
   });
@@ -302,7 +323,7 @@ describe('select / confirm 动作（P4.2）', () => {
     const long = 'x'.repeat(MAX_OPTION_CHARS + 10);
     // 长选项放最前：否则总数封顶会先截断，压根走不到「单选项截断」分支
     const options = [long, 'A', 'A', '', 3, ...Array.from({ length: MAX_SELECT_OPTIONS + 3 }, (_, i) => `o${i}`)];
-    const { spec } = validateGenUISpec(specWith({ type: 'select', payload: { options } }));
+    const { spec } = validate(specWith({ type: 'select', payload: { options } }));
     const cleaned = (spec?.items[0].action?.payload?.options ?? []) as string[];
     expect(cleaned.length).toBe(MAX_SELECT_OPTIONS);
     expect(new Set(cleaned).size).toBe(cleaned.length);
@@ -313,7 +334,7 @@ describe('select / confirm 动作（P4.2）', () => {
 
   it('confirm 可点并把 scope 一起回传（宿主据此决定确认哪个）', () => {
     const onAction = vi.fn();
-    render(<GenUISpecRenderer
+    render(<GenUISpecRenderer contract={CONTRACT}
       rawSpec={specWith({ type: 'confirm', label: '就按这个来' })}
       scope="plan"
       supportedActions={['ask', 'select', 'confirm']}
@@ -324,7 +345,7 @@ describe('select / confirm 动作（P4.2）', () => {
   });
 
   it('hideActions（审阅覆盖层）不渲染任何动作控件', () => {
-    render(<GenUISpecRenderer
+    render(<GenUISpecRenderer contract={CONTRACT}
       rawSpec={specWith({ type: 'confirm', label: '确认' })}
       supportedActions={['confirm']}
       onAction={() => {}}
@@ -332,5 +353,26 @@ describe('select / confirm 动作（P4.2）', () => {
     />);
     expect(screen.queryByTestId('genui-action-confirm')).toBeNull();
     expect(screen.getByText('要不要这样？')).toBeTruthy();
+  });
+});
+
+describe('契约驱动（B4）', () => {
+  it('契约声明了前端未实现的组件 → 降级为占位文本', () => {
+    const wide: DisplaySpecContract = { ...CONTRACT, components: [...CONTRACT.components, 'mermaid'] };
+    const { spec } = validateWithContract(
+      { version: 1, items: [{ type: 'mermaid', content: 'graph TD' }, { type: 'text', content: '兄弟节点' }] },
+      wide,
+    );
+    expect(spec?.items[0].type).toBe('text');
+    expect((spec?.items[0] as { content: string }).content).toContain('mermaid');
+    expect((spec?.items[1] as { content: string }).content).toBe('兄弟节点');
+  });
+
+  it('没有契约 → 不渲染、不猜白名单', () => {
+    const { spec, problems } = validateWithContract({ version: 1, items: [{ type: 'text', content: 'x' }] }, null);
+    expect(spec).toBeNull();
+    expect(problems.join()).toContain('契约');
+    const { container } = render(<GenUISpecRenderer rawSpec={{ version: 1, items: [{ type: 'text', content: 'x' }] }} />);
+    expect(container.querySelector('[data-testid="genui-spec"]')).toBeNull();
   });
 });

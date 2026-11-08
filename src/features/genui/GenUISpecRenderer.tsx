@@ -17,11 +17,17 @@ import { ChevronRight } from 'lucide-react';
 import { asText } from '@/lib/render';
 import { cn } from '@/lib/utils';
 import { validateGenUISpec } from './validate';
+import type { DisplaySpecContract } from './contractSource';
 import type { GenUIActionEvent, GenUIActionKind, GenUIActionScope, GenUINode, GenUISpec } from './types';
 
 export interface GenUISpecRendererProps {
   /** 后端给的 spec（可能来自模型、可能脏、可能是空对象） */
   rawSpec: unknown;
+  /**
+   * 这条 spec 对应的**契约**（来自插件，运行期通过 `/api/plugin/contributions` 下发）。
+   * 契约缺失时整块不渲染——前端不猜白名单（能力在插件里）。
+   */
+  contract?: DisplaySpecContract | null;
   /** 宿主动作回调；不传时所有交互按钮渲染为禁用态（不假装可点） */
   onAction?: (event: GenUIActionEvent) => void;
   /**
@@ -519,9 +525,13 @@ function renderNode(
 }
 
 export function GenUISpecRenderer({
-  rawSpec, onAction, supportedActions, scope, hideActions = false, compact = false, className,
+  rawSpec, contract, onAction, supportedActions, scope, hideActions = false,
+  compact = false, className,
 }: GenUISpecRendererProps) {
-  const { spec, problems } = useMemo(() => validateGenUISpec(rawSpec), [rawSpec]);
+  const { spec, problems } = useMemo(
+    () => validateGenUISpec(rawSpec, contract),
+    [rawSpec, contract],
+  );
   // 降级原因只在开发期可见（生产不打扰用户），但保留节点级占位提示
   if (problems.length && typeof console !== 'undefined') {
     console.debug('[genui] spec 已降级', problems.slice(0, 5));
