@@ -307,9 +307,11 @@ export interface CreativeBrief {
     mg: string;
   };
   /**
-   * GenUI 展示 spec（可选）：只用于展示，权威数据仍是上面这些字段。
+   * 展示 spec 容器（`spec_id -> spec`）：只用于展示，权威数据仍是上面这些字段。
    * 形状与清洗规则见 `src/features/genui/`（`unknown` 是有意的——运行时一定要过校验器）。
    */
+  display_specs?: unknown;
+  /** @deprecated 2026-11-03~07 的老数据键，读时归一到 `display_specs` */
   genui?: unknown;
 }
 
@@ -322,7 +324,9 @@ export interface ProductionPlan {
   plan?: Record<string, unknown>;
   /** A-18：由现有场景反向生成的规划 */
   legacy?: boolean;
-  /** GenUI 展示 spec（可选，只读展示；确认与执行仍以 markdown / plan 为准） */
+  /** 展示 spec 容器（只读展示；确认与执行仍以 markdown / plan 为准） */
+  display_specs?: unknown;
+  /** @deprecated 2026-11-03~07 的老数据键，读时归一到 `display_specs` */
   genui?: unknown;
 }
 
