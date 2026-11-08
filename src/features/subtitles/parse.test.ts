@@ -112,7 +112,7 @@ Dialogue: Marked=0,0:00:02.00,0:00:04.00,Default,,0,0,0,,无 Format 行
     expect(result.cues[0]).toMatchObject({ start: 2, end: 4, text: '无 Format 行' });
   });
 
-  it('剥掉 {\...} 覆盖标签并统计数量', () => {
+  it('剥掉 {...} 覆盖标签并统计数量', () => {
     const ass = `[Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{\\pos(1,2)\\c&H00FF00&}彩色

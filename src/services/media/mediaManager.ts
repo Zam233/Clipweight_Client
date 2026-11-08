@@ -67,6 +67,122 @@ class MediaManager {
   private analyserSource: MediaElementAudioSourceNode | null = null;
   private sourceNodes = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
 
+  // ── 播放解码池（devplan T1.2）──────────────────────────────────────────────
+  // 为什么要有它：`registerTimeline()` 会给时间线里**每一个** video clip 建一个
+  // `<video preload='auto'>`，全片 40 个镜头就是 40 个解码器；浏览器硬解路数有硬上限，
+  // 一超就开始排队、seek 变慢、画面跳帧。这里把"谁真的在解码"收敛成一个显式集合，
+  // 由预览循环按当前播放头驱动，超出预算的元素 pause 掉（保留最后一帧供合成）。
+  /** 最近一次应用的活跃集合签名（避免每帧重复设置） */
+  private activeKey = '';
+  /** assetId → 该元素累计"已呈现帧"（rVFC 驱动；用于丢帧统计） */
+  private presentedFrames = new Map<string, number>();
+  /** assetId → 当前 active 元素解码超时后冻结（降级标识用） */
+  private frozenIds = new Set<string>();
+
+  /**
+   * 应用"活跃解码集合"。
+   *
+   * - 在集合内：video 元素连续 play()（静音，声音由音频轨单独管），playbackRate 由调用方给；
+   * - 不在集合内：pause() 保留最后一帧，**不再 seek**（旧实现每帧 seek 是卡顿根因）。
+   *
+   * 返回实际活跃/被冻结的列表，供诊断浮层与降级徽标使用。
+   */
+  setActiveVideos(
+    activeIds: string[],
+    opts: { budget?: number; rate?: number; rates?: Record<string, number> } = {},
+  ): { active: string[]; frozen: string[] } {
+    const budget = Math.max(1, opts.budget ?? 2);
+    const defaultRate = opts.rate && Number.isFinite(opts.rate) ? opts.rate : 1;
+    // 每个 clip 的变速可能不同（clip.speed × 全局播放速度），所以速率要按素材给
+    const rateOf = (id: string): number => {
+      const r = opts.rates?.[id];
+      return typeof r === 'number' && Number.isFinite(r) && r > 0 ? r : defaultRate;
+    };
+    const wanted = activeIds.filter((id, i) => activeIds.indexOf(id) === i);
+    // 速率写进签名：变速时若不更新 playbackRate，元素会越跑越偏
+    const key = `${wanted.map((id) => `${id}:${rateOf(id).toFixed(3)}`).join('|')}@${budget}`;
+    if (key === this.activeKey) {
+      return { active: wanted.slice(0, budget), frozen: wanted.slice(budget) };
+    }
+    this.activeKey = key;
+    const active: string[] = [];
+    const frozen: string[] = [];
+    for (const [id, entry] of this.entries) {
+      const v = entry.videoEl;
+      if (!v) continue;
+      const idx = wanted.indexOf(id);
+      const inBudget = idx >= 0 && idx < budget;
+      if (inBudget) {
+        active.push(id);
+        this.frozenIds.delete(id);
+        const rate = rateOf(id);
+        if (Math.abs(v.playbackRate - rate) > 0.01) {
+          try { v.playbackRate = rate; } catch { /* 部分浏览器限制极端速率 */ }
+        }
+        if (v.paused) {
+          // 播放期间才连续解码；暂停态由预览循环把集合置空
+          v.play().catch(() => { /* autoplay 限制：留待用户手势后再试 */ });
+        }
+      } else {
+        if (idx >= 0) frozen.push(id);
+        if (!v.paused) {
+          try { v.pause(); } catch { /* ignore */ }
+        }
+        if (idx >= 0) this.frozenIds.add(id);
+      }
+    }
+    for (const id of this.frozenIds) {
+      if (!wanted.includes(id)) this.frozenIds.delete(id);
+    }
+    return { active, frozen };
+  }
+
+  /** 当前真正在解码的视频元素数（诊断用）。 */
+  activeDecodeCount(): number {
+    let n = 0;
+    for (const entry of this.entries.values()) {
+      const v = entry.videoEl;
+      if (v && !v.paused && v.readyState >= 2) n += 1;
+    }
+    return n;
+  }
+
+  /** 被预算挤出、只能显示冻结帧的素材（降级徽标用）。 */
+  frozenAssets(): string[] {
+    return [...this.frozenIds];
+  }
+
+  /** 累计已呈现帧（rVFC）：用于算丢帧率。 */
+  frameStats(): { presented: number; assets: number } {
+    let presented = 0;
+    for (const n of this.presentedFrames.values()) presented += n;
+    return { presented, assets: this.presentedFrames.size };
+  }
+
+  resetFrameStats(): void {
+    this.presentedFrames.clear();
+  }
+
+  /** 给一个 video 元素挂上 rVFC 计数（不支持时静默跳过）。 */
+  private hookFrameCounter(assetId: string, v: HTMLVideoElement): void {
+    type VideoWithRvfc = HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: (now: number, meta: unknown) => void) => number;
+    };
+    const el = v as VideoWithRvfc;
+    if (typeof el.requestVideoFrameCallback !== 'function') return;
+    const step = () => {
+      if (!this.presentedFrames.has(assetId)) this.presentedFrames.set(assetId, 0);
+      this.presentedFrames.set(assetId, (this.presentedFrames.get(assetId) || 0) + 1);
+      try {
+        el.requestVideoFrameCallback?.(step);
+      } catch { /* 元素被移除 */ }
+    };
+    try {
+      el.requestVideoFrameCallback(step);
+    } catch { /* ignore */ }
+  }
+
+
   /** Register an uploaded File so its real media becomes available. */
   registerFile(assetId: string, file: File): void {
     // P2-11: 重复注册先释放旧 entry（旧 blob URL 与媒体元素曾泄漏）
@@ -82,7 +198,9 @@ class MediaManager {
     if (kind === 'video') {
       const v = document.createElement('video');
       v.src = url;
-      v.preload = 'auto';
+      // devplan T1.2：默认**不** auto——`registerTimeline()` 会把整条时间线的 clip 全注册，
+      // 全片 auto 等于同时开几十路解码。真正播放的那 1–2 路由 setActiveVideos() 升级。
+      v.preload = 'metadata';
       v.muted = true;
       v.playsInline = true;
       v.addEventListener('loadedmetadata', () => {
@@ -94,6 +212,7 @@ class MediaManager {
         this.notify(assetId);
       });
       entry.videoEl = v;
+      this.hookFrameCounter(assetId, v);
     } else if (kind === 'audio') {
       const a = new Audio();
       a.src = url;
@@ -139,6 +258,7 @@ class MediaManager {
         this.notify(assetId);
       });
       entry.videoEl = v;
+      this.hookFrameCounter(assetId, v);
     } else if (kind === 'audio') {
       const a = new Audio();
       a.src = url;
@@ -602,3 +722,5 @@ class MediaManager {
 }
 
 export const mediaManager = new MediaManager();
+
+

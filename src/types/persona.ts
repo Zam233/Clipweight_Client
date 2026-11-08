@@ -306,6 +306,13 @@ export interface CreativeBrief {
     footage: string;
     mg: string;
   };
+  /**
+   * 展示 spec 容器（`spec_id -> spec`）：只用于展示，权威数据仍是上面这些字段。
+   * 形状与清洗规则见 `src/features/genui/`（`unknown` 是有意的——运行时一定要过校验器）。
+   */
+  display_specs?: unknown;
+  /** @deprecated 2026-11-03~07 的老数据键，读时归一到 `display_specs` */
+  genui?: unknown;
 }
 
 export interface ProductionPlan {
@@ -313,6 +320,14 @@ export interface ProductionPlan {
   markdown_content?: string;
   scenes?: unknown[];
   toc?: { level: number; title: string; anchor: string }[];
+  /** F-06：结构化规划（plan-first 产物；legacy 规划也放这里，带 legacy 标记） */
+  plan?: Record<string, unknown>;
+  /** A-18：由现有场景反向生成的规划 */
+  legacy?: boolean;
+  /** 展示 spec 容器（只读展示；确认与执行仍以 markdown / plan 为准） */
+  display_specs?: unknown;
+  /** @deprecated 2026-11-03~07 的老数据键，读时归一到 `display_specs` */
+  genui?: unknown;
 }
 
 export interface RequirementMessage {

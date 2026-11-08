@@ -5,14 +5,29 @@
  * declarative JSON layouts; this engine handles state management, input
  * binding, API calls, and conditional rendering.
  */
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApiClient } from '@/services/api';
 import { Button } from '@/components/ui';
-import { Loader2, AlertCircle, CheckCircle2, Info } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, Info, Upload, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { UILayout, UIWidget, UIRenderState } from './types';
 
-export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
+export interface PluginOptionSource {
+  value: string;
+  label: string;
+}
+
+export function PluginLayoutRenderer({
+  layout,
+  optionSources,
+  onChange,
+}: {
+  layout: UILayout;
+  /** 宿主提供的动态选项（白名单数据源名 → 选项）。插件不能读任意数据。 */
+  optionSources?: Record<string, PluginOptionSource[]>;
+  /** 控件值变化回调（宿主据此接入业务流程，如创作页的配音入口）。 */
+  onChange?: (values: Record<string, unknown>) => void;
+}) {
   const [state, setState] = useState<UIRenderState>({});
   const updatingRef = useRef(false);
   // P2-17: schema（布局）变化时重置渲染状态——旧实现跨插件/跨版本复用 state，
@@ -32,6 +47,14 @@ export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
     if (updatingRef.current) return;
     setState((s) => ({ ...s, [key]: value }));
   }, []);
+
+  // 值变化通知宿主：用 ref 持有最新回调，依赖只跟 state 走——宿主若传内联箭头函数，
+  // 直接依赖 onChange 会每次渲染都触发一次，进而 setState → 死循环。
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  useEffect(() => {
+    onChangeRef.current?.(state);
+  }, [state]);
 
   const getValue = useCallback(
     (key: string | undefined) => (key ? state[key] : undefined),
@@ -170,8 +193,22 @@ export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
           }
 
           case 'select': {
-            const val = (getValue(widget.key) as string) ?? widget.defaultValue ?? widget.options[0] ?? '';
+            // 选项来源两种：静态 `options` 或宿主白名单数据源 `optionsFrom`
+            // （例如 `voices` = 音色列表，由宿主管线提供；插件本身拿不到任意数据）。
+            const dynamic = widget.optionsFrom ? (optionSources?.[widget.optionsFrom] ?? []) : null;
+            const opts: Array<{ value: string; label: string }> = dynamic
+              ? dynamic
+              : (widget.options ?? []).map((o) => ({ value: o, label: o }));
+            const val = (getValue(widget.key) as string) ?? widget.defaultValue ?? opts[0]?.value ?? '';
             const inputId = `plui-${widget.key}-select`;
+            if (opts.length === 0) {
+              return (
+                <div key={widget.key} className="text-caption text-on-surface-variant">
+                  {widget.label || widget.key}：暂无可用选项
+                  {widget.optionsFrom ? `（数据源 ${widget.optionsFrom} 为空）` : ''}
+                </div>
+              );
+            }
             return (
               <div key={widget.key}>
                 {widget.label && (
@@ -184,8 +221,8 @@ export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
                   className="w-full bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm text-on-surface
                     outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
                 >
-                  {widget.options.map((opt) => (
-                    <option key={opt} value={opt}>{opt}</option>
+                  {opts.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
               </div>
@@ -338,6 +375,57 @@ export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
             );
           }
 
+          // 文件选择（2026-11-02 补）：值 = `File` 对象，经 onChange 交给宿主上传。
+          // 控件本身不发起网络请求（UIAction 只支持 JSON body，上传是多部分表单），
+          // 插件也就拿不到上传 API / 工作区路径 / 凭据 —— 这与「判断交给模型、
+          // 能力交给插件、执行归宿主」同一条边界。
+          case 'file': {
+            const raw = getValue(widget.key);
+            const picked = typeof File !== 'undefined' && raw instanceof File ? raw : null;
+            // 宿主回填的字符串（上传后的路径/文件名）也要显示，否则上传完成控件看起来是空的
+            const uploaded = typeof raw === 'string' ? raw : '';
+            const fileName = picked?.name ?? (uploaded ? uploaded.split(/[\\/]/).pop() || uploaded : '');
+            return (
+              <div key={widget.key}>
+                {widget.label && (
+                  <div className="block text-label text-on-surface-variant mb-1">{widget.label}</div>
+                )}
+                <label
+                  className={cn(
+                    'w-full flex items-center justify-center gap-2 rounded-cw-sm py-2.5 px-3 text-label-sm cursor-pointer',
+                    'border-2 border-dashed border-outline-variant/40 hover:border-primary/60 transition-colors',
+                    fileName ? 'text-on-surface' : 'text-on-surface-variant',
+                  )}
+                >
+                  <input
+                    type="file"
+                    accept={widget.accept}
+                    className="sr-only"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      // 同一个文件再次选择必须能触发 onChange，所以清空原生 input 的值
+                      e.target.value = '';
+                      setUIState(widget.key, f);
+                    }}
+                  />
+                  <Upload className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{fileName || widget.placeholder || '选择文件'}</span>
+                  {fileName && (
+                    <button
+                      type="button"
+                      title="清除已选文件"
+                      // label 包裹的按钮默认会继续触发文件选择，必须阻止
+                      onClick={(e) => { e.preventDefault(); setUIState(widget.key, null); }}
+                      className="p-0.5 rounded-cw-xs text-on-surface-variant hover:text-error cursor-pointer shrink-0"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </label>
+              </div>
+            );
+          }
+
           default:
             // P2-17: 未知控件不再静默丢弃——给可见占位提示（插件 UI 规范
             // 演进/前端未实现该控件时用户与开发者都能立刻发现）
@@ -357,3 +445,5 @@ export function PluginLayoutRenderer({ layout }: { layout: UILayout }) {
 
   return <div className="space-y-3">{layout.widgets.map((w, i) => renderWidget(w, i))}</div>;
 }
+
+

@@ -1,5 +1,6 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 interface StandardLayoutProps {
   title?: string;
@@ -31,7 +32,12 @@ export function StandardLayout({ title, children, className, nav }: StandardLayo
           {nav}
         </nav>
       )}
-      <main className={cn('flex-1 overflow-auto p-6', className)}>{children}</main>
+      <main className={cn('flex-1 overflow-auto p-6', className)}>
+        {/* 页面内容局部兜底：一页崩了不要变成白屏，标题栏/返回入口仍然可用 */}
+        <ErrorBoundary region={title || '本页'}>
+          {children}
+        </ErrorBoundary>
+      </main>
     </div>
   );
 }

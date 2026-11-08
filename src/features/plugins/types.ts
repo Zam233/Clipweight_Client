@@ -23,7 +23,8 @@ export type UIWidget =
   | UIText
   | UIRow
   | UIColumn
-  | UIGroup;
+  | UIGroup
+  | UIFile;
 
 export interface UIWidgetBase {
   key?: string;
@@ -54,7 +55,17 @@ export interface UISelect extends UIWidgetBase {
   type: 'select';
   label?: string;
   key: string;
-  options: string[];
+  /**
+   * 静态选项。当选项来自业务数据（例如音色列表）时用 `optionsFrom` 指向宿主提供的
+   * **白名单数据源**（宿主解析后传入，插件拿不到任意数据）。两者至少给一个；
+   * 都缺则渲染为空并给可读提示，不静默丢弃。
+   */
+  options?: string[];
+  /**
+   * 动态选项数据源（宿主白名单）。已知值：
+   * - `voices`：「语音克隆」页的音色列表（宿主从 `/api/voice/list` 取）
+   */
+  optionsFrom?: string;
   defaultValue?: string;
 }
 
@@ -133,6 +144,23 @@ export interface UIGroup extends UIWidgetBase {
   type: 'group';
   title?: string;
   children: UIWidget[];
+}
+
+/**
+ * 文件选择（2026-11-02 补，PRD §15.9 第 10 项）。
+ *
+ * **边界**：控件值以 `File` 对象回传宿主（`onChange` → `Slot.onValuesChange`），
+ * **上传/落盘归宿主**——插件拿不到上传 API、工作区路径与凭据，也不参与重试与去重。
+ * 因此这里没有 `action` / `endpoint` 字段：插件只声明「我要一个文件」。
+ */
+export interface UIFile extends UIWidgetBase {
+  type: 'file';
+  key: string;
+  label?: string;
+  /** 直接映射到 `<input accept>`，如 `.wav,.mp3,.m4a,.mp4` */
+  accept?: string;
+  /** 未选择文件时的按钮文案 */
+  placeholder?: string;
 }
 
 /** Action triggered by button click */

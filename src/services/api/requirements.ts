@@ -1,6 +1,8 @@
 import { getApiClient } from './client';
 import { apiBase, fetchSseToken, withSseToken } from './sse';
 import type { RequirementsInitRequest, RequirementsChatRequest } from '@/types/api';
+import type { TaskEvent, TaskQuestionItem } from '@/types/task';
+import type { SessionTimelineItem } from '@/features/sessionTimeline/types';
 
 export const requirementsApi = {
   /** Initialize a requirements session */
@@ -10,6 +12,18 @@ export const requirementsApi = {
   },
 
   /** Send a chat message */
+  /**
+   * 用户点「停止」：中止本会话正在跑的任务。
+   * 后端会：真取消任务 → 会话回 plan_ready（输入区恢复）→ 写一条「你点了停止」的记录
+   * （续跑的主 agent 因此知道是用户主动喊停，不会当成异常终止）。
+   */
+  async stop(sessionId: string) {
+    const { data } = await getApiClient().post(
+      `/api/requirements/${encodeURIComponent(sessionId)}/stop`, {},
+    );
+    return data as { stopped: boolean; task_id: string; status: string; note: string };
+  },
+
   async chat(request: RequirementsChatRequest, signal?: AbortSignal) {
     // 规划书生成需要结构 Agent + 翻译，耗时可达 2-5 分钟，
     // 覆盖 axios 默认 60s 超时。P1-35: signal 支持取消长请求。
@@ -26,10 +40,14 @@ export const requirementsApi = {
     message: string,
     onChunk?: (chunk: { type: string; data: unknown }) => void,
     signal?: AbortSignal,
+    projectId?: string,
   ): Promise<Record<string, unknown>> {
     const base = apiBase();
     const form = new URLSearchParams();
     form.append('message', message);
+    // 带上项目 id：中止后「续跑」要靠它定位原工作区，否则会新建一个工作区,
+    // docs/ 与成片都写不到当前项目里。
+    if (projectId) form.append('project_id', projectId);
     const token = await fetchSseToken();
     // P1-36：一次性 SSE token 走 query（后端 _consume_sse_token 只消费 qtok）——
     // 旧实现放 Authorization 头在 token/jwt 模式下必 401 且无回退
@@ -100,6 +118,9 @@ export const requirementsApi = {
     message: string;
     timeline: unknown;
     selected_clip_ids?: string[];
+    /** PRD W3：发送时冻结的选区摘要（服务端会做子集/上限校验） */
+    selection_summary?: string;
+    selection_truncated?: boolean;
     region_start_sec?: number;
     region_end_sec?: number;
     project_id?: string;
@@ -135,6 +156,8 @@ export const requirementsApi = {
     message: string;
     timeline: unknown;
     selected_clip_ids?: string[];
+    selection_summary?: string;
+    selection_truncated?: boolean;
     region_start_sec?: number;
     region_end_sec?: number;
     project_id?: string;
@@ -169,6 +192,118 @@ export const requirementsApi = {
     return data;
   },
 
+  /**
+   * M5c：需求会话的问题列表（PRD §15.5）。
+   *
+   * 需求会话**不走任务 API**：问题归属会话，路由也在 `/api/requirements`。
+   * `status=pending` 只要待答（校准用），`all` 给全部（刷新后重建卡片）。
+   */
+  async questions(sessionId: string, status: 'pending' | 'all' = 'all') {
+    const { data } = await getApiClient().get(
+      `/api/requirements/${sessionId}/questions`,
+      { params: { status } },
+    );
+    return data as { session_id: string; items: TaskQuestionItem[]; status: string };
+  },
+
+  /** 回答需求会话的问题；后端会让 agent 带着答案继续。 */
+  async answer(
+    sessionId: string,
+    body: { question_id: string; option_id?: string | null; text?: string | null },
+  ) {
+    const { data } = await getApiClient().post(
+      `/api/requirements/${sessionId}/answer`,
+      body,
+      { timeout: 600_000 },
+    );
+    return data;
+  },
+
+  /**
+   * M4：需求消息历史分页（unified-stream PRD §M4）。
+   * `beforeId` = 上一页最早那条的 id（不含）；返回 `{items, has_more, oldest_id, total}`。
+   */
+  async messages(sessionId: string, opts: { beforeId?: string; limit?: number } = {}) {
+    const { data } = await getApiClient().get(
+      `/api/requirements/${sessionId}/messages`,
+      { params: { before_id: opts.beforeId || '', limit: opts.limit ?? 50 } },
+    );
+    return data as {
+      items: { id: string; role: string; content: string; timestamp?: string }[];
+      has_more: boolean;
+      oldest_id: string;
+      total: number;
+    };
+  },
+
+  /** 会话事件（question/answer）：刷新/重连按 seq 补齐。 */
+  async sessionEvents(sessionId: string, sinceSeq = 0, limit = 200, beforeSeq = 0) {
+    const { data } = await getApiClient().get(
+      `/api/requirements/${sessionId}/events`,
+      { params: { since_seq: sinceSeq, limit, ...(beforeSeq ? { before_seq: beforeSeq } : {}) } },
+    );
+    return data as {
+      session_id: string;
+      items: TaskEvent[];
+      has_more: boolean;
+      latest_seq: number;
+    };
+  },
+
+  /**
+   * 会话时间线（唯一有序流，session-timeline PRD §5.1）。
+   *
+   * 返回的条目**已按 seq 升序**，前端不做任何本地排序——顺序由服务端分配。
+   */
+  async timeline(
+    sessionId: string,
+    opts: { sinceSeq?: number; untilSeq?: number; beforeSeq?: number; limit?: number } = {},
+  ) {
+    const { data } = await getApiClient().get(
+      `/api/requirements/${sessionId}/timeline`,
+      {
+        params: {
+          since_seq: opts.sinceSeq ?? 0,
+          ...(opts.untilSeq ? { until_seq: opts.untilSeq } : {}),
+          ...(opts.beforeSeq ? { before_seq: opts.beforeSeq } : {}),
+          limit: opts.limit ?? 200,
+        },
+      },
+    );
+    return data as {
+      session_id: string;
+      items: SessionTimelineItem[];
+      has_more: boolean;
+      latest_seq: number;
+      archived_until_seq: number;
+      /** 服务端在本次请求里回填了几条（存量会话迁移；0 = 没回填） */
+      backfilled?: number;
+      /** 绑定到本会话的任务（按绑定顺序）；「轨迹」固定标签靠它接上当前任务 */
+      task_ids?: string[];
+      counters?: Record<string, number>;
+    };
+  },
+
+  /** 时间线实时流 URL（EventSource 直连；token 由 connectSseStream 拼）。 */
+  timelineStreamUrl(sessionId: string, sinceSeq = -1): string {
+    const base = `${apiBase()}/api/requirements/${sessionId}/timeline/stream`;
+    return sinceSeq >= 0 ? `${base}?since_seq=${sinceSeq}` : base;
+  },
+
+  /**
+   * 派发「生成制作规划书」（plan-dispatch PRD D1）。
+   *
+   * 幂等键在服务端是 `session_id:brief_hash`：同一版简报且任务还在跑就返回既有
+   * `task_id`（`reused=true`），不会点两次建两个任务。`retry=true` 强制重建。
+   */
+  async dispatchPlan(sessionId: string, retry = false) {
+    const { data } = await getApiClient().post(
+      `/api/requirements/${sessionId}/plan/dispatch`,
+      { retry },
+    );
+    return data as { task_id: string; run_id?: string; status: string; reused: boolean };
+  },
+
   /** Get production plan */
   async getPlan(sessionId: string) {
     const { data } = await getApiClient().get(`/api/requirements/plan/${sessionId}`);
@@ -199,3 +334,4 @@ export const requirementsApi = {
     return data;
   },
 };
+

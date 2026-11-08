@@ -6,10 +6,72 @@ export type ProviderKind = 'llm' | 'embedding' | 'rerank' | 'tts';
 /** 角色（工程文件按角色分配：主/Flash/视觉 LLM、嵌入、重排序、语音） */
 export type ProviderRole = 'main' | 'flash' | 'vision' | 'embed' | 'rerank' | 'tts';
 
+/**
+ * 逐模型生成参数（2026-10-28 PRD B4）。
+ *
+ * 语义：缺席 = 沿用调用方/默认值；显式数值 = 真实下发给该模型的每次请求
+ * （含工具循环每一轮）。
+ */
+export interface ModelGeneration {
+  temperature?: number;
+  top_p?: number;
+  max_tokens?: number;
+}
+
+/** 各参数的合法区间（与后端 `provider_sources.GENERATION_LIMITS` 一致）。 */
+export const GENERATION_LIMITS: Record<keyof ModelGeneration, { min: number; max: number; int: boolean; label: string }> = {
+  temperature: { min: 0, max: 2, int: false, label: 'temperature' },
+  top_p: { min: 0, max: 1, int: false, label: 'top_p' },
+  max_tokens: { min: 1, max: 200000, int: true, label: 'max_tokens' },
+};
+
+export interface GenerationValidation {
+  /** 只含合法值（空串/未填 = 不提交该键） */
+  value: ModelGeneration;
+  /** 字段 → 可读错误（页面 inline 显示，不静默吞掉） */
+  errors: Partial<Record<keyof ModelGeneration, string>>;
+}
+
+/** 校验用户在模型行填的生成参数；非法值不进 payload。 */
+export function validateGeneration(raw: Partial<Record<keyof ModelGeneration, string | number | null | undefined>>): GenerationValidation {
+  const value: ModelGeneration = {};
+  const errors: GenerationValidation['errors'] = {};
+  (Object.keys(GENERATION_LIMITS) as Array<keyof ModelGeneration>).forEach((key) => {
+    const limits = GENERATION_LIMITS[key];
+    const input = raw[key];
+    if (input === undefined || input === null || input === '') return;
+    const num = typeof input === 'number' ? input : Number(input);
+    if (!Number.isFinite(num)) {
+      errors[key] = `${limits.label} 必须是数字`;
+      return;
+    }
+    if (num < limits.min || num > limits.max) {
+      errors[key] = `${limits.label} 需在 ${limits.min}–${limits.max} 之间`;
+      return;
+    }
+    value[key] = limits.int ? Math.round(num) : num;
+  });
+  return { value, errors };
+}
+
+/** 模型列表探测的状态与错误码（与后端 `providers/model_listing.py` 一致） */
+export type ModelListingStatus = 'ok' | 'empty' | 'unsupported' | 'error';
+export const LISTING_STATUSES: ModelListingStatus[] = ['ok', 'empty', 'unsupported', 'error'];
+export type ModelListingErrorCode =
+  | 'provider_unsupported'
+  | 'http_error'
+  | 'invalid_response'
+  | 'credential_error'
+  | 'timeout';
+export const LISTING_ERROR_CODES: ModelListingErrorCode[] = [
+  'provider_unsupported', 'http_error', 'invalid_response', 'credential_error', 'timeout',
+];
+
 export interface ProviderModel {
   id: string;
   name?: string;
   enabled?: boolean;
+  generation?: ModelGeneration;
 }
 
 /** 源（脱敏形态：明文密钥绝不回传，只有掩码） */
@@ -23,6 +85,13 @@ export interface ProviderSource {
   proxy?: string;
   headers?: Record<string, string>;
   models?: ProviderModel[];
+  /** 插件声明的 config（secret 字段读回是掩码；回传掩码 = 保留旧值） */
+  config?: Record<string, unknown>;
+  /**
+   * 这条源的**实现提供方**（H-036）。空串 = 内置实现；否则是插件 id。
+   * 后端按当前注册表实时推导（不落盘），插件装卸后立刻准确。
+   */
+  plugin_id?: string;
   /** 每条密钥的掩码（顺序与后端一致，编辑时回传掩码=保留旧值） */
   api_keys_masked?: string[];
   key_count?: number;
@@ -38,6 +107,17 @@ export interface RoleBinding {
 
 export type RoleBindings = Partial<Record<ProviderRole, RoleBinding>>;
 
+export interface ProviderDisplayMeta {
+  /** 显示名（插件声明；前端不得按厂商硬编码补 label） */
+  name?: string;
+  /** 参考音频是否需要宿主上传为公网 URL */
+  needs_uploader?: boolean;
+  /** 是否支持本项目的音色克隆协议 */
+  clone_supported?: boolean;
+  local?: boolean;
+  env_key?: string;
+}
+
 export interface AvailableProviders {
   llm_provider: string[];
   tts_provider: string[];
@@ -45,8 +125,32 @@ export interface AvailableProviders {
   rerank_provider: string[];
   role_kinds: Record<ProviderRole, ProviderKind>;
   tts_aliases: Record<string, string>;
+  /** kind -> provider id -> 展示元数据（B7/B8 后 provider 归插件，label 由能力方声明） */
+  provider_meta?: Record<string, Record<string, ProviderDisplayMeta>>;
 }
 
+/** provider 的能力协商结果（后端按实现真实返回，不是按名字猜）。 */
+export interface ProviderCapabilities {
+  provider: string;
+  kind: ProviderKind;
+  /** 空串 = 内置实现 */
+  plugin_id: string;
+  model: string;
+  capabilities: {
+    streaming?: boolean;
+    tool_calls?: boolean;
+    json_mode?: boolean;
+    vision?: boolean;
+    max_context_tokens?: number;
+    max_concurrency?: number;
+    arbitrary_models?: boolean;
+    reasoning_effort?: boolean;
+    reasoning_content?: boolean;
+    reasoning_streaming?: boolean;
+    generation_params?: string[];
+  } | null;
+  error?: string;
+}
 export interface ProviderSourceInput {
   name: string;
   kind?: ProviderKind;
@@ -57,6 +161,40 @@ export interface ProviderSourceInput {
   headers?: Record<string, string>;
   api_keys?: string[];
   models?: ProviderModel[];
+  /** 插件声明的 config（B1-T4：secret 字段服务端加密、回显掩码） */
+  config?: Record<string, string>;
+}
+
+/** 插件在 manifest 里声明的一个配置字段（`config_schema` 的一项）。 */
+export interface ProviderConfigField {
+  type?: string;
+  label?: string;
+  default?: string | number | boolean;
+  required?: boolean;
+  options?: Array<string | { value: string; label?: string }>;
+  /** true = 密钥：服务端加密落盘，读回只给掩码 */
+  secret?: boolean;
+  placeholder?: string;
+}
+
+/** 插件声明的 provider 配置 schema（后端 `/api/providers/schemas` 下发）。 */
+export interface ProviderDeclaredSchema {
+  id: string;
+  plugin_id: string;
+  config_schema: Record<string, ProviderConfigField>;
+  capabilities: Record<string, unknown>;
+  unknown_capability_keys: string[];
+}
+
+/** 取某个 (kind, provider) 的插件声明；没有声明 → null（走内置字段）。 */
+export function schemaFor(
+  schemas: Record<string, ProviderDeclaredSchema[]> | null,
+  kind: ProviderKind,
+  provider: string,
+): ProviderDeclaredSchema | null {
+  if (!schemas || !provider) return null;
+  const list = schemas[`${kind}_provider`] ?? [];
+  return list.find((s) => s.id === provider) ?? null;
 }
 
 /** 源类型 → 门面 provider 列表键（下拉选项的唯一来源） */
@@ -116,7 +254,27 @@ export const providersApi = {
       rerank_provider: data?.rerank_provider ?? [],
       role_kinds: data?.role_kinds ?? ({} as Record<ProviderRole, ProviderKind>),
       tts_aliases: data?.tts_aliases ?? {},
+      provider_meta: data?.provider_meta ?? {},
     };
+  },
+
+  /**
+   * 某个 provider 的能力协商结果（H-066）。前端据此显示「支持 reasoning 强度 / 会回吐
+   * 思考内容」等徽标，避免按 provider 名字猜能力给出假按钮。
+   */
+  async capabilities(kind: ProviderKind, provider: string, model = ''): Promise<ProviderCapabilities> {
+    const { data } = await getApiClient().get('/api/providers/capabilities', {
+      params: { kind, provider, ...(model ? { model } : {}) },
+    });
+    return data as ProviderCapabilities;
+  },
+  /** 插件声明的 provider 配置 schema（schema 驱动表单的唯一数据源） */
+  async schemas(kind?: ProviderKind): Promise<Record<string, ProviderDeclaredSchema[]>> {
+    const { data } = await getApiClient().get('/api/providers/schemas', {
+      params: kind ? { kind: `${kind}_provider` } : undefined,
+    });
+    const raw = data?.schemas;
+    return raw && typeof raw === 'object' ? (raw as Record<string, ProviderDeclaredSchema[]>) : {};
   },
 
   async create(payload: ProviderSourceInput): Promise<ProviderSource> {
@@ -158,12 +316,34 @@ export const providersApi = {
     return data;
   },
 
-  /** 「获取模型列表」：失败返回空列表 + note（前端降级为自定义模型） */
-  async fetchModels(id: string): Promise<{ models: ProviderModel[]; note?: string }> {
+  /**
+   * 「获取模型列表」（2026-10-28 PRD B6）：返回状态机而不是一个裸数组。
+   *
+   * - `status='ok'` 时才覆盖已有模型；
+   * - `empty`/`unsupported`/`error` 都带可读 `note`，前端保留旧清单并继续允许手动添加；
+   * - `errorCode` 区分 `provider_unsupported / http_error / invalid_response /
+   *   credential_error / timeout`（旧后端没有这些字段时回落为 `empty`/`error`）。
+   */
+  async fetchModels(id: string): Promise<{
+    status: ModelListingStatus;
+    models: ProviderModel[];
+    note: string;
+    errorCode?: ModelListingErrorCode;
+  }> {
     const { data } = await getApiClient().post(`/api/providers/${id}/models/fetch`);
+    const models = Array.isArray(data?.models) ? (data.models as ProviderModel[]) : [];
+    const raw = typeof data?.status === 'string' ? data.status : '';
+    const status: ModelListingStatus = LISTING_STATUSES.includes(raw as ModelListingStatus)
+      ? (raw as ModelListingStatus)
+      : (models.length ? 'ok' : 'empty');
+    const code = typeof data?.error_code === 'string' ? data.error_code : '';
     return {
-      models: Array.isArray(data?.models) ? data.models : [],
-      note: typeof data?.note === 'string' ? data.note : undefined,
+      status,
+      models,
+      note: typeof data?.note === 'string' ? data.note : '',
+      errorCode: LISTING_ERROR_CODES.includes(code as ModelListingErrorCode)
+        ? (code as ModelListingErrorCode)
+        : undefined,
     };
   },
 
@@ -188,6 +368,7 @@ export function buildSourcePayload(input: {
   proxy: string;
   headers: { key: string; value: string }[];
   keys: string[];
+  config?: Record<string, string>;
 }): ProviderSourceInput {
   const headers: Record<string, string> = {};
   for (const h of input.headers) {
@@ -203,7 +384,12 @@ export function buildSourcePayload(input: {
     headers,
     api_keys: input.keys.map((k) => k.trim()).filter(Boolean),
   };
+  const configEntries = Object.entries(input.config ?? {})
+    .map(([k, v]) => [k, String(v ?? '')] as const);
+  if (configEntries.length) payload.config = Object.fromEntries(configEntries);
   const t = Number(input.timeoutSec);
   if (input.timeoutSec.trim() && Number.isFinite(t) && t > 0) payload.timeout_sec = t;
   return payload;
 }
+
+

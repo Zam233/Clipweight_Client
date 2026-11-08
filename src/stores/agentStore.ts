@@ -102,6 +102,10 @@ interface AgentState {
   setRequirementsSession: (sessionId: string | null) => void;
   setRequirementsStatus: (status: RequirementsStatus) => void;
   addRequirementsMessage: (message: RequirementMessage) => void;
+  /** M4：历史分页——把更早的一页**前插**，按 id 去重（不覆盖实时消息） */
+  prependRequirementsMessages: (messages: RequirementMessage[]) => void;
+  /** M4：整体替换（刷新后从服务端 hydrate） */
+  setRequirementsMessages: (messages: RequirementMessage[]) => void;
   /** 轮69：流式追加/收尾——按 id 局部更新已存在的消息 */
   updateRequirementsMessage: (id: string, patch: Partial<RequirementMessage>) => void;
   appendRequirementsDelta: (id: string, text: string) => void;
@@ -234,11 +238,20 @@ export const useAgentStore = create<AgentState>((set) => ({
     set((state) => ({ mgDone: state.mgDone + 1 })),
   resetMgProgress: () => set({ mgTotal: 0, mgDone: 0 }),
 
+  // 会话 id / 状态必须一起进草稿：旧实现只在 addRequirementsMessage 时顺带写草稿，
+  // 状态迁移（brief_ready→plan_ready→pipeline_running）与新建会话本身不落盘，
+  // 刷新后草稿里的 sessionId/status 仍是旧值（或 null）→ 恢复不出规划书卡片。
   setRequirementsSession: (sessionId) =>
-    set({ requirementsSessionId: sessionId }),
+    set((state) => {
+      saveDraft({ messages: state.requirementsMessages, brief: state.creativeBrief, plan: state.productionPlan, sessionId, status: state.requirementsStatus });
+      return { requirementsSessionId: sessionId };
+    }),
 
   setRequirementsStatus: (status) =>
-    set({ requirementsStatus: status }),
+    set((state) => {
+      saveDraft({ messages: state.requirementsMessages, brief: state.creativeBrief, plan: state.productionPlan, sessionId: state.requirementsSessionId, status });
+      return { requirementsStatus: status };
+    }),
 
   setRequirementsBusy: (busy) => set({ requirementsBusy: busy }),
 
@@ -248,6 +261,21 @@ export const useAgentStore = create<AgentState>((set) => ({
       const msgs = [...state.requirementsMessages, message].slice(-200);
       saveDraft({ messages: msgs, brief: state.creativeBrief, plan: state.productionPlan, sessionId: state.requirementsSessionId, status: state.requirementsStatus });
       return { requirementsMessages: msgs };
+    }),
+
+  prependRequirementsMessages: (older) =>
+    set((state) => {
+      const seen = new Set(state.requirementsMessages.map((m) => m.id));
+      const fresh = older.filter((m) => !seen.has(m.id));
+      const msgs = [...fresh, ...state.requirementsMessages].slice(-200);
+      saveDraft({ messages: msgs, brief: state.creativeBrief, plan: state.productionPlan, sessionId: state.requirementsSessionId, status: state.requirementsStatus });
+      return { requirementsMessages: msgs };
+    }),
+
+  setRequirementsMessages: (messages) =>
+    set((state) => {
+      saveDraft({ messages, brief: state.creativeBrief, plan: state.productionPlan, sessionId: state.requirementsSessionId, status: state.requirementsStatus });
+      return { requirementsMessages: messages.slice(-200) };
     }),
 
   updateRequirementsMessage: (id, patch) =>

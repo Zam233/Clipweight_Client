@@ -1,23 +1,33 @@
 import { useState, useRef, useCallback } from 'react';
+import { useNavigate } from '@tanstack/react-router';
+import { applyProceedResult } from './proceedResult';
 import { useAgentStore } from '@/stores/agentStore';
 import { requirementsApi } from '@/services/api';
-import { savePipelineId } from '@/services/storage/pipelineSession';
 import { useProjectStore } from '@/stores/projectStore';
+import { useTaskStore } from '@/stores/taskStore';
 import { Button } from '@/components/ui';
 import { Markdown } from '@/components/shared/Markdown';
 import { resolveMessageAttachments } from './requirementsAttachments';
 import { uid } from '@/lib/utils';
+import { asText, textList } from '@/lib/render';
+import { PlanReviewPanel, type PlanView } from '@/features/plan/PlanReviewPanel';
+import { DisplaySpecsBlock } from '@/features/genui/DisplaySpecsBlock';
 import { MessageSquare, ThumbsDown, ThumbsUp, X, Send, Check, Loader2, ChevronLeft } from 'lucide-react';
 
 interface ReviewPanelProps {
   brief?: NonNullable<ReturnType<typeof useAgentStore.getState>['creativeBrief']> | null;
   planMarkdown?: string;
+  /** F-06：结构化规划（有则渲染双栏确认视图；无则保持旧的 markdown 只读视图） */
+  planView?: PlanView | null;
+  /** 规划书对象（只读渲染其中的 display_specs；确认前最后一屏不提供动作） */
+  plan?: unknown;
   onBack: () => void;
 }
 
 type AnnType = 'comment' | 'dislike' | 'like';
 
-export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
+export function ReviewPanel({ brief, planMarkdown, planView, plan, onBack }: ReviewPanelProps) {
+  const navigate = useNavigate();
   const addAnnotation = useAgentStore((s) => s.addAnnotation);
   const removeAnnotation = useAgentStore((s) => s.removeAnnotation);
   const annotations = useAgentStore((s) => s.annotations);
@@ -142,11 +152,17 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
             ...(st.cutOnBeat && st.beatBpm ? { cut_on_beat: true, bpm: st.beatBpm } : {}),
           },
           st.projectId ?? undefined,
-        ) as { pipeline_id?: string };
-        if (res.pipeline_id) {
-          useAgentStore.getState().setPipelineId(res.pipeline_id);
-          // 批B：持久化 pipeline id——刷新后 BottomBar 才能恢复 SSE 追踪
-          savePipelineId(res.pipeline_id);
+        ) as { pipeline_id?: string; task_id?: string; workspace_root?: string };
+        // 双轨（PRD workspace-prd §6.2）：agent_mode=on 时后端返回 task_id，
+        // 必须跳 /task/{id} 走 Task 事件流；否则才挂老管线 SSE。
+        const target = applyProceedResult(res);
+        if (target?.mode === 'task') {
+          // 与 AgentPanel 同一收口：新生产任务必须成为当前任务数据源。
+          void useTaskStore.getState().load(target.id);
+          useAgentStore.getState().updatePhase('structure', 5);
+          // PRD §19.3：不跳页——任务在编辑器右侧的「任务运行」标签里就地跑（applyProceedResult 已开标签）
+        } else if (target) {
+          useAgentStore.getState().setPipelineId(target.id);
           useAgentStore.getState().updatePhase('structure', 5);
         }
       } else {
@@ -203,57 +219,82 @@ export function ReviewPanel({ brief, planMarkdown, onBack }: ReviewPanelProps) {
         <div ref={contentRef} className="flex-1 overflow-y-auto p-4 min-w-0 select-text text-body-sm leading-relaxed whitespace-pre-wrap bg-surface-container-low">
           {brief && !planMarkdown && (
             <div className="space-y-3">
-              <h3 className="text-title-sm font-bold text-on-surface">{brief.title}</h3>
-              <div><span className="text-on-surface-variant">概述：</span>{brief.overview}</div>
-              <div><span className="text-on-surface-variant">目标受众：</span>{brief.target_audience}</div>
-              <div><span className="text-on-surface-variant">核心信息：</span>{brief.core_message}</div>
-              <div><span className="text-on-surface-variant">风格方向：</span>{brief.style_direction}</div>
-              <div><span className="text-on-surface-variant">结构建议：</span>{brief.structure_suggestion}</div>
-              <div><span className="text-on-surface-variant">时长预估：</span>{brief.duration_estimate}</div>
-              {brief.key_elements?.length > 0 && (
-                <div><span className="text-on-surface-variant">关键元素：</span>{brief.key_elements.join('、')}</div>
+              <h3 className="text-title-sm font-bold text-on-surface">{asText(brief.title)}</h3>
+              {/* 审阅覆盖层的展示 spec：只读、不带动作（`hideActions`）。
+                  理由：这是确认前的最后一屏，动作应当只有下面那一个确认按钮。 */}
+              <DisplaySpecsBlock
+                obj={brief}
+                surface="brief"
+                testId="review-brief-genui"
+                hideActions
+                className="pb-3 border-b border-outline-variant/20"
+              />
+              <div><span className="text-on-surface-variant">概述：</span>{asText(brief.overview)}</div>
+              <div><span className="text-on-surface-variant">目标受众：</span>{asText(brief.target_audience)}</div>
+              <div><span className="text-on-surface-variant">核心信息：</span>{asText(brief.core_message)}</div>
+              <div><span className="text-on-surface-variant">风格方向：</span>{asText(brief.style_direction)}</div>
+              <div><span className="text-on-surface-variant">结构建议：</span>{asText(brief.structure_suggestion)}</div>
+              <div><span className="text-on-surface-variant">时长预估：</span>{asText(brief.duration_estimate)}</div>
+              {textList(brief.key_elements).length > 0 && (
+                <div><span className="text-on-surface-variant">关键元素：</span>{textList(brief.key_elements).join('、')}</div>
               )}
-              {brief.special_requirements?.length > 0 && (
-                <div><span className="text-on-surface-variant">特殊要求：</span>{brief.special_requirements.join('、')}</div>
+              {textList(brief.special_requirements).length > 0 && (
+                <div><span className="text-on-surface-variant">特殊要求：</span>{textList(brief.special_requirements).join('、')}</div>
               )}
               {brief.production_plan && (
-                <div><span className="text-on-surface-variant">制作方案：</span>{brief.production_plan}</div>
+                <div><span className="text-on-surface-variant">制作方案：</span>{asText(brief.production_plan)}</div>
               )}
               {brief.reference_style && (
-                <div><span className="text-on-surface-variant">参考风格：</span>{brief.reference_style}</div>
+                <div><span className="text-on-surface-variant">参考风格：</span>{asText(brief.reference_style)}</div>
               )}
               {brief.bgm_requirement && (
-                <div><span className="text-on-surface-variant">BGM需求：</span>{brief.bgm_requirement}</div>
+                <div><span className="text-on-surface-variant">BGM需求：</span>{asText(brief.bgm_requirement)}</div>
               )}
               {brief.era_background && (
-                <div><span className="text-on-surface-variant">年代背景：</span>{brief.era_background}</div>
+                <div><span className="text-on-surface-variant">年代背景：</span>{asText(brief.era_background)}</div>
               )}
               {brief.material_requirements && (
                 <div className="pt-1 border-t border-outline-variant/10 space-y-1">
-                  {brief.material_requirements.type && (
-                    <div><span className="text-on-surface-variant">素材类型：</span>{brief.material_requirements.type}</div>
+                  {asText(brief.material_requirements.type) && (
+                    <div><span className="text-on-surface-variant">素材类型：</span>{asText(brief.material_requirements.type)}</div>
                   )}
-                  {brief.material_requirements.source && (
-                    <div><span className="text-on-surface-variant">推荐来源：</span>{brief.material_requirements.source}</div>
+                  {asText(brief.material_requirements.source) && (
+                    <div><span className="text-on-surface-variant">推荐来源：</span>{asText(brief.material_requirements.source)}</div>
                   )}
-                  {brief.material_requirements.preference && (
-                    <div><span className="text-on-surface-variant">素材偏好：</span>{brief.material_requirements.preference}</div>
+                  {asText(brief.material_requirements.preference) && (
+                    <div><span className="text-on-surface-variant">素材偏好：</span>{asText(brief.material_requirements.preference)}</div>
                   )}
                 </div>
               )}
               {brief.animation_style && (
                 <div className="pt-1 border-t border-outline-variant/10 space-y-1">
-                  {brief.animation_style.style && (
-                    <div><span className="text-on-surface-variant">动画风格：</span>{brief.animation_style.style}</div>
+                  {asText(brief.animation_style.style) && (
+                    <div><span className="text-on-surface-variant">动画风格：</span>{asText(brief.animation_style.style)}</div>
                   )}
-                  {brief.animation_style.tone && (
-                    <div><span className="text-on-surface-variant">色调倾向：</span>{brief.animation_style.tone}</div>
+                  {asText(brief.animation_style.tone) && (
+                    <div><span className="text-on-surface-variant">色调倾向：</span>{asText(brief.animation_style.tone)}</div>
                   )}
                 </div>
               )}
               {brief.asset_ratio && (
-                <div><span className="text-on-surface-variant">素材/动画占比：</span>实拍 {brief.asset_ratio.footage} · MG {brief.asset_ratio.mg}</div>
+                <div><span className="text-on-surface-variant">素材/动画占比：</span>实拍 {asText(brief.asset_ratio.footage)} · MG {asText(brief.asset_ratio.mg)}</div>
               )}
+            </div>
+          )}
+          <DisplaySpecsBlock
+            obj={plan}
+            surface="plan"
+            testId="review-plan-genui"
+            hideActions
+            className="mb-4"
+          />
+          {planView && (
+            <div className="mb-4">
+              <PlanReviewPanel
+                plan={planView}
+                brief={(brief as unknown as Record<string, unknown>) ?? undefined}
+                readOnly
+              />
             </div>
           )}
           {planMarkdown && <Markdown text={planMarkdown} />}

@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { useNavigate } from '@tanstack/react-router';
+import { applyProceedResult } from './proceedResult';
 import { useAgentStore, loadRequirementsDraft, clearRequirementsDraft } from '@/stores/agentStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useSelectionStore } from '@/stores/selectionStore';
@@ -9,14 +11,35 @@ import { IntentCard, type IntentPreview } from './IntentCard';
 import { resolveMessageAttachments } from './requirementsAttachments';
 import { pipelineApi, requirementsApi, personaApi } from '@/services/api';
 import { fetchSseToken, withSseToken } from '@/services/api/sse';
-import { savePipelineId, loadPipelineId, clearPipelineId } from '@/services/storage/pipelineSession';
+import { loadPipelineId, clearPipelineId } from '@/services/storage/pipelineSession';
 import { useBackendHealth } from '@/pages/useBackendHealth';
 import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
+import { TaskQuestionCard } from '@/features/task/TaskQuestionCard';
+import { ThinkingDisclosure } from '@/features/copilot/ThinkingDisclosure';
+import { SessionTimeline } from '@/features/sessionTimeline/SessionTimeline';
+import { isSessionTimelineEnabled } from '@/features/sessionTimeline/flag';
+import { useSessionTimelineStore } from '@/stores/sessionTimelineStore';
+import {
+  isBriefItem,
+  itemRole,
+  itemText,
+  type SessionTimelineItem,
+} from '@/features/sessionTimeline/types';
+import { useTaskStore } from '@/stores/taskStore';
+import { useTaskEvents } from '@/features/task/useTaskEvents';
 import { uid } from '@/lib/utils';
+// PRD W3.1：选区快照（发送时冻结，预览与确认执行共用同一份，避免确认前改选导致错配）
+import { buildSelectionSnapshot, selectionHint, type SelectionSnapshot } from './selectionSnapshot';
+import { asText, textList } from '@/lib/render';
+// GenUI：创意简报 / 规划书的只读结构化视图（spec 由后端产出并清洗，前端再洗一遍）
+import { GenUISpecRenderer } from '@/features/genui/GenUISpecRenderer';
+import { DisplaySpecsBlock } from '@/features/genui/DisplaySpecsBlock';
+import type { GenUIActionEvent } from '@/features/genui/types';
 import type { PipelinePhase, LogEventType, LogEntry } from '@/types/pipeline';
 import type { Timeline, Clip, ClipKind } from '@/types/timeline';
-import type { RequirementsStatus, CreativeBrief, ProductionPlan } from '@/types/persona';
+import type { RequirementsStatus, CreativeBrief, ProductionPlan, RequirementMessage } from '@/types/persona';
+import type { TaskEvent, TaskQuestionItem } from '@/types/task';
 
 /** R6/R7：`/intent` 响应里前端真正需要的字段（后端结构见 requirementsApi.intent） */
 type IntentPreviewPayload = {
@@ -43,8 +66,8 @@ const toIntentCardData = (payload: IntentPreviewPayload): IntentPreview => ({
   hardProblems: payload.problems ?? [],
 });
 import {
-  Bot, Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
-  MessageSquareText, ChevronDown, ChevronRight, X, Paperclip, RefreshCw, Copy, Square,
+  Send, Sparkles, Check, FileText, ListChecks, Loader2, Zap,
+  ChevronDown, ChevronRight, X, Paperclip, RefreshCw, Copy, Square,
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<PipelinePhase, string> = {
@@ -94,48 +117,113 @@ function formatMsgTime(ts: string | undefined): string {
   return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 }
 
+/**
+ * 时间线条目 → 气泡消息（session-timeline PRD §6.5）。
+ *
+ * 气泡组件（`RequirementsBubble`）只认 `RequirementMessage`，而新数据源是服务端条目。
+ * 这一层适配的意义：**换数据源不换渲染**——Markdown、时间戳、打字光标、简报卡、
+ * 规划书卡都还在，只是"位置"改由服务端 seq 决定。
+ *
+ * `id` 用 `seq`：它就是条目的稳定身份，不再靠"消息下标"这种会被压缩打乱的东西。
+ */
+function timelineItemAsMessage(item: SessionTimelineItem): RequirementMessage {
+  return {
+    id: `seq-${item.seq}`,
+    role: itemRole(item),
+    content: itemText(item),
+    timestamp: item.time,
+    streaming: item.state === 'streaming',
+  };
+}
 
-export function AgentPanel() {
-  const [tab, setTab] = useState<'requirements' | 'logs'>('requirements');
+
+/**
+ * 需求对话宿主（无标题行、无内部标签）。
+ *
+ * 2026-10-28 PRD B1：全局只保留一排标签（CopilotTabBar）。原先 AgentPanel 自带的
+ * 「Agent 副驾驶」标题行 + 内部「需求对话 / 执行日志」二选一标签已删除——它会与
+ * 副驾驶标签栏叠成两层。现在这里只负责 requirements 标签需要的东西：离线横幅、
+ * 需求视图、底部输入、时间轴差异浮层。
+ */
+/**
+ * 需求消息气泡（旧视图与单流**共用**）。
+ *
+ * 为什么单独抽出来：单流视图一开始自己写了一套纯文本渲染，
+ * 结果把 Markdown、创意简报卡、规划书卡、时间戳、打字光标全丢了。
+ * 现在两个视图渲染同一个组件——功能只可能一起坏、一起好。
+ */
+function RequirementsBubble({
+  m, busy, onConfirmBrief, onConfirmPlan, onReview, onGenUIAction,
+}: {
+  m: RequirementMessage;
+  busy: boolean;
+  onConfirmBrief: () => void;
+  onConfirmPlan: () => void;
+  onReview: (mode: 'brief' | 'plan') => void;
+  /** GenUI 动作回调（目前只有 `ask` 有语义：把问题发回当前需求会话） */
+  onGenUIAction?: (event: GenUIActionEvent) => void;
+}) {
+  const isUser = m.role === 'user';
+  const isError = /^(会话创建失败|消息发送失败|时间线编辑失败|初始化失败|管线启动失败)/.test(m.content);
+  return (
+    // 用户消息：右侧气泡；模型/系统消息：居中平铺（无气泡框）——用户 2026-10-31 裁定
+    <div className={isUser ? 'flex justify-end' : 'flex justify-center'}>
+      <div className={isUser
+        ? 'max-w-[85%] rounded-cw-md px-3 py-2 text-body-sm leading-relaxed bg-primary-container text-on-primary-container rounded-br-cw-xs whitespace-pre-wrap'
+        : isError
+          ? 'max-w-[92%] rounded-cw-md px-3 py-2 text-body-sm leading-relaxed bg-error/10 text-error border border-error/30 rounded-bl-cw-xs'
+          : 'w-full px-1 py-1.5 text-body-sm leading-relaxed text-on-surface'}>
+        {m.role === 'user'
+          ? m.content
+          // 正文**始终渲染**：带附件也照常显示（用户 2026-10-31：模型输出被创意简报顶掉）。
+          // 重复感靠卡片自身折叠解决，不能靠"把正文丢掉"来解决。
+          : <Markdown text={m.content} />}
+        {m.streaming && (
+          <span className="inline-block w-1.5 h-3.5 align-text-bottom ml-0.5 bg-primary animate-pulse" aria-label="正在输出" />
+        )}
+        {m.creative_brief && (
+          <div className="mt-2 pt-2 border-t border-outline-variant/20">
+            <BriefCard brief={m.creative_brief}
+              onGenUIAction={onGenUIAction}
+              onConfirm={onConfirmBrief} busy={busy}
+              onReview={() => onReview('brief')} />
+          </div>
+        )}
+        {m.production_plan && (
+          <div className="mt-2 pt-2 border-t border-outline-variant/20">
+            <PlanCard markdown={m.production_plan.markdown_content || m.production_plan.markdown || ''}
+              plan={m.production_plan}
+              onGenUIAction={onGenUIAction}
+              onConfirm={onConfirmPlan} busy={busy} onReview={() => onReview('plan')} />
+          </div>
+        )}
+        {/* 轮70：消息时间戳（旧草稿可能无 timestamp → 空串不渲染） */}
+        {formatMsgTime(m.timestamp) && (
+          <span className={`block mt-1 text-caption text-on-surface-variant/50 tabular-nums ${m.role === 'user' ? 'text-right' : ''}`}>
+            {formatMsgTime(m.timestamp)}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function RequirementsPane() {
   const agentTimeline = useAgentStore((s) => s.agentTimeline);
   const setAgentTimeline = useAgentStore((s) => s.setAgentTimeline);
   // G5: 后端心跳——离线时显示横幅，区分"未连接"与"请求失败"
   const backend = useBackendHealth();
 
   return (
-    <div className="flex flex-col h-full bg-surface-container-low">
+    <div className="flex flex-col h-full bg-surface-container-low" data-testid="requirements-pane">
       {backend === 'offline' && (
         <div className="px-3 py-1 text-caption font-medium text-warning bg-warning/10 border-b border-warning/30 shrink-0">
           后端离线 — 当前为离线演示模式
         </div>
       )}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-outline-variant/30 shrink-0">
-        <div className="w-6 h-6 rounded-cw-full bg-primary-container flex items-center justify-center">
-          <Bot className="w-3.5 h-3.5 text-on-primary-container" />
-        </div>
-        <span className="text-label font-medium text-on-surface-variant uppercase tracking-wide">
-          Agent 副驾驶
-        </span>
-        <span className="ml-auto w-2 h-2 rounded-cw-full bg-track-audio animate-pulse" title="在线" />
-      </div>
-
-      <div className="flex border-b border-outline-variant/30 shrink-0">
-        <button onClick={() => setTab('requirements')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-label font-medium border-b-2 transition-colors cursor-pointer ${
-            tab === 'requirements' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'
-          }`}>
-          <MessageSquareText className="w-3.5 h-3.5" /> 需求对话
-        </button>
-        <button onClick={() => setTab('logs')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-label font-medium border-b-2 transition-colors cursor-pointer ${
-            tab === 'logs' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'
-          }`}>
-          <ListChecks className="w-3.5 h-3.5" /> 执行日志
-        </button>
-      </div>
 
       <div className="flex-1 overflow-hidden min-h-0">
-        {tab === 'requirements' ? <RequirementsView /> : <LogPanel />}
+        <RequirementsView />
       </div>
 
       <BottomBar />
@@ -149,25 +237,220 @@ export function AgentPanel() {
   );
 }
 
+/**
+ * 兼容壳：外部（EditorPage / 测试 / 旧扩展）仍可 `<AgentPanel />`，
+ * 但它不再有自己的标题行与标签——标签统一由 CopilotTabBar 提供。
+ */
+export function AgentPanel() {
+  return <RequirementsPane />;
+}
+
 function RequirementsView() {
   const status = useAgentStore((s) => s.requirementsStatus);
+  // B5：推理强度（存在 projectStore，切标签/刷新不丢）
+  const reasoningEffort = useProjectStore((s) => s.reasoningEffort);
+  const setReasoningEffort = useProjectStore((s) => s.setReasoningEffort);
   const messages = useAgentStore((s) => s.requirementsMessages);
   const addMessage = useAgentStore((s) => s.addRequirementsMessage);
+  const prependMessages = useAgentStore((s) => s.prependRequirementsMessages);
+  const setMessages = useAgentStore((s) => s.setRequirementsMessages);
   const setStatus = useAgentStore((s) => s.setRequirementsStatus);
   const setBrief = useAgentStore((s) => s.setCreativeBrief);
   const setPlan = useAgentStore((s) => s.setProductionPlan);
   const setSession = useAgentStore((s) => s.setRequirementsSession);
   const setPipelineId = useAgentStore((s) => s.setPipelineId);
   const updatePhase = useAgentStore((s) => s.updatePhase);
+  const navigate = useNavigate();
   const setReviewMode = useAgentStore((s) => s.setReviewMode);
   const [topic, setTopic] = useState('');
   const [input, setInput] = useState('');
+  // PRD §19.4 / unified-stream PRD §5.2：思考内容五态机——
+  // idle 不显示；pending 只说"正在生成/正在思考"；available 才给可展开按钮；
+  // unsupported 明说"该模型不提供"；fallback 明说"流式已回退"。不许假按钮。
+  const [liveReasoning, setLiveReasoning] = useState('');
+  const [reasoningOpen, setReasoningOpen] = useState(false);
+  const [reasoningState, setReasoningState] = useState<
+    'idle' | 'pending' | 'available' | 'unsupported' | 'fallback'>('idle');
+  const [reasoningMeta, setReasoningMeta] = useState<{
+    supported?: boolean; streaming?: boolean; reason?: string | null; detail?: string;
+  }>({});
+  // M5c（PRD §15.5）：需求会话的 ask_user 问答——问题与事件都走 /api/requirements
+  const [questions, setQuestions] = useState<TaskQuestionItem[]>([]);
+  const [questionEvents, setQuestionEvents] = useState<TaskEvent[]>([]);
+  // M4：需求消息历史分页（向上翻不重复、刷新后从服务端重建）
+  const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [manualBusy, setBusy] = useState(false);
+  // 规划书生成阶段的一句话进展（stage 帧），只影响忙碌文案；位置由服务端条目决定
+  const [stageHint, setStageHint] = useState('');
   // Auto-start (from HomePage launch) runs in EditorPage via useRequirementsAutoStart;
   // reflect its busy flag here so the UI shows progress even though it's store-driven.
   const autoBusy = useAgentStore((s) => s.requirementsBusy);
   const busy = manualBusy || autoBusy;
+  // 会话时间线（session-timeline PRD §6）：默认读服务端唯一有序流；关掉后回到旧消息列表。
+  const unified = isSessionTimelineEnabled();
+  const taskId = useTaskStore((s) => s.task?.id ?? '');
+  // 任务事件不再由面板订阅：服务端已经把它们投影进会话时间线（同一份 seq），
+  // 「轨迹」面板自己订阅任务流。两条流同时挂会重复应用事件、成本翻倍。
+  useTaskEvents(taskId || null, false);
+  // 不同阶段的"忙"含义不同：需求澄清才谈得上思考，规划/管线阶段说清楚在干什么
+  const busyLabel =
+    stageHint
+      || (status === 'brief_ready' || status === 'brief_confirmed'
+        ? '正在修改创作方案…'
+        : status === 'planning'
+          ? '正在生成制作规划书…'
+          : status === 'plan_ready' || status === 'plan_confirmed'
+            ? '正在处理规划…'
+            : '正在思考…');
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const requirementsSessionId = useAgentStore((s) => s.requirementsSessionId);
+
+  // 思考条只认本轮 SSE 增量帧。**位置**不再由这里决定——思考已经作为时间线条目
+  // 由服务端分配 seq（旧实现靠 projectedReasoning 猜位置，思考因此总沉到底部）。
+  const reasoningText = liveReasoning;
+
+
+  /** M5c：拉问题与事件（刷新/重连后重建问题卡，不依赖任务 API） */
+  const refreshQuestions = useCallback(async (sid: string | null) => {
+    if (!sid) { setQuestions([]); setQuestionEvents([]); return; }
+    try {
+      const [qs, evs] = await Promise.all([
+        requirementsApi.questions(sid, 'all'),
+        requirementsApi.sessionEvents(sid, 0, 200),
+      ]);
+      setQuestions(qs?.items ?? []);
+      setQuestionEvents(evs?.items ?? []);
+    } catch {
+      // 后端不可用（离线/演示）时不挡对话：问题卡不出现，但也不假装有答案
+    }
+  }, []);
+
+  useEffect(() => { void refreshQuestions(requirementsSessionId); }, [requirementsSessionId, refreshQuestions]);
+
+  // 任务跑完/失败后**会话要放开**（用户 2026-10-31）：状态停在 pipeline_running / planning
+  // 时后端已挂终态监听把会话拉回可对话状态，但前端不知道——输入区会一直隐藏。
+  // 这里在这两个状态下降频轮询会话状态，变了就跟着变（用户就能继续跟主 agent 说话）。
+  useEffect(() => {
+    const sid = requirementsSessionId;
+    if (!sid) return undefined;
+    if (!['pipeline_running', 'planning'].includes(String(status))) return undefined;
+    let alive = true;
+    const timer = window.setInterval(() => {
+      void (async () => {
+        try {
+          const s = await requirementsApi.getSession(sid) as { status?: string };
+          const next = String(s?.status || '');
+          if (!alive || !next || next === status) return;
+          setStatus(next as Parameters<typeof setStatus>[0]);
+          useAgentStore.getState().setRequirementsBusy(false);
+          void refreshQuestions(sid);
+        } catch {
+          /* 后端忙/抖动：下一轮再来 */
+        }
+      })();
+    }, 5000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [requirementsSessionId, status, refreshQuestions]);
+
+  // 切换/新建会话时清掉上一个会话的前端条目（服务端仍在，不会丢数据）——
+  // 否则长会话的桶会一直挂在内存里（T4）
+  const prevSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevSessionRef.current;
+    if (prev && prev !== requirementsSessionId) {
+      useSessionTimelineStore.getState().reset(prev);
+    }
+    prevSessionRef.current = requirementsSessionId;
+  }, [requirementsSessionId]);
+
+  // 任何路径结束后都补一次会话事件（包含 autoStart 的非 AgentPanel 发起）：
+  // 否则首轮思考虽已落盘，界面上的「历史思考」块永远不出现。
+  const prevBusyRef = useRef(false);
+  useEffect(() => {
+    if (prevBusyRef.current && !busy && requirementsSessionId) {
+      // 本轮结束：刷新会话事件（思考条目由服务端在收尾时自己落定，前端不再改状态）
+      void refreshQuestions(requirementsSessionId);
+    }
+    prevBusyRef.current = busy;
+  }, [busy, requirementsSessionId, refreshQuestions]);
+
+  // 刷新/首次进入：本地没有消息时从服务端取最新一页（id 稳定，翻页不会重复）
+  useEffect(() => {
+    const sid = requirementsSessionId;
+    if (!sid) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const local = useAgentStore.getState().requirementsMessages;
+        if (local.length === 0) {
+          const page = await requirementsApi.messages(sid, { limit: 50 });
+          if (!alive || !page?.items?.length) return;
+          setMessages(page.items.map((m) => ({
+            id: m.id, role: m.role as 'user' | 'assistant' | 'system',
+            content: m.content, timestamp: m.timestamp ?? '',
+          })));
+          setHasEarlierMessages(Boolean(page.has_more));
+          return;
+        }
+        // 本地已有消息（草稿/实时）：只探测"服务端是否还有更早的"，不动已有消息
+        const oldest = local[0]?.id;
+        const probe = await requirementsApi.messages(sid, { beforeId: oldest || '', limit: 1 });
+        if (!alive) return;
+        setHasEarlierMessages(Boolean(probe?.has_more) || Boolean(probe?.items?.length));
+      } catch {
+        // 后端不可用：不显示"加载更早"，也不伪造历史
+        setHasEarlierMessages(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [requirementsSessionId, setMessages]);
+
+  const loadEarlierMessages = useCallback(async () => {
+    const sid = useAgentStore.getState().requirementsSessionId;
+    if (!sid || loadingEarlier) return;
+    const oldest = useAgentStore.getState().requirementsMessages[0]?.id;
+    if (!oldest) return;
+    setLoadingEarlier(true);
+    try {
+      const page = await requirementsApi.messages(sid, { beforeId: oldest, limit: 50 });
+      if (page?.items?.length) {
+        prependMessages(page.items.map((m) => ({
+          id: m.id, role: m.role as 'user' | 'assistant' | 'system',
+          content: m.content, timestamp: m.timestamp ?? '',
+        })));
+      }
+      setHasEarlierMessages(Boolean(page?.has_more));
+    } catch {
+      setHasEarlierMessages(false);
+    } finally {
+      setLoadingEarlier(false);
+    }
+  }, [loadingEarlier, prependMessages]);
+
+  // 需求消息只用于**旧视图**（flag 关掉时）与问题卡；单流视图读服务端时间线，
+  // 不再从前端消息数组投影出第二个数据源（旧实现正是这样把顺序搞乱的）。
+
+  /** 回答需求会话问题 → 后端带答案继续 → 回显新回复并刷新问题状态 */
+  const answerRequirementQuestion = useCallback(async (
+    ans: { questionId: string; optionId?: string | null; text?: string | null },
+  ) => {
+    const sid = useAgentStore.getState().requirementsSessionId;
+    if (!sid) throw new Error('会话不存在，请重新开始对话');
+    const res = await requirementsApi.answer(sid, {
+      question_id: ans.questionId,
+      option_id: ans.optionId ?? null,
+      text: ans.text ?? null,
+    }) as { reply?: unknown; status?: unknown };
+    if (typeof res?.reply === 'string' && res.reply) {
+      addMessage({
+        id: uid('m'), role: 'assistant', content: res.reply,
+        timestamp: new Date().toISOString(),
+      });
+    }
+    if (typeof res?.status === 'string') setStatus(res.status as Parameters<typeof setStatus>[0]);
+    await refreshQuestions(sid);
+  }, [addMessage, setStatus, refreshQuestions]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   // G7: 参考文件上传——无会话时提示先开始会话
@@ -195,7 +478,11 @@ function RequirementsView() {
   const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
   // R6：待确认的意图（有未答问题或解析失败时挂起，用户确认后再执行）
   const [intentPending, setIntentPending] = useState<
-    { sid: string; message: string; preview: IntentPreviewPayload } | null
+    {
+      sid: string; message: string; preview: IntentPreviewPayload;
+      /** PRD W3：确认卡上冻结的选区快照（执行时用它，不再重新读选区） */
+      selection: SelectionSnapshot;
+    } | null
   >(null);
   const timeline = useTimelineStore((s) => s.timeline);
   const selectedClips = selectedClipIds
@@ -257,6 +544,9 @@ function RequirementsView() {
           auto_dub: st.autoDub,
           voice_id: st.voiceId || undefined,
           dub_segments: st.dubSegments?.length ? st.dubSegments : undefined,
+          // F-04：创作页提示词随需求会话下发（L1，优先于类型默认风格）
+          creative_prompt: st.creativePrompt || undefined,
+          creative_avoid: st.creativeAvoid.length > 0 ? st.creativeAvoid : undefined,
         },
       });
       setSession(res.session_id);
@@ -271,15 +561,49 @@ function RequirementsView() {
 
   // P1-35：长请求可取消——进行中的对话/编辑请求可被「停止」或组件卸载中断
   const chatAbortRef = useRef<AbortController | null>(null);
+  const [stopping, setStopping] = useState(false);
   const cancelInFlight = () => {
     chatAbortRef.current?.abort();
     chatAbortRef.current = null;
   };
   useEffect(() => () => cancelInFlight(), []);
 
+  /**
+   * 任务运行期间点「停止」：中止任务 → 会话回可对话 → 输入区恢复。
+   *
+   * 为什么要调后端而不是只掐本地流：任务是在后端跑的，掐掉 SSE 只是"我这边不看了"，
+   * 任务会继续烧钱；而且中止这件事必须在会话里留痕——续跑的主 agent 得知道
+   * "是用户主动喊停"，而不是自己跑完/异常退出（后端会写一条 user_stopped 记录）。
+   */
+  const stopRunningTask = async (sessionId: string) => {
+    if (stopping) return;
+    setStopping(true);
+    try {
+      const res = await requirementsApi.stop(sessionId);
+      setStatus('plan_ready');
+      useAgentStore.getState().setRequirementsBusy(false);
+      cancelInFlight();
+      if (res?.note) {
+        addMessage({
+          id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: String(res.note),
+        });
+      }
+      void refreshQuestions(sessionId);
+    } catch (e) {
+      toast(`停止失败：${asText((e as Error)?.message || e)}`, 'error');
+    } finally {
+      setStopping(false);
+    }
+  };
+
   const sendChat = async (sessionId: string, message: string) => {
     addMessage({ id: uid('m'), role: 'user', content: message, timestamp: new Date().toISOString() });
     setBusy(true);
+    // 每轮提问重新累积思考（上一轮的 reasoning 不能挂到这一轮下面）
+    setLiveReasoning('');
+    setReasoningState('pending');
+    setReasoningMeta({});
     cancelInFlight();
     chatAbortRef.current = new AbortController();
     const signal = chatAbortRef.current.signal;
@@ -306,6 +630,7 @@ function RequirementsView() {
       } = {};
       // 批B：流式失败不再自动整跑一次性 chat（会重复消耗一次完整 LLM 生成），
       // 如实上屏错误；仅在流正常返回但无内容时回退
+      const _pid = useProjectStore.getState().projectId || '';
       res = await requirementsApi.streamChat(sessionId, message, (chunk) => {
         // P2-33: 按后端权威状态映射（旧实现硬编码 gathering，会把 planning
         // 阶段打回 gathering 导致输入框在错误时机出现）
@@ -318,9 +643,45 @@ function RequirementsView() {
           );
         }
         else if (chunk.type === 'delta' && typeof chunk.data === 'string') pushDelta(chunk.data);
-      }, signal);
+        // PRD §19.4：provider 给了 reasoning 就逐块上屏（旧实现声明了 liveReasoning
+        // 却从不赋值，折叠条永远是空——"思考过程可见"实际没兑现）。
+        // 后端不发 reasoning 时这里一帧都收不到，折叠条不出现，不假装思考。
+        else if (chunk.type === 'reasoning' && typeof chunk.data === 'string' && chunk.data) {
+          setLiveReasoning((prev) => (prev + chunk.data).slice(0, 200_000));
+          setReasoningState('available');
+          // 不再在这里往时间线写思考：服务端已经按 seq 落了条目（位置=发生时刻），
+          // 前端再写一份就是"两份数据、两种顺序"——顺序错乱的根源。
+        }
+        // 规划书生成过程帧（stage）：时间线条目由服务端写（stage 类型），
+        // 这里只负责让旧视图的忙碌文案有进展（stage 帧本身仍会到达，只是不再落前端流）。
+        else if (chunk.type === 'stage' && chunk.data && typeof chunk.data === 'object') {
+          const d = chunk.data as { stage?: string; status?: string; action?: string; summary?: string };
+          setStageHint(d.action || d.stage || '');
+        }
+        // 后端自报思考能力/可用性（PRD §5.1）：不再靠"有没有收到帧"反推
+        else if (chunk.type === 'reasoning_status' && chunk.data && typeof chunk.data === 'object') {
+          const meta = chunk.data as {
+            supported?: boolean; streaming?: boolean; available?: boolean | null;
+            reason?: string | null; detail?: string;
+          };
+          setReasoningMeta(meta);
+          if (meta.supported === false) setReasoningState('unsupported');
+          else if (meta.reason === 'stream_fallback') setReasoningState('fallback');
+          else if (meta.available === false) setReasoningState('unsupported');
+          else setReasoningState((prev) => (prev === 'available' ? prev : 'pending'));
+        }
+        // M5c：agent 提问 → 立刻出问题卡（等用户回答才继续）
+        else if (chunk.type === 'question' && chunk.data && typeof chunk.data === 'object') {
+          const q = chunk.data as TaskQuestionItem;
+          if (q.question_id) {
+            setQuestions((prev) => (prev.some((x) => x.question_id === q.question_id)
+              ? prev.map((x) => (x.question_id === q.question_id ? { ...x, ...q } : x))
+              : [...prev, q]));
+          }
+        }
+      }, signal, _pid);
       if (Object.keys(res).length === 0) {
-        res = await requirementsApi.chat({ session_id: sessionId, message }, signal);
+        res = await requirementsApi.chat({ session_id: sessionId, message, project_id: _pid }, signal);
       }
       const brief = res.creative_brief ? (res.creative_brief as CreativeBrief) : null;
       const plan = res.production_plan ? (res.production_plan as ProductionPlan) : null;
@@ -334,6 +695,21 @@ function RequirementsView() {
       else if (plan) setStatus('plan_ready');
       else if (brief) setStatus('brief_ready');
       const att = resolveMessageAttachments(st, brief, plan);
+      // 续跑（中止后再发指令）：后端重新拉起主 agent 并返回新 task_id，
+      // 这里把 task 装进 store，「轨迹」标签就会立刻跟到新任务上（否则还停在旧任务）。
+      const contTaskId = typeof (res as { task_id?: unknown }).task_id === 'string'
+        ? String((res as { task_id?: string }).task_id)
+        : '';
+      if (contTaskId) {
+        void useTaskStore.getState().load(contTaskId).catch(() => { /* 拿不到就让轨迹自己轮询 */ });
+      }
+      // 确认「确认」后后端改走**任务派发**：返回 `plan_dispatch.task_id` 而不是顶层 task_id。
+      // 这里同样把 task 装进 store——否则用户点「轨迹」看到的还是上一个任务（旧缺陷）。
+      const dispatch = (res as { plan_dispatch?: { task_id?: unknown } }).plan_dispatch;
+      const dispatchTaskId = typeof dispatch?.task_id === 'string' ? dispatch.task_id : '';
+      if (dispatchTaskId && dispatchTaskId !== contTaskId) {
+        void useTaskStore.getState().load(dispatchTaskId).catch(() => { /* 轮询兜底 */ });
+      }
       const finalContent = (res.reply ?? res.message ?? '已收到。') as string;
       if (streamId) {
         // 流式气泡已存在 → 用权威回复替换（delta 与最终 reply 内容一致，此处兜底差异）
@@ -362,6 +738,56 @@ function RequirementsView() {
     } finally { setBusy(false); chatAbortRef.current = null; }
   };
 
+  /**
+   * GenUI 动作回落：三种动作各有**一条固定通道**，spec 只带参数、不带路由。
+   *
+   * - `ask` → `sendChat(当前需求会话, payload.prompt)`；
+   * - `select` → `sendChat(当前需求会话, "选择：" + payload.value)`：**文案由宿主模板拼**，
+   *   模型只能决定"有哪些选项"，不能决定"点下去会说什么"（C3 的延伸）；
+   * - `confirm` → 调当前卡片的确认回调（`confirmBrief` / `confirmPlan`，靠 `scope` 区分），
+   *   **必须过二次确认**：这是"模型写的按钮推进状态机"，不确认就单击直达等于把确认流程交给模型（C10）。
+   *
+   * 为什么不让 spec 自带 endpoint/URL：那等于把"往哪发请求"交给模型（PRD §4.5 明令禁止）。
+   */
+  const onGenUIAction = (event: GenUIActionEvent) => {
+    const sid = useAgentStore.getState().requirementsSessionId;
+    const payload = (event.action.payload || {}) as Record<string, unknown>;
+    const text = (...keys: string[]) => {
+      for (const key of keys) {
+        const value = asText(payload[key]).trim();
+        if (value) return value;
+      }
+      return '';
+    };
+
+    if (event.action.type === 'ask') {
+      const prompt = text('prompt', 'message', 'question');
+      if (sid && prompt) void sendChat(sid, prompt);
+      return;
+    }
+
+    if (event.action.type === 'select') {
+      const value = text('value');
+      if (sid && value) void sendChat(sid, `选择：${value}`);
+      return;
+    }
+
+    if (event.action.type === 'confirm') {
+      // 正在跑（生成规划书 / 启动管线）时不允许再点：与卡片上的确认按钮同一道闸
+      if (busy) return;
+      const isPlan = event.scope === 'plan';
+      if (!isPlan && event.scope !== 'brief') return; // 来源不明不猜
+      const what = isPlan ? '制作规划书' : '创意简报';
+      const next = isPlan ? '启动制作管线' : '继续生成制作规划书';
+      const ok = typeof window === 'undefined'
+        ? false
+        : window.confirm(`确认提交这份${what}？确认后会${next}。`);
+      if (!ok) return;
+      if (isPlan) void confirmPlan();
+      else void confirmBrief();
+    }
+  };
+
   // R7：用户在确认卡上点了"确认执行"——走 `/intent/apply` 执行**用户刚看到的那份补丁**。
   //
   // 为什么不用 `/edit` 兜一圈：`/edit` 会让模型重新理解一遍原话，用户确认的
@@ -373,6 +799,8 @@ function RequirementsView() {
     message: string,
     preview: IntentPreviewPayload,
     answers: Record<string, string>,
+    /** PRD W3.3：确认卡上冻结的选区快照；执行时用它，不重新读选区 */
+    frozen?: SelectionSnapshot,
   ) => {
     setBusy(true);
     cancelInFlight();
@@ -383,15 +811,34 @@ function RequirementsView() {
       const region = (sel.rangeStart != null && sel.rangeEnd != null)
         ? { region_start_sec: sel.rangeStart, region_end_sec: sel.rangeEnd }
         : {};
+      // 执行用的是**冻结快照**：如果用户在确认卡停留期间改了选区，这里不会跟着变，
+      // 否则就会"按旧意图去改新选中的片段"。发现变化时明确告知（不静默）。
+      const selection = frozen ?? buildSelectionSnapshot(
+        useSelectionStore.getState().selectedClipIds,
+        useTimelineStore.getState().timeline,
+      );
+      const nowIds = useSelectionStore.getState().selectedClipIds;
+      const selectionChanged = frozen
+        ? !(nowIds.length === frozen.ids.length && nowIds.every((id) => frozen.ids.includes(id)))
+        : false;
       const res = await requirementsApi.intentApply(sid, {
         message,
         timeline: useTimelineStore.getState().timeline,
-        selected_clip_ids: selectedClipIds,
+        selected_clip_ids: selection.ids,
+        selection_summary: selection.summary,
+        selection_truncated: selection.truncated,
         intent_raw: preview.intent_raw,
         answers,
         apply: true,
         ...region,
       }, signal);
+      if (selectionChanged) {
+        addMessage({
+          id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+          content: `注意：确认卡生成后你的选区变了。这次仍按**确认时选中的 ${selection.ids.length} 个片段**执行；`
+            + '要按当前选区来，请重新发一次指令。',
+        });
+      }
       if (res.applied && res.timeline) {
         // 走既有 diff 审阅：接受/合并时才注册真实媒体并写入 store
         useAgentStore.getState().setAgentTimeline(res.timeline as never);
@@ -411,7 +858,8 @@ function RequirementsView() {
         setIntentPending({
           sid, message,
           // 把"为什么没执行"挂回卡上（hardProblems 是卡上唯一会拦住确认的字段），
-          // 用户改口径或换选项后可以再来一次
+          // 用户改口径或换选项后可以再来一次；**选区快照沿用本次这份**（不乱换目标）
+          selection,
           preview: { ...preview, problems: [...(preview.problems ?? []), ...(res.report?.problems ?? [])] },
         });
       }
@@ -446,21 +894,31 @@ function RequirementsView() {
       const region = (sel.rangeStart != null && sel.rangeEnd != null)
         ? { region_start_sec: sel.rangeStart, region_end_sec: sel.rangeEnd }
         : {};
+      // PRD W3.1：**发送那一刻**冻结选区快照。后续预览/确认/执行都用这一份，
+      // 不再各自去读 useSelectionStore（那就是"确认时改选导致改错片段"的根因）。
+      const selection = buildSelectionSnapshot(
+        selectedClipIds, useTimelineStore.getState().timeline,
+      );
+      const selectionPayload = {
+        selected_clip_ids: selection.ids,
+        selection_summary: selection.summary,
+        selection_truncated: selection.truncated,
+      };
       // R6：任何一次自然语言改动**都先落位一遍**（不再有"跳过检查"的旁路——
       // 确认卡是唯一的执行入口，两个入口对同一句话给出不同理解是最难查的那类 bug）。
       try {
         const preview = await requirementsApi.intent(sessionId, {
           message,
           timeline: useTimelineStore.getState().timeline,
-          selected_clip_ids: selectedClipIds,
+          ...selectionPayload,
           ...region,
         }, editSignal);
         const needsConfirm = Boolean(preview?.blocked)
           || (preview?.resolution?.questions?.length ?? 0) > 0
           || (preview?.problems ?? []).some((p) => p.level === 'error');
         if (needsConfirm) {
-          // 停在确认卡：把原始指令与意图一起存下来，确认后按**这份意图**执行（R7）
-          setIntentPending({ sid: sessionId, message, preview });
+          // 停在确认卡：把原始指令、意图**和那份选区快照**一起存下来，确认后按它们执行
+          setIntentPending({ sid: sessionId, message, preview, selection });
           setBusy(false);
           chatAbortRef.current = null;
           return;
@@ -475,7 +933,7 @@ function RequirementsView() {
         session_id: sessionId,
         message,
         timeline: useTimelineStore.getState().timeline,
-        selected_clip_ids: selectedClipIds,
+        ...selectionPayload,
         ...region,
       }, editSignal);
       if (res.proposed_timeline) {
@@ -501,19 +959,71 @@ function RequirementsView() {
     if (ag.requirementsBusy) return;
     ag.setRequirementsBusy(true);
     setStatus('planning');
+    // 立刻在流里留一条可见回执：规划书生成通常 30–90s，没有回执时用户会以为
+    // "点了没后续"（用户 2026-10-31 实测反馈）。
+    addMessage({
+      id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+      content: '已确认创意简报，正在生成制作规划书…（这一步通常要几十秒）',
+    });
     try {
       const sid = ag.requirementsSessionId;
       if (sid) {
-        // Online: sendChat adds exactly ONE user bubble + reads reply/plan from backend.
-        // sendChat 只管理组件内 manualBusy；store busy 必须由本函数在 finally 清理，否则按钮永久禁用
-        await sendChat(sid, '确认，请生成完整的制作规划书。');
+        // D3（plan-dispatch PRD §5）：改走**主 agent 派发**——
+        // 建一个 plan_only 任务，由 kernel 派 structure、产物落 reports/plan.json，
+        // 需求侧读产物回填 production_plan。不再让需求服务内联跑（那条路看不见）。
+        // 事件由服务端投影进同一份时间线（C3：前端**不**再订阅任务流）。
+        const res = await requirementsApi.dispatchPlan(sid, false) as {
+          task_id?: string; status?: string; reused?: boolean;
+        };
+        if (res?.task_id) {
+          // 拉完整 task 对象（taskApi.get）。**不要**只塞一个 {id} 的假对象：
+          // 「轨迹」会读 task.usage/limits，假对象直接把它打崩（2026-10-31 实测）。
+          void useTaskStore.getState().load(String(res.task_id));
+        }
+        setStatus('planning');
+        // 终态由后端驱动（C4）：轮询会话状态，等它离开 planning 再放开 busy。
+        // 不做"本地推断 plan_ready"——两套真相必然互相覆盖。
+        void (async () => {
+          const stillCurrent = () => useAgentStore.getState().requirementsSessionId === sid;
+          for (let i = 0; i < 900; i += 1) {
+            await new Promise((r) => { setTimeout(r, 2000); });
+            // 用户已切到别的会话：这个轮询不得再改全局状态，也不得替新会话清 busy。
+            if (!stillCurrent()) return;
+            let st = '';
+            try {
+              const s = await requirementsApi.getSession(sid) as { status?: string };
+              st = String(s?.status || '');
+            } catch { /* 后端暂时不可用：继续等，不谎报状态 */ }
+            if (!stillCurrent()) return;
+            if (st && st !== 'planning') {
+              useAgentStore.getState().setRequirementsStatus(
+                st as Parameters<typeof setStatus>[0],
+              );
+              void refreshQuestions(sid);
+              break;
+            }
+          }
+          if (stillCurrent()) useAgentStore.getState().setRequirementsBusy(false);
+        })();
         return;
       }
       // 批B：无会话 = 后端未连接/初始化失败——如实提示（旧实现伪造假规划书）
       addMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
         content: '会话未建立，无法生成规划书。请刷新页面重新发起需求。' });
       setStatus('gathering');
-    } finally {
+    } catch (e) {
+      // 失败要说原因并给可重试的路（PRD §3.2 的 brief_ready 回退）
+      const detail = (e as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
+      const reason = typeof detail === 'object' && detail
+        ? String((detail as { reason?: string }).reason || '')
+        : '';
+      addMessage({
+        id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(),
+        content: reason === 'no_brief'
+          ? '还没有创意简报，无法生成规划书。先聊出方案并确认。'
+          : `派发规划书失败：${(e as Error)?.message || '未知错误'}。可再点一次「确认简报」重试。`,
+      });
+      setStatus('brief_ready');
       useAgentStore.getState().setRequirementsBusy(false);
     }
   };
@@ -551,16 +1061,37 @@ function RequirementsView() {
         {
           dry_run: st.dryRun,
           ...(st.cutOnBeat && st.beatBpm ? { cut_on_beat: true, bpm: st.beatBpm } : {}),
+          // F-04：提示词直达管线（需求阶段已消费；这里再兜一次，保证 proceed 也带）
+          ...(st.creativePrompt ? { creative_prompt: st.creativePrompt } : {}),
+          ...(st.creativeAvoid.length > 0 ? { creative_avoid: st.creativeAvoid } : {}),
+          // D23：镜头节奏策略。`default` = 不下发，跟随后端默认（merge + split
+          // 都保总时长）；off/record/extend/loop 是显式覆盖，用于取证或救急。
+          ...(st.shotFloorPolicy && st.shotFloorPolicy !== 'default'
+            ? { shot_floor_policy: st.shotFloorPolicy }
+            : {}),
+          // 上界切分（V35）：只在显式选择时下发，默认交给后端 split
+          ...(st.shotCapPolicy && st.shotCapPolicy !== 'default'
+            ? { shot_cap_policy: st.shotCapPolicy }
+            : {}),
+          // B5：推理强度（空 = 不下发，跟随模型配置）
+          ...(st.reasoningEffort ? { reasoning_effort: st.reasoningEffort } : {}),
         },
         // 批B：携带当前项目——成品时间线自动保存回项目（否则 60s 后丢失）
         st.projectId ?? undefined,
-      ) as { pipeline_id?: string };
-      if (res.pipeline_id) {
-        // 设置 pipelineId + 运行相位，BottomBar 的 effect 会自动挂接 SSE 追踪
-        setPipelineId(res.pipeline_id);
+      ) as { pipeline_id?: string; task_id?: string; workspace_root?: string };
+      // 双轨（PRD workspace-prd §6.2）：task_id 存在即主 Agent 任务，跳详情页走 Task 事件流
+      const target = applyProceedResult(res);
+      if (target?.mode === 'task') {
+        setStatus('pipeline_running');
         updatePhase('structure', 5);
-        // 持久化到 sessionStorage：页面刷新后 BottomBar 挂载时可恢复并自动重连 SSE
-        savePipelineId(res.pipeline_id);
+        // 生产任务是**新** task：必须把 taskStore 从上一轮 plan_only 任务切过去。
+        // 只开标签不换数据源，轨迹/暂停/子 Agent 列表会继续指向规划任务。
+        void useTaskStore.getState().load(target.id);
+        // PRD §19.3：不跳页——任务在编辑器右侧的「任务运行」标签里就地跑（applyProceedResult 已开标签）
+      } else if (target) {
+        // 设置 pipelineId + 运行相位，BottomBar 的 effect 会自动挂接 SSE 追踪
+        setPipelineId(target.id);
+        updatePhase('structure', 5);
       }
     } catch {
       setStatus('plan_ready');
@@ -573,8 +1104,15 @@ function RequirementsView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
-        {messages.length === 0 && (
+      <div
+        ref={scrollRef}
+        className={`flex-1 p-3 space-y-3 min-h-0 ${unified ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}
+        data-testid="requirements-scroll"
+        data-scroll-mode={unified ? 'inner' : 'outer'}
+      >
+        {/* 只有"还没有会话"时才出这张开场卡：单流视图的开场白是时间线上的一个条目，
+            两块一起出就是同一句话出现两次（T3.5） */}
+        {!requirementsSessionId && messages.length === 0 && (
           <div className="bg-agent-bubble/40 border border-primary-container/40 rounded-cw-md p-3">
             <div className="flex items-center gap-2 mb-2">
               <Sparkles className="w-4 h-4 text-primary" />
@@ -604,50 +1142,218 @@ function RequirementsView() {
           </div>
         )}
 
-        {messages.map((m) => (
-          <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-cw-md px-3 py-2 text-body-sm leading-relaxed ${m.role === 'user'
-              ? 'bg-primary-container text-on-primary-container rounded-br-cw-xs whitespace-pre-wrap'
-              : /^(会话创建失败|消息发送失败|时间线编辑失败|初始化失败|管线启动失败)/.test(m.content)
-              ? 'bg-error/10 text-error border border-error/30 rounded-bl-cw-xs'
-              : 'bg-surface-container text-on-surface rounded-bl-cw-xs border border-outline-variant/20'}`}>
-              {m.role === 'user'
-                ? m.content
-                // 带简报/规划书卡片的消息：正文往往嵌入了同一份内容的 markdown，跳过以避免重复渲染
-                : (!m.creative_brief && !m.production_plan ? <Markdown text={m.content} /> : null)}
-              {m.streaming && (
-                <span className="inline-block w-1.5 h-3.5 align-text-bottom ml-0.5 bg-primary animate-pulse" aria-label="正在输出" />
-              )}
-              {m.creative_brief && (
-                <div className="mt-2 pt-2 border-t border-outline-variant/20">
-                  <BriefCard brief={m.creative_brief} onConfirm={confirmBrief} busy={busy} onReview={() => setReviewMode('brief')} />
+        {!unified && hasEarlierMessages && messages.length > 0 && (
+          <button
+            type="button"
+            data-testid="requirements-load-earlier"
+            disabled={loadingEarlier}
+            className="mb-2 w-full text-caption text-primary hover:underline disabled:opacity-50"
+            onClick={() => void loadEarlierMessages()}
+          >
+            {loadingEarlier ? '加载中…' : '加载更早的消息'}
+          </button>
+        )}
+
+        {unified && requirementsSessionId && (
+          <div data-testid="requirements-unified-stream" className="min-h-0 flex-1">
+            <SessionTimeline
+              sessionId={requirementsSessionId}
+              busy={busy}
+              busyLabel={busyLabel}
+              reasoningNote={reasoningState === 'unsupported'
+                ? (reasoningMeta.reason === 'phase_not_streaming'
+                  ? '该阶段无思考流（不是模型不提供）'
+                  : '该模型不提供思考内容')
+                : reasoningState === 'fallback'
+                  ? '思考内容不可用（流式已回退）'
+                  : ''}
+              onAnswerQuestion={async (a) => { await answerRequirementQuestion(a); }}
+              renderContent={(it) => {
+                // 气泡渲染仍走同一个 RequirementsBubble：Markdown / 时间戳 / 打字光标
+                // 不会因为换了数据源而丢失。id 用 seq——它就是条目的稳定身份。
+                const m = timelineItemAsMessage(it);
+                return (
+                  <div data-testid="unified-item-message" data-role={m.role} data-seq={it.seq}>
+                    <RequirementsBubble
+                      m={m}
+                      busy={busy}
+                      onConfirmBrief={confirmBrief}
+                      onConfirmPlan={confirmPlan}
+                      onReview={setReviewMode} onGenUIAction={onGenUIAction}
+                    />
+                  </div>
+                );
+              }}
+              renderReport={(it) => {
+                // 只有**创意简报**才用 BriefCard 模板。内核每轮也会 emit `report`
+                // （headline + bullets），它被投影成 report 条目后曾在这里被当成简报渲染，
+                // 于是界面上出现「创意简报 / 标题：undefined」（用户 2026-10-31 实测）。
+                // 认不出来就返回 null，让时间线走默认渲染（主 agent 汇报 = bullets 列表）。
+                if (!isBriefItem(it)) return null;
+                return (
+                  <div data-testid="timeline-item-report" data-seq={it.seq}>
+                    <RequirementsBubble
+                      m={{ ...timelineItemAsMessage(it), content: '', creative_brief: it.content as RequirementMessage['creative_brief'] }}
+                      busy={busy}
+                      onConfirmBrief={confirmBrief}
+                      onConfirmPlan={confirmPlan}
+                      onReview={setReviewMode} onGenUIAction={onGenUIAction}
+                    />
+                  </div>
+                );
+              }}
+              renderPlan={(it) => (
+                <div data-testid="timeline-item-plan" data-seq={it.seq}>
+                  <RequirementsBubble
+                    m={{ ...timelineItemAsMessage(it), content: '', production_plan: it.content as RequirementMessage['production_plan'] }}
+                    busy={busy}
+                    onConfirmBrief={confirmBrief}
+                    onConfirmPlan={confirmPlan}
+                    onReview={setReviewMode} onGenUIAction={onGenUIAction}
+                  />
                 </div>
               )}
-              {m.production_plan && (
-                <div className="mt-2 pt-2 border-t border-outline-variant/20">
-                  <PlanCard markdown={m.production_plan.markdown_content || m.production_plan.markdown || ''} onConfirm={confirmPlan} busy={busy} onReview={() => setReviewMode('plan')} />
-                </div>
-              )}
-              {/* 轮70：消息时间戳（旧草稿可能无 timestamp → 空串不渲染） */}
-              {formatMsgTime(m.timestamp) && (
-                <span className={`block mt-1 text-caption text-on-surface-variant/50 tabular-nums ${m.role === 'user' ? 'text-right' : ''}`}>
-                  {formatMsgTime(m.timestamp)}
-                </span>
-              )}
-            </div>
+            />
           </div>
+        )}
+
+        {!unified && messages.map((m) => (
+          <RequirementsBubble
+            key={m.id}
+            m={m}
+            busy={busy}
+            onConfirmBrief={confirmBrief}
+            onConfirmPlan={confirmPlan}
+            onReview={setReviewMode} onGenUIAction={onGenUIAction}
+          />
         ))}
 
-        {busy && !messages.some((m) => m.streaming) && (
-          <div className="flex items-center gap-2 text-label-sm text-on-surface-variant px-3">
-            <Loader2 className="w-3 h-3 animate-spin text-primary" /> 正在思考…
+        {/* 思考条（unified-stream PRD §5.2 五态机）：可展开只在真有内容时出现 */}
+        {/* 旧视图才需要这条独立思考条；单流视图里思考是时间线的一个条目（只此一处，
+            用户 2026-10-31：不要再出现三处重复展示思考） */}
+        {!unified && (busy || !!reasoningText) && (!messages.some((m) => m.streaming) || !!reasoningText || reasoningState !== 'pending') && (
+          <div className="px-3 text-label-sm text-on-surface-variant" data-testid="live-thinking-strip">
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-3 h-3 animate-spin text-primary" />
+              {reasoningText ? (
+                <button
+                  type="button"
+                  data-testid="live-thinking-toggle"
+                  className="hover:text-on-surface"
+                  onClick={() => setReasoningOpen((v) => !v)}
+                  aria-expanded={reasoningOpen}
+                >
+                  正在思考（{reasoningText.length.toLocaleString()} 字）
+                  {reasoningOpen ? ' ▴' : ' ▾'}
+                </button>
+              ) : reasoningState === 'unsupported' ? (
+                // 模型不回吐思考：明说，且不给可点控件
+                <span data-testid="live-thinking-unsupported">
+                  {reasoningMeta.reason === 'phase_not_streaming'
+                    ? '该阶段无思考流（不是模型不提供）'
+                    : '该模型不提供思考内容'}
+                </span>
+              ) : reasoningState === 'fallback' ? (
+                <span data-testid="live-thinking-fallback" title={reasoningMeta.detail || ''}>
+                  思考内容不可用（流式已回退）
+                </span>
+              ) : (
+                // 请求在路上、还没收到能力声明或第一块思考：按阶段说人话
+                <span data-testid="live-thinking-pending">{busyLabel}</span>
+              )}
+            </div>
+            {reasoningOpen && reasoningText && (
+              <pre
+                data-testid="live-reasoning"
+                className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-cw-sm bg-surface-container p-2 text-caption"
+              >
+                {reasoningText}
+              </pre>
+            )}
           </div>
         )}
       </div>
 
+      {/* 历史思考（unified-stream PRD §5.1.4）：本轮结束后从会话事件流回放，
+          刷新/重连不丢；正在生成时由上面的实时思考条负责，不重复渲染 */}
+      {!unified && (questionEvents.some((e) => e.type === 'thinking'))
+        && !(busy && liveReasoning) && (
+        <div className="shrink-0 border-t border-outline-variant/20" data-testid="requirements-thinking-history">
+          <ThinkingDisclosure events={questionEvents} />
+        </div>
+      )}
+
+      {/* M5c：agent 主动提问 → 问题卡（回答后 agent 继续；刷新后从会话事件重建） */}
+      {/* 单流视图里问题是时间线的一个条目（条目上就能作答），不再重复出问题卡（T3.3） */}
+      {!unified && questions.length > 0 && (
+        <div className="shrink-0 border-t border-outline-variant/20 px-3 py-2" data-testid="requirements-question-host">
+          <TaskQuestionCard
+            events={questionEvents}
+            questions={questions.filter((q) => (q.status ?? 'pending') === 'pending')}
+            askerLabel="需求 agent"
+            onSubmit={answerRequirementQuestion}
+          />
+        </div>
+      )}
+
       {/* B17: 管线运行/规划生成期间隐藏输入；完成/失败后恢复 */}
-      {messages.length > 0 && !['pipeline_running', 'planning'].includes(status) && (
+      {/* 输入框门控看'有没有会话'，不看 messages：单流视图的 messages 只是旧视图遗留数据，
+          用它做门控会让刷新后的会话整块输入区消失（T3.5） */}
+      {/* 任务运行中：输入区让位给「停止」——用户说过，跑任务时必须能一键停下，
+          并且停下之后输入框/附件/发送要立刻回来（后端把会话放回 plan_ready）。 */}
+      {requirementsSessionId && ['pipeline_running', 'planning'].includes(status) && (
+        <div className="shrink-0 border-t border-outline-variant/20 p-3"
+          data-testid="requirements-running-bar">
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+            <span className="text-caption text-on-surface-variant">
+              主 agent 正在执行（{status === 'planning' ? '生成规划书' : '跑任务'}）…
+            </span>
+            <button
+              type="button"
+              data-testid="requirements-stop"
+              disabled={stopping}
+              onClick={() => void stopRunningTask(requirementsSessionId)}
+              className="ml-auto flex items-center gap-1 rounded-cw-sm border border-error/50 px-2.5 py-1 text-caption text-error hover:bg-error/10 disabled:opacity-50"
+            >
+              {stopping ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
+              {stopping ? '停止中…' : '停止任务'}
+            </button>
+          </div>
+          <p className="mt-1 text-caption text-on-surface-variant/60">
+            停止后会留一条记录：主 agent 知道是你主动叫停，继续说一句就能接着做。
+          </p>
+        </div>
+      )}
+
+      {requirementsSessionId && !['pipeline_running', 'planning'].includes(status) && (
         <div className="p-3 border-t border-outline-variant/20 shrink-0">
+          {/* B5（2026-10-28 PRD）：推理强度入口。'' = 不下发（跟随模型配置）；
+              选了但 provider 不支持时，后端记 degradation 并在任务事件流里显示"已忽略" */}
+          <div className="mb-2 flex items-center gap-2">
+            <label className="text-caption text-on-surface-variant/70" htmlFor="reasoning-effort">
+              推理强度
+            </label>
+            <select
+              id="reasoning-effort"
+              data-testid="reasoning-effort"
+              className="rounded-cw-sm border border-outline-variant/40 bg-surface-container px-2 py-1 text-caption text-on-surface"
+              value={reasoningEffort}
+              onChange={(e) => setReasoningEffort(
+                e.target.value as '' | 'low' | 'medium' | 'high',
+              )}
+            >
+              <option value="">跟随模型配置</option>
+              <option value="low">低</option>
+              <option value="medium">中</option>
+              <option value="high">高</option>
+            </select>
+            {reasoningEffort !== '' && (
+              <span className="text-caption text-on-surface-variant/60">
+                不支持该参数的模型会忽略（见执行日志降级说明）
+              </span>
+            )}
+          </div>
           {/* R6：意图确认卡 —— 有未答问题/解析失败时先让用户看清"将改动什么"再执行 */}
           {intentPending && (
             <div className="mb-2">
@@ -656,7 +1362,7 @@ function RequirementsView() {
                 onConfirm={(answers) => {
                   const pending = intentPending;
                   setIntentPending(null);
-                  void applyIntent(pending.sid, pending.message, pending.preview, answers);
+                  void applyIntent(pending.sid, pending.message, pending.preview, answers, pending.selection);
                 }}
                 onCancel={() => {
                   setIntentPending(null);
@@ -720,8 +1426,21 @@ function RequirementsView() {
                 if (input.trim() && sid) {
                   const m = input; setInput('');
                   (e.target as HTMLTextAreaElement).style.height = 'auto';
-                  if (selectedClipIds.length > 0) sendEdit(sid, m);
-                  else sendChat(sid, m);
+                  // PRD W3.4：按**有效选区**路由（快照里真能在这条时间线找到的片段），
+                  // 而不是原始 id 数组——过期选区（片段已删/来自别的项目）不当成"在改选中素材"。
+                  const snap = buildSelectionSnapshot(
+                    useSelectionStore.getState().selectedClipIds,
+                    useTimelineStore.getState().timeline,
+                  );
+                  if (snap.ids.length > 0) {
+                    if (snap.truncated) toast(selectionHint(snap), 'info');
+                    sendEdit(sid, m);
+                  } else {
+                    if (selectedClipIds.length > 0) {
+                      toast('选区已失效（片段可能已被删除）：这次按普通对话处理', 'info');
+                    }
+                    sendChat(sid, m);
+                  }
                 }
               }}
               placeholder={selectedClipIds.length > 0 ? '描述对选中素材的修改…（Shift+Enter 换行）' : '继续与需求 Agent 对话…（Shift+Enter 换行）'}
@@ -737,8 +1456,19 @@ function RequirementsView() {
                 const sid = useAgentStore.getState().requirementsSessionId;
                 if (input.trim() && sid) {
                   const m = input; setInput('');
-                  if (selectedClipIds.length > 0) sendEdit(sid, m);
-                  else sendChat(sid, m);
+                  const snap = buildSelectionSnapshot(
+                    useSelectionStore.getState().selectedClipIds,
+                    useTimelineStore.getState().timeline,
+                  );
+                  if (snap.ids.length > 0) {
+                    if (snap.truncated) toast(selectionHint(snap), 'info');
+                    sendEdit(sid, m);
+                  } else {
+                    if (selectedClipIds.length > 0) {
+                      toast('选区已失效（片段可能已被删除）：这次按普通对话处理', 'info');
+                    }
+                    sendChat(sid, m);
+                  }
                 }
               }} disabled={!input.trim()}>
                 <Send className="w-3.5 h-3.5" />
@@ -751,7 +1481,8 @@ function RequirementsView() {
   );
 }
 
-function LogPanel() {
+/** 执行日志面板（B1：由副驾驶 `logs` 标签直接渲染，不再藏在 AgentPanel 内部）。 */
+export function LogPanel() {
   const logEntries = useAgentStore((s) => s.logEntries);
   const toggleExpand = useAgentStore((s) => s.toggleLogExpand);
   const clearLogs = useAgentStore((s) => s.clearLogs);
@@ -772,7 +1503,7 @@ function LogPanel() {
   const groups = useMemo(() => (grouped ? buildGroups(logEntries) : null), [grouped, logEntries]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" data-testid="log-panel">
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-outline-variant/20 shrink-0">
         <span className="text-caption text-on-surface-variant font-mono">
           {logEntries.length} 条
@@ -1254,203 +1985,90 @@ function BottomBar() {
           </button>
         </div>
       )}
-      {running && (
-        <div className="px-3 pt-2 space-y-0.5">
-          <div className="flex items-center justify-end pt-1">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={cancelling}
-              onClick={handleStop}
-              className="text-error hover:bg-error/10 border-error/40"
-            >
-              <X className="w-3.5 h-3.5 mr-1" />
-              {cancelling ? '取消中…' : '停止'}
-            </Button>
-          </div>
-          {/* M13: 编辑器内 Persona 切换 */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-caption text-on-surface-variant/60">Persona</span>
-            <select
-              value={personaId ?? 'default'}
-              onChange={(e) => {
-                const v = e.target.value === 'default' ? null : e.target.value;
-                useProjectStore.getState().setPersonaId(v);
-                useProjectStore.getState().requestSave();
-              }}
-              className="bg-surface-container border border-outline-variant/30 rounded-cw-xs px-1.5 py-1 text-caption text-on-surface outline-none cursor-pointer max-w-[160px]"
-              aria-label="选择 Persona"
-            >
-              <option value="default">默认</option>
-              {personas.map((id) => (
-                <option key={id} value={id}>{id}</option>
-              ))}
-            </select>
-          </div>
-          {PHASE_ORDER.map((p) => {
-            const idx = PHASE_ORDER.indexOf(p);
-            const curIdx = PHASE_ORDER.indexOf(phase as never);
-            const isSelfHeal = (phase as string) === 'self_heal';
-            // self_heal 发生在所有阶段之后，视为各阶段已完成（正在联动重做）
-            const done = (phase as string) === 'completed' || isSelfHeal || (curIdx > idx);
-            const active = (phase as string) === p;
-            return (
-              <div key={p} className="flex items-center gap-1.5">
-                <span className={`w-3.5 h-3.5 rounded-cw-full flex items-center justify-center shrink-0 text-caption ${
-                  done ? 'bg-track-audio text-black' : active ? 'bg-primary' : 'bg-surface-container text-on-surface-variant/50'
-                }`}>
-                  {done ? <Check className="w-2 h-2" /> : active ? <Loader2 className="w-2 h-2 animate-spin" /> : ''}
-                </span>
-                <span className={`text-caption ${active ? 'text-primary font-semibold' : done ? 'text-on-surface' : 'text-on-surface-variant/50'}`}>
-                  {PHASE_LABELS[p]}
-                </span>
-                {active && (
-                  <div className="flex-1 h-0.5 bg-surface-container rounded-cw-full overflow-hidden">
-                    <div className="h-full bg-primary animate-pulse" style={{ width: `${Math.min(100, Math.max(2, progress))}%` }} />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {/* 用户 2026-10-31：底部大「停止」按钮删掉——输入区的发送按钮在生成中已经是
+          「停止」（调 cancelInFlight），不需要第二个入口。 */}
 
-      {/* G4: 当前 Agent 活动（取日志尾部非 system 条目；无则回退相位名） */}
-      {running && (
-        <div className="px-3 pt-1 text-caption text-on-surface-variant">
-          <span className="text-on-surface-variant/60">当前：</span>
-          <span className="text-primary font-medium">{currentActivity(logEntries) ?? PHASE_LABELS[phase as keyof typeof PHASE_LABELS] ?? phase}</span>
-          {pipelineStartedAt && (
-            <span className="ml-2 font-mono text-on-surface-variant/60 tabular-nums" title="本轮耗时">
-              {elapsedText}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* MG 动画逐片段进度（动画阶段） */}
-      {mgTotal > 0 && (
-        <div className="flex items-center gap-2 px-3 pt-1.5">
-          <span className="text-caption text-track-animation shrink-0">动画片段</span>
-          <div className="flex-1 h-1 bg-surface-container rounded-cw-full overflow-hidden">
-            <div className="h-full bg-track-animation transition-all duration-short3"
-              style={{ width: `${Math.min(100, Math.round((mgDone / mgTotal) * 100))}%` }} />
-          </div>
-          <span className="text-caption font-mono text-on-surface-variant shrink-0">{mgDone}/{mgTotal}</span>
-        </div>
-      )}
-
-      {error && (
-        <div className="px-3 py-1.5 text-caption text-error">{error}</div>
-      )}
-
-      {pipelineSummary && (
-        <div className="px-3 py-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-caption font-mono text-on-surface-variant">
-          <span>{pipelineSummary.totalTokens} tokens</span>
-          <span>{pipelineSummary.totalCost}</span>
-          <span>{pipelineSummary.materialCount} 素材</span>
-          {pipelineSummary.selfHealCount > 0 && <span>{pipelineSummary.selfHealCount}× 自愈</span>}
-          {pipelineSummary.timelineStats && (
-            <span>{pipelineSummary.timelineStats.tracks}轨 {pipelineSummary.timelineStats.clips}clip {pipelineSummary.timelineStats.durationSec}s</span>
-          )}
-        </div>
-      )}
-
-      {/* W2: 建议列表（管线完成后的质检/节奏提示） */}
-      {suggestions.length > 0 && (
-        <div className="px-3 pb-2 space-y-1">
-          <p className="text-caption font-medium text-on-surface-variant">建议</p>
-          {suggestions.map((s, i) => (
-            <div key={s.id ?? i} className="flex items-start gap-1.5 text-caption text-on-surface-variant group">
-              <span className="text-primary shrink-0 mt-0.5">▸</span>
-              <span className="flex-1">{s.message}</span>
-              <button
-                onClick={() => {
-                  void navigator.clipboard?.writeText(s.message);
-                  toast('已复制建议', 'success');
-                }}
-                title="复制建议"
-                className="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 text-on-surface-variant/60 hover:text-on-surface cursor-pointer"
-              >
-                <Copy className="w-3 h-3" />
-              </button>
-              <button
-                onClick={() => removeSuggestion(s.id)}
-                title="忽略该建议"
-                className="shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 text-on-surface-variant/60 hover:text-error cursor-pointer"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* 用户 2026-10-31：当前活动/阶段汇总/MG 进度/统计/建议这一整块删掉——
+          这些信息都在时间线的事件里（stage / progress / artifact），面板上不再重复。 */}
     </div>
   );
 }
 
-function BriefCard({ brief, onConfirm, busy, onReview }: { brief: NonNullable<ReturnType<typeof useAgentStore.getState>['creativeBrief']>; onConfirm: () => void; busy: boolean; onReview?: () => void }) {
+function BriefCard({ brief, onGenUIAction, onConfirm, busy, onReview }: { brief: NonNullable<ReturnType<typeof useAgentStore.getState>['creativeBrief']>; onGenUIAction?: (event: GenUIActionEvent) => void; onConfirm: () => void; busy: boolean; onReview?: () => void }) {
   return (
-    <div className="bg-surface-container border border-primary/30 rounded-cw-md overflow-hidden text-left">
+    <div className="bg-surface-container border border-primary/30 rounded-cw-md overflow-hidden text-left" data-testid="brief-card">
       <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-primary/20">
         <FileText className="w-3.5 h-3.5 text-primary" />
         <span className="text-label font-medium text-primary">创意简报</span>
       </div>
+      {/* 展示 spec（契约来自插件；渲染前已过前端第二道闸）。
+          它**不替代**下面的字段：权威数据永远是字段本身；插件未装/被禁用时整块不渲染。
+          `scope="brief"` 让 `confirm` 动作知道要确认的是简报。 */}
+      <DisplaySpecsBlock
+        obj={brief}
+        surface="brief"
+        testId="brief-genui"
+        scope="brief"
+        onAction={onGenUIAction}
+      />
       <div className="p-3 space-y-1 text-label-sm">
-        <span className="block"><span className="text-on-surface-variant">标题：</span>{brief.title}</span>
-        <span className="block"><span className="text-on-surface-variant">概述：</span>{brief.overview}</span>
-        <span className="block"><span className="text-on-surface-variant">目标受众：</span>{brief.target_audience}</span>
-        <span className="block"><span className="text-on-surface-variant">核心信息：</span>{brief.core_message}</span>
+        {/* 落地纪律：简报表单字段全是**模型产物**，运行时形状可能不是字符串
+            （实测出现 `{"name": "..."}`，整页崩在 "Objects are not valid as a React child"）。
+            一律过 asText，结构化内容退化成 JSON 文本显示，绝不白屏。 */}
+        <span className="block"><span className="text-on-surface-variant">标题：</span>{asText(brief.title)}</span>
+        <span className="block"><span className="text-on-surface-variant">概述：</span>{asText(brief.overview)}</span>
+        <span className="block"><span className="text-on-surface-variant">目标受众：</span>{asText(brief.target_audience)}</span>
+        <span className="block"><span className="text-on-surface-variant">核心信息：</span>{asText(brief.core_message)}</span>
         {brief.style_direction && (
-          <span className="block"><span className="text-on-surface-variant">风格方向：</span>{brief.style_direction}</span>
+          <span className="block"><span className="text-on-surface-variant">风格方向：</span>{asText(brief.style_direction)}</span>
         )}
         {brief.structure_suggestion && (
-          <span className="block"><span className="text-on-surface-variant">结构建议：</span>{brief.structure_suggestion}</span>
+          <span className="block"><span className="text-on-surface-variant">结构建议：</span>{asText(brief.structure_suggestion)}</span>
         )}
-        <span className="block"><span className="text-on-surface-variant">时长预估：</span>{brief.duration_estimate}</span>
-        {brief.key_elements?.length > 0 && (
-          <span className="block"><span className="text-on-surface-variant">关键元素：</span>{brief.key_elements.join('、')}</span>
+        <span className="block"><span className="text-on-surface-variant">时长预估：</span>{asText(brief.duration_estimate)}</span>
+        {textList(brief.key_elements).length > 0 && (
+          <span className="block"><span className="text-on-surface-variant">关键元素：</span>{textList(brief.key_elements).join('、')}</span>
         )}
-        {brief.special_requirements?.length > 0 && (
-          <span className="block"><span className="text-on-surface-variant">特殊要求：</span>{brief.special_requirements.join('、')}</span>
+        {textList(brief.special_requirements).length > 0 && (
+          <span className="block"><span className="text-on-surface-variant">特殊要求：</span>{textList(brief.special_requirements).join('、')}</span>
         )}
         {brief.production_plan && (
-          <span className="block"><span className="text-on-surface-variant">制作方案：</span>{brief.production_plan}</span>
+          <span className="block"><span className="text-on-surface-variant">制作方案：</span>{asText(brief.production_plan)}</span>
         )}
         {brief.reference_style && (
-          <span className="block"><span className="text-on-surface-variant">参考风格：</span>{brief.reference_style}</span>
+          <span className="block"><span className="text-on-surface-variant">参考风格：</span>{asText(brief.reference_style)}</span>
         )}
         {brief.bgm_requirement && (
-          <span className="block"><span className="text-on-surface-variant">BGM需求：</span>{brief.bgm_requirement}</span>
+          <span className="block"><span className="text-on-surface-variant">BGM需求：</span>{asText(brief.bgm_requirement)}</span>
         )}
         {brief.era_background && (
-          <span className="block"><span className="text-on-surface-variant">年代背景：</span>{brief.era_background}</span>
+          <span className="block"><span className="text-on-surface-variant">年代背景：</span>{asText(brief.era_background)}</span>
         )}
         {brief.material_requirements && (
           <div className="mt-1 pt-1 border-t border-outline-variant/10">
-            {brief.material_requirements.type && (
-              <span className="block"><span className="text-on-surface-variant">素材类型：</span>{brief.material_requirements.type}</span>
+            {asText(brief.material_requirements.type) && (
+              <span className="block"><span className="text-on-surface-variant">素材类型：</span>{asText(brief.material_requirements.type)}</span>
             )}
-            {brief.material_requirements.source && (
-              <span className="block"><span className="text-on-surface-variant">推荐来源：</span>{brief.material_requirements.source}</span>
+            {asText(brief.material_requirements.source) && (
+              <span className="block"><span className="text-on-surface-variant">推荐来源：</span>{asText(brief.material_requirements.source)}</span>
             )}
-            {brief.material_requirements.preference && (
-              <span className="block"><span className="text-on-surface-variant">素材偏好：</span>{brief.material_requirements.preference}</span>
+            {asText(brief.material_requirements.preference) && (
+              <span className="block"><span className="text-on-surface-variant">素材偏好：</span>{asText(brief.material_requirements.preference)}</span>
             )}
           </div>
         )}
         {brief.animation_style && (
           <div className="mt-1 pt-1 border-t border-outline-variant/10">
-            {brief.animation_style.style && (
-              <span className="block"><span className="text-on-surface-variant">动画风格：</span>{brief.animation_style.style}</span>
+            {asText(brief.animation_style.style) && (
+              <span className="block"><span className="text-on-surface-variant">动画风格：</span>{asText(brief.animation_style.style)}</span>
             )}
-            {brief.animation_style.tone && (
-              <span className="block"><span className="text-on-surface-variant">色调倾向：</span>{brief.animation_style.tone}</span>
+            {asText(brief.animation_style.tone) && (
+              <span className="block"><span className="text-on-surface-variant">色调倾向：</span>{asText(brief.animation_style.tone)}</span>
             )}
           </div>
         )}
         {brief.asset_ratio && (
-          <span className="block"><span className="text-on-surface-variant">素材/动画占比：</span>实拍 {brief.asset_ratio.footage} · MG {brief.asset_ratio.mg}</span>
+          <span className="block"><span className="text-on-surface-variant">素材/动画占比：</span>实拍 {asText(brief.asset_ratio.footage)} · MG {asText(brief.asset_ratio.mg)}</span>
         )}
       </div>
       <div className="flex gap-2 px-3 pb-3">
@@ -1467,14 +2085,23 @@ function BriefCard({ brief, onConfirm, busy, onReview }: { brief: NonNullable<Re
   );
 }
 
-function PlanCard({ markdown, onConfirm, busy, onReview }: { markdown?: string; onConfirm: () => void; busy: boolean; onReview?: () => void }) {
+function PlanCard({ markdown, plan, onGenUIAction, onConfirm, busy, onReview }: { markdown?: string; plan?: unknown; onGenUIAction?: (event: GenUIActionEvent) => void; onConfirm: () => void; busy: boolean; onReview?: () => void }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="bg-surface-container border border-primary/30 rounded-cw-md overflow-hidden text-left">
+    <div className="bg-surface-container border border-primary/30 rounded-cw-md overflow-hidden text-left" data-testid="plan-card">
       <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-primary/20">
         <ListChecks className="w-3.5 h-3.5 text-primary" />
         <span className="text-label font-medium text-primary">制作规划书</span>
       </div>
+      {/* 展示 spec 概览（几段、多长、用了哪些镜头）；它不替代 markdown 正文——
+          用户确认的仍是下面这份规划书。契约缺失时整块不渲染。 */}
+      <DisplaySpecsBlock
+        obj={plan}
+        surface="plan"
+        testId="plan-genui"
+        scope="plan"
+        onAction={onGenUIAction}
+      />
       <div className="p-3">
         <div className={`${expanded ? 'max-h-[300px] overflow-y-auto' : 'max-h-24 overflow-hidden'} transition-all`}>
           <Markdown text={markdown || ''} />
@@ -1556,3 +2183,6 @@ function clipText(clip: Clip, kind: string): string {
 function demoPlanMarkdown(topic: string) {
   return `# 制作规划书：${topic || '未命名选题'}\n\n## 一、整体结构\n- 00:00-00:20  钩子\n- 00:20-01:00  背景\n- 01:00-03:30  三个核心论点\n- 03:30-04:00  总结\n\n## 二、场景列表\n1. 开场钩子\n2. 数据展示\n3. 论点一\n4. 论点二\n5. 论点三\n6. 结尾引导`;
 }
+
+
+

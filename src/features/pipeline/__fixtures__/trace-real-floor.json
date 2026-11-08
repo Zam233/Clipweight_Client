@@ -1,0 +1,98 @@
+[
+ {
+  "time": 1792329381.7517343,
+  "seq": 4,
+  "agent": "structure",
+  "type": "agent_start",
+  "summary": "Agent: structure",
+  "detail": null
+ },
+ {
+  "time": 1792329402.508268,
+  "seq": 5,
+  "agent": "structure",
+  "type": "agent_end",
+  "summary": "structure → PipelineStatus.COMPLETED (?ms)",
+  "detail": null
+ },
+ {
+  "time": 1792329402.5219123,
+  "seq": 9,
+  "agent": "material",
+  "type": "agent_start",
+  "summary": "Agent: material",
+  "detail": null
+ },
+ {
+  "time": 1792329414.6925585,
+  "seq": 11,
+  "agent": "material",
+  "type": "agent_end",
+  "summary": "material → PipelineStatus.COMPLETED (?ms)",
+  "detail": null
+ },
+ {
+  "time": 1792329414.6956615,
+  "seq": 15,
+  "agent": "edit",
+  "type": "agent_start",
+  "summary": "Agent: edit",
+  "detail": null
+ },
+ {
+  "time": 1792329414.6961017,
+  "seq": 16,
+  "agent": "edit_agent",
+  "type": "prompt_resolution",
+  "summary": "类型规范裁决：3 个参数、1 个冲突、1 个槽位",
+  "detail": {
+   "category_id": "probe_floor",
+   "stage": "edit",
+   "params": {
+    "base_shot_ms": {
+     "value": 5000,
+     "source_layer": "L1_user",
+     "overridden_by": ""
+    },
+    "min_shot_ms": {
+     "value": 1200.0,
+     "source_layer": "L2_prompt",
+     "overridden_by": "prompt"
+    },
+    "max_shot_ms": {
+     "value": 20000,
+     "source_layer": "L1_user",
+     "overridden_by": ""
+    }
+   },
+   "conflicts": [
+    {
+     "code": "C1",
+     "key": "min_shot_ms",
+     "message": "min_shot_ms 被类型规范改回 1200.0（用户给了 300）",
+     "enforce": "strict"
+    }
+   ],
+   "slots": [
+    {
+     "key": "genre",
+     "priority": 90,
+     "chars": 20,
+     "truncated": false,
+     "source": "category:probe_floor"
+    }
+   ],
+   "dropped_slots": [],
+   "traits": [],
+   "deformation": null
+  }
+ },
+ {
+  "time": 1792329440.260704,
+  "seq": 22,
+  "agent": "edit",
+  "type": "agent_end",
+  "summary": "edit → PipelineStatus.COMPLETED (?ms)",
+  "detail": null
+ }
+]

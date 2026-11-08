@@ -9,6 +9,7 @@ import {
   Loader2, PackageOpen, Tag, Trash2, RotateCcw, ChevronLeft,
 } from 'lucide-react';
 import { fmtDur, relTime } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import { toast } from '@/stores/toastStore';
 
 const GRADIENTS: [string, string][] = [
@@ -141,7 +142,7 @@ export function ProjectsPage() {
     try {
       await projectApi.trashProject(proj.id);
       setProjects((prev) => prev.filter((p) => p.id !== proj.id));
-      toast(`「${proj.name}」已移入回收站`, 'success');
+      toast(`「${asText(proj.name)}」已移入回收站`, 'success');
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       toast(`删除失败：${reason}，项目已保留`, 'error');
@@ -152,7 +153,7 @@ export function ProjectsPage() {
     try {
       await projectApi.restoreProject(proj.id);
       setTrashProjects((prev) => prev.filter((p) => p.id !== proj.id));
-      toast(`「${proj.name}」已恢复`, 'success');
+      toast(`「${asText(proj.name)}」已恢复`, 'success');
       await loadProjects();
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
@@ -161,11 +162,11 @@ export function ProjectsPage() {
   };
 
   const handlePurge = async (proj: ProjectCardData) => {
-    if (!window.confirm(`永久删除「${proj.name}」？此操作不可恢复。`)) return;
+    if (!window.confirm(`永久删除「${asText(proj.name)}」？此操作不可恢复。`)) return;
     try {
       await projectApi.purgeProject(proj.id);
       setTrashProjects((prev) => prev.filter((p) => p.id !== proj.id));
-      toast(`「${proj.name}」已永久删除`, 'success');
+      toast(`「${asText(proj.name)}」已永久删除`, 'success');
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       toast(`永久删除失败：${reason}`, 'error');
@@ -219,7 +220,7 @@ export function ProjectsPage() {
   const handleArchive = async (proj: ProjectCardData) => {
     try {
       await projectApi.archive(proj.id, proj.name);
-      toast(`已导出归档「${proj.name}」`, 'success');
+      toast(`已导出归档「${asText(proj.name)}」`, 'success');
     } catch {
       toast('导出归档失败（后端离线）', 'error');
     }
@@ -406,7 +407,7 @@ export function ProjectsPage() {
                       <div className="w-14 h-9 rounded-cw-sm shrink-0 overflow-hidden"
                         style={{ background: `linear-gradient(120deg, ${proj.grad[0]}55, ${proj.grad[1]}44)` }} />
                       <div className="flex-1 min-w-0">
-                        <p className="text-body-sm font-medium text-on-surface truncate">{proj.name}</p>
+                        <p className="text-body-sm font-medium text-on-surface truncate">{asText(proj.name)}</p>
                         <p className="text-caption text-on-surface-variant font-mono">{proj.edited} · {proj.tracks} 轨</p>
                       </div>
                       <button onClick={() => handleRestore(proj)} title="恢复"

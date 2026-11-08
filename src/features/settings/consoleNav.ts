@@ -40,4 +40,5 @@ export const CONSOLE_NAV: readonly ConsoleNavItem[] = [
   { to: '/settings/fonts', label: '字体配置', icon: Type, code: 'FONT', desc: '可用字体 · 默认字体 · 缓存' },
   { to: '/settings/mg-preview', label: 'MG 预览', icon: Sparkles, code: 'MG', desc: 'MG 动画定义与渲染预览' },
   { to: '/pipeline-admin', label: '管线监控', icon: Activity, code: 'PIPE', desc: '运行记录 · Agent 轨迹 · SSE 实时' },
+  { to: '/settings/supervisor', label: '调度中枢', icon: Sparkles, code: 'SUPV', desc: '模式开关 · 模型路由表 · 跨 provider 白名单' },
 ];

@@ -56,9 +56,12 @@ export function textLayout(
   },
 ): TextLayout {
   const byTrack: Record<number, string> = { 1: 'bottom', 2: 'top', 3: 'center' };
-  const pos = (opts.position
-    ?? byTrack[opts.trackIndex]
-    ?? 'bottom').toLowerCase();
+  // 字幕永远底锚：后端 ASS 导出对 caption 一直是底部对齐（design.py），
+  // 拿它所在轨道的 index 去套 {2: top, 3: center} 会把字幕画到画面顶部/中间，
+  // 预览与成片不一致（E2E「D1 字幕在视频帧之上可见」抓的就是这个）。
+  // 只有普通文字才走轨序回退。
+  const fallbackPos = opts.isCaption ? 'bottom' : (byTrack[opts.trackIndex] ?? 'bottom');
+  const pos = (opts.position ?? fallbackPos).toLowerCase();
   const offsetY = opts.isCaption ? 0 : Math.min(opts.stackIndex * 35, 500);
   const m = 20;
   const mid = opts.fontSize / 2;

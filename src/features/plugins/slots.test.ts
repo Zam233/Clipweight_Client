@@ -12,8 +12,11 @@ import {
 } from './slots';
 
 describe('slots 契约 (D-0)', () => {
-  it('名单冻结：13 个 slot 且 isSlotName 精确校验', () => {
-    expect(SLOT_NAMES).toHaveLength(13);
+  it('名单冻结：15 个 slot（2026-11-02 新增 create.dub） 且 isSlotName 精确校验', () => {
+    // 13 → 14：新增 `app.overlay`（用户 2026-10-29）——插件声明式全局浮层，
+    // 让「缺失依赖 → 前端提示 → 一键安装」由插件贡献表达，而不是写死在 App.tsx。
+    expect(SLOT_NAMES).toHaveLength(15);
+    expect(isSlotName('app.overlay')).toBe(true);
     expect(isSlotName('editor.right-panel')).toBe(true);
     expect(isSlotName('editor.middle-panel')).toBe(false);
     expect(isSlotName(42)).toBe(false);

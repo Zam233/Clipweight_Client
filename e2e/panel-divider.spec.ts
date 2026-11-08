@@ -121,11 +121,14 @@ test.describe('面板分割条拖拽 (panel divider drag)', () => {
   });
 
   test('B18: Agent 面板分割条可拖拽调整宽度', async ({ page }) => {
-    // Agent panel is the rightmost panel; its divider is the LAST .panel-divider
-    // in DOM order, and the agent panel div is its following sibling.
+    // 不假设"最后一个 .panel-divider 就是 Agent 的"——插件贡献的下栏也会插入
+    // divider，DOM 顺序一变 `.last()` 就指错元素。改为按**紧随其后的兄弟 div
+    // 里含 Agent 面板文案**来定位这条分割条。
     const errors = collectPageErrors(page);
-    const dividers = page.locator('.panel-divider');
-    const divider = dividers.last();
+    const divider = page.locator(
+      'xpath=//div[contains(@class,"panel-divider")]'
+      + '[following-sibling::div[1][.//*[contains(normalize-space(.),"需求对话")]]]',
+    ).first();
     await expect(divider).toBeVisible();
 
     const panel = divider.locator('xpath=following-sibling::div[1]');
@@ -137,8 +140,15 @@ test.describe('面板分割条拖拽 (panel divider drag)', () => {
     };
 
     const before = await readAgentWidth();
-    const startX = 1400;
-    const startY = 200;
+    // Agent 面板贴在窗口右侧，其分割条左移才加宽 → EditorLayout::applyDrag 对
+    // agent 用 `w - dx`（见"向右拖面板应收窄"注释）。所以向右拖 DRAG_DX 后宽度
+    // 应为 before - DRAG_DX，而不是 before + DRAG_DX。
+    const expectedWidth = before - DRAG_DX;
+    // 用分割条自己的位置当拖拽起点，不再写死坐标（视口/面板宽度一变就失效）
+    const box = await divider.boundingBox();
+    if (!box) throw new Error('agent divider has no bounding box');
+    const startX = box.x + box.width / 2;
+    const startY = box.y + 20;
 
     await divider.dispatchEvent('pointerdown', {
       pointerId: 1, pointerType: 'mouse', isPrimary: true, buttons: 1,
@@ -153,7 +163,7 @@ test.describe('面板分割条拖拽 (panel divider drag)', () => {
       clientX: startX + DRAG_DX, clientY: startY,
     });
 
-    await expect.poll(() => readAgentWidth()).toBe(before + DRAG_DX);
+    await expect.poll(() => readAgentWidth()).toBe(expectedWidth);
     expect(errors).toEqual([]);
   });
 });

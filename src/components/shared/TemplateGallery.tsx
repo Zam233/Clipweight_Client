@@ -4,6 +4,7 @@ import type { Timeline } from '@/types/timeline';
 import { Button, Badge } from '@/components/ui';
 import { LayoutTemplate, X, Play, Layers, Clock, Loader2 } from 'lucide-react';
 import { toast } from '@/stores/toastStore';
+import { asText } from '@/lib/render';
 
 interface TemplateCard {
   id: string;
@@ -123,7 +124,7 @@ export function TemplateGallery({ open, onClose, onApplyProject }: {
                       <div className="flex flex-wrap gap-1.5 mt-2">
                         {t.tags.map((tag) => (
                           <span key={tag} className="font-mono text-caption px-2 py-0.5 rounded-cw-xs bg-primary/10 text-primary border border-primary/30">
-                            {tag}
+                            {asText(tag)}
                           </span>
                         ))}
                       </div>

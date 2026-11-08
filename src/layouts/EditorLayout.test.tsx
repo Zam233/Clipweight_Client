@@ -35,7 +35,12 @@ vi.mock('@/features/assets/AssetPanel', () => ({ AssetPanel: () => <div>assets</
 vi.mock('@/features/preview/PreviewPanel', () => ({ PreviewPanel: () => <div>preview</div> }));
 vi.mock('@/features/timeline/components/TimelinePanel', () => ({ TimelinePanel: () => <div>timeline</div> }));
 vi.mock('@/features/properties/PropertiesPanel', () => ({ PropertiesPanel: () => <div>properties</div> }));
-vi.mock('@/features/agent/AgentPanel', () => ({ AgentPanel: () => <div>agent</div> }));
+vi.mock('@/features/agent/AgentPanel', () => ({
+  AgentPanel: () => <div>agent</div>,
+  // B1：Dock 现在直接渲染 RequirementsPane / LogPanel（AgentPanel 只留兼容壳）
+  RequirementsPane: () => <div>agent</div>,
+  LogPanel: () => <div>logs</div>,
+}));
 vi.mock('@/features/timeline/components/EditorToolbar', () => ({ EditorToolbar: () => <div>toolbar</div> }));
 vi.mock('@/features/agent/ReviewPanel', () => ({ ReviewPanel: () => <div>review</div> }));
 

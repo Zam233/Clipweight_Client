@@ -17,6 +17,14 @@ interface SettingsState {
   showFramesInRuler: boolean;
   /** O6: 预览性能诊断面板（每帧耗时/缓存命中率） */
   showPerfPanel: boolean;
+  /**
+   * 连续播放（devplan M1 回滚开关；**本键是新增项，不是历史开关**）。
+   *
+   * 开 = 新路径：视频元素连续解码 + 播放中不逐帧 seek + 解码池限流（≤2 路）；
+   * 关 = 旧路径：每帧 seek 取帧（会看到「一帧一帧」，作为 A/B 与回滚手段）。
+   * 现按 PRD W1.1 改为**默认开启**（缺省 true）；用户显式存过 false 则尊重其选择。
+   */
+  previewContinuousPlayback: boolean;
   defaultFps: number;
   defaultResolution: { width: number; height: number };
   /** 轮 89：后端离线时是否回退演示假数据（生产默认关；仅本地体验可开） */
@@ -35,6 +43,7 @@ interface SettingsState {
   setCheatSheetOpen: (open: boolean) => void;
   setShowFramesInRuler: (v: boolean) => void;
   setShowPerfPanel: (v: boolean) => void;
+  setPreviewContinuousPlayback: (v: boolean) => void;
   setDefaultFps: (fps: number) => void;
   setDefaultResolution: (res: { width: number; height: number }) => void;
   setAllowDemoFallback: (v: boolean) => void;
@@ -57,6 +66,17 @@ function loadEditorPrefs() {
     snapGridSec: num(raw.snapGridSec, 1, 0.05, 60),
     showFramesInRuler: typeof raw.showFramesInRuler === 'boolean' ? raw.showFramesInRuler : false,
     showPerfPanel: typeof raw.showPerfPanel === 'boolean' ? raw.showPerfPanel : false,
+    /**
+     * 连续播放（devplan M1 · PRD W1.1/W1.2）。
+     *
+     * 默认值 = `true`（新路径：连续解码 + 解码池）。**只改变"从没存过这个偏好"的行为**：
+     * 用户显式存过 `false` 就尊重他——覆盖显式偏好会让升级后资源占用突变，
+     * 而他当初关掉它一定是有原因的（老机器/远程桌面）。
+     * 验收期仍保留设置项做 A/B，达标后再另开变更移除开关。
+     */
+    previewContinuousPlayback: typeof raw.previewContinuousPlayback === 'boolean'
+      ? raw.previewContinuousPlayback
+      : true,
     theme:
       raw.theme === 'light' ? ('light' as const)
       : raw.theme === 'dark' ? ('dark' as const)
@@ -110,6 +130,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   showFramesInRuler: prefs.showFramesInRuler,
   // O6: 性能诊断默认关（面向排障，不是日常 UI）
   showPerfPanel: prefs.showPerfPanel,
+  previewContinuousPlayback: prefs.previewContinuousPlayback,
   defaultFps: typeof rawFps === 'number' && rawFps > 0 ? rawFps : 30,
   defaultResolution: {
     width: typeof rawRes?.width === 'number' ? rawRes.width : 1920,
@@ -138,6 +159,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   setCheatSheetOpen: (open) => set({ cheatSheetOpen: open }),
   setShowFramesInRuler: (v) => { set({ showFramesInRuler: v }); persistEditorPrefs(); },
   setShowPerfPanel: (v) => { set({ showPerfPanel: v }); persistEditorPrefs(); },
+  setPreviewContinuousPlayback: (v) => { set({ previewContinuousPlayback: v }); persistEditorPrefs(); },
   setDefaultFps: (fps) => { set({ defaultFps: fps }); persistEditorPrefs(); },
   setDefaultResolution: (res) => { set({ defaultResolution: res }); persistEditorPrefs(); },
   setAllowDemoFallback: (v) => { set({ allowDemoFallback: v }); persistEditorPrefs(); },
@@ -152,6 +174,8 @@ function persistEditorPrefs() {
     snapGridSec: s.snapGridSec,
     showFramesInRuler: s.showFramesInRuler,
     showPerfPanel: s.showPerfPanel,
+    // devplan M1：连续播放开关（默认关；人工验收后由用户开启）
+    previewContinuousPlayback: s.previewContinuousPlayback,
     theme: s.theme,
     allowDemoFallback: s.allowDemoFallback,
     // P2-02: 默认帧率/分辨率/自动保存持久化（原死设置）
@@ -175,3 +199,5 @@ if (typeof document !== 'undefined') {
   document.documentElement.classList.toggle('dark', prefs.theme === 'dark');
   document.documentElement.classList.toggle('light', prefs.theme === 'light');
 }
+
+

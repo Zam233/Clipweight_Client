@@ -1,6 +1,26 @@
 import { getApiClient } from './client';
 import { apiBase } from './sse';
+import { asText, textList } from '@/lib/render';
 import type { Project, ProjectSummary, ProjectSaveRequest, HealthResponse, AnimationDef } from '@/types/api';
+
+/**
+ * 项目摘要出站收口（2026-10-31）。
+ *
+ * 实测库里存在 `"name": {"name": "guard-smoke"}` 这类记录（早期脚本直接写盘留下），
+ * 前端 `{proj.name}` 把它当子节点 → 整页崩在
+ * `Objects are not valid as a React child (found: object with keys {name})`。
+ * 后端读接口也已收口，这里再兜一层：即便旧版后端/插件/缓存给出脏数据，
+ * 也保证前端拿到的 `name`/`folder` 是字符串、`tags` 是字符串数组。
+ */
+function normalizeProjectSummary(p: ProjectSummary): ProjectSummary {
+  if (!p || typeof p !== 'object') return p;
+  return {
+    ...p,
+    name: asText((p as { name?: unknown }).name),
+    folder: asText((p as { folder?: unknown }).folder),
+    tags: textList((p as { tags?: unknown }).tags),
+  } as ProjectSummary;
+}
 
 /** 插件 UI 定义（兼容新旧两种响应形态，见 getUI 注释）。 */
 export interface PluginUIDefinition {
@@ -42,6 +62,23 @@ export interface PluginHealthResponse {
   };
 }
 
+/** 提示词符号的一条（常量或 builder）。字段与后端 `/api/plugin/prompt-symbols` 对齐。 */
+export interface PluginPromptSymbol {
+  name: string;
+  /** 常量才有：默认值长度（不返回正文） */
+  chars?: number;
+  /** builder 才有：默认实现的签名 */
+  signature?: string;
+  /** 是否已被消费方在运行时解析（false = 覆盖了也不生效） */
+  wired: boolean;
+  override?: { plugin_id: string; kind: string; source: string } | null;
+}
+
+export interface PluginPromptSymbolsResponse {
+  constants: PluginPromptSymbol[];
+  builders: PluginPromptSymbol[];
+  errors?: Array<{ plugin_id?: string; problem?: string }>;
+}
 export interface PluginContributionItem {
   kind: string;
   id: string;
@@ -77,6 +114,14 @@ export const projectApi = {
   /** Load a project by id */
   async load(projectId: string) {
     const { data } = await getApiClient().get<Project>(`/api/project/${projectId}`);
+    if (data && typeof data === 'object') {
+      return {
+        ...data,
+        name: asText((data as { name?: unknown }).name),
+        folder: asText((data as { folder?: unknown }).folder),
+        tags: textList((data as { tags?: unknown }).tags),
+      } as Project;
+    }
     return data;
   },
 
@@ -87,7 +132,7 @@ export const projectApi = {
     if (tag) params.tag = tag;
     if (trash) params.trash = '1'; // A2: 回收站视图
     const { data } = await getApiClient().get<ProjectSummary[]>('/api/project', { params });
-    return data;
+    return (data ?? []).map(normalizeProjectSummary);
   },
 
   /** A2: 移入回收站（软删除，可恢复） */
@@ -298,6 +343,16 @@ export const pluginApi = {
   },
 
   /** A-6/D-1: 已注册贡献（可按 kind / slot / owner 过滤）——「谁提供了这个工具/页面」的溯源。 */
+  /**
+   * 提示词符号清单与当前来源（B5-T7）。
+   *
+   * `wired=false` 表示该符号**尚未被任何消费方在运行时解析**——覆盖了也不会生效，
+   * UI 必须如实显示，避免「以为改了」。
+   */
+  async promptSymbols() {
+    const { data } = await getApiClient().get('/api/plugin/prompt-symbols');
+    return data as PluginPromptSymbolsResponse;
+  },
   async contributions(params: { kind?: string; slot?: string; owner?: string } = {}) {
     const qs = new URLSearchParams();
     if (params.kind) qs.set('kind', params.kind);
@@ -455,3 +510,4 @@ export const skillApi = {
     return data;
   },
 };
+

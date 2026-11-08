@@ -8,6 +8,7 @@ const { mocks } = vi.hoisted(() => ({
     get: vi.fn(),
     update: vi.fn(),
     reset: vi.fn(),
+    getBackends: vi.fn(),
   },
 }));
 
@@ -17,6 +18,8 @@ vi.mock('@/services/api', () => ({
     update: mocks.update,
     reset: mocks.reset,
   },
+  // PRD B8：本页现在内嵌渲染后端区块；默认给成功响应，避免它自己的"重试"干扰本页用例
+  renderApi: { getBackends: mocks.getBackends, cleanupArtifacts: vi.fn() },
   healthApi: { check: vi.fn(async () => ({ status: 'ok' })) },
 }));
 
@@ -59,6 +62,10 @@ describe('BackendConfigPage', () => {
       ok: true, applied: [], cleared: [], requires_restart: [], warnings: [],
     });
     mocks.reset.mockResolvedValue({ ok: true, applied: [], cleared: [], requires_restart: [], warnings: [] });
+    mocks.getBackends.mockResolvedValue({
+      backends: [{ name: 'local', available: true }],
+      requested: 'local', effective: 'local', remote_render_url: false,
+    });
   });
 
   it('加载后渲染分组与字段', async () => {

@@ -11,20 +11,32 @@ import {
   Mic, Plus, Trash2, Loader2, Upload, X, Play, AudioLines, Check,
 } from 'lucide-react';
 
-/** 内置显示元数据（颜色/短名）；未知 provider（插件注册）走兜底样式 —— P4 */
+/** 内置显示元数据（颜色/短名）：仅作**兜底**，label 以插件 `provider_meta.name` 为准 */
 const PROVIDER_PRESENTATION: Record<string, { label: string; color: string }> = {
   'qwen-tts': { label: 'Qwen TTS', color: '#4F8CFF' },
   cosyvoice: { label: 'CosyVoice', color: '#A855F7' },
   minimax: { label: 'MiniMax', color: '#F97316' },
+  elevenlabs: { label: 'ElevenLabs', color: '#10B981' },
+  azure: { label: 'Azure Speech', color: '#0EA5E9' },
 };
 const FALLBACK_PRESENTATION = { label: '', color: '#4F8CFF' };
 
+interface TtsProviderOption {
+  id: string;
+  label: string;
+  color: string;
+  /** undefined = 后端未声明该能力位（不显示提示，不猜） */
+  needsUploader?: boolean;
+}
+
 /**
- * P4：provider 选项来自门面（`/api/providers/available`，含插件注册的 TTS provider），
- * 不再硬编码三项；显示名/颜色仍由内置表补全，未知 provider 用 id 兜底显示。
+ * P4：provider 选项来自门面（`/api/providers/available`，含插件注册的 TTS provider）。
+ * B7/B8 后 provider 实现归插件：显示名与能力位（needs_uploader）也由后端 `provider_meta`
+ * 下发，前端不再按厂商名硬编码 label/提示。
  */
-function useTtsProviders(): Array<{ id: string; label: string; color: string }> {
+function useTtsProviders(): TtsProviderOption[] {
   const [ids, setIds] = useState<string[]>(['qwen-tts', 'cosyvoice', 'minimax']);
+  const [meta, setMeta] = useState<Record<string, { name?: string; needs_uploader?: boolean }>>({});
   useEffect(() => {
     let alive = true;
     providersApi.available()
@@ -32,13 +44,20 @@ function useTtsProviders(): Array<{ id: string; label: string; color: string }> 
         if (!alive) return;
         const list = Array.isArray(avail.tts_provider) ? avail.tts_provider : [];
         if (list.length) setIds(list);
+        setMeta(avail.provider_meta?.tts_provider ?? {});
       })
       .catch(() => { /* 后端离线：保留内置兜底 */ });
     return () => { alive = false; };
   }, []);
   return ids.map((id) => {
+    const m = meta[id] ?? {};
     const pres = PROVIDER_PRESENTATION[id] ?? FALLBACK_PRESENTATION;
-    return { id, label: pres.label || id, color: pres.color };
+    return {
+      id,
+      label: m.name || pres.label || id,
+      color: pres.color,
+      needsUploader: m.needs_uploader,
+    };
   });
 }
 
@@ -392,11 +411,17 @@ function CloneDialog({ onClose }: { onClose: () => void }) {
               </button>
             ))}
           </div>
-          {provider !== 'qwen_tts' && (
-            <p className="text-caption text-on-surface-variant mt-1.5">
-              {provider === 'minimax' ? '需要公网 URL + 试听文案，后端自动处理上传' : '需要公网 URL，后端自动处理上传'}
-            </p>
-          )}
+          {(() => {
+            const selected = providers.find((p) => p.id === provider);
+            if (!selected || selected.needsUploader === undefined) return null;
+            return (
+              <p className="text-caption text-on-surface-variant mt-1.5">
+                {selected.needsUploader
+                  ? '需要公网 URL，后端自动处理上传'
+                  : '直接按文本合成，无需上传参考音频'}
+              </p>
+            );
+          })()}
           {/* C2：说明与「模型提供商 → 语音 TTS」角色绑定的关系 */}
           <p className="text-caption text-on-surface-variant/70 mt-1">
             若已在「设置 → 模型提供商 → 语音 TTS」绑定源，源的凭据（密钥/代理/超时）优先于此处选择。

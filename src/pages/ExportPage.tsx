@@ -6,11 +6,14 @@ import { useProjectStore } from '@/stores/projectStore';
 import { renderApi, projectApi, assetApi, toolApi } from '@/services/api';
 import { connectSseStream, type SseStreamHandle } from '@/services/api/sseStream';
 import { toast } from '@/stores/toastStore';
-import { createEmptyTimeline } from '@/types/timeline';
+import { createEmptyTimeline, type Timeline } from '@/types/timeline';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge } from '@/components/ui';
 import { uid, formatTimecode } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import { resolveContainerExt, type ExportPresetDef } from './exportPreset';
+import { clampPreroll, prerollPayload } from '@/services/api/preroll';
+import { fingerprintLabel, timelineChanged, timelineFingerprint } from './exportSnapshot';
 import type { ExportSettings, RenderProgress } from '@/types/api';
 import {
   Download, Clapperboard, Gauge, Cpu, Film, Loader2, CheckCircle2,
@@ -26,7 +29,12 @@ const PRESETS: Record<string, PresetDef> = {
   youtube: { name: 'YouTube 1080p', width: 1920, height: 1080, fps: 30, bitrate: '8M', icon: '▶️' },
   tiktok: { name: '抖音竖屏', width: 1080, height: 1920, fps: 30, bitrate: '4M', icon: '📱' },
   weibo: { name: '微博竖屏', width: 720, height: 1280, fps: 24, bitrate: '3M', icon: '🌐' },
-  custom: { name: '自定义', width: 1920, height: 1080, fps: 30, bitrate: '5M', icon: '⚙️' },
+  // 质量档（后端把 cq/crf 语法翻译成恒定质量编码，体积约为固定码率的一半）
+  '1080p': { name: '标准 1080p（CQ26 推荐）', width: 1920, height: 1080, fps: 30, bitrate: 'cq26', icon: '✨' },
+  web_cq26: { name: '网页交付（CQ26 小体积）', width: 1920, height: 1080, fps: 30, bitrate: 'cq26', icon: '🌐' },
+  master_cq18: { name: '高质量母版（CQ18）', width: 1920, height: 1080, fps: 30, bitrate: 'cq18', icon: '🎞️' },
+  web_cq30: { name: '极限压缩（CQ30 预览）', width: 1920, height: 1080, fps: 30, bitrate: 'cq30', icon: '📉' },
+  custom: { name: '自定义', width: 1920, height: 1080, fps: 30, bitrate: 'cq26', icon: '⚙️' },
   // 批C：以下预设仅存在于后端（_EXPORT_PRESETS），提交时携带 preset 名由后端解析
   prores422hq: { name: 'ProRes 422 HQ（母带 .mov）', width: 1920, height: 1080, fps: 30, bitrate: '12M', icon: '🎬' },
   h265_10bit: { name: 'H.265 10bit', width: 1920, height: 1080, fps: 30, bitrate: '12M', icon: '🧊' },
@@ -47,6 +55,9 @@ interface QueueItem extends RenderProgress {
   /** 重试所需的原始提交参数（U14） */
   retrySettings?: ExportSettings;
   retryFilename?: string;
+  /** 提交时的时间线快照 + 指纹：重试跑快照（可比较），不是跑"现在的"时间线 */
+  retryTimeline?: Timeline;
+  retryFingerprint?: string;
 }
 
 /**
@@ -79,13 +90,47 @@ export function ExportPage() {
     return () => { alive = false; };
   }, [projectId]);
 
-  const [presetId, setPresetId] = useState('bilibili');
+  // 无头浏览器状态（chrome-headless-shell）：未装时提示并支持一键安装
+  const [browserState, setBrowserState] = useState<{
+    installed: boolean;
+    installing: boolean;
+    message: string;
+  }>({ installed: true, installing: false, message: '' });
+
+  // 用户 2026-10-28：默认恒定质量 CQ26（体积约固定码率的一半，画质无差）
+  const [presetId, setPresetId] = useState('1080p');
   const [settings, setSettings] = useState<ExportSettings>({
-    preset: 'bilibili', width: 1920, height: 1080, fps: 30, bitrate: '6M',
+    preset: '1080p', width: 1920, height: 1080, fps: 30, bitrate: 'cq26',
   });
   // W11: BGM 素材源 — 从素材库选音频作为背景音乐
   const [bgmPath, setBgmPath] = useState('');
+  // V32: 负时间片头（0 = 无片头）；后端上限 15s
+  const [prerollSec, setPrerollSec] = useState(0);
   const [audioAssets, setAudioAssets] = useState<{ id: string; name: string; path: string }[]>([]);
+  // 无头浏览器探测 + 安装进度轮询（装了就不用管）
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const st = await renderApi.getBrowser();
+        if (!alive) return;
+        setBrowserState({
+          installed: st.headless_shell.installed,
+          installing: st.headless_shell.installing,
+          message: st.headless_shell.last_result?.message ?? '',
+        });
+      } catch {
+        if (alive) setBrowserState((s) => ({ ...s, installed: true }));
+      }
+    };
+    void tick();
+    const timer = window.setInterval(tick, 4000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
   useEffect(() => {
     let alive = true;
     assetApi.list(useProjectStore.getState().projectId ?? undefined)
@@ -127,34 +172,41 @@ export function ExportPage() {
       .finally(() => setLoadingPresets(false));
   }, []);
 
-  // 刷新后从后端恢复在途渲染任务并重新挂接进度流
+  // 刷新后从后端恢复渲染任务并重新挂接进度流。
+  // 除了在跑的任务，**刚完成的**也要带回来：终态记录 60s 后会被后端清理，
+  // 刷新一次就再也点不到「下载」（E2E 2026-10-29 实测：渲染完成即失联）。
   useEffect(() => {
     let alive = true;
     renderApi.listQueue()
       .then((tasks) => {
         if (!alive) return;
-        const active = tasks.filter((t) => t.status === 'queued' || t.status === 'rendering');
-        if (active.length === 0) return;
+        const live = tasks.filter((t) => t.status === 'queued' || t.status === 'rendering');
+        const finished = tasks.filter((t) => t.status === 'completed');
+        if (live.length === 0 && finished.length === 0) return;
         setQueue((q) => {
           const known = new Set(q.map((it) => it.task_id));
-          const restored: QueueItem[] = active
+          const restored: QueueItem[] = [...finished, ...live]
             .filter((t) => !known.has(t.task_id))
             .map((t) => {
               // U18: 尽量从后端任务的文件名恢复原始项目名与预设信息
               const parsed = parseRestoredTask(t);
+              const done = t.status === 'completed';
               return {
                 task_id: t.task_id,
                 status: t.status,
-                progress: t.progress ?? 0,
+                progress: t.progress ?? (done ? 100 : 0),
                 label: parsed.label,
                 presetName: parsed.presetName,
                 startedAt: new Date().toLocaleTimeString(),
                 filename: parsed.filename,
+                ...(done && (t as { output_path?: string }).output_path
+                  ? { output_path: (t as { output_path?: string }).output_path }
+                  : {}),
               };
             });
           return [...restored, ...q];
         });
-        active.forEach((t) => openSSE(t.task_id));
+        live.forEach((t) => openSSE(t.task_id));
       })
       .catch(() => { /* offline：跳过恢复 */ });
     return () => { alive = false; };
@@ -222,21 +274,27 @@ export function ExportPage() {
     const ext = resolveContainerExt(presetId, presetDef);
     const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
     const filename = `${safeName}_${settings.width}x${settings.height}_${stamp}.${ext}`;
+    // 提交时冻结时间线：重试要跑"当时提交的那份"，否则改完时间线再点重试
+    // 会让人以为在重试，其实跑的是新内容（旧实现就是这么干的）
+    const snapshot = useTimelineStore.getState().exportTimeline();
     const item: QueueItem = {
       task_id: taskId, status: 'pending', progress: 0,
       label: projectName, presetName: presetDef?.name ?? '自定义',
       startedAt: new Date().toLocaleTimeString(), filename,
       retrySettings: { ...settings }, retryFilename: filename,
+      retryTimeline: snapshot, retryFingerprint: timelineFingerprint(snapshot),
     };
     setQueue((q) => [item, ...q]);
 
     try {
       const res = await renderApi.submitQueue({
-        timeline: useTimelineStore.getState().exportTimeline(),
+        timeline: snapshot,
         output_path: `renders/${filename}`,
         settings,
         // W11: BGM 素材源（用户从素材库选择；无则后端走无 BGM 路径）
         ...(bgmPath ? { bgm_file_path: bgmPath } : {}),
+        // V32: 负时间片头（0 不传，保持后端默认）
+        ...prerollPayload(prerollSec),
       });
       // 后端返回真实 task_id（render_N_ts）；替换本地占位 ID 后再挂接进度流
       const realId = res.task_id ?? taskId;
@@ -273,14 +331,30 @@ export function ExportPage() {
     }
   };
 
-  // U14: 使用原始提交参数重新提交渲染任务
-  const retryRender = async (taskId: string) => {
+  /**
+   * U14 / PRD §20：重试拆成两条路。
+   *
+   * - `snapshot`：用提交时冻结的时间线重跑（真正意义上的"重试"，结果可比较）；
+   * - `current`：时间线已被改过，跑当前版本——这不是重试，是重新提交，按钮文案要说清。
+   */
+  const retryRender = async (taskId: string, mode: 'snapshot' | 'current' = 'snapshot') => {
     const item = queue.find((it) => it.task_id === taskId);
     if (!item?.retrySettings || !item.retryFilename) return;
+    const live = useTimelineStore.getState().exportTimeline();
+    const snapshot = item.retryTimeline;
+    let timelineToRun: Timeline;
+    if (mode === 'current') {
+      timelineToRun = live;
+    } else if (snapshot) {
+      timelineToRun = snapshot;
+    } else {
+      // 老队列项没有快照：如实按当前时间线跑，但文案已经标明是"当前时间线"
+      timelineToRun = live;
+    }
     updateQueue(taskId, { status: 'pending', progress: 0, detail: undefined, phase: undefined, simulated: undefined });
     try {
       const res = await renderApi.submitQueue({
-        timeline: useTimelineStore.getState().exportTimeline(),
+        timeline: timelineToRun,
         output_path: `renders/${item.retryFilename}`,
         settings: item.retrySettings,
       });
@@ -407,6 +481,36 @@ export function ExportPage() {
         <ArrowLeft className="w-3.5 h-3.5" /> 返回编辑器
       </button>
 
+      {/* 无头浏览器提示（用户 2026-10-28）：未装 chrome-headless-shell 时提示下载并安装 */}
+      {!browserState.installed && (
+        <div className="mb-5 max-w-[1100px] rounded-cw-md border border-warning/40 bg-warning-container/30 px-4 py-3 flex flex-wrap items-center gap-3">
+          <Download className="w-4 h-4 text-warning shrink-0" />
+          <div className="min-w-0 flex-1 text-body-sm text-on-surface">
+            <p className="font-medium">建议安装 chrome-headless-shell（无头动画渲染器）</p>
+            <p className="text-caption text-on-surface-variant mt-0.5">
+              {browserState.installing
+                ? '正在下载安装（约 100–200MB），完成后动画渲染将自动改用它'
+                : browserState.message
+                  || '未安装时仍可出片：动画走系统 Chrome 的无头 + CPU 软件渲染，但每次渲染都要冷启动浏览器、速度更慢。'}
+            </p>
+          </div>
+          <button
+            onClick={async () => {
+              setBrowserState((s) => ({ ...s, installing: true }));
+              try {
+                await renderApi.installBrowser();
+              } catch {
+                setBrowserState((s) => ({ ...s, installing: false, message: '安装启动失败，请查看后端日志' }));
+              }
+            }}
+            disabled={browserState.installing}
+            className="rounded-cw-xs bg-primary text-on-primary px-3 py-1.5 text-label-sm font-medium disabled:opacity-50"
+          >
+            {browserState.installing ? '安装中…' : '下载并安装'}
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-12 gap-6 max-w-[1100px]">
         {/* ── Settings console ── */}
         <div className="col-span-12 lg:col-span-5 space-y-5">
@@ -502,14 +606,25 @@ export function ExportPage() {
               <NumField label="高度" value={settings.height} onChange={(v) => setSettings({ ...settings, height: v })} min={240} max={4320} step={2} />
               <NumField label="帧率" value={settings.fps} onChange={(v) => setSettings({ ...settings, fps: v })} min={1} max={120} step={0.01} />
               <div>
-                <label className="block text-label text-on-surface-variant mb-1">码率</label>
-                <select
+                <label className="block text-label text-on-surface-variant mb-1">
+                  码率 / 质量
+                </label>
+                <input
+                  list="cw-bitrate-options"
                   value={settings.bitrate}
                   onChange={(e) => setSettings({ ...settings, bitrate: e.target.value })}
-                  className="w-full bg-surface rounded-cw-xs px-2 py-1.5 text-body-sm font-mono text-on-surface outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
-                >
-                  {['2M', '3M', '5M', '6M', '8M', '12M', '20M'].map((b) => <option key={b}>{b}</option>)}
-                </select>
+                  placeholder="cq26"
+                  title="恒定质量写 cq18~cq30（推荐 cq26）；固定码率写 3M / 5M / 8M"
+                  className="w-full bg-surface rounded-cw-xs px-2 py-1.5 text-body-sm font-mono text-on-surface outline-none border border-outline-variant/30 focus:border-primary"
+                />
+                <datalist id="cw-bitrate-options">
+                  {['cq18', 'cq26', 'cq30', '2M', '3M', '5M', '8M', '12M'].map((b) => (
+                    <option key={b} value={b} />
+                  ))}
+                </datalist>
+                <p className="mt-1 text-label-sm text-on-surface-variant/70">
+                  cq26 = 恒定质量（推荐，体积小）；3M/5M = 固定码率
+                </p>
               </div>
             </div>
             <div className="flex items-center justify-between pt-1 border-t border-outline-variant/20">
@@ -535,6 +650,27 @@ export function ExportPage() {
               {audioAssets.length === 0 && (
                 <p className="text-caption text-on-surface-variant/60 mt-1">素材库暂无音频（上传音频素材后可选用作 BGM）</p>
               )}
+            </div>
+
+            {/* V32: 负时间片头——画面先起、音乐后进；成片总长 = 原时长 + 片头 */}
+            <div className="pt-2 border-t border-outline-variant/20">
+              <label className="block text-label text-on-surface-variant mb-1">
+                片头（秒）
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={15}
+                step={0.5}
+                value={prerollSec}
+                onChange={(e) => setPrerollSec(clampPreroll(e.target.value))}
+                className="w-full bg-surface rounded-cw-xs px-2 py-1.5 text-body-sm text-on-surface outline-none border border-outline-variant/30 focus:border-primary"
+              />
+              <p className="text-caption text-on-surface-variant/60 mt-1">
+                {prerollSec > 0
+                  ? `画面先起 ${prerollSec}s，音乐延后同样时长（成片约 +${prerollSec}s）`
+                  : '0 = 无片头，音画同起'}
+              </p>
             </div>
           </div>
 
@@ -563,10 +699,15 @@ export function ExportPage() {
           ) : (
             <div className="space-y-2.5">
               {queue.map((item) => (
-                <QueueCard key={item.task_id} item={item} onRetry={() => retryRender(item.task_id)}
-                    onCancel={() => renderApi.cancel(item.task_id)
-                      .then(() => updateQueue(item.task_id, { status: 'cancelled', detail: '已取消' }))
-                      .catch(() => toast('取消失败 — 后端不可达', 'error'))} />
+                <QueueCard
+                  key={item.task_id}
+                  item={item}
+                  currentFingerprint={timelineFingerprint(timeline)}
+                  onRetry={(mode) => retryRender(item.task_id, mode)}
+                  onCancel={() => renderApi.cancel(item.task_id)
+                    .then(() => updateQueue(item.task_id, { status: 'cancelled', detail: '已取消' }))
+                    .catch(() => toast('取消失败 — 后端不可达', 'error'))}
+                />
               ))}
             </div>
           )}
@@ -576,8 +717,16 @@ export function ExportPage() {
   );
 }
 
-function QueueCard({ item, onRetry, onCancel }: { item: QueueItem; onRetry?: () => void; onCancel?: () => void }) {
+function QueueCard({ item, onRetry, onCancel, currentFingerprint }: {
+  item: QueueItem;
+  onRetry?: (mode: 'snapshot' | 'current') => void;
+  onCancel?: () => void;
+  /** 当前时间线指纹：与提交时不同 → 多给一个「用当前时间线提交」 */
+  currentFingerprint?: string;
+}) {
   const active = item.status === 'rendering' || item.status === 'pending';
+  const changed = !!item.retryFingerprint && !!currentFingerprint
+    && timelineChanged(item.retryFingerprint, currentFingerprint);
   return (
     <div className={`bg-surface-container border rounded-cw-md p-3.5 transition-colors duration-short3 ${
       item.status === 'completed' ? 'border-track-audio/40'
@@ -596,7 +745,7 @@ function QueueCard({ item, onRetry, onCancel }: { item: QueueItem; onRetry?: () 
             : <Loader2 className="w-4 h-4 animate-spin" />}
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-body-sm font-medium text-on-surface truncate">{item.label}</p>
+          <p className="text-body-sm font-medium text-on-surface truncate">{asText(item.label)}</p>
           <p className="text-caption text-on-surface-variant font-mono">
             {item.presetName} · {item.startedAt}
             {active && item.phase ? ` · ${phaseLabel(item.phase)}` : ''}
@@ -679,18 +828,44 @@ function QueueCard({ item, onRetry, onCancel }: { item: QueueItem; onRetry?: () 
           </button>
         )}
         {item.status === 'failed' && onRetry && (
-          <button
-            onClick={onRetry}
-            className="flex items-center gap-1 px-2 py-1 rounded-cw-sm border border-error/40 bg-error/10 text-caption font-medium text-error hover:bg-error/20 transition-colors cursor-pointer"
-            title="使用相同参数重新提交渲染"
-          >
-            <RotateCcw className="w-3 h-3" /> 重试
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onRetry('snapshot')}
+              className="flex items-center gap-1 px-2 py-1 rounded-cw-sm border border-error/40 bg-error/10 text-caption font-medium text-error hover:bg-error/20 transition-colors cursor-pointer"
+              title={item.retryFingerprint
+                ? `用提交时的快照重新渲染（快照指纹 ${item.retryFingerprint}）`
+                : '用相同参数重新提交渲染'}
+              data-testid="export-retry-snapshot"
+            >
+              <RotateCcw className="w-3 h-3" /> 重试本次提交
+            </button>
+            {changed && (
+              <button
+                onClick={() => onRetry('current')}
+                className="flex items-center gap-1 px-2 py-1 rounded-cw-sm border border-outline-variant/50 bg-surface-container-high text-caption font-medium text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
+                title={`时间线已改动（当前指纹 ${currentFingerprint}），这不是重试而是重新提交`}
+                data-testid="export-retry-current"
+              >
+                用当前时间线重新提交
+              </button>
+            )}
+          </div>
         )}
       </div>
       {/* 失败详情（U14） */}
       {item.status === 'failed' && item.detail && (
-        <p className="mt-1.5 text-caption text-error">{item.detail}</p>
+        <p className="mt-1.5 text-caption text-error">{asText(item.detail)}</p>
+      )}
+      {/* 时间线指纹：让"重试跑的是哪一版"可核对，而不是嘴上说说 */}
+      {item.retryFingerprint && (
+        <p className="mt-1 text-caption text-on-surface-variant/60" data-testid="export-fingerprint">
+          提交快照 {fingerprintLabel(item.retryFingerprint)}
+          {changed && currentFingerprint && (
+            <span className="text-error/80">
+              {' '}· 时间线已改动（当前 {fingerprintLabel(currentFingerprint)}）
+            </span>
+          )}
+        </p>
       )}
       {/* progress bar */}
       <div className="mt-2.5 h-1.5 bg-surface rounded-cw-full overflow-hidden">
@@ -760,8 +935,16 @@ function phaseLabel(p: string): string {  const map: Record<string, string> = { 
   return map[p] ?? p;
 }
 
+/** CQ/CRF → 经验码率（1080p30 图文/慢镜头的实测中位数）。 */
+const CQ_BITRATE_MBPS: Record<number, number> = {
+  18: 3.2, 20: 2.6, 22: 2.1, 24: 1.8, 26: 1.5, 28: 1.2, 30: 1.0, 32: 0.8,
+};
+
 function estimateSize(durationSec: number, bitrate: string): string {
-  const mbps = parseFloat(bitrate.replace('M', '')) || 5;
+  const q = /^(?:cq|crf)[:\s]?(\d{1,2})$/i.exec(bitrate.trim());
+  const mbps = q
+    ? (CQ_BITRATE_MBPS[Number(q[1])] ?? 1.5)
+    : (parseFloat(bitrate.replace('M', '')) || 5);
   const mb = (mbps * durationSec) / 8;
   return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(0)} MB`;
 }

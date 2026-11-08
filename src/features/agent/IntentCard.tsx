@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AlertTriangle, Check, HelpCircle, Sparkles, X } from 'lucide-react';
+import { asText } from '@/lib/render';
 
 /**
  * 意图确认卡（R6）——**先让用户看清"将发生什么"，再让他确认**。
@@ -81,7 +82,7 @@ export function IntentCard({ data, onConfirm, onCancel }: Props) {
           <div className="text-error font-medium mb-1">这条指令里有我不能执行的操作：</div>
           <ul className="list-disc pl-5 space-y-0.5 text-on-surface">
             {[...hardErrors, ...data.problems.map((m) => ({ message: m }))].slice(0, 4).map((p, i) => (
-              <li key={i}>{p.message}</li>
+              <li key={i}>{asText(p.message)}</li>
             ))}
           </ul>
           <div className="text-on-surface-variant mt-1">请换一种说法，或减少要改的内容。</div>
@@ -91,7 +92,7 @@ export function IntentCard({ data, onConfirm, onCancel }: Props) {
       {warnings.length > 0 && (
         <ul className="mb-2 text-on-surface-variant" data-testid="intent-warnings">
           {warnings.slice(0, 3).map((w, i) => (
-            <li key={i}>· {w.message}</li>
+            <li key={i}>· {asText(w.message)}</li>
           ))}
         </ul>
       )}
@@ -100,7 +101,7 @@ export function IntentCard({ data, onConfirm, onCancel }: Props) {
         <div key={q.code} className="mb-2 rounded border border-outline-variant p-2" data-testid="intent-question">
           <div className="flex items-start gap-1 mb-1">
             <HelpCircle className="w-3.5 h-3.5 mt-0.5 text-warning shrink-0" aria-hidden />
-            <span className="text-on-surface">{q.text}</span>
+            <span className="text-on-surface">{asText(q.text)}</span>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {q.options.map((opt) => (
@@ -116,7 +117,7 @@ export function IntentCard({ data, onConfirm, onCancel }: Props) {
                 }
                 data-testid={`intent-option-${q.code}-${opt.value}`}
               >
-                {opt.label}
+                {asText(opt.label)}
               </button>
             ))}
           </div>

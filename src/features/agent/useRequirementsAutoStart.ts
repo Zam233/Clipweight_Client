@@ -6,6 +6,7 @@ import { uid } from '@/lib/utils';
 import { demoBrief } from './AgentPanel';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { resolveMessageAttachments } from './requirementsAttachments';
+import type { CreativeBrief, ProductionPlan } from '@/types/persona';
 
 /**
  * useRequirementsAutoStart — 从 HomePage「开始创作」进入编辑器后自动启动需求 Agent。
@@ -40,6 +41,7 @@ export function useRequirementsAutoStart(ready: boolean) {
     firstMsg += `预估时长：${st.requirementsAudioDuration}秒。请帮我生成创意简报。`;
     ag.addRequirementsMessage({ id: uid('m'), role: 'user', content: firstMsg, timestamp: new Date().toISOString() });
 
+    let cancelled = false;
     (async () => {
       try {
         const res = await requirementsApi.init({
@@ -57,22 +59,64 @@ export function useRequirementsAutoStart(ready: boolean) {
             voice_id: st.voiceId || undefined,
             // B21: 配音段传入需求会话，StructureAgent 场景时间与之对齐
             dub_segments: st.dubSegments ?? undefined,
+            // 工作区（PRD workspace-prd-2026-10-24）：名称/开关随会话走，
+            // 后端 proceed 双轨据此建 Task 并确保工作区存在
+            workspace_name: st.projectName || undefined,
+            workspace_auto_index: st.workspaceAutoIndex,
+            workspace_vision: st.workspaceVisionIndex,
           },
         });
+        // 初始化期间切了项目/卸载：旧会话不能写进新项目的全局 store。
+        if (cancelled) return;
         useAgentStore.getState().setRequirementsSession(res.session_id);
         try {
-          const chatRes = await requirementsApi.chat({ session_id: res.session_id, message: firstMsg });
-          const brief = chatRes.creative_brief ?? null;
-          const plan = chatRes.production_plan ?? null;
+          // unified-stream PRD §M1：首轮必须走**流式**，否则思考与逐字输出在自动开始的
+          // 那一段完全不存在（旧实现用非流式 chat，前端只能看到"整段蹦出来"）。
+          // 失败时回退非流式，行为与旧实现一致。
+          let chatRes: Record<string, unknown> = {};
+          let streamedId: string | null = null;
+          try {
+            chatRes = await requirementsApi.streamChat(res.session_id, firstMsg, (chunk) => {
+              const ag2 = useAgentStore.getState();
+              if (chunk.type === 'delta' && typeof chunk.data === 'string') {
+                if (!streamedId) {
+                  streamedId = uid('m');
+                  ag2.addRequirementsMessage({
+                    id: streamedId, role: 'assistant', content: chunk.data as string,
+                    timestamp: new Date().toISOString(), streaming: true,
+                  });
+                } else {
+                  ag2.appendRequirementsDelta(streamedId, chunk.data as string);
+                }
+              }
+              // 思考不再需要前端转存：服务端已把它作为时间线条目按 seq 落好，
+              // AgentPanel 挂载时直接读 GET /timeline（位置 = 发生时刻，不靠推断）。
+            });
+          } catch {
+            chatRes = await requirementsApi.chat({ session_id: res.session_id, message: firstMsg });
+          }
+          if (cancelled) return;
+          const brief = (chatRes.creative_brief ?? null) as CreativeBrief | null;
+          const plan = (chatRes.production_plan ?? null) as ProductionPlan | null;
           const ag2 = useAgentStore.getState();
           if (brief) { ag2.setCreativeBrief(brief); ag2.setRequirementsStatus('brief_ready'); }
           if (plan) { ag2.setProductionPlan(plan); ag2.setRequirementsStatus('plan_ready'); }
-          const att = resolveMessageAttachments(chatRes.status, brief, plan);
-          ag2.addRequirementsMessage({
-            id: uid('m'), role: 'assistant', content: chatRes.reply ?? chatRes.message ?? '已收到。',
-            timestamp: new Date().toISOString(), creative_brief: att.creative_brief, production_plan: att.production_plan,
-          });
+          const att = resolveMessageAttachments(chatRes.status as string, brief, plan);
+          const finalText = String(chatRes.reply ?? chatRes.message ?? '已收到。');
+          if (streamedId) {
+            // 收尾：用权威 reply 替换打字气泡，不再新增一条
+            useAgentStore.getState().updateRequirementsMessage(streamedId, {
+              content: finalText, streaming: false,
+              creative_brief: att.creative_brief, production_plan: att.production_plan,
+            });
+          } else {
+            ag2.addRequirementsMessage({
+              id: uid('m'), role: 'assistant', content: finalText,
+              timestamp: new Date().toISOString(), creative_brief: att.creative_brief, production_plan: att.production_plan,
+            });
+          }
         } catch {
+          if (cancelled) return;
           if (!useSettingsStore.getState().allowDemoFallback) {
             useAgentStore.getState().addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '后端暂不可达，无法生成简报（可在设置中开启离线演示回退）' });
             useAgentStore.getState().setRequirementsStatus('idle');
@@ -85,6 +129,7 @@ export function useRequirementsAutoStart(ready: boolean) {
           ag2.addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '已为你生成创意简报，请审阅后确认。', creative_brief: brief });
         }
       } catch {
+        if (cancelled) return;
         if (!useSettingsStore.getState().allowDemoFallback) {
           const ag2 = useAgentStore.getState();
           ag2.addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '后端暂不可达，无法生成简报（可在设置中开启离线演示回退）' });
@@ -97,8 +142,9 @@ export function useRequirementsAutoStart(ready: boolean) {
         ag2.setRequirementsStatus('brief_ready');
         ag2.addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '已为你生成创意简报，请审阅后确认。', creative_brief: brief });
       } finally {
-        useAgentStore.getState().setRequirementsBusy(false);
+        if (!cancelled) useAgentStore.getState().setRequirementsBusy(false);
       }
     })();
+    return () => { cancelled = true; };
   }, [ready, requirementsTopic]);
 }

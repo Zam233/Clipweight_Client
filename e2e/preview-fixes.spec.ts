@@ -32,12 +32,16 @@ async function setupEditor(page: Page, projectId: string): Promise<string[]> {
   return errors;
 }
 
-/** PreviewPanel root: header's parent. The preview canvas is its first <canvas>. */
+/**
+ * PreviewPanel root：从「节目监视器」标题往上找**第一个包含 canvas 的祖先**。
+ *
+ * 旧实现写死"上两级"，一旦 header 里加了徽标（如「近似预览」）DOM 多一层就失效；
+ * 按"含 canvas 的祖先"定位，对 header 内部结构调整免疫。
+ */
 function previewRoot(page: Page) {
   return page
     .getByText('节目监视器', { exact: true })
-    .locator('xpath=..')
-    .locator('xpath=..');
+    .locator('xpath=ancestor::div[.//canvas][1]');
 }
 
 /** Seek the playhead by clicking the timeline ruler at time t (seconds). */
@@ -137,8 +141,11 @@ test.describe('preview-fixes 修复回归', () => {
   test('UX1: 预览头部音量滑块可聚焦并响应键盘', async ({ page }) => {
     const errors = await setupEditor(page, 'proj_e2e_demo');
 
-    // The preview header contains the 节目监视器 label and the volume slider.
-    const header = page.getByText('节目监视器', { exact: true }).locator('xpath=..');
+    // 预览头部同时含「节目监视器」标签与音量滑块；按"含 range 输入的祖先"定位，
+    // 不再假设 header 内部层级（加徽标会让 `xpath=..` 只落到左侧标题组）
+    const header = page
+      .getByText('节目监视器', { exact: true })
+      .locator('xpath=ancestor::div[.//input[@type="range"]][1]');
     const slider = header.locator('input[type=range]');
     await expect(slider).toBeVisible();
 

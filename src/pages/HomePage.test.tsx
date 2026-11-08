@@ -18,9 +18,12 @@ const { mocks } = vi.hoisted(() => ({
     getThumbnailUrl: vi.fn(),
     typeMakerList: vi.fn(),
     listSources: vi.fn(),
+    assetUpload: vi.fn(),
     healthCheck: vi.fn(),
     predictScript: vi.fn(),
+    topicSuggest: vi.fn(),
     healthStatus: vi.fn(),
+    healthDetail: vi.fn(),
     toast: vi.fn(),
     pluginList: vi.fn(),
     // 轮 148：插件 tab 复用完整面板后会调用健康聚合/贡献清单
@@ -40,10 +43,19 @@ vi.mock('@/services/api', () => ({
     getThumbnailUrl: mocks.getThumbnailUrl,
     create: vi.fn(),
   },
-  assetApi: { listSources: mocks.listSources },
+  assetApi: { listSources: mocks.listSources, upload: mocks.assetUpload },
   typeMakerApi: { list: mocks.typeMakerList },
   voiceApi: { list: vi.fn(() => Promise.resolve([])) },
-  pipelineApi: { predictScript: mocks.predictScript },
+  pipelineApi: { predictScript: mocks.predictScript, topicSuggest: mocks.topicSuggest },
+  // 04 工作区（PRD workspace-prd）：项目建好后会创建；失败不阻断启动
+  workspaceApi: {
+    create: vi.fn(async () => ({ root: 'J:/tmp/ws', exists: true })),
+    get: vi.fn(async () => ({ exists: false })),
+    materials: vi.fn(async () => ({ items: [], count: 0, pending: 0 })),
+    scan: vi.fn(async () => ({ scanned: 0, new: 0, indexed: 0, deduped: 0, failed: 0 })),
+    upload: vi.fn(),
+    remove: vi.fn(),
+  },
   resetApiClient: vi.fn(),
   pluginApi: {
     list: mocks.pluginList,
@@ -53,6 +65,14 @@ vi.mock('@/services/api', () => ({
     errors: vi.fn(async () => []),
   },
   getApiClient: vi.fn(),
+}));
+
+// 轮 148 遗留：TypeCatalogPanel 经 useTypeCatalog **直接** import
+// '@/services/api/typeMaker'，不经过 '@/services/api' 门面。只 mock 门面时这里
+// 会去打真实后端（本地有 .env + 8080 在线 → 侥幸通过；CI 无后端 → 红）。
+// 必须按真实引用路径 mock，否则本用例测的不是 mock 数据。
+vi.mock('@/services/api/typeMaker', () => ({
+  typeMakerApi: { list: mocks.typeMakerList },
 }));
 
 vi.mock('@/services/api/account', () => ({
@@ -69,9 +89,19 @@ vi.mock('@/stores/authStore', () => ({
     sel ? sel({ user: null, accessToken: null, logout: vi.fn() }) : { user: null, accessToken: null, logout: vi.fn() },
 }));
 
-vi.mock('./useBackendHealth', () => ({
-  useBackendHealth: () => mocks.healthStatus(),
-}));
+vi.mock('./useBackendHealth', async () => {
+  // 保留真实实现里的纯函数（组件 chip 构造/配色），只把轮询换成可控桩：
+  // 这样断言的是"后端字段怎么被展示"，而不是把映射逻辑在测试里重写一遍。
+  const actual = await vi.importActual<typeof import('./useBackendHealth')>('./useBackendHealth');
+  return {
+    ...actual,
+    useBackendHealthDetail: () => {
+      const status = mocks.healthStatus();
+      return { status, detail: status === 'online' ? mocks.healthDetail() : null };
+    },
+    useBackendHealth: () => mocks.healthStatus(),
+  };
+});
 
 vi.mock('@/stores/toastStore', () => ({ toast: mocks.toast }));
 
@@ -93,7 +123,9 @@ beforeEach(() => {
   mocks.typeMakerList.mockResolvedValue([]);
   mocks.listSources.mockResolvedValue([]);
   mocks.healthStatus.mockReturnValue('offline');
+  mocks.healthDetail.mockReturnValue(null);
   mocks.predictScript.mockResolvedValue({});
+  mocks.topicSuggest.mockResolvedValue({ topics: [] });
   mocks.pluginList.mockResolvedValue([]);
   mocks.pluginHealth.mockResolvedValue({ overall: 'ok', plugins: [], errors_total: 0 });
   mocks.pluginContributions.mockResolvedValue({ contributions: [], total: 0 });
@@ -178,6 +210,35 @@ async function gotoCreate() {
   fireEvent.click(screen.getByRole('button', { name: /^开始创作/ }));
   await screen.findByPlaceholderText(/粘贴口播文案/);
 }
+
+describe('PRD B4: 选题建议', () => {
+  it('点「选题建议」调 topicSuggest 并渲染候选；点候选填入标题', async () => {
+    mocks.topicSuggest.mockResolvedValue({
+      topics: [{ title: '散热设计深度解析', reason: '新机热度高' }],
+    });
+    render(<HomePage />);
+    await gotoCreate();
+
+    fireEvent.click(screen.getByTestId('topic-suggest'));
+    await waitFor(() => expect(mocks.topicSuggest).toHaveBeenCalled());
+
+    const ideas = await screen.findByTestId('topic-ideas');
+    expect(ideas.textContent).toContain('散热设计深度解析');
+    // 点候选 → 标题被填入输入框
+    fireEvent.click(screen.getByText('散热设计深度解析'));
+    const input = screen.getByPlaceholderText(/视频选题/) as HTMLInputElement;
+    expect(input.value).toBe('散热设计深度解析');
+  });
+
+  it('后端报错 → 可读错误而不是静默', async () => {
+    mocks.topicSuggest.mockRejectedValue({ response: { data: { detail: 'LLM 配额用尽' } } });
+    render(<HomePage />);
+    await gotoCreate();
+    fireEvent.click(screen.getByTestId('topic-suggest'));
+    expect(await screen.findByTestId('topic-suggest-err')).toBeTruthy();
+    expect(screen.getByTestId('topic-suggest-err').textContent).toContain('LLM 配额用尽');
+  });
+});
 
 describe('G6: script intelligence prediction', () => {
   it('长文稿 + 后端在线 → 渲染推荐卡片', async () => {
@@ -322,5 +383,74 @@ describe('插件 tab（轮 148：复用完整插件管理）', () => {
     fireEvent.click(screen.getByRole('button', { name: '插件' }));
     expect(await screen.findByText('whisper_stt')).toBeTruthy();
     expect(screen.queryByText('知识区长片')).toBeNull();
+  });
+});
+
+describe('配音上传入口（默认可用）', () => {
+  it('未上传配音时也能看到上传按钮（旧实现被 mode=visual 藏掉）', async () => {
+    render(<HomePage />);
+    await gotoCreate();
+    expect(screen.getByRole('button', { name: /上传配音文件/ })).toBeTruthy();
+  });
+
+  it('有文案时展示字幕切分预览（段数来自 splitMode）', async () => {
+    render(<HomePage />);
+    await gotoCreate();
+    fireEvent.change(screen.getByPlaceholderText(/粘贴口播文案/), {
+      target: { value: '第一句。第二句。第三句。' },
+    });
+    await waitFor(() => expect(screen.getByText(/字幕切分预览/)).toBeTruthy());
+    expect(screen.getByText(/字幕切分预览/).textContent).toContain('3 段');
+  });
+
+  it('B9：同内容配音重传 → 显示「已存在，已复用」而不是报错', async () => {
+    // jsdom 不加载音频元数据：Audio 立刻走 onerror（时长回退 0），blob URL 打桩
+    class FakeAudio {
+      preload = '';
+      duration = 0;
+      onloadedmetadata: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_v: string) { queueMicrotask(() => this.onerror?.()); }
+    }
+    const audioSpy = vi.spyOn(window, 'Audio').mockImplementation(() => new FakeAudio() as unknown as HTMLAudioElement);
+    // jsdom 完全没有 URL.createObjectURL/revokeObjectURL（不是“未实现”而是不存在）
+    Object.defineProperty(URL, 'createObjectURL', { value: vi.fn(() => 'blob:fake'), configurable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), configurable: true });
+    try {
+      mocks.assetUpload.mockResolvedValue({
+        asset_id: 'asset_1',
+        filename: 'voice.mp3',
+        file_path: 'J:/lib/files/asset_1.mp3',
+        media_type: 'audio',
+        duration_sec: 12,
+        deduplicated: true,
+        status: 'reused',
+        used_count: 2,
+      });
+      const { container } = render(<HomePage />);
+      await gotoCreate();
+      const input = container.querySelector('input[accept=".wav,.mp3,.m4a,.mp4"]') as HTMLInputElement;
+      expect(input).toBeTruthy();
+      const file = new File([new Uint8Array([1, 2, 3])], 'voice.mp3', { type: 'audio/mpeg' });
+      fireEvent.change(input, { target: { files: [file] } });
+
+      expect(await screen.findByTestId('audio-upload-note')).toBeTruthy();
+      expect(screen.getByTestId('audio-upload-note').textContent).toBe('已存在，已复用');
+      // 复用仍算成功：文件名/时长已落入已选配音
+      expect(screen.getByText('voice.mp3')).toBeTruthy();
+      expect(mocks.assetUpload).toHaveBeenCalledTimes(1);
+    } finally {
+      audioSpy.mockRestore();
+    }
+  });
+});
+
+describe('04 工作区（PRD workspace-prd-2026-10-24）', () => {
+  it('创作表单默认出现工作区步骤与两个开关', async () => {
+    render(<HomePage />);
+    await gotoCreate();
+    expect(screen.getAllByText('工作区').length).toBeGreaterThan(0);
+    expect(screen.getByText('自动索引新素材')).toBeTruthy();
+    expect(screen.getByText('视觉解读')).toBeTruthy();
   });
 });

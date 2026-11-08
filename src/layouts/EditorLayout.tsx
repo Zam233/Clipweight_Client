@@ -11,8 +11,10 @@ import { AssetPanel } from '@/features/assets/AssetPanel';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { TimelinePanel } from '@/features/timeline/components/TimelinePanel';
 import { PropertiesPanel } from '@/features/properties/PropertiesPanel';
-import { AgentPanel } from '@/features/agent/AgentPanel';
+import { CopilotDock } from '@/features/copilot/CopilotDock';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ReviewPanel } from '@/features/agent/ReviewPanel';
+import type { PlanView } from '@/features/plan/PlanReviewPanel';
 import { EditorToolbar } from '@/features/timeline/components/EditorToolbar';
 import { useAgentStore } from '@/stores/agentStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -194,7 +196,7 @@ export function EditorLayout() {
               className="h-full overflow-hidden shrink-0"
               style={{ width: panelWidths.assets }}
             >
-              <AssetPanel />
+              <ErrorBoundary region="素材"><AssetPanel /></ErrorBoundary>
             </div>
             <div
               className={cn('panel-divider shrink-0', dragging === 'assets' && 'bg-primary')}
@@ -221,7 +223,7 @@ export function EditorLayout() {
         <div className="flex flex-col flex-1 overflow-hidden min-w-0">
           {/* Preview */}
           <div className="flex-1 overflow-hidden min-h-0">
-            <PreviewPanel />
+            <ErrorBoundary region="预览"><PreviewPanel /></ErrorBoundary>
           </div>
 
           {/* Timeline divider */}
@@ -247,7 +249,7 @@ export function EditorLayout() {
               className="shrink-0 overflow-hidden relative"
               style={{ height: timelineHeight }}
             >
-              <TimelinePanel />
+              <ErrorBoundary region="时间线"><TimelinePanel /></ErrorBoundary>
               {isNarrow && (
                 <div
                   role="note"
@@ -275,7 +277,7 @@ export function EditorLayout() {
               className="h-full overflow-hidden shrink-0 flex flex-col"
               style={{ width: panelWidths.properties }}
             >
-              <PropertiesPanel />
+              <ErrorBoundary region="属性"><PropertiesPanel /></ErrorBoundary>
             </div>
           </>
         )}
@@ -305,7 +307,7 @@ export function EditorLayout() {
               className="h-full overflow-hidden shrink-0"
               style={{ width: panelWidths.agent }}
             >
-              <AgentPanel />
+              <CopilotDock />
             </div>
           </>
         )}
@@ -340,7 +342,7 @@ export function EditorLayout() {
             <div className="flex-1 overflow-hidden min-h-0">
               {mobilePanel === 'assets' && <AssetPanel />}
               {mobilePanel === 'properties' && <PropertiesPanel />}
-              {mobilePanel === 'agent' && <AgentPanel />}
+              {mobilePanel === 'agent' && <CopilotDock />}
             </div>
           </div>
         </>
@@ -356,6 +358,9 @@ export function EditorLayout() {
           <ReviewPanel
             brief={reviewMode === 'brief' ? creativeBrief : null}
             planMarkdown={reviewMode === 'plan' ? (productionPlan?.markdown_content || productionPlan?.markdown || '') : undefined}
+            planView={reviewMode === 'plan' ? ((productionPlan?.plan as unknown as PlanView | undefined) ?? null) : undefined}
+            // 审阅覆盖层的结构化视图：规划书对象整份传入，由 Block 解析 display_specs
+            plan={reviewMode === 'plan' ? productionPlan : undefined}
             onBack={handleCloseReview}
           />
         </div>

@@ -2,17 +2,30 @@ import { useEffect, useState } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
 import { toolApi, skillApi } from '@/services/api';
+import { toolSurfaceApi, type ToolSurfaceEntry, type ToolCallRecord } from '@/services/api/toolSurface';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
-import { Wrench, Sparkles, Terminal, Loader2, ChevronRight, ListOrdered } from 'lucide-react';
+import { Wrench, Sparkles, Terminal, Loader2, ChevronRight, ListOrdered, Bot } from 'lucide-react';
 
 interface ToolItem { name: string; description?: string; }
 
+/** 主 Agent 的一等工具（后端 `tool/surface.py::AGENT_TOOLS`）——目录里要能一眼看到 */
+const AGENT_TOOL_NAMES = ['delegate_agent', 'research_agent', 'get_agent_run', 'list_agent_runs', 'cancel_agent_run'];
+/** 领域工具（`DOMAIN_TOOLS`）：只在阶段内由模型调用，不是 HTTP 执行入口 */
+const DOMAIN_TOOL_NAMES = ['replan_closure', 'validate_stage_plan'];
+
+type ToolsTab = 'tool' | 'skill' | 'surface';
+
 /**
  * ToolsPage — browse & invoke the engine's atomic Tools and composite Skills.
+ *
+ * PRD B3（2026-10-29 / G5、G12）：新增**只读**「Agent 工具面」页签，展示 Kernel 真正
+ * 暴露给主 agent 的工具（`/api/tools`）、模型看到的 schema（`/api/tools/schema`）与
+ * 最近调用记录（`/api/tools/records`）。这一页**不提供执行按钮**——目录快照不等于运行许可，
+ * 执行仍走左侧既有执行器（`/api/tool/execute`），两者状态不共享。
  */
 export function ToolsPage() {
-  const [tab, setTab] = useState<'tool' | 'skill'>('tool');
+  const [tab, setTab] = useState<ToolsTab>('tool');
   const [tools, setTools] = useState<ToolItem[]>([]);
   const [skills, setSkills] = useState<ToolItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +36,38 @@ export function ToolsPage() {
   const [output, setOutput] = useState<string | null>(null);
   const [batchMode, setBatchMode] = useState(false);
   const [batchCalls, setBatchCalls] = useState('[{"name":"video_trim","params":{}}]');
+  // PRD B3：Agent 工具面（只读）
+  const [surface, setSurface] = useState<ToolSurfaceEntry[]>([]);
+  const [surfaceTiers, setSurfaceTiers] = useState<string[]>([]);
+  const [records, setRecords] = useState<ToolCallRecord[]>([]);
+  const [surfaceLoading, setSurfaceLoading] = useState(false);
+  const [surfaceError, setSurfaceError] = useState<string | null>(null);
+
+  // 只在切到该页签时才拉（避免每次进页面多打三个接口）
+  useEffect(() => {
+    if (tab !== 'surface' || surface.length > 0 || surfaceLoading) return;
+    let alive = true;
+    setSurfaceLoading(true);
+    setSurfaceError(null);
+    (async () => {
+      try {
+        const [catalog, recs] = await Promise.all([
+          toolSurfaceApi.listCatalog(),
+          toolSurfaceApi.listRecords(),
+        ]);
+        if (!alive) return;
+        setSurface(catalog.items);
+        setSurfaceTiers(catalog.tiers);
+        setRecords(recs.items.slice(0, 20));
+      } catch (e) {
+        if (alive) setSurfaceError(e instanceof Error ? e.message : '工具面加载失败');
+      } finally {
+        if (alive) setSurfaceLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   useEffect(() => {
     let alive = true;
@@ -104,16 +149,29 @@ export function ToolsPage() {
 
       {/* tab switch */}
       <div className="flex gap-1 mb-5 bg-surface-container rounded-cw-sm p-1 w-fit border border-outline-variant/30">
-        {(['tool', 'skill'] as const).map((t) => (
+        {(['tool', 'skill', 'surface'] as const).map((t) => (
           <button key={t} onClick={() => { setTab(t); setSelected(null); setOutput(null); }}
             className={cn('flex items-center gap-1.5 px-4 py-1.5 rounded-cw-xs text-body-sm font-medium transition-colors cursor-pointer',
               tab === t ? 'bg-primary-container text-on-primary-container' : 'text-on-surface-variant hover:text-on-surface')}>
-            {t === 'tool' ? <Wrench className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5" />}
-            {t === 'tool' ? `工具 (${tools.length})` : `技能 (${skills.length})`}
+            {t === 'tool' ? <Wrench className="w-3.5 h-3.5" />
+              : t === 'skill' ? <Sparkles className="w-3.5 h-3.5" />
+                : <Bot className="w-3.5 h-3.5" />}
+            {t === 'tool' ? `工具 (${tools.length})`
+              : t === 'skill' ? `技能 (${skills.length})`
+                : `Agent 工具面 (${surface.length})`}
           </button>
         ))}
       </div>
 
+      {tab === 'surface' ? (
+        <AgentSurfaceTab
+          entries={surface}
+          tiers={surfaceTiers}
+          records={records}
+          loading={surfaceLoading}
+          error={surfaceError}
+        />
+      ) : (
       <div className="grid grid-cols-12 gap-5">
         {/* list */}
         <div className="col-span-12 lg:col-span-5">
@@ -193,7 +251,111 @@ export function ToolsPage() {
           </div>
         </div>
       </div>
+      )}
     </ConsoleShell>
+  );
+}
+
+/**
+ * Agent 工具面（只读）——PRD B3。
+ *
+ * 三条诚实约束：
+ * 1. **不给执行按钮**：目录是快照，真正执行需要 Kernel 上下文（`surface.execute`）；
+ *    在管理页点一下就执行 = 任意工具执行入口，红线。
+ * 2. `available=false` 不隐藏，灰显并给原因（隐藏会让人以为工具不存在）。
+ * 3. 分组：agent（一等工具）/ domain（阶段内领域工具）/ 其余。
+ */
+function AgentSurfaceTab({ entries, tiers, records, loading, error }: {
+  entries: ToolSurfaceEntry[];
+  tiers: string[];
+  records: ToolCallRecord[];
+  loading: boolean;
+  error: string | null;
+}) {
+  if (loading) {
+    return (
+      <div className="space-y-2" data-testid="surface-loading">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="h-10 bg-surface-container rounded-cw-sm animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <p className="text-label-sm text-error" data-testid="surface-error">
+        工具面加载失败：{error}
+      </p>
+    );
+  }
+  const isAgent = (n: string) => AGENT_TOOL_NAMES.includes(n);
+  const isDomain = (n: string) => DOMAIN_TOOL_NAMES.includes(n);
+  const groups: Array<{ key: string; title: string; hint: string; items: ToolSurfaceEntry[] }> = [
+    { key: 'agent', title: '主 Agent 一等工具', hint: '主 agent 直接调用的派发/查询能力（子 agent 就是工具）',
+      items: entries.filter((e) => isAgent(e.name)) },
+    { key: 'domain', title: '领域工具', hint: '阶段内由模型调用（不是 HTTP 执行入口）',
+      items: entries.filter((e) => isDomain(e.name)) },
+    { key: 'other', title: '其余工具', hint: `档位：${tiers.join(' / ') || '—'}`,
+      items: entries.filter((e) => !isAgent(e.name) && !isDomain(e.name)) },
+  ];
+  return (
+    <div className="space-y-4" data-testid="agent-surface">
+      <p className="text-caption text-on-surface-variant">
+        这是 Kernel 真正暴露给主 agent 的工具面（只读快照）。此处
+        <strong className="text-on-surface">不提供执行按钮</strong>——
+        执行需要任务上下文，请走左侧执行器或由主 agent 调用。
+      </p>
+      {groups.map((g) => (
+        <section key={g.key} data-testid={`surface-group-${g.key}`} data-count={g.items.length}>
+          <h4 className="mb-1 text-label-sm text-on-surface">{g.title}（{g.items.length}）</h4>
+          <p className="mb-1.5 text-caption text-on-surface-variant/70">{g.hint}</p>
+          {g.items.length === 0 ? (
+            <p className="text-caption text-on-surface-variant/60">（无）</p>
+          ) : (
+            <ul className="space-y-1">
+              {g.items.map((e) => (
+                <li
+                  key={e.name}
+                  data-tool-name={e.name}
+                  data-tier={e.tier}
+                  data-available={e.available ? 'true' : 'false'}
+                  className={cn(
+                    'flex flex-wrap items-baseline gap-2 rounded-cw-sm border px-2.5 py-1.5 text-caption',
+                    e.available
+                      ? 'border-outline-variant/25 bg-surface-container'
+                      : 'border-outline-variant/15 bg-surface-container/50 opacity-70',
+                  )}
+                >
+                  <span className="font-mono text-on-surface">{e.name}</span>
+                  <span className="font-mono text-on-surface-variant/70">tier={e.tier}</span>
+                  {!e.available && <span className="text-warning">不可用（依赖未就绪）</span>}
+                  {e.cost_hint && <span className="text-on-surface-variant/60">{e.cost_hint}</span>}
+                  {e.description && (
+                    <span className="w-full text-on-surface-variant/70">{e.description}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ))}
+      <section data-testid="surface-records">
+        <h4 className="mb-1 text-label-sm text-on-surface">最近调用记录（{records.length}）</h4>
+        {records.length === 0 ? (
+          <p className="text-caption text-on-surface-variant/60">还没有调用记录。</p>
+        ) : (
+          <ul className="space-y-0.5">
+            {records.map((r, i) => (
+              <li key={i} className="font-mono text-caption text-on-surface-variant">
+                {String(r.name ?? r.tool ?? 'tool')} · {String(r.status ?? '')}
+                {typeof r.duration_ms === 'number' ? ` · ${r.duration_ms}ms` : ''}
+                {r.pipeline_id ? ` · ${String(r.pipeline_id)}` : ''}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
   );
 }
 

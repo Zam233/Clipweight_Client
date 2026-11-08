@@ -46,6 +46,13 @@ const DEFAULT_PANEL_WIDTHS = {
   agent: 320,
 };
 
+/** 各面板宽度上下限（Agent 放宽见 setPanelWidth 注释）。 */
+const PANEL_WIDTH_LIMITS: Record<string, [number, number]> = {
+  assets: [200, 500],
+  properties: [200, 500],
+  agent: [240, 1100],
+};
+
 const DEFAULT_TIMELINE_HEIGHT = 280;
 
 /** Safe layout loader — guards against malformed localStorage data. */
@@ -103,7 +110,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
 
   setPanelWidth: (panel, width) =>
     set((state) => ({
-      panelWidths: { ...state.panelWidths, [panel]: Math.max(200, Math.min(500, width)) },
+      panelWidths: {
+        ...state.panelWidths,
+        // Agent 面板（需求对话 / 轨迹）是专业视图：轨迹要摆"左列表 + 右详情"两栏，
+        // 320px 宽根本放不下（用户 2026-10-31 给了参考布局）。所以它的上限单独放宽；
+        // 素材/属性面板维持 500，避免把预览挤没。
+        [panel]: Math.max(
+          PANEL_WIDTH_LIMITS[panel][0],
+          Math.min(PANEL_WIDTH_LIMITS[panel][1], width),
+        ),
+      },
     })),
 
   setTimelineHeight: (height) =>

@@ -4,6 +4,7 @@ import { backendConfigApi } from '@/services/api';
 import type { BackendConfigField, BackendConfigGroup, BackendConfigResponse } from '@/services/api';
 import { toast } from '@/stores/toastStore';
 import { ConfigValueInput } from '@/components/ConfigValueInput';
+import { RenderOpsSection } from '@/features/settings/RenderOpsSection';
 import { cn } from '@/lib/utils';
 import { Loader2, RefreshCw, RotateCcw, Save, Search, KeyRound } from 'lucide-react';
 
@@ -169,6 +170,9 @@ export function BackendConfigPage() {
             未配置 CLIPWRIGHT_WEBHOOK_SECRET_KEY：密钥类（secret）字段无法在本页保存，请先在 .env 设置加密密钥
           </div>
         )}
+
+        {/* PRD B8：渲染后端与产物清理（后端早有端点，前端此前无入口） */}
+        <RenderOpsSection />
 
         <div className="relative mb-5">
           <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant" />

@@ -100,3 +100,7 @@ uvicorn-*.log
 # external repo research clones (opencut/video-use/hyperframes); not tracked
 _research/
 
+
+# 本地 E2E / Playwright 浏览器档案（不随仓库分发）
+_cache/
+_dev.log

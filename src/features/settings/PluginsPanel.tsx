@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import { pluginApi } from '@/services/api';
-import type { PluginContributionItem, PluginHealthResponse } from '@/services/api/project';
+import { getApiClient } from '@/services/api/client';
+import type { PluginContributionItem, PluginHealthResponse, PluginPromptSymbolsResponse } from '@/services/api/project';
 import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
 import { ConfigValueInput } from '@/components/ConfigValueInput';
 import { cn } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import type { PluginConfigField, PluginConfigResponse } from '@/types/api';
 import {
   Puzzle, Power, Loader2, RefreshCw, Zap, Settings, X, Save, Trash2, Eye, Box,
-  AlertTriangle, Activity, ShieldCheck, Link2, Wand2, GitBranch,
-} from 'lucide-react';
+  AlertTriangle, Activity, ShieldCheck, Link2, Wand2, GitBranch, FileText } from 'lucide-react';
 import { PluginLayoutRenderer } from '@/features/plugins';
 import { invalidatePluginSlots } from '@/features/plugins/usePluginSlots';
 import type { UILayout } from '@/features/plugins/types';
@@ -47,6 +48,10 @@ export function PluginsPanel() {
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
 
+  // 插件自检（PRD F11）：调用插件约定的 `<id>_doctor` 能力，把"目录填错在哪"
+  // 直接显示在管理页，而不是等运行到工具时才报错
+  const [selfCheck, setSelfCheck] = useState<{ id: string; text: string } | null>(null);
+
   // M12: 插件 UI 预览
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewLayout, setPreviewLayout] = useState<UILayout | null>(null);
@@ -64,6 +69,10 @@ export function PluginsPanel() {
   const [contributions, setContributions] = useState<PluginContributionItem[]>([]);
   const [contribOwner, setContribOwner] = useState<string>('');
   const [contribLoading, setContribLoading] = useState(false);
+  // B5-T7：提示词符号清单与来源（插件覆盖了哪些符号 / 哪些还没接线）
+  const [promptSymsOpen, setPromptSymsOpen] = useState(false);
+  const [promptSyms, setPromptSyms] = useState<PluginPromptSymbolsResponse | null>(null);
+  const [promptSymsLoading, setPromptSymsLoading] = useState(false);
 
   const loadErrors = async () => {
     setErrorsLoading(true);
@@ -95,6 +104,17 @@ export function PluginsPanel() {
     }
   };
 
+  const loadPromptSymbols = async () => {
+    setPromptSymsLoading(true);
+    try {
+      const res = await pluginApi.promptSymbols();
+      setPromptSyms(res ?? null);
+    } catch {
+      setPromptSyms(null);
+    } finally {
+      setPromptSymsLoading(false);
+    }
+  };
   const openPreview = async (p: PluginItem) => {
     setPreviewId(p.id);
     setPreviewLayout(null);
@@ -115,6 +135,46 @@ export function PluginsPanel() {
       setPreviewError(e instanceof Error ? e.message : '读取插件 UI 失败');
     } finally {
       setPreviewLoading(false);
+    }
+  };
+
+  const runSelfCheck = async (p: PluginItem) => {
+    setBusyId(p.id);
+    try {
+      const { data } = await getApiClient().post('/api/tool/execute', {
+        name: `${p.id}_doctor`,
+        params: {},
+      });
+      const out = (data as { output?: Record<string, unknown> })?.output ?? {};
+      const available = Boolean(out.available);
+      const layout = String(
+        (out.layout ?? (out.paths as Record<string, unknown> | undefined)?.layout) ?? '',
+      );
+      const lines = [
+        `插件：${p.id}`,
+        `自检结果：${available ? '可用' : '不可用'}`,
+        layout ? `引擎布局：${layout}` : '',
+        out.error ? `原因：${String(out.error)}` : '',
+        out.layouts ? `排版锚点：${Object.keys(out.layouts as object).length} 项` : '',
+        out.kinds ? `文字动效：${(out.kinds as unknown[]).length} 项` : '',
+        out.audit_rules ? `审计规则：${(out.audit_rules as unknown[]).length} 条` : '',
+      ].filter(Boolean);
+      setSelfCheck({ id: p.id, text: lines.join('\n') });
+    } catch (e: unknown) {
+      const detail = e as {
+        response?: { data?: { detail?: unknown } };
+        message?: string;
+      };
+      setSelfCheck({
+        id: p.id,
+        text: [
+          `插件：${p.id}`,
+          '自检不可用：该插件没有约定的 <id>_doctor 能力，或插件尚未加载。',
+          String(detail?.response?.data?.detail ?? detail?.message ?? e),
+        ].join('\n'),
+      });
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -315,6 +375,9 @@ export function PluginsPanel() {
         <Button size="sm" variant="outline" onClick={() => { setErrorsOpen(true); loadErrors(); }}>
           <AlertTriangle className="w-3.5 h-3.5" /> 错误通道
         </Button>
+        <Button size="sm" variant="outline" onClick={() => { setPromptSymsOpen(true); void loadPromptSymbols(); }}>
+          <FileText className="w-3.5 h-3.5" /> 提示词符号
+        </Button>
         <Button size="sm" onClick={loadAll} disabled={loadingAll}>
           {loadingAll ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />} 全部加载
         </Button>
@@ -432,6 +495,14 @@ export function PluginsPanel() {
                 <Eye className="w-3.5 h-3.5" />
               </button>
 
+              {p.loaded && (
+                <button onClick={() => void runSelfCheck(p)} disabled={busyId === p.id}
+                  className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer shrink-0"
+                  title="自检（调用该插件的 <id>_doctor 能力；没有则如实提示）">
+                  {busyId === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
+                </button>
+              )}
+
               <button onClick={() => removePlugin(p)} disabled={busyId === p.id}
                 className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors cursor-pointer shrink-0"
                 title="删除插件（从插件目录移除）">
@@ -503,6 +574,15 @@ export function PluginsPanel() {
         </Modal>
       )}
 
+      {selfCheck && (
+        <Modal onClose={() => setSelfCheck(null)} title={`插件自检 · ${selfCheck.id}`}
+          icon={<Activity className="w-4 h-4 text-primary" />}>
+          <pre className="text-caption whitespace-pre-wrap break-words text-on-surface-variant font-mono">
+            {selfCheck.text}
+          </pre>
+        </Modal>
+      )}
+
       {healthOpen && (
         <Modal onClose={() => setHealthOpen(false)} title="插件健康详情" maxWidth="max-w-2xl"
           icon={<Activity className="w-4 h-4 text-primary" />}>
@@ -549,6 +629,66 @@ export function PluginsPanel() {
                 </p>
               )}
             </div>
+          )}
+        </Modal>
+      )}
+
+      {promptSymsOpen && (
+        <Modal onClose={() => setPromptSymsOpen(false)} title="提示词符号与来源" maxWidth="max-w-2xl"
+          icon={<FileText className="w-4 h-4 text-primary" />}>
+          {promptSymsLoading ? (
+            <p className="text-caption text-on-surface-variant">加载中…</p>
+          ) : !promptSyms ? (
+            <p className="text-caption text-error">读取失败（后端可能未启动）</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-3 mb-3 font-mono text-caption text-on-surface-variant">
+                <span>常量 {promptSyms.constants.length}</span>
+                <span>builder {promptSyms.builders.length}</span>
+                <span>已接线 {[...promptSyms.constants, ...promptSyms.builders].filter((s) => s.wired).length}</span>
+                <span>被覆盖 {[...promptSyms.constants, ...promptSyms.builders].filter((s) => s.override).length}</span>
+              </div>
+              <p className="text-caption text-on-surface-variant/70 mb-3">
+                提示词默认值在 <code className="font-mono">clipwright/prompts.py</code>；插件可覆盖单个符号。
+                <b>“未接线”</b>表示该符号还没有消费方在运行时解析——覆盖了也不会生效。
+              </p>
+              {(['constants', 'builders'] as const).map((group) => (
+                <div key={group} className="mb-4">
+                  <p className="text-label-sm text-on-surface-variant mb-1.5">
+                    {group === 'constants' ? '常量' : 'builder'}
+                  </p>
+                  <div className="max-h-64 overflow-auto space-y-1">
+                    {promptSyms[group].map((s) => (
+                      <div key={s.name} className="flex items-start gap-2 text-caption">
+                        <span className={cn(
+                          'shrink-0 w-1.5 h-1.5 rounded-full mt-1.5',
+                          s.wired ? 'bg-track-audio' : 'bg-on-surface-variant/40',
+                        )} />
+                        <span className="font-mono text-on-surface break-all">{s.name}</span>
+                        {s.override && (
+                          <span className="shrink-0 px-1.5 rounded bg-primary-container text-on-primary-container font-mono">
+                            {s.override.plugin_id}
+                          </span>
+                        )}
+                        {!s.wired && (
+                          <span className="shrink-0 text-on-surface-variant/60">未接线</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {(promptSyms.errors?.length ?? 0) > 0 && (
+                <div className="mt-3 border-t border-outline-variant/30 pt-2">
+                  <p className="text-label-sm text-error mb-1">最近被拒绝的覆盖</p>
+                  {promptSyms.errors!.slice(-8).map((e, i) => (
+                    <p key={i} className="font-mono text-caption text-error/80 break-all">
+                      {e.plugin_id ? `[${e.plugin_id}] ` : ''}{asText(e.problem)}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </Modal>
       )}
@@ -679,7 +819,7 @@ function Modal({ title, icon, children, onClose, maxWidth = 'max-w-lg', headerEx
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-surface rounded-cw-xs border border-outline-variant/20 px-3 py-2">
-      <p className="font-mono text-title-sm text-on-surface">{value}</p>
+      <p className="font-mono text-title-sm text-on-surface">{asText(value)}</p>
       <p className="text-caption text-on-surface-variant">{label}</p>
     </div>
   );
@@ -719,3 +859,5 @@ function buildConfigYaml(fields: Record<string, PluginConfigField>): string | nu
   }
   return lines.join('\n');
 }
+
+
