@@ -203,27 +203,26 @@ J:\Clipwright
     - 宿主侧不要读插件内部 state 来判断步骤完成度；`stepDone.dub` 目前仍由 `audio`/`voicePick`
       （有插件值时以插件控件值为准）推导，最终要改成「由贡献值或能力可用性驱动」（PRD §15.9 #4）。
 
-26. **GenUI 渲染前必须再洗一遍；动作只能绑宿主回调**（2026-11-03）：
-    - 创意简报 / 规划书的 `genui` 是**只读展示 spec**（`version: 1` + 13 类组件白名单）。
-      渲染入口只有一处：`src/features/genui/GenUISpecRenderer.tsx`；挂载点是简报卡
-      （`AgentPanel` 的 `BriefCard`）与规划书卡（`PlanCard` 的 `data-testid="plan-genui"`）。
-      **不要**把 spec 塞进 `PluginLayoutRenderer`（那是插件静态表单，两套 schema 不能混）。
-    - **两道校验**：后端 `clipwright/schema/genui.py::sanitize_spec` 管写入；前端
-      `src/features/genui/validate.ts` 管渲染前（旧缓存 / 历史 session / 被改过的响应都不可信）。
-      改规则必须两边一起改，且 `src/features/genui/genui.test.tsx` 要跟着更。
-    - **没有 HTML**：不给 `dangerouslySetInnerHTML`、不执行模型给的 HTML/CSS/脚本、不放外链
-      图片/iframe；所有文本走 `asText`（不变量 #13 的同一条纪律）。首版不开放
-      `mermaid/echart/plot/scene3d/svg/image`。
-    - **动作三种都已实现**（2026-11-07 用户裁定）：`ask` → `sendChat(会话, payload.prompt)`；
-      `select` → 选项组按钮，点击发 `"选择：" + value`（**文案由宿主模板拼**，模型只能决定
-      "有哪些选项"，`payload.options` 两仓同规则校验：非空字符串、去重、截断、上限 6）；`confirm` →
-      卡片确认回调（按事件 `scope` 区分简报/规划书）+ **`window.confirm` 二次确认** + `busy` 不响应；
-      `scope` 缺失时忽略。**禁止**让 spec 自带 endpoint/URL/method。
-    - **白名单 ≠ 宿主支持**：`GENUI_ACTION_KINDS` 只保证老 spec 不被判非法；可点性由宿主传的
-      `supportedActions` 决定。审阅覆盖层（`ReviewPanel`）用 `hideActions` 不渲染动作按钮——
-      确认前最后一屏只保留一个确认按钮（C10）。
-    - 逐节点 `NodeBoundary` 容错：一个节点渲染失败只占一行占位，不让整张卡片白屏；
-      没有可用 spec 时整块不渲染（宿主显示原有字段/markdown）。
+26. **声明式展示 spec：前端只渲染，规则来自插件契约**（2026-11-08 能力迁移完成）：
+    - **契约不是前端常量**：运行期唯一来源是 `GET /api/plugin/contributions?kind=display_spec`
+      （`src/features/genui/contractSource.ts`，30s TTL + 复用 `onPluginSlotsInvalidated` 失效广播）。
+      拿不到契约 → `validateGenUISpec(raw, null)` 返回 `spec: null` → **整块不渲染**（不猜白名单）。
+      `MAX_*` / `GENUI_*` 常量只作"前端已实现原语"的闭包，供 CI 断言"契约 ⊆ 已实现"，
+      **不再当校验规则**。
+    - **字段是 `display_specs`**（`spec_id -> spec`）：`DisplaySpecsBlock` 解析容器（老键 `genui`
+      回退兼容）→ 逐条取契约 → 渲染；挂载点是简报卡 / 规划书卡 / 审阅覆盖层，`data-testid`
+      保持 `brief-genui` / `plan-genui`。**新 `spec_id` 不需要改前端**。
+    - **契约声明但前端未实现的原语** → 占位文本 `（前端暂不支持的组件：x）`，兄弟节点保留；
+      新原语必须发前端版本（改 `types.ts`/`validate.ts`/`GenUISpecRenderer.tsx` 并走安全评审：
+      无 HTML/脚本/外链）。
+    - **动作三种**：`ask`→`sendChat(prompt)`；`select`→选项组，点击发 `"选择："+value`（文案宿主拼）；
+      `confirm`→卡片确认回调（按事件 `scope`）+ **`window.confirm` 二次确认** + `busy` 不响应；
+      `scope` 缺失时忽略。**禁止** spec 自带 endpoint/URL/method。
+    - **审阅覆盖层**用 `hideActions` 不渲染动作按钮——确认前最后一屏只保留一个确认按钮（C10）。
+    - **双道闸**：后端 `services/display_spec/sanitizer.py`（契约驱动）与前端 `validate.ts`
+      规则同源；改契约必须同时改插件 `contract.json`，前端副本只做对账（`display_spec_contract_sync`）。
+    - 详见 [docs/genui.md](docs/genui.md)（当前态）与
+      [docs/genui-plugin-migration-prd-2026-11-07.md](docs/genui-plugin-migration-prd-2026-11-07.md)。
 
 ## 鉴权三模式
 
