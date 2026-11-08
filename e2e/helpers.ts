@@ -277,6 +277,19 @@ export async function mockBackendApi(page: Page): Promise<void> {
       // 需求会话初始化：返回固定 session_id，供后续 chat/edit 使用
       return route.fulfill({ json: { session_id: 'sess-e2e', status: 'gathering' } });
     }
+    // 2026-11 起 sendChat 先走 SSE（`chat/stream/{sid}`），一次性 chat 只是兜底；
+    // e2e mock 必须给 SSE，否则前端拿不到 result，只剩错误态。
+    if (url.includes('/api/requirements/chat/stream/')) {
+      const frames = [
+        { type: 'status', data: 'gathering' },
+        { type: 'result', data: { reply: '（E2E mock）已收到你的需求。', status: 'gathering' } },
+      ];
+      return route.fulfill({
+        status: 200,
+        headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache' },
+        body: frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join(''),
+      });
+    }
     if (route.request().method() === 'POST' && /\/api\/requirements\/chat(\?|$)/.test(url)) {
       return route.fulfill({ json: { reply: '（E2E mock）已收到你的需求。', status: 'gathering' } });
     }
@@ -296,6 +309,11 @@ export async function mockBackendApi(page: Page): Promise<void> {
           },
         },
       });
+    }
+    if (url.includes('/media-tree')) {
+      // 工作区目录树（素材面板的数据源）：mock 成空树，避免组件拿到 [] 后
+      // `Object.keys(tree.kinds)` 抛 "Cannot convert undefined or null to object"。
+      return route.fulfill({ json: { root: '', count: 0, kinds: {}, dirs: [] } });
     }
     if (route.request().method() === 'GET' && url.includes('/api/asset/by-path')) {
       // by-path 媒体代理：返回 1x1 PNG 占位
