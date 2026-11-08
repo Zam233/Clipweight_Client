@@ -97,7 +97,9 @@ export function WorkspaceMediaTree({ search = '' }: { search?: string }) {
     }
   };
 
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [projectId]);
+  // 只随 projectId 重取：load 的身份每次渲染都会变，进依赖会自激
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, [projectId]);
 
   const kw = search.trim().toLowerCase();
   const dirs = useMemo(() => {
