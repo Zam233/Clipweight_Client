@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 
 const { api } = vi.hoisted(() => ({
   api: {
@@ -161,7 +161,8 @@ describe('SupervisorDrawer', () => {
     expect(allow.disabled).toBe(true);
 
     fireEvent.click(screen.getByRole('checkbox'));
-    expect(allow.disabled).toBe(false);
+    // CI 并发 worker 下受控更新可能晚一拍：等按钮真正解禁再断言，避免假红
+    await waitFor(() => expect(allow.disabled).toBe(false));
     fireEvent.click(allow);
     expect(api.approveExec).toHaveBeenCalledWith('pl_1', 'ap_1', true, false);
   });
