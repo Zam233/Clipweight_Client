@@ -16,15 +16,13 @@ import {
 } from '@/services/api';
 import { WorkspaceMaterialsPanel } from '@/features/workspace/WorkspaceMaterialsPanel';
 import type { VoiceRecord } from '@/types/voice';
-import { accountApi } from '@/services/api/account';
-import { useAuthStore } from '@/stores/authStore';
 import { Button, Badge } from '@/components/ui';
 import {
   Film, Settings, ArrowRight, Plus, Bot, ListChecks,
   PenLine, PackageCheck, Clock, Layers, Wand2, Mic,
   Upload, X, Check, Loader2, AudioLines,
-  Scissors, FileText, FolderOpen, Clapperboard, Store, LayoutTemplate,
-  Home, Shapes, User, Puzzle, Sparkles, Coins, Zap, LogOut, LogIn,
+  Scissors, FileText, FolderOpen, Clapperboard, LayoutTemplate,
+  Home, Shapes, User, Puzzle, Sparkles,
   Server, ChevronRight,
 } from 'lucide-react';
 import { ProjectCard, type ProjectCardData } from '@/components/shared/ProjectCard';
@@ -113,21 +111,6 @@ export function HomePage() {
 
   // 图一：左侧导航 tab
   const [activeTab, setActiveTab] = useState<HomeTab>('home');
-  // CREADIT：用户余额 + 本次创作预估
-  const authUser = useAuthStore((s) => s.user);
-  const accessToken = useAuthStore((s) => s.accessToken);
-  const [credit, setCredit] = useState<number | null>(null);
-  const [creditEstimate, setCreditEstimate] = useState<number | null>(null);
-
-  // 加载 CREADIT 余额（登录态）
-  useEffect(() => {
-    if (!accessToken) return;
-    let alive = true;
-    accountApi.creditBalance(accessToken)
-      .then((r) => { if (alive) setCredit(r.credit); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [accessToken]);
 
   const [guardNotice, setGuardNotice] = useState<string | null>(null);
   // 组件级健康：一次轮询同时给出连接状态与各组件状态（避免两个轮询器）。
@@ -401,23 +384,6 @@ export function HomePage() {
     workspace: true,
   };
 
-  // 图一：每次表单变化时重新预估 CREADIT 消耗（登录态）
-  useEffect(() => {
-    if (!accessToken) return;
-    let alive = true;
-    const timer = setTimeout(() => {
-      accountApi.creditEstimate({
-        pipeline: true,
-        dry_run: dryRun,
-        voice: mode === 'voiceover' && (!!audio || !!voicePick),
-        asset_count: selectedSources.length > 0 ? 1 : 0,
-      }, accessToken)
-        .then((r) => { if (alive) setCreditEstimate(r.total); })
-        .catch(() => {});
-    }, 500);
-    return () => { alive = false; clearTimeout(timer); };
-  }, [accessToken, dryRun, mode, audio, selectedSources]);
-
   // G6: 一键填入预判推荐（类型插件 / 时长）。仅映射已知插件；时长覆盖当前估算（无真实音频时）。
   const applyPrediction = () => {
     if (!prediction) return;
@@ -678,22 +644,10 @@ export function HomePage() {
       <Backdrop />
 
       <div className="relative z-10 flex min-h-full">
-        {/* ── 图一：左侧栏（用户卡片 + 导航） ── */}
+        {/* ── 图一：左侧栏（品牌 + 导航） ── */}
         <HomeSidebar
           activeTab={activeTab}
           onTab={setActiveTab}
-          credit={credit}
-          user={authUser}
-          onTopup={async () => {
-            try {
-              const r = await accountApi.creditTopup(100, accessToken ?? undefined);
-              setCredit(r.credit);
-              toast('CREADIT +100（测试充值）');
-            } catch {
-              toast('充值失败：Server 不可达', 'error');
-            }
-          }}
-          estimate={creditEstimate}
         />
 
         <main className="flex-1 min-w-0 w-full px-8 pb-10">
@@ -744,12 +698,6 @@ export function HomePage() {
                   className="text-on-surface-variant hover:text-primary">
                   <LayoutTemplate className="w-4 h-4" /> 从模板开始
                 </Button>
-                {credit !== null && (
-                  <span className="ml-auto flex items-center gap-1.5 font-mono text-caption text-on-surface-variant bg-surface-container border border-outline-variant/30 rounded-cw-full px-3 py-1.5">
-                    <Coins className="w-3.5 h-3.5 text-track-text" />
-                    本次预估消耗 {creditEstimate ?? '—'} CREADIT
-                  </span>
-                )}
               </div>
 
               {/* 最近项目（图一：缩略卡片横向） */}
@@ -821,9 +769,6 @@ export function HomePage() {
                     与「设置 → 插件管理」同一套能力：启停、配置、UI 预览、错误通道、健康与贡献。
                   </p>
                 </div>
-                <Button size="sm" variant="outline" onClick={() => navigate({ to: '/market' })}>
-                  <Store className="w-3.5 h-3.5" /> 插件市场
-                </Button>
               </div>
               <PluginsPanel />
             </section>
@@ -1574,20 +1519,12 @@ export function HomePage() {
   );
 }
 
-/* ── 图一：左侧栏（用户卡片 + 导航）───────────────────── */
-function HomeSidebar({ activeTab, onTab, credit, user, onTopup, estimate }: {
+/* ── 图一：左侧栏（品牌 + 导航）───────────────────────── */
+function HomeSidebar({ activeTab, onTab }: {
   activeTab: HomeTab;
   onTab: (t: HomeTab) => void;
-  credit: number | null;
-  user: { display_name?: string; user_id?: string; email?: string } | null;
-  onTopup: () => void;
-  estimate: number | null;
 }) {
   const navigate = useNavigate();
-  // 拆分成 primitive selector，避免返回新对象引用导致无限重渲染
-  const authUser = useAuthStore((s) => s.user);
-  const authToken = useAuthStore((s) => s.accessToken);
-  const authLogout = useAuthStore((s) => s.logout);
 
   // D-3a：插件主导航项
   const pluginNav = usePluginSlots('nav.primary');
@@ -1611,48 +1548,6 @@ function HomeSidebar({ activeTab, onTab, credit, user, onTopup, estimate }: {
           <p className="text-title-sm font-bold text-on-surface tracking-wide">帧艺</p>
           <p className="font-mono text-caption text-on-surface-variant tracking-[0.2em]">CLIPWRIGHT</p>
         </div>
-      </div>
-
-      {/* 用户信息卡片（图一：昵称 / ID / CREADIT） */}
-      <div className="mx-4 mb-5 bg-surface-container border border-outline-variant/30 rounded-cw-md p-3.5">
-        <div className="flex items-center gap-2.5">
-          <span className="w-10 h-10 rounded-cw-full bg-primary-container flex items-center justify-center shrink-0 ring-1 ring-on-primary-container/20">
-            <User className="w-5 h-5 text-on-primary-container" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-body-sm font-semibold text-on-surface truncate">
-              {authUser?.display_name || user?.display_name || '未登录'}
-            </p>
-            <p className="font-mono text-caption text-on-surface-variant/70 truncate">
-              {authUser?.user_id ? `ID ${authUser.user_id.slice(0, 8)}` : 'ID ———'}
-            </p>
-          </div>
-        </div>
-        <div className="mt-2.5 pt-2.5 border-t border-outline-variant/20 flex items-center justify-between">
-          <span className="flex items-center gap-1.5 text-label-sm text-on-surface-variant">
-            <Coins className="w-3.5 h-3.5 text-track-text" />
-            CREADIT
-          </span>
-          <span className="font-mono text-body-sm font-bold text-track-text">
-            {credit ?? '—'}
-          </span>
-        </div>
-        {authToken && (
-          <button
-            onClick={onTopup}
-            className="mt-2 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-cw-xs
-              bg-track-text/10 border border-track-text/30 text-track-text text-label-sm
-              hover:bg-track-text/20 transition-colors cursor-pointer"
-            title="测试充值 +100"
-          >
-            <Zap className="w-3 h-3" /> 充值 +100（测试）
-          </button>
-        )}
-        {estimate !== null && credit !== null && (
-          <p className="mt-2 text-caption font-mono text-on-surface-variant/70">
-            本次预估 <b className="text-on-surface">{estimate}</b> CREADIT
-          </p>
-        )}
       </div>
 
       {/* 导航（图一：首页/类型/人格/插件/设置）——点击直接切换右侧内容区 */}
@@ -1691,38 +1586,14 @@ function HomeSidebar({ activeTab, onTab, credit, user, onTopup, estimate }: {
         })}
       </nav>
 
-      {/* 底部：账号操作 + 其他入口 */}
+      {/* 底部：其他入口 */}
       <div className="px-3 pb-5 pt-3 space-y-1 border-t border-outline-variant/20">
-        {authToken ? (
-          <button
-            onClick={async () => { await authLogout(); navigate({ to: '/' }); }}
-            className="w-full flex items-center gap-2.5 px-3.5 py-2 rounded-cw-sm text-label-sm text-on-surface-variant
-              hover:text-error hover:bg-error/5 transition-colors cursor-pointer"
-          >
-            <LogOut className="w-4 h-4" /> 退出登录
-          </button>
-        ) : (
-          <button
-            onClick={() => navigate({ to: '/login' })}
-            className="w-full flex items-center gap-2.5 px-3.5 py-2 rounded-cw-sm text-label-sm text-on-surface-variant
-              hover:text-primary hover:bg-primary/5 transition-colors cursor-pointer"
-          >
-            <LogIn className="w-4 h-4" /> 登录 / 注册
-          </button>
-        )}
         <button
           onClick={() => navigate({ to: '/projects' })}
           className="w-full flex items-center gap-2.5 px-3.5 py-2 rounded-cw-sm text-label-sm text-on-surface-variant
             hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
         >
           <FolderOpen className="w-4 h-4" /> 我的项目
-        </button>
-        <button
-          onClick={() => navigate({ to: '/market' })}
-          className="w-full flex items-center gap-2.5 px-3.5 py-2 rounded-cw-sm text-label-sm text-on-surface-variant
-            hover:text-on-surface hover:bg-surface-container transition-colors cursor-pointer"
-        >
-          <Store className="w-4 h-4" /> 市场
         </button>
         <button
           onClick={() => navigate({ to: '/voice' })}

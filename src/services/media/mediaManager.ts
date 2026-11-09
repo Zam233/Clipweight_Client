@@ -7,14 +7,14 @@
  */
 
 import type { Timeline, Clip } from '@/types/timeline';
-import { session } from '@/services/api/session';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 /**
  * V5: <video>/<img> 无法携带 Authorization 头——by-path 代理 URL 附带
  * query token（后端中间件已兼容并在日志前抹除；无 token 时原样返回）。
  */
 export function withMediaToken(url: string): string {
-  const token = session.token;
+  const token = useSettingsStore.getState().authToken;
   if (!token || !url.includes('/api/asset/')) return url;
   return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
 }
@@ -581,10 +581,9 @@ class MediaManager {
       if (!this.audioCtx) {
         this.audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
       }
-      // P0-10/P3-3B: 波形提取走裸 fetch——补 Authorization 头（动态导入避免 node 测试环境加载 DOM 依赖的 store）
+      // P0-10: 波形提取走裸 fetch——补 Authorization 头（动态导入避免 node 测试环境加载 DOM 依赖的 store）
       const { useSettingsStore } = await import('@/stores/settingsStore');
-      const { session } = await import('@/services/api/session');
-      const token = useSettingsStore.getState().authToken || session.token;
+      const token = useSettingsStore.getState().authToken;
       const resp = await fetch(e.url, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });

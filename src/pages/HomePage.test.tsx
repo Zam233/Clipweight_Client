@@ -75,20 +75,6 @@ vi.mock('@/services/api/typeMaker', () => ({
   typeMakerApi: { list: mocks.typeMakerList },
 }));
 
-vi.mock('@/services/api/account', () => ({
-  accountApi: {
-    creditBalance: vi.fn(async () => ({ credit: 10, recent: [] })),
-    creditEstimate: vi.fn(async () => ({ total: 15, balance: 10, affordable: false, items: [], rates: {} })),
-    creditTopup: vi.fn(async () => ({ credit: 110, topup: 100 })),
-    creditCharge: vi.fn(async () => ({ credit: 0, charged: 0 })),
-  },
-}));
-
-vi.mock('@/stores/authStore', () => ({
-  useAuthStore: (sel?: (s: unknown) => unknown) =>
-    sel ? sel({ user: null, accessToken: null, logout: vi.fn() }) : { user: null, accessToken: null, logout: vi.fn() },
-}));
-
 vi.mock('./useBackendHealth', async () => {
   // 保留真实实现里的纯函数（组件 chip 构造/配色），只把轮询换成可控桩：
   // 这样断言的是"后端字段怎么被展示"，而不是把映射逻辑在测试里重写一遍。
@@ -286,10 +272,10 @@ describe('图一：左侧导航切换右侧内容区', () => {
     }
   });
 
-  it('链路入口齐全：我的项目 / 市场 / 音色库（对比老首页 TopBar）', async () => {
+  it('链路入口齐全：我的项目 / 音色库；市场入口已随账号系统剥离', async () => {
     render(<HomePage />);
     expect(await screen.findByRole('button', { name: /我的项目/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /市场/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /市场/ })).toBeNull();
     expect(screen.getByRole('button', { name: /音色库/ })).toBeTruthy();
   });
 

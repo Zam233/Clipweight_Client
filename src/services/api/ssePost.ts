@@ -1,6 +1,5 @@
 import { getApiClient } from './client';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { session } from './session';
 
 /**
  * POST 版 SSE 读取器。
@@ -28,7 +27,7 @@ export async function streamPostSse(
   options: PostSseOptions,
 ): Promise<void> {
   const base = getApiClient().defaults.baseURL || '';
-  const token = useSettingsStore.getState().authToken || session.token;
+  const token = useSettingsStore.getState().authToken;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 300_000);
   const onAbort = () => controller.abort();

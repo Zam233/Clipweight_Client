@@ -1,7 +1,6 @@
 import axios from 'axios';
 import type { AxiosInstance } from 'axios';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { session } from './session';
 
 let client: AxiosInstance | null = null;
 
@@ -19,9 +18,9 @@ export function getApiClient(): AxiosInstance {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    // Request interceptor: attach auth token（P3-3B: 本地令牌优先，其次账号会话令牌）
+    // Request interceptor: attach 本地 API 令牌（设置页配置；账号系统已剥离）
     instance.interceptors.request.use((config) => {
-      const token = useSettingsStore.getState().authToken || session.token;
+      const token = useSettingsStore.getState().authToken;
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -32,31 +31,9 @@ export function getApiClient(): AxiosInstance {
     instance.interceptors.response.use(
       (res) => res,
       (err) => {
-        // P2-23: 401 后先静默续期，成功则重放原请求（仅一次，__retried401 防循环）；
-        // 续期失败才广播 cw:unauthorized。返回 promise 保持原调用链的 resolve/reject。
-        if (err.response?.status === 401 && !err.config?.__retried401) {
-          return (async () => {
-            const { useAuthStore } = await import('@/stores/authStore');
-            let refreshed = false;
-            try {
-              refreshed = await useAuthStore.getState().refresh();
-            } catch {
-              refreshed = false; // 续期请求自身失败（网络/离线）视作未续期
-            }
-            if (refreshed && err.config) {
-              err.config.__retried401 = true;
-              return instance.request(err.config);
-            }
-            console.warn('[API] Unauthorized (401) — 登录已失效，请重新登录');
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(
-                new CustomEvent('cw:unauthorized', {
-                  detail: { status: 401, url: err.config?.url },
-                }),
-              );
-            }
-            throw err;
-          })();
+        // 401：本地令牌错误或后端已配置 CLIPWRIGHT_API_TOKEN——没有账号可续期，直接告知用户
+        if (err.response?.status === 401) {
+          console.warn('[API] Unauthorized (401) — 请检查设置中的 API 令牌');
         }
         if (err.response?.status === 503) {
           console.warn('[API] Service busy, retry later');

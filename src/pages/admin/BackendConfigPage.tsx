@@ -18,7 +18,7 @@ import { Loader2, RefreshCw, RotateCcw, Save, Search, KeyRound } from 'lucide-re
 const INPUT_MIN_W = 'min-w-[220px]';
 
 /** 修改 api_token / jwt 密钥后当前会话可能立即 401 */
-const SESSION_SENSITIVE = new Set(['api_token', 'account_jwt_secret', 'account_verify_mode']);
+const SESSION_SENSITIVE = new Set(['api_token', 'local_secret']);
 
 function RestartBadge() {
   return (
@@ -117,7 +117,7 @@ export function BackendConfigPage() {
       const touchSensitive = Object.keys(payload).some((k) => SESSION_SENSITIVE.has(k));
       toast(`已保存 ${res.applied.length} 项、清除 ${res.cleared.length} 项配置`, 'success');
       for (const w of res.warnings) toast(w, 'info');
-      if (touchSensitive) toast('API 令牌/鉴权配置已变更：当前会话可能需要重新登录', 'info');
+      if (touchSensitive) toast('鉴权配置已变更：如已启用 API 令牌，请同步更新设置中的本地令牌', 'info');
       void load();
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: string } } }).response?.data?.detail;
