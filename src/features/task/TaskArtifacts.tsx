@@ -16,6 +16,7 @@ import { FolderOpen, Film } from 'lucide-react';
 import { handleArtifactClick } from '@/features/copilot/artifactOpen';
 
 import { Button } from '@/components/ui';
+import { artifactsApi, type ArtifactItem } from '@/services/api/artifacts';
 import { taskApi } from '@/services/api/task';
 
 import { durationText } from './labels';
@@ -32,6 +33,14 @@ interface ResultSnapshot {
   clips: number;
   duration_sec: number;
   output_path: string;
+  project_id?: string;
+}
+
+function formatSize(size: number): string {
+  if (!Number.isFinite(size) || size <= 0) return '';
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
 /**
@@ -48,6 +57,8 @@ export function TaskArtifacts({ taskId, enabled = true }: Props) {
   const [snap, setSnap] = useState<ResultSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [artifacts, setArtifacts] = useState<ArtifactItem[]>([]);
+  const [artifactError, setArtifactError] = useState('');
   const [checking, setChecking] = useState(0);
   const [manualTick, setManualTick] = useState(0);
 
@@ -89,6 +100,31 @@ export function TaskArtifacts({ taskId, enabled = true }: Props) {
       if (timer) clearTimeout(timer);
     };
   }, [taskId, enabled, manualTick]);
+
+  // 通用产物列表：与视频类型/插件无关，按 MIME 决定展示方式
+  const projectId = snap?.project_id || '';
+  useEffect(() => {
+    if (!enabled || !projectId) {
+      setArtifacts([]);
+      return;
+    }
+    let cancelled = false;
+    setArtifactError('');
+    artifactsApi
+      .list(projectId, { taskId })
+      .then((res) => {
+        if (!cancelled) setArtifacts(Array.isArray(res.items) ? res.items : []);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+          setArtifactError(detail || (e instanceof Error ? e.message : String(e)));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, projectId, taskId]);
 
   if (!enabled || !snap) return null;
 
@@ -153,6 +189,50 @@ export function TaskArtifacts({ taskId, enabled = true }: Props) {
           </button>
         </div>
       )}
+      {artifacts.length > 0 && (
+        <ul className="space-y-2" data-testid="artifact-list">
+          {artifacts.map((item) => {
+            const url = projectId
+              ? artifactsApi.rawUrl(item.plugin_id, item.artifact_id, projectId)
+              : '';
+            return (
+              <li key={item.artifact_id} className="rounded-cw-sm border border-outline-variant/30 p-2">
+                <div className="flex items-center gap-2 text-caption text-on-surface-variant">
+                  <span className="font-medium text-on-surface">{item.role || '产物'}</span>
+                  <span>{item.mime}</span>
+                  <span>{formatSize(item.size)}</span>
+                  {item.status !== 'ready' && <span className="text-error">{item.status}</span>}
+                </div>
+                {item.mime.startsWith('video/') && url ? (
+                  <video
+                    data-testid={`artifact-video-${item.artifact_id}`}
+                    className="mt-1 w-full rounded-cw-xs"
+                    controls
+                    preload="metadata"
+                    src={url}
+                  />
+                ) : item.mime.startsWith('image/') && url ? (
+                  <img
+                    className="mt-1 max-h-48 w-auto rounded-cw-xs"
+                    src={url}
+                    alt={item.role || item.artifact_id}
+                  />
+                ) : url ? (
+                  <a
+                    className="mt-1 inline-block text-caption underline decoration-dotted"
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    打开 / 下载
+                  </a>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {artifactError && <p className="text-caption text-error">{artifactError}</p>}
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={() => void openInEditor()} disabled={busy || !snap.has_timeline}>
           <FolderOpen className="w-3.5 h-3.5 mr-1" /> 在编辑器中打开
