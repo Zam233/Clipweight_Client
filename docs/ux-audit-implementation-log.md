@@ -11,7 +11,7 @@
 | 后端仓库 / 分支 | `J:\Clipwright` / `feat/zam_remove_account_system`（**只读复核**；另有他人未提交改动） |
 | 基线验证 | `npx tsc --noEmit` 通过；`npm run test` → 140 文件 / 1224 passed / 5 skipped（2026-11-11 开工前） |
 | 当前验证 | 前端 `npx tsc --noEmit` 通过；`npm run test` → **153 文件 / 1334 passed / 5 skipped**；`npm run build` 成功。后端定向 pytest → **113 passed**；`import clipwright.main` exit 0 |
-| 提交状态 | 前端 `fix/zam_ux_and_debug` 已推送到 origin（12 次提交）；后端 `feat/zam_remove_account_system` 已推送（4 次提交 + 标签 v20261112）；两仓工作树干净 |
+| 提交状态 | 前端 `fix/zam_ux_and_debug` 已推送（累计 16 次提交，含第八轮 P3）；后端 `feat/zam_remove_account_system` 已推送（累计 5 次提交，含第八轮 BE-09）；两仓工作树干净 |
 | 工作树 | 两仓均有大量未提交改动（前端为 P2-xx 批次、后端为账号剥离批次）。**不清理、不暂存、不提交**；每包只做最小插入式 edit |
 | 沙箱 | 会话初期 Windows 沙箱 esbuild spawn EPERM；后切 danger-full-access，测试可运行 |
 
