@@ -133,6 +133,12 @@
   - **复现属实**：`pipeline_budget_usd` 为空串/非数字时，旧实现原样透传 pydantic `float` → `TaskLimits` 构造即抛 `ValidationError`（实测 `''` 与 `'abc'` 都 RAISES）——任务 create 阶段 500。
   - **修复**：`limits_from_settings` 对预算值先做 `float()` 转换 + NaN/Inf 检查；无效值按「未配置」处理（None）并留 warning。五种形态验证：`''`/`'abc'`→None（留痕）、`None`→None、`'2.5'`→2.5、`3`→3.0。
   - 回归：新增 6 例参数化用例（3 非法 + 3 合法透传）→ 审计测试 21 passed；后端 8 文件 **80 passed**（含 `test_budget.py`）。
+- W01 后端受限代理（第十五轮，跨仓契约落地）：
+  - **后端**：`api/plugin.py` 新增 `POST /api/plugin/proxy/{plugin_id}/{method}`——服务端按 `_PLUGIN_PROXY_ALLOWED`（plugin → method:action → 目标端点）做最终裁定；plugin 必须已发现**且启用**（禁用即 403）；请求体只含 `{action, payload}`（无 path/endpoint 字段，插件不能自报目标）；目标端点由服务端映射，只放行 `/api/tool/execute`（POST:tool）与 `/api/render/browser[/install]`（探针/安装）。普通宿主令牌不因代理放宽。
+  - **前端**：`pluginApiGuard` 新增 `toPluginProxyRequest()`（授权后改写为代理请求）；`PluginBundleFrame` 与 `usePluginShortcuts` 两个调用点改走代理（`client.post(proxy.url, proxy.body)`），快捷键无 `owner`（贡献归属）时默认拒绝。
+  - **测试**：后端 `test_plugin_proxy_2026_11_12.py` 7 例（禁用 403/未知 404/未授权 action 403/GET 打 POST-only 403/DELETE 405/清单无破坏性目标/请求体无 path 字段）；前端 `pluginApiGuard.test.ts` 13 例（代理改写、payload 无 endpoint、未登记端点无映射）、`PluginBundleFrame.test.tsx` 11 例（call 改写为代理、不直达宿主 API）、`usePluginShortcuts.audit.test.tsx` 5 例——**plugins 全目录 71 passed**。
+  - 回归：后端 6 文件 57+ passed；前端 154 文件 1339 passed（见验证行）。
+  - **状态更新：PL-01/02 由「仅前端收口」升级为「前端 + 服务端双侧落地」**。剩余注记：iframe 内脚本仍可直接 `fetch('/api/...')` 借宿主 cookie（若部署用 cookie 鉴权）；本地令牌模式下 iframe 无凭据，代理即唯一通道——当前部署形态下该风险已封闭。
 - KK-09 收口期 repeat-fail 误判 capped（第十一轮）：
   - **核实属实**：`_classify_gate` 的 `in_closeout` 分支排在行为性失败之后，但 agent_loop 的 raise 文案是"同一工具连续失败 3 次"——**不含**"熔断"关键字，repeat-fail 分支匹配不到 → 收口期落进 `in_closeout` 判成 `capped`、blocker 错标 `budget_exhausted`。
   - **修复**：`_classify_gate` 先判行为性失败（匹配词扩为 `"重复动作熔断" or "连续失败"` / `"没有新进展"`），再判收口封顶；正常收口窗口用尽仍是 capped（`test_closeout_window_still_capped` 守护）。
