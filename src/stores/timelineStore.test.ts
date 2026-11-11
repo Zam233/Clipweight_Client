@@ -120,6 +120,29 @@ describe('timelineStore', () => {
     expect(lockedClips[0].start_sec).toBeCloseTo(5, 5); // 保持原位
   });
 
+  /**
+   * TL-06 验收第二句（PRD §5C）：「窗口内未删片段有明确处理」。
+   * 跨轨删除组的波纹窗口可能覆盖**其它轨**未删片段——当前口径（PRD 未裁定期）：
+   * 窗口内非删除组片段保持原位（不裁切不移动），只有窗口**之后**的片段统一左移。
+   * 这里固定该行为，产品若改口径再更新。
+   */
+  it('TL-06: 波纹窗口内的未删片段保持原位（明确口径）', () => {
+    const vid = useTimelineStore.getState().addTrack('video');
+    const aud = useTimelineStore.getState().addTrack('audio');
+    useTimelineStore.getState().addClip(vid, { kind: 'video', start_sec: 0, duration_sec: 5 });
+    useTimelineStore.getState().addClip(vid, { kind: 'video', start_sec: 5, duration_sec: 5 });
+    // 音频轨有一个片段横跨删除窗口 [0,5)
+    useTimelineStore.getState().addClip(aud, { kind: 'audio', start_sec: 3, duration_sec: 4 });
+    const before = useTimelineStore.getState().timeline;
+    const videoFirst = before.tracks.find((t) => t.id === vid)!.clips[0];
+    useTimelineStore.getState().rippleDelete(videoFirst.id);
+    const audioClips = useTimelineStore.getState().timeline.tracks.find((t) => t.id === aud)!.clips;
+    // 横跨窗口的片段保持原位（未被吞掉、未被移动）
+    expect(audioClips).toHaveLength(1);
+    expect(audioClips[0].start_sec).toBeCloseTo(3, 5);
+    expect(audioClips[0].duration_sec).toBeCloseTo(4, 5);
+  });
+
   it('ripple insert shifts later clips right', () => {
     const tid = useTimelineStore.getState().addTrack('video');
     useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 5, duration_sec: 5 });
@@ -645,6 +668,41 @@ describe('timelineStore C3 (嵌套序列)', () => {
     const starts = clips.map((c) => c.start_sec).sort((a, b) => a - b);
     expect(starts[0]).toBeCloseTo(2, 5);
     expect(starts[1]).toBeCloseTo(6, 5);
+  });
+
+  /**
+   * TL-07（PRD §5C P2）：跨类型（视频+音频）嵌套序列展开后必须回到**各自类型
+   * 的轨道**——旧实现全部平铺到父轨单轨，视频/音频混轨、同轨重叠。
+   */
+  it('TL-07: 跨类型嵌套展开回到各自轨道，不混轨不重叠', () => {
+    const vid = useTimelineStore.getState().addTrack('video', 'V1');
+    const aud = useTimelineStore.getState().addTrack('audio', 'A1');
+    const v = useTimelineStore.getState().addClip(vid, { kind: 'video', start_sec: 0, duration_sec: 4 });
+    const a = useTimelineStore.getState().addClip(aud, { kind: 'audio', start_sec: 2, duration_sec: 3 });
+
+    const nestId = useTimelineStore.getState().createNestedSequence([v, a])!;
+    expect(nestId).toBeTruthy();
+    useTimelineStore.getState().expandNestedSequence(nestId);
+
+    const st = useTimelineStore.getState();
+    const videoTrack = st.timeline.tracks.find((t) => t.kind === 'video')!;
+    const audioTrack = st.timeline.tracks.find((t) => t.kind === 'audio')!;
+    // 视频轨只有视频片段、音频轨只有音频片段（不混轨）
+    expect(videoTrack.clips.every((c) => c.kind === 'video')).toBe(true);
+    expect(audioTrack.clips.every((c) => c.kind === 'audio')).toBe(true);
+    expect(videoTrack.clips).toHaveLength(1);
+    expect(audioTrack.clips).toHaveLength(1);
+    // 位置正确（父起点 0 + 相对时间）
+    expect(videoTrack.clips[0].start_sec).toBeCloseTo(0, 5);
+    expect(audioTrack.clips[0].start_sec).toBeCloseTo(2, 5);
+    // 同轨内无重叠
+    for (const t of st.timeline.tracks) {
+      const sorted = [...t.clips].sort((x, y) => x.start_sec - y.start_sec);
+      for (let i = 1; i < sorted.length; i += 1) {
+        expect(sorted[i].start_sec).toBeGreaterThanOrEqual(
+          sorted[i - 1].start_sec + sorted[i - 1].duration_sec - 1e-9);
+      }
+    }
   });
 });
 
