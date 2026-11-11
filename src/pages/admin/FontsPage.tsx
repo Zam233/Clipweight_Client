@@ -3,6 +3,7 @@ import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
 import { fontApi } from '@/services/api';
 import { Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { Check } from 'lucide-react';
 
 interface FontItem {
@@ -24,6 +25,8 @@ export function FontsPage() {
   const [sample, setSample] = useState(SAMPLES[0]);
   const [size, setSize] = useState(28);
   const [defaultFont, setDefaultFont] = useState<string | null>(null);
+  const [demo, setDemo] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -32,7 +35,16 @@ export function FontsPage() {
         const res = await fontApi.list();
         if (alive) setFonts(normalize(res.fonts));
       } catch {
-        if (alive) setFonts(DEMO_FONTS);
+        if (!alive) return;
+        // P2-20：演示数据必须受 allowDemoFallback 门控并可见标注，
+        // 旧实现无条件塞 DEMO_FONTS，用户分不清真实字体与占位数据。
+        if (useSettingsStore.getState().allowDemoFallback) {
+          setFonts(DEMO_FONTS);
+          setDemo(true);
+        } else {
+          setFonts([]);
+          setLoadError('字体列表加载失败（后端不可达）；可在设置里开启演示回退。');
+        }
       } finally {
         if (alive) setLoading(false);
       }
@@ -61,6 +73,16 @@ export function FontsPage() {
       </div>
 
       {/* specimen list */}
+      {demo && (
+        <div className="mb-3 max-w-[820px] bg-warning/10 border border-warning/30 rounded-cw-sm px-3.5 py-2 text-label-sm text-warning">
+          以下是演示字体清单（后端不可达），可在设置中关闭演示回退。
+        </div>
+      )}
+      {loadError && (
+        <div className="mb-3 max-w-[820px] bg-error/10 border border-error/30 rounded-cw-sm px-3.5 py-2 text-label-sm text-error">
+          {loadError}
+        </div>
+      )}
       <div className="space-y-3 max-w-[820px]">
         {loading ? (
           Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 bg-surface-container rounded-cw-md animate-pulse" />)

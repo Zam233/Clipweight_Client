@@ -38,7 +38,13 @@ export function ModelsPage() {
       const { data } = await getApiClient().get('/api/test/config');
       setConfig(data);
     } catch {
-      setConfig({ note: '后端离线 — 以下为演示配置', llm: 'qwen-max', embed: 'bge-m3', rerank: 'bge-reranker' });
+      // PL-12（审计 PRD §5D P3）：旧实现离线时塞入 qwen-max/bge-m3 等**假的**
+      // 演示配置，与真实配置混在一起，用户会以为这些模型已经配好。
+      // 现在只说明"读不到"，不伪造任何模型名。
+      setConfig({
+        note: '后端离线 — 无法读取当前配置（以下不是你已配置的模型）',
+        offline: true,
+      });
     }
   };
 

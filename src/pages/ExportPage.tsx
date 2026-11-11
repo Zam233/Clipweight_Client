@@ -303,7 +303,7 @@ export function ExportPage() {
     } catch (e) {
       // 批C：区分 HTTP 错误与网络离线——旧实现把 400（如未知预设）伪装成
       // "后端离线"并跑假进度到 100%
-      const anyE = e as { code?: string; response?: { status?: number; data?: { detail?: string } } };
+      const anyE = e as { code?: string; userMessage?: string; response?: { status?: number; data?: { detail?: unknown } } };
       const isNetwork = anyE?.code === 'ERR_NETWORK' || anyE?.code === 'ECONNABORTED';
       if (isNetwork) {
         toast('后端离线，无法真实渲染，已进入演示模式', 'error');
@@ -321,8 +321,10 @@ export function ExportPage() {
             .map((it) => `${(it.loc ?? []).filter((x) => x !== 'body').join('.')}: ${it.msg ?? '无效'}`)
             .join('；');
         }
-        const userMessage = (e as { userMessage?: string }).userMessage;
-        const shown = userMessage || detail;
+        const userMessage = anyE.userMessage;
+        // 字段级 detail 优先：client 拦截器把 422 归一成 userMessage 时只留第一条 msg，
+        // 会丢掉字段路径和前 3 条错误（旧实现 `userMessage || detail` 永远走不到 detail）
+        const shown = detail || userMessage;
         updateQueue(taskId, { status: 'failed', detail: shown || '提交失败' });
         toast(shown || '渲染提交失败', 'error');
       }

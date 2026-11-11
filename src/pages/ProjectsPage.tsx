@@ -47,6 +47,7 @@ export function ProjectsPage() {
           duration: fmtDur(pr.duration_sec ?? 0),
           tracks: pr.track_count ?? 0,
           edited: relTime(pr.updated_at),
+          updatedAt: pr.updated_at,
           grad: GRADIENTS[i % GRADIENTS.length],
           featured: i === 0,
           folder: pr.folder,
@@ -71,6 +72,7 @@ export function ProjectsPage() {
           duration: fmtDur(pr.duration_sec ?? 0),
           tracks: pr.track_count ?? 0,
           edited: relTime(pr.updated_at),
+          updatedAt: pr.updated_at,
           grad: GRADIENTS[i % GRADIENTS.length],
           featured: i === 0,
           folder: pr.folder,
@@ -121,13 +123,13 @@ export function ProjectsPage() {
     if (sortBy === 'name') {
       arr.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
     } else {
-      // 待验证项证实：ISO 字符串排序碰巧等同时间序，但空值/非法值会乱序——
-      // 改为按解析时间戳降序，无法解析的排最后
+      // 排序必须用原始 ISO 时间戳：`edited` 是本地化相对文案（「3 分钟前」/「2026/9/10」），
+      // Date.parse 对前者是 NaN、对后者能得到大数，会把一周前的项目排到最前。
       const t = (v: unknown) => {
         const n = Date.parse(String(v ?? ''));
         return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY;
       };
-      arr.sort((a, b) => t(b.edited) - t(a.edited));
+      arr.sort((a, b) => t(b.updatedAt) - t(a.updatedAt));
     }
     return arr;
   }, [projects, selectedFolder, selectedTag, search, sortBy]);

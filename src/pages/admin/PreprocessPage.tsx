@@ -4,6 +4,7 @@ import { preprocessApi } from '@/services/api';
 import type { PreprocessTask } from '@/services/api/preprocess';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { useSettingsStore } from '@/stores/settingsStore';
 import {
   ChevronDown,
   ChevronRight,
@@ -52,8 +53,11 @@ const STATUS_META: Record<PreprocessTask['status'], { label: string; badge: 'suc
  * 覆盖后端 /api/preprocess/* 全流程（含 DELETE 取消，仅限 queued）。
  */
 export function PreprocessPage() {
-  const [operations, setOperations] = useState<string[]>(DEMO_OPERATIONS);
-  const [descriptions, setDescriptions] = useState<Record<string, string>>(DEMO_DESCRIPTIONS);
+  // P2-20：演示操作清单必须"按需 + 有标记"——旧实现直接以 DEMO_OPERATIONS 初始化，
+  // 后端在线时也像是真实能力表，用户无从分辨。
+  const [operations, setOperations] = useState<string[]>([]);
+  const [descriptions, setDescriptions] = useState<Record<string, string>>({});
+  const [demoOperations, setDemoOperations] = useState(false);
   const [online, setOnline] = useState<boolean | null>(null);
 
   const [queue, setQueue] = useState<PreprocessTask[]>([]);
@@ -79,7 +83,13 @@ export function PreprocessPage() {
         setOnline(true);
       })
       .catch(() => {
-        if (alive) setOnline(false);
+        if (!alive) return;
+        setOnline(false);
+        if (useSettingsStore.getState().allowDemoFallback) {
+          setOperations(DEMO_OPERATIONS);
+          setDescriptions(DEMO_DESCRIPTIONS);
+          setDemoOperations(true);
+        }
       });
     return () => {
       alive = false;
@@ -194,7 +204,11 @@ export function PreprocessPage() {
       {online === false && (
         <div className="mb-5 max-w-[900px] flex items-center gap-3 bg-error/10 border border-error/30 rounded-cw-md px-4 py-2.5">
           <XCircle className="w-4 h-4 text-error shrink-0" />
-          <span className="text-body-sm text-error">后端离线 —— 当前展示兜底操作列表，队列为空。启动引擎后可进行真实往返。</span>
+          <span className="text-body-sm text-error">
+            后端离线 —— {demoOperations
+              ? '当前展示演示操作列表（非真实能力表），队列为空。'
+              : '未加载到操作列表（演示回退已关闭），队列为空。'}启动引擎后可进行真实往返。
+          </span>
         </div>
       )}
 
