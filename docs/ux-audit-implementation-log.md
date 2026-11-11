@@ -116,6 +116,10 @@
   - **F-11**：`loop` 档位 `disabled` 并注明「暂未支持」。
   - **F-12**：`dataMode` 初值改 `'live'`（首屏不再闪「演示数据」）；页脚去掉 `v0.1.0 · Phase 5`。
   - 红→绿：`HomePage.test.tsx` 新增 4 例（F-08 摘要、F-04 配音态、F-03 过期预判丢弃、F-12 不闪演示数据）→ 24 passed（+`splitScript` 8 = 32）。
+- M-09 mediaManager 两项（第九轮）：
+  - **AudioContext 生命周期**：`clear()`（项目切换/编辑器卸载）时 `audioCtx.close()` 并清空 `analyser`——旧实现只建不关，反复切换项目累积解码资源。`sourceNodes` 是 WeakMap（以媒体元素为键），元素随 entry 释放后由 GC 回收，无需手动清。下次 `attachAnalyser` 时 `ensureAudioCtx` 懒重建。
+  - **crossOrigin 条件化**：新增 `applyCrossOrigin(el, url)`——只有**真跨源**（http(s) 且非当前 origin）才设 `anonymous`；同源代理（/api/asset/by-path 等）与 blob: URL 不再设，避免后端无 ACAO 头时媒体请求直接失败、封面永远空。五处赋值点（registerFile/RegisterUrl 三类/缩略图 video）统一走它。
+  - 红→绿：`mediaManager.test.ts` 的 crossOrigin 用例按新契约改写（跨源仍设、blob 不设）→ 27 passed。
 - F-13 / M-09 / BE-09（第八轮，P3 收尾）：
   - **F-13**：`HomePage` 的 `RulerStrip` 死组件（无引用，注释自认已被 HomeSidebar 替代）删除。
   - **M-09**：①`WorkspaceMediaTree` 目录行计数改为过滤后 `d.files.length`（旧 `d.count` 与搜索结果不符）；②`AssetPanel` 的 `asset.filename/kind`、`r.title/source/reason` 过 `asText`；③`PluginPanel` 插件 tab 改为**只挂载激活 tab**（旧实现全部 tab 立即请求 UI），tab key 从派生前缀改为 pluginId；④`assetStore.searchQuery` 确认死字段——移除 `setSearchQuery`，字段留占位注释。
@@ -188,7 +192,7 @@ PRD 全量仍未关闭。以下按优先级列出本轮**未做**的编号，建
 | 优先级 | 编号 | 说明 |
 |---|---|---|
 | P2 | TL-06/07/08、P-02～P-09 | 波纹删除跨轨、嵌套序列、trim 钳制、预览单击/双击语义与性能（**需产品口径**，见 coding plan §1） |
-| P3 | BE-09 部分未做（Mongo 静默失效、sys.path 只加不除、preset 字段重复）；M-09 的 mediaManager AudioContext/crossOrigin 两项 | 结构性或需独立回归包，留待后续 |
+| P3 | BE-09 结构性三项（Mongo 静默失效、sys.path 只加不除、preset 字段重复）；M-09 的扫描 SSE 关流一项 | 结构性，留待后续 |
 | 待复核 | E-05/E-06 | **E-06 已逐项核实并处理**（见下方记录）；E-05 维持「低优先级观察」——唯一中断路径已有 cancelInFlight 挽救逻辑与恢复流程，等用户实测再上移连接所有权 |
 
 **W01 的跨仓尾巴**：前端已默认拒绝任意插件 API 调用，但后端「插件专用受限代理 + 服务端权限裁定」尚未实现。在此之前该项只能算「前端收口」，不能宣称 PRD 的 PL-01/PL-02 已完全关闭。
