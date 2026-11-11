@@ -10,6 +10,11 @@ interface AssetState {
   searchResults: MaterialSearchResult[];
   history: Asset[];
   isLoading: boolean;
+  /**
+   * M-09（PRD §5B P3）：搜索词已在 AssetPanel 改为本地 useState（面板独占），
+   * 这个 store 字段无任何读写方（死字段）。字段保留占位以免破坏类型引用，
+   * `setSearchQuery` 已随本次清理移除。
+   */
   searchQuery: string;
   /**
    * M-05（PRD §5B P2）：上传进度既可能是百分比（0–100），也可能是逐文件文本
@@ -25,7 +30,6 @@ interface AssetState {
   setSearchResults: (results: MaterialSearchResult[]) => void;
   addToHistory: (asset: Asset) => void;
   setLoading: (loading: boolean) => void;
-  setSearchQuery: (query: string) => void;
   setUploadProgress: (progress: number | string | null) => void;
   clearAssets: () => void;
 }
@@ -54,7 +58,6 @@ export const useAssetStore = create<AssetState>((set) => ({
     }),
 
   setLoading: (loading) => set({ isLoading: loading }),
-  setSearchQuery: (query) => set({ searchQuery: query }),
   setUploadProgress: (progress) => set({ uploadProgress: progress }),
   clearAssets: () => set((s) => ({ assets: [], searchResults: [], isLoading: false, uploadProgress: null, refreshCounter: s.refreshCounter + 1 })),
 }));
