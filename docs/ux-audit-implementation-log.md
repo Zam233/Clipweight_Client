@@ -10,7 +10,8 @@
 | 前端仓库 / 分支 | `J:\Clipweight-Client` / `fix/zam_ux_and_debug` |
 | 后端仓库 / 分支 | `J:\Clipwright` / `feat/zam_remove_account_system`（**只读复核**；另有他人未提交改动） |
 | 基线验证 | `npx tsc --noEmit` 通过；`npm run test` → 140 文件 / 1224 passed / 5 skipped（2026-11-11 开工前） |
-| 当前验证 | 前端 `npx tsc --noEmit` 通过；`npm run test` → **153 文件 / 1334 passed / 5 skipped**；`npm run build` 成功。后端定向 pytest → **94 passed**；`import clipwright.main` exit 0 |
+| 当前验证 | 前端 `npx tsc --noEmit` 通过；`npm run test` → **153 文件 / 1334 passed / 5 skipped**；`npm run build` 成功。后端定向 pytest → **113 passed**；`import clipwright.main` exit 0 |
+| 提交状态 | 前端 `fix/zam_ux_and_debug` 已推送到 origin（12 次提交）；后端 `feat/zam_remove_account_system` 已推送（4 次提交 + 标签 v20261112）；两仓工作树干净 |
 | 工作树 | 两仓均有大量未提交改动（前端为 P2-xx 批次、后端为账号剥离批次）。**不清理、不暂存、不提交**；每包只做最小插入式 edit |
 | 沙箱 | 会话初期 Windows 沙箱 esbuild spawn EPERM；后切 danger-full-access，测试可运行 |
 
@@ -115,6 +116,13 @@
   - **F-11**：`loop` 档位 `disabled` 并注明「暂未支持」。
   - **F-12**：`dataMode` 初值改 `'live'`（首屏不再闪「演示数据」）；页脚去掉 `v0.1.0 · Phase 5`。
   - 红→绿：`HomePage.test.tsx` 新增 4 例（F-08 摘要、F-04 配音态、F-03 过期预判丢弃、F-12 不闪演示数据）→ 24 passed（+`splitScript` 8 = 32）。
+- F-13 / M-09 / BE-09（第八轮，P3 收尾）：
+  - **F-13**：`HomePage` 的 `RulerStrip` 死组件（无引用，注释自认已被 HomeSidebar 替代）删除。
+  - **M-09**：①`WorkspaceMediaTree` 目录行计数改为过滤后 `d.files.length`（旧 `d.count` 与搜索结果不符）；②`AssetPanel` 的 `asset.filename/kind`、`r.title/source/reason` 过 `asText`；③`PluginPanel` 插件 tab 改为**只挂载激活 tab**（旧实现全部 tab 立即请求 UI），tab key 从派生前缀改为 pluginId；④`assetStore.searchQuery` 确认死字段——移除 `setSearchQuery`，字段留占位注释。
+  - **M-09 未做**：`mediaManager` AudioContext 关闭与 crossOrigin 项（涉及解码池/预览回归，需独立包验证）；`WorkspaceMaterialsPanel` 扫描 SSE 关流（当前卸载才关，属可接受行为，改动需重新验证事件不丢）。
+  - **BE-09**：①`/render/thumbnail` 的 `time_sec` 加范围校验（数字、非 NaN/Inf、钳 [0,36000]，旧实现任意值拼进 ffmpeg 命令行）；②`project.py` 的 `get_thumbnail` 同步 ffmpeg 挪到 `asyncio.to_thread`（不再阻塞事件循环）；③`workspace.py` 事件 SSE 每轮 `request.is_disconnected()` 提前退出（旧实现断开后永远空转写 keep-alive）。
+  - **BE-09 未做**：Mongo 挂掉静默失效、插件 sys.path 只加不除、preset 字段重复声明（结构性，留待后续）。
+  - 回归：后端 7 个文件 **70 passed**；前端 tsc/全量/build 见下方验证行。
 - KK-09 死代码与内存泄漏（第七轮续，用户要求 commit 前收尾）：
   - 全仓核对：`_finish` **零调用**（死代码），docstring 里混入代码文本（`self._reset_task_state(task.id)（M3 后不再按 steps…`）且不写 terminal_reason → 整体删除。
   - `_reset_task_state` 此前同样零调用（`_PROGRESS`/`_REPEAT_FAILS` 按 task_id 只进不出，长驻进程泄漏）→ 接入 `_record_task_metrics`（所有终态路径的唯一汇合点）。
@@ -180,7 +188,7 @@ PRD 全量仍未关闭。以下按优先级列出本轮**未做**的编号，建
 | 优先级 | 编号 | 说明 |
 |---|---|---|
 | P2 | TL-06/07/08、P-02～P-09 | 波纹删除跨轨、嵌套序列、trim 钳制、预览单击/双击语义与性能（**需产品口径**，见 coding plan §1） |
-| P3 | F-13、M-09、BE-09、KK-09 **死代码已清**（`_finish` 删除、`_reset_task_state` 接入 `_record_task_metrics` 终态路径）；KK-09 其余（ok 路径收口报告、terminal_reason 形态统一、capped-vs-blocked、limits_from_settings 待复现）留待后续 |
+| P3 | BE-09 部分未做（Mongo 静默失效、sys.path 只加不除、preset 字段重复）；M-09 的 mediaManager AudioContext/crossOrigin 两项 | 结构性或需独立回归包，留待后续 |
 | 待复核 | E-05/E-06 | **E-06 已逐项核实并处理**（见下方记录）；E-05 维持「低优先级观察」——唯一中断路径已有 cancelInFlight 挽救逻辑与恢复流程，等用户实测再上移连接所有权 |
 
 **W01 的跨仓尾巴**：前端已默认拒绝任意插件 API 调用，但后端「插件专用受限代理 + 服务端权限裁定」尚未实现。在此之前该项只能算「前端收口」，不能宣称 PRD 的 PL-01/PL-02 已完全关闭。
