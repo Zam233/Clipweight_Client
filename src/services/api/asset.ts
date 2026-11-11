@@ -1,5 +1,6 @@
 import { getApiClient } from './client';
 import { apiBase } from './sse';
+import { asText } from '@/lib/render';
 import type {
   Asset,
   AssetUploadResponse,
@@ -22,6 +23,8 @@ export interface MaterialAsset {
   source: string;
   metadata: Record<string, unknown>;
   created_at?: string;
+  /** M-01：素材描述（后端可能为 null/对象，归一化后恒为字符串） */
+  detail?: string;
 }
 
 /** Transform backend asset shape (asset_id/media_type/file_path) to frontend Asset type */
@@ -43,6 +46,57 @@ function mapAsset(raw: Record<string, unknown>): Asset {
     thumbnail_url: thumbnailUrl,
     tags: (Array.isArray(raw.tags) ? raw.tags : []) as string[],
     created_at: (raw.created_at as string) || new Date().toISOString(),
+  };
+}
+
+/**
+ * M-01（PRD §5B）：素材详情接口此前零校验直接返回，脏数据（tags 非数组 /
+ * metadata 非对象 / detail 为 null）会让详情弹窗白屏。这里把响应归一化为
+ * 安全形状：tags 一律字符串数组、metadata 一律普通对象、detail 一律字符串。
+ * 不丢原始信息（对象转 JSON 文本），只在形状非法时给安全缺省。
+ */
+export function normalizeMaterialAsset(raw: unknown): MaterialAsset {
+  const obj = raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {};
+  const tags: string[] = Array.isArray(obj.tags)
+    ? obj.tags
+      .map((t) => {
+        if (typeof t === 'string') return t;
+        if (t && typeof t === 'object') {
+          const rec = t as Record<string, unknown>;
+          const preferred = rec.name ?? rec.label ?? rec.title ?? rec.text;
+          return typeof preferred === 'string' ? preferred : '';
+        }
+        return typeof t === 'number' ? String(t) : '';
+      })
+      .filter((t) => t !== '')
+    : [];
+  const metadata: Record<string, unknown> =
+    obj.metadata && typeof obj.metadata === 'object' && !Array.isArray(obj.metadata)
+      ? (obj.metadata as Record<string, unknown>)
+      : {};
+  const detail = typeof obj.detail === 'string'
+    ? obj.detail
+    : (obj.detail == null ? '' : asText(obj.detail));
+  const text = (v: unknown): string => (typeof v === 'string' ? v : asText(v));
+  return {
+    id: text(obj.id),
+    title: text(obj.title),
+    type: (typeof obj.type === 'string' ? obj.type : 'image') as MaterialAsset['type'],
+    url: text(obj.url) || undefined,
+    local_path: text(obj.local_path) || undefined,
+    thumbnail_url: text(obj.thumbnail_url) || undefined,
+    tags,
+    duration_sec: typeof obj.duration_sec === 'number' && isFinite(obj.duration_sec)
+      ? obj.duration_sec : undefined,
+    file_size_bytes: typeof obj.file_size_bytes === 'number' && isFinite(obj.file_size_bytes)
+      ? obj.file_size_bytes : undefined,
+    resolution: text(obj.resolution) || undefined,
+    source: text(obj.source),
+    metadata,
+    created_at: text(obj.created_at) || undefined,
+    detail,
   };
 }
 
@@ -126,9 +180,16 @@ export const assetApi = {
 
   /** Search materials (semantic) */
   async searchMaterials(request: MaterialSearchRequest): Promise<MaterialSearchResult[]> {
-    const params: Record<string, string> = { query: request.query };
-    if (request.limit) params.top_k = String(request.limit);
-    if (request.source) params.sources = Array.isArray(request.source) ? request.source.join(',') : request.source;
+    // P1-09：多素材源必须用 repeated query（sources=a&sources=b）。旧实现 join(',')
+    // 被 Starlette 解析成单个 ["a,b"]，registry 按 id 过滤后恒为空（静默 0 条）。
+    const params = new URLSearchParams({ query: request.query });
+    if (request.limit) params.set('top_k', String(request.limit));
+    if (request.source) {
+      const list = Array.isArray(request.source) ? request.source : [request.source];
+      for (const s of list) {
+        if (s) params.append('sources', s);
+      }
+    }
     const { data } = await getApiClient().post('/api/material/search', null, { params });
     if (!Array.isArray(data)) return [];
     // Backend nests fields under `asset`; flatten to the frontend shape
@@ -156,6 +217,7 @@ export const assetApi = {
   /** Get a single material asset detail by source + asset id */
   async getMaterialAsset(sourceId: string, assetId: string): Promise<MaterialAsset> {
     const { data } = await getApiClient().get(`/api/material/asset/${sourceId}/${assetId}`);
-    return data;
+    // M-01：详情进入 UI 前先归一化，脏形状不白屏（null 也返回安全缺省对象）。
+    return normalizeMaterialAsset(data);
   },
 };

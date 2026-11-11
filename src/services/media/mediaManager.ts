@@ -463,6 +463,64 @@ class MediaManager {
     return v;
   }
 
+  /**
+   * P-01（审计 PRD §3 P1）：seek 并**等待新帧就绪**，供「导出当前帧」这类
+   * 必须与监视器严格一致的一次性快照使用。
+   *
+   * 旧实现导出时同步 `drawClipToPreview` → 内部 seekVideo 后立刻 drawImage，
+   * 而 seek 是异步的，画出来的是**上一帧**（PNG 与看到的画面不一致）。
+   * 返回 false 表示超时/媒体缺失——调用方应提示而不是导出占位图。
+   */
+  async seekVideoAndWait(
+    assetId: string, timeSec: number, timeoutMs = 1500,
+  ): Promise<boolean> {
+    const e = this.entries.get(assetId);
+    if (!e?.videoEl) return false;
+    const v = e.videoEl;
+    const target = Math.max(0, Math.min(timeSec, (e.durationSec || timeSec) - 0.01));
+    if (Math.abs(v.currentTime - target) <= 0.03 && v.readyState >= 2) return true;
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        v.removeEventListener('seeked', onSeeked);
+        v.removeEventListener('error', onError);
+        resolve(ok);
+      };
+      const onSeeked = () => finish(v.readyState >= 2);
+      const onError = () => finish(false);
+      v.addEventListener('seeked', onSeeked, { once: true });
+      v.addEventListener('error', onError, { once: true });
+      try {
+        v.currentTime = target;
+      } catch {
+        finish(false);
+        return;
+      }
+      setTimeout(() => finish(false), timeoutMs);
+    });
+  }
+
+  /** 当前时间点需要先 seek 的所有视频片段（导出快照前批量等待）。 */
+  async prepareFrameAt(
+    clips: Array<{ asset_id?: string; start_sec: number; duration_sec: number; speed?: number; source_offset_sec?: number }>,
+    timeSec: number,
+  ): Promise<{ ready: boolean; missing: string[] }> {
+    const missing: string[] = [];
+    for (const c of clips) {
+      const id = c.asset_id;
+      if (!id) continue;
+      const t = timeSec - c.start_sec;
+      if (t < 0 || t >= c.duration_sec) continue;
+      const speed = c.speed && c.speed > 0 ? c.speed : 1;
+      const sourceT = t * speed + (c.source_offset_sec || 0);
+      const ok = await this.seekVideoAndWait(id, sourceT);
+      if (!ok) missing.push(id);
+    }
+    return { ready: missing.length === 0, missing };
+  }
+
   /** Capture a thumbnail frame as a dataURL (cached per time bucket). */
   async captureThumbnail(assetId: string, timeSec = 0.1, width = 160): Promise<string | null> {
     const e = this.entries.get(assetId);

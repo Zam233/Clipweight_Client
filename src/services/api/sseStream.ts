@@ -78,8 +78,14 @@ export function connectSseStream(opts: SseStreamOptions): SseStreamHandle {
       es = null;
     },
     reconnect: () => {
+      // E-06 线索 5（复核确认，PRD §5A）：旧实现只重置计数就 `open()`，
+      // 旧 EventSource 与重连定时器都还在 → 双连接（同一条流收两份事件，
+      // onMessage 被调两次）。先复用 close() 的清理路径再重建。
       retries = 0;
       closed = false;
+      if (timer) { clearTimeout(timer); timer = null; }
+      es?.close();
+      es = null;
       void open();
     },
   };

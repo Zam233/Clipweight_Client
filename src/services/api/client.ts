@@ -31,22 +31,45 @@ export function getApiClient(): AxiosInstance {
     instance.interceptors.response.use(
       (res) => res,
       (err) => {
-        // 401：本地令牌错误或后端已配置 CLIPWRIGHT_API_TOKEN——没有账号可续期，直接告知用户
+        // 401/503：以前只在 console.warn，用户完全看不到。统一挂 userMessage，
+        // 由调用方 toast/错误区显示；保留 console.warn 供排障，不泄漏令牌值。
         if (err.response?.status === 401) {
           console.warn('[API] Unauthorized (401) — 请检查设置中的 API 令牌');
+          (err as { userMessage?: string }).userMessage =
+            '未授权（401）：请检查「设置 → 后端连接」中的 API 令牌是否与后端一致';
         }
         if (err.response?.status === 503) {
           console.warn('[API] Service busy, retry later');
+          (err as { userMessage?: string }).userMessage =
+            '服务暂时不可用（503），请稍后重试';
         }
-        // 422：FastAPI 校验错误，detail 可能是字符串或 [{loc, msg, type}] 数组——归一化为 userMessage
+        // 422：FastAPI 校验错误，detail 可能是字符串或 [{loc, msg, type}] 数组。
+        // PL-08：旧实现只取 detail[0].msg，丢掉字段路径与其它错误。现在逐条拼
+        // `loc.msg`（最多 3 条），并把完整结构化条目挂到 errorDetails 供页面展开。
         if (err.response?.status === 422) {
           const detail = (err.response.data as { detail?: unknown } | undefined)?.detail;
           let friendly: string | null = null;
           if (typeof detail === 'string') {
             friendly = detail;
           } else if (Array.isArray(detail) && detail.length > 0) {
-            const first = detail[0] as { msg?: unknown } | undefined;
-            if (typeof first?.msg === 'string') friendly = first.msg;
+            const entries = detail.map((raw) => {
+              const item = (raw && typeof raw === 'object' ? raw : {}) as {
+                loc?: unknown; msg?: unknown; type?: unknown;
+              };
+              const loc = Array.isArray(item.loc)
+                ? item.loc.filter((p): p is string => typeof p === 'string')
+                : [];
+              return {
+                loc,
+                msg: typeof item.msg === 'string' ? item.msg : String(item.msg ?? '校验失败'),
+              };
+            });
+            (err as { errorDetails?: unknown }).errorDetails = entries;
+            friendly = entries.slice(0, 3)
+              .map((e) => (e.loc.length ? `${e.loc.join('.')}: ${e.msg}` : e.msg))
+              .join('；') || '请求参数校验失败（422）';
+          } else if (detail !== undefined && detail !== null) {
+            friendly = '请求参数校验失败（422）';
           }
           if (friendly) (err as { userMessage?: string }).userMessage = friendly;
         }
