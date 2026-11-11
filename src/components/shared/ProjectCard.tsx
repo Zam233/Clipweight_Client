@@ -10,6 +10,8 @@ export interface ProjectCardData {
   duration: string;
   tracks: number;
   edited: string;
+  /** 原始 ISO 时间戳——排序必须用它，不能解析 `edited` 的本地化文案 */
+  updatedAt?: string;
   grad: [string, string];
   featured?: boolean;
   folder?: string;
