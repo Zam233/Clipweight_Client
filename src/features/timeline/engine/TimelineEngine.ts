@@ -78,7 +78,8 @@ export class TimelineEngine {
     this.bindPointerEvents();
     this.bindWheelEvent();
     this.bindResizeObserver();
-    this.loop();
+    // TL-13：初始渲染一帧后即挂起（无 dirty 不再 60fps 空转）
+    this.requestRender();
   }
 
   // ── lifecycle ────────────────────────────────────────
@@ -100,6 +101,7 @@ export class TimelineEngine {
 
   requestRender() {
     this.dirty = true;
+    this.ensureLoop();
   }
 
   /** Show drop feedback animation (green flash = placed, red shake = rejected) */
@@ -164,7 +166,11 @@ export class TimelineEngine {
   }
 
   // ── render loop ──────────────────────────────────────
+  // TL-13（PRD §5C P3）：空闲挂起 rAF。播放头/片段都是纯状态绘制（无扫光动画），
+  // 旧实现空闲也 60fps 调度 RAF（每次 render 前只做 clampScroll，白耗电）。
+  // dirty（store 变化/拖拽/反馈动画）时启动循环，连续 2 帧无变化即停。
   private loop = () => {
+    this.rafId = 0;
     if (this.disposed) return;
     // Always clamp scroll — keeps viewport valid after timeline changes (e.g., all clips deleted)
     this.clampScroll();
@@ -179,9 +185,18 @@ export class TimelineEngine {
         // log it and keep the loop alive so the next frame can recover.
         console.error('[TimelineEngine] render error:', err);
       }
+      // 有一帧渲染过 → 再排一帧（连续变化如拖拽/动画期间持续重绘）
+      this.rafId = requestAnimationFrame(this.loop);
     }
-    this.rafId = requestAnimationFrame(this.loop);
+    // dirty=false 时不重排：下一次 store 订阅/feedback 会调用 requestRender 重新启动
   };
+
+  /** TL-13：按需启动渲染循环（幂等——已有循环在跑就不重排）。 */
+  private ensureLoop(): void {
+    if (this.rafId === 0 && !this.disposed) {
+      this.rafId = requestAnimationFrame(this.loop);
+    }
+  }
 
   private render() {
     const { ctx, dpr } = this;

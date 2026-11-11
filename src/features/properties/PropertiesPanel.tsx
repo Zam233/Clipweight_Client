@@ -332,10 +332,28 @@ export function PropertiesPanel() {
             {/* Timing */}
             <Section title="时间">
               <Row label="起点 (s)">
-                <NumberInput value={round2(clip.start_sec)} onChange={(v) => { pushHistory(); set({ start_sec: Math.max(0, v) }); }} />
+                {/* TL-08（PRD §5C P2）：起点/时长走 store 的 trim 钳制（与画布拖拽
+                    同口径——不越过前邻结尾/下一片段起点），旧实现裸 set 可拖出单轨重叠。 */}
+                <NumberInput value={round2(clip.start_sec)} onChange={(v) => {
+                  pushHistory();
+                  const right = clip.start_sec + clip.duration_sec;
+                  useTimelineStore.getState().trimClipStart(clip.id, Math.max(0, v));
+                  const clamped = useTimelineStore.getState().getClip(clip.id);
+                  const newStart = clamped?.start_sec ?? Math.max(0, v);
+                  if (newStart !== clip.start_sec) {
+                    // 起点移动保持右端不动：时长 = 原右端 − 新起点
+                    useTimelineStore.getState().updateClip(clip.id, {
+                      duration_sec: Math.max(0.1, right - newStart),
+                    });
+                  }
+                }} />
               </Row>
               <Row label="时长 (s)">
-                <NumberInput value={round2(clip.duration_sec)} onChange={(v) => { pushHistory(); set({ duration_sec: Math.max(0.1, v) }); }} />
+                <NumberInput value={round2(clip.duration_sec)} onChange={(v) => {
+                  pushHistory();
+                  useTimelineStore.getState().trimClipEnd(
+                    clip.id, clip.start_sec + Math.max(0.1, v));
+                }} />
               </Row>
               <Row label="素材偏移 (s)">
                 <NumberInput value={round2(clip.source_offset_sec)} onChange={(v) => { pushHistory(); set({ source_offset_sec: Math.max(0, v) }); }} />
