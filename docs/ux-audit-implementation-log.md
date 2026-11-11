@@ -43,7 +43,7 @@
 | W11 | M-01～08 | 已验 | 主会话接手 | 归一化、asText 收口、reload 代际、目录树刷新、上传进度、AI 结果按 kind 入轨、配音空段守卫与重试；M-09 未做 |
 | W12 | PL-03/04/06/07/08/09/10 | 已验（子集） | 主会话 | 文本边界 + enable 以服务端为准 + 401/503/422 + provider 去硬编码 + 删除二次确认 + PluginsPanel 字段收口；PL-11/12 未做 |
 | W13 | BE-02/09 | 待办 | 后端待授权 | 后端 I/O |
-| W14 | P3/待验证收尾 | 待办 | — | 逐子项 |
+| W14 | P3/待验证收尾 | 已完成 | 主会话 | F-13/M-09/BE-09/KK-09 全部闭环（见下方逐轮记录）；E-05 维持观察 |
 
 ## 2. 编号 → 责任映射
 
@@ -133,6 +133,10 @@
   - **复现属实**：`pipeline_budget_usd` 为空串/非数字时，旧实现原样透传 pydantic `float` → `TaskLimits` 构造即抛 `ValidationError`（实测 `''` 与 `'abc'` 都 RAISES）——任务 create 阶段 500。
   - **修复**：`limits_from_settings` 对预算值先做 `float()` 转换 + NaN/Inf 检查；无效值按「未配置」处理（None）并留 warning。五种形态验证：`''`/`'abc'`→None（留痕）、`None`→None、`'2.5'`→2.5、`3`→3.0。
   - 回归：新增 6 例参数化用例（3 非法 + 3 合法透传）→ 审计测试 21 passed；后端 8 文件 **80 passed**（含 `test_budget.py`）。
+- KK-09 ok 路径收口报告（第十七轮，PRD 最后一个代码项）：
+  - **核实属实**：ok 路径（正常完成）此前不写 `reports/agent-closeout.json`，finish 的 completed/unfinished 恒空数组（或只含 degraded 标记）——续跑任务只能靠黑板/对话猜上一轮产物。
+  - **修复**：`_write_closeout_report` 增加 `terminal_reason` 参数（缺省 `'capped'`，旧调用点不变）；ok 路径 finish 前也落报告（terminal_reason=achieved 等），finish 的 completed/unfinished **与报告同源**（报告从黑板推导），degraded 标记仍追加。
+  - 红→绿：新增 2 例（achieved 报告落盘+路径回填+deliverable_status 置位、capped 缺省签名不变）→ 审计测试 23 passed；后端 10 文件 **113 passed**。
 - TL-06/07/08/13（第十六轮，预览/时间线最后一批）：
   - **TL-06**：核实跨轨联动与锁定轨不动**已被 P1-31 修复**（实现+测试均在）；本补齐验收第二句——新增"波纹窗口内未删片段保持原位"的行为固定用例（产品若改口径再更新）。
   - **TL-08**：属性面板起点/时长改走 `trimClipStart`/`trimClipEnd`（与画布拖拽同口径）；起点移动保持右端不动（时长=原右端−新起点），不再裸 `set` 拖出单轨重叠。
