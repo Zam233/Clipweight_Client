@@ -28,6 +28,7 @@ import { interpolateProperties } from '@/features/timeline/engine/easing';
 import { Maximize, Shield, Volume2, VolumeX, ZoomIn, ZoomOut, Camera, Repeat, Play, Pause, Gauge } from 'lucide-react';
 import { Tooltip, Slider } from '@/components/ui';
 import { applyMasterVolume } from './volume';
+import { toast } from '@/stores/toastStore';
 import { contentKey, getPreviewLayerCache, quantize, type Layer2DContext } from './layerCache';
 import { createFramePerf, previewPerf, type FramePerf } from './perf';
 import { PreviewPerfOverlay } from './PreviewPerfOverlay';
@@ -797,7 +798,7 @@ export function PreviewPanel() {
             </button>
           </Tooltip>
           <Tooltip content="导出当前帧 (PNG)">
-            <button onClick={() => {
+            <button onClick={() => { void (async () => {
               // V10: 离屏按时间线分辨率重渲当前帧——直接导出预览画布会带上
               // safe-area 叠层/窗口 DPR 缩放/黑边，与成片不一致
               const tl = useTimelineStore.getState().timeline;
@@ -805,6 +806,20 @@ export function PreviewPanel() {
               const t = tl.duration_sec > 0
                 ? Math.min(usePreviewStore.getState().currentTimeSec, tl.duration_sec - 0.001)
                 : 0;
+              // P-01：先等所有可见视频 seek 到目标时刻的新帧再合成，
+              // 否则导出的是上一帧（与监视器不一致）。
+              const visibleClips = orderTracksForComposite(tl.tracks)
+                .filter((track) => !track.hidden)
+                .flatMap((track) => track.clips)
+                .filter((clip) => !clip.nested_timeline
+                  && clip.enabled !== false
+                  && t >= clip.start_sec && t < clip.start_sec + clip.duration_sec);
+              const prep = await mediaManager.prepareFrameAt(visibleClips, t);
+              if (!prep.ready) {
+                // 有素材没就绪：明确提示，不导出占位/旧帧（宁可不出也不给错图）
+                toast('部分素材尚未解码到该帧，请稍后重试或先播放一下', 'info');
+                return;
+              }
               const off = document.createElement('canvas');
               off.width = tl.width;
               off.height = tl.height;
@@ -829,7 +844,7 @@ export function PreviewPanel() {
               link.download = `frame_${Math.floor(usePreviewStore.getState().currentTimeSec * 1000)}.png`;
               link.href = off.toDataURL('image/png');
               link.click();
-            }}
+            })(); }}
               className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
               <Camera className="w-3.5 h-3.5" />
             </button>

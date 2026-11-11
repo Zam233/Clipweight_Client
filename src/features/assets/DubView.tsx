@@ -7,6 +7,7 @@ import { mediaManager } from '@/services/media/mediaManager';
 import { AudioPlayer } from '@/components/shared/AudioPlayer';
 import { Button } from '@/components/ui';
 import { uid } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import { VoicePage } from '@/pages/VoicePage';
 import type { VoiceRecord, VoiceDubSegment } from '@/types/voice';
 import { Mic, Plus, Loader2, Check, X } from 'lucide-react';
@@ -26,8 +27,22 @@ export function DubView() {
   const [dubTotal, setDubTotal] = useState(0);
   const [added, setAdded] = useState(false);
 
-  const refreshVoices = () => { voiceApi.list().then(setVoices).catch(() => {}); };
-  useEffect(() => { voiceApi.list().then(setVoices).catch(() => {}); }, []);
+  // M-08（PRD §5B P2）：音色列表加载失败此前 `.catch(() => {})` 静默吞掉，
+  // 用户只看到空下拉。现在记一个可重试的状态，并给「重试」入口。
+  const [voicesError, setVoicesError] = useState<string | null>(null);
+  const refreshVoices = () => {
+    setVoicesError(null);
+    voiceApi.list()
+      .then((list) => { setVoices(list); setVoicesError(null); })
+      .catch((e: unknown) => {
+        setVoicesError(e instanceof Error ? e.message : '音色列表加载失败');
+      });
+  };
+  useEffect(() => {
+    voiceApi.list().then(setVoices).catch((e: unknown) => {
+      setVoicesError(e instanceof Error ? e.message : '音色列表加载失败');
+    });
+  }, []);
 
   const handleConfirm = async () => {
     if (!voiceId) { setDubError('请先选择音色'); return; }
@@ -65,6 +80,13 @@ export function DubView() {
   };
 
   const handleAddToTimeline = () => {
+    // M-07（PRD §5B P2）：无可加段时提前返回——旧实现仍会 push 历史并建一条空音轨，
+    // 用户点了没反馈，时间线上多出一条永远没内容的轨道。
+    const segs = dubSegments.filter((s) => s.audio_url);
+    if (segs.length === 0) {
+      setDubError('没有可加入时间轴的配音段（请先完成一次配音）');
+      return;
+    }
     const store = useTimelineStore.getState();
     // 先快照历史（addTrack 之前），避免撤销后残留空轨道
     useHistoryStore.getState().pushState(store.timeline, 'add-dub');
@@ -76,8 +98,10 @@ export function DubView() {
     }
     if (!track) return;
     let atSec = track.clips.reduce((m, c) => Math.max(m, c.start_sec + c.duration_sec), 0);
-    const segs = dubSegments.filter((s) => s.audio_url);
-    const fallbackDur = segs.length ? dubTotal / segs.length : 3;
+    // M-07：时长口径与 projectStore.dubSegments 同源——那里缺省按段 3s 估算
+    // （见 handleConfirm 的 `s.duration_sec > 0 ? ... : 3`）。旧实现这里用
+    // `dubTotal / segs.length`，与写进 projectStore 的区间错位/重叠。
+    const fallbackDur = 3;
     for (const seg of segs) {
       const assetId = uid('dub');
       const url = voiceApi.getAudioUrl(seg.audio_url!);
@@ -111,7 +135,7 @@ export function DubView() {
           >
             <option value="">（请选择音色）</option>
             {voices.map((v) => (
-              <option key={v.id} value={v.id}>{v.voice_name} ({v.provider})</option>
+              <option key={v.id} value={v.id}>{asText(v.voice_name)} ({asText(v.provider)})</option>
             ))}
           </select>
           <button
@@ -124,6 +148,15 @@ export function DubView() {
             <Plus className="w-4 h-4" />
           </button>
         </div>
+        {voicesError && (
+          <p className="mt-1 text-caption text-error" data-testid="dub-voices-error">
+            音色列表加载失败：{voicesError}
+            <button type="button" onClick={refreshVoices}
+              className="ml-1.5 underline text-primary hover:no-underline cursor-pointer">
+              重试
+            </button>
+          </p>
+        )}
       </div>
 
       <div>
@@ -143,7 +176,16 @@ export function DubView() {
         {dubbing ? '配音中…' : '确认配音'}
       </Button>
 
-      {dubError && <p className="text-caption text-error">{dubError}</p>}
+      {dubError && (
+        <div className="space-y-1" data-testid="dub-error">
+          <p className="text-caption text-error">{dubError}</p>
+          {/* M-08：配音失败给可点重试（旧实现只有一行错误，用户得自己再点一次主按钮） */}
+          <button type="button" onClick={handleConfirm} disabled={dubbing || !voiceId}
+            className="text-caption text-primary underline hover:no-underline disabled:opacity-50 cursor-pointer">
+            重试配音
+          </button>
+        </div>
+      )}
 
       {dubAudioUrl && (
         <div className="space-y-2 border-t border-outline-variant/20 pt-3">

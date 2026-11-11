@@ -85,7 +85,13 @@ export function textLayout(
     if (align === 'left') x = opts.fw * 0.05;
     else if (align === 'right') x = opts.fw * 0.95;
   }
-  // P2-06: 堆叠偏移方向与后端 ASS 对齐——MarginV 增大即向上偏移，
-  // 旧实现 y+offsetY 向下，预览与成片方向相反
-  return { x, y: base.y - offsetY, align };
+  // P2-06: 堆叠偏移方向与后端一致（design.py `drawtext_position`）：
+  // bottom 锚点向上（h-text_h-20-offset）、top 锚点向下（20+offset）、
+  // center/left/right 不偏移。旧实现统一 y-offsetY，top/center 与成片相反。
+  let y = base.y;
+  if (offsetY > 0) {
+    if (pos.startsWith('bottom')) y = base.y - offsetY;
+    else if (pos === 'top') y = base.y + offsetY;
+  }
+  return { x, y, align };
 }

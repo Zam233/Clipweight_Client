@@ -7,6 +7,7 @@ import type { Timeline } from '@/types/timeline';
 import { useHistoryStore } from '@/stores/historyStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { formatTimeShort } from '@/lib/utils';
+import { useModalKeybindingGuard } from '@/features/keyboard/useModalKeybindingGuard';
 import { historyIconKey, historyLabel, relativeTime } from './labels';
 
 interface HistoryPanelProps {
@@ -55,6 +56,8 @@ export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
   const redoStack = useHistoryStore((s) => s.redoStack);
   const timeline = useTimelineStore((s) => s.timeline);
   const clear = useHistoryStore((s) => s.clear);
+  // P2-19：历史抽屉打开时停用单键快捷键
+  useModalKeybindingGuard(open);
 
   useEffect(() => {
     if (!open) return;

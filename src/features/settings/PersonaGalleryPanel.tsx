@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { personaApi } from '@/services/api';
 import { Button, Badge } from '@/components/ui';
 import type { Persona } from '@/types/persona';
+import { asText, textList } from '@/lib/render';
 import {
   Plus, Sparkles, MessageSquare, Layers, BookOpen,
   Timer, ChevronRight, Dna, Copy, Download, Upload,
@@ -237,7 +238,9 @@ const PersonaCard = memo(function PersonaCardImpl({ persona, onOpen, onDuplicate
   const rhythm = persona.parameter?.rhythm ?? {};
   const tone = identity.tone;
   const accent = TONE_COLORS[tone ?? ''] ?? '#4F8CFF';
-  const domains = identity.knowledge_domains ?? [];
+  // PL-11：知识域来自模型产物，运行时可能不是字符串数组——非数组按空处理，
+  // 元素对象取 name/label/title（textList），直进 JSX 会整卡片白屏。
+  const domains = textList(identity.knowledge_domains);
 
   // Build a small "rhythm fingerprint" bar series from cut density
   const densityMap: Record<string, number[]> = {
@@ -266,12 +269,12 @@ const PersonaCard = memo(function PersonaCardImpl({ persona, onOpen, onDuplicate
             style={{ background: `${accent}1F`, color: accent }}>
             <Dna className="w-5 h-5" />
           </div>
-          <Badge variant="default" className="font-mono">v{persona.version}</Badge>
+          <Badge variant="default" className="font-mono">v{asText(persona.version)}</Badge>
         </div>
         <h3 className="text-title-sm font-semibold text-on-surface mt-2.5 group-hover:text-primary transition-colors">
-          {persona.persona_name}
+          {asText(persona.persona_name)}
         </h3>
-        <p className="text-label-sm text-on-surface-variant mt-0.5">{identity.positioning ?? tone ?? '未设置'}</p>
+        <p className="text-label-sm text-on-surface-variant mt-0.5">{asText(identity.positioning ?? tone) || '未设置'}</p>
       </div>
 
       <div className="px-4 pb-4 space-y-3">
@@ -287,7 +290,7 @@ const PersonaCard = memo(function PersonaCardImpl({ persona, onOpen, onDuplicate
         {/* rhythm fingerprint */}
         <div>
           <p className="flex items-center gap-1.5 text-caption text-on-surface-variant mb-1.5">
-            <Timer className="w-3 h-3" /> 剪辑节奏 · {rhythm.cut_density_tier ?? 'medium'}
+            <Timer className="w-3 h-3" /> 剪辑节奏 · {asText(rhythm.cut_density_tier) || 'medium'}
           </p>
           <div className="flex items-end gap-1 h-8">
             {bars.map((b, i) => (

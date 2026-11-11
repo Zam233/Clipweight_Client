@@ -14,6 +14,7 @@ import { useEffect, useId, useRef } from 'react';
 
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { useModalKeybindingGuard } from '@/features/keyboard/useModalKeybindingGuard';
 
 import { usePluginSlots } from './usePluginSlots';
 import {
@@ -38,6 +39,8 @@ export function InstallableDependencyDialog({ gate, contributionId, className }:
   const primaryBtn = useRef<HTMLButtonElement>(null);
 
   const open = visible || showSuccess;
+  // P2-19：插件覆盖层打开时停用单键快捷键
+  useModalKeybindingGuard(open);
 
   useEffect(() => {
     if (!open) return;

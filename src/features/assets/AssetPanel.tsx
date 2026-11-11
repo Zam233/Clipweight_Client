@@ -11,6 +11,7 @@ import { mediaManager } from '@/services/media/mediaManager';
 import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
 import { uid, normalizeClipKind } from '@/lib/utils';
+import { asText, textList } from '@/lib/render';
 import { DubView } from './DubView';
 import { PluginPanel } from './PluginPanel';
 import { WorkspaceMediaTree } from './WorkspaceMediaTree';
@@ -59,14 +60,20 @@ export function AssetPanel() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const projectId = useProjectStore((s) => s.projectId);
+  /** M-06：loadAssets 代际号——切项目后丢弃旧响应。 */
+  const loadGenRef = useRef(0);
   const loadAssets = useCallback(async () => {
+    // M-06（PRD §5B P2）：切项目后旧响应可能后到并覆盖新项目列表。
+    const gen = ++loadGenRef.current;
     setLoading(true);
     setLoadError(false);
     setDemoMode(false);
     try {
       const list = await assetApi.list(projectId ?? undefined);
+      if (gen !== loadGenRef.current) return;
       setAssets(Array.isArray(list) ? list : []);
     } catch {
+      if (gen !== loadGenRef.current) return;
       // 轮 89：演示回退受设置开关控制（生产默认关——离线显示空列表而非假数据）
       if (useSettingsStore.getState().allowDemoFallback) {
         setAssets(demoAssets());
@@ -76,7 +83,7 @@ export function AssetPanel() {
         setLoadError(true);
       }
     } finally {
-      setLoading(false);
+      if (gen === loadGenRef.current) setLoading(false);
     }
   }, [setAssets, setLoading, projectId]);
 
@@ -141,12 +148,19 @@ export function AssetPanel() {
     setUploadNote(null);
     let ok = 0;
     const failures: string[] = [];
-    for (const file of Array.from(files)) {
+    const all = Array.from(files);
+    // M-05（PRD §5B P2）：旧实现整段上传从不 setUploadProgress，只有结尾置 null，
+    // 2 GiB 级文件时进度条永远不出现。这里按文件展示「正在上传 i/N：文件名」，
+    // 逐文件完成/失败都更新（不谎称字节级百分比——workspaceApi.upload 没有该回调）。
+    for (let i = 0; i < all.length; i += 1) {
+      const file = all[i];
       if (file.size > UPLOAD_MAX_BYTES) {
         failures.push(`${file.name}：超过 2 GiB 上限`);
+        setUploadProgress(`${i + 1}/${all.length} 已跳过：${file.name}（超过 2 GiB）`);
         continue;
       }
       try {
+        setUploadProgress(`${i + 1}/${all.length} 正在上传：${file.name}`);
         await workspaceApi.upload(pid, file);
         // 注册真实媒体：预览/缩略图/波形都靠它；asset_id 用文件名路径保证稳定
         const assetId = `materials/${kindFolderOf(file)}/${file.name}`;
@@ -267,12 +281,16 @@ export function AssetPanel() {
         </div>
       )}
 
-      {/* Upload progress */}
+      {/* Upload progress —— M-05：文本态显示逐文件状态，数字态才是百分比条 */}
       {uploadProgress !== null && (
-        <div className="px-3 py-1.5 shrink-0">
-          <div className="h-1 bg-surface-container rounded-cw-full overflow-hidden">
-            <div className="h-full bg-primary transition-all duration-medium2" style={{ width: `${uploadProgress}%` }} />
-          </div>
+        <div className="px-3 py-1.5 shrink-0" data-testid="asset-upload-progress">
+          {typeof uploadProgress === 'number' ? (
+            <div className="h-1 bg-surface-container rounded-cw-full overflow-hidden">
+              <div className="h-full bg-primary transition-all duration-medium2" style={{ width: `${uploadProgress}%` }} />
+            </div>
+          ) : (
+            <p className="truncate text-caption text-on-surface-variant">{asText(uploadProgress)}</p>
+          )}
         </div>
       )}
 
@@ -592,7 +610,12 @@ function AIMatchView() {
 
   const addResult = (r: MaterialSearchResult) => {
     const store = useTimelineStore.getState();
-    const kind = normalizeClipKind('video'); // MaterialSearchResult 无 kind 字段，默认为 video
+    // M-06（PRD §5B P2）：旧实现硬编码 'video'，图片/音频结果也进视频轨（渲染错轨）。
+    // MaterialSearchResult 可能没有 kind，按扩展名/类型字段推断，取不到才默认 video。
+    const rawKind = (r as { kind?: unknown }).kind
+      ?? (r as { type?: unknown }).type
+      ?? guessKindFromUrl((r as { url?: unknown }).url);
+    const kind = normalizeClipKind(typeof rawKind === 'string' ? rawKind : 'video');
     // 先快照历史再建轨道，避免撤销后残留空轨道
     useHistoryStore.getState().pushState(store.timeline, 'ai-match');
     let track = store.timeline.tracks.find((t) => t.kind === kind);
@@ -602,12 +625,31 @@ function AIMatchView() {
     }
     if (!track) return;
     const lastEnd = track.clips.reduce((m, c) => Math.max(m, c.start_sec + c.duration_sec), 0);
+    const mediaUrl = r.url || '';
+    const isHttp = /^https?:\/\//i.test(mediaUrl);
+    // P2-16：外部素材源的 url 可能本身就是本地路径。HTTP 写 url（直接预览），
+    // 本地路径写 local_path（by-path 代理），否则 resolveMediaUrl 会把素材源 id 当路径。
     store.addClip(track.id, {
       kind, asset_id: r.id, start_sec: lastEnd,
-      // P2-16/P1-08：写 url 供 resolveMediaUrl 直接预览（r.id 是外部素材源 id，非本库 asset）
       duration_sec: r.duration_sec != null && r.duration_sec > 0 ? r.duration_sec : 5,
-      metadata: { title: r.title, source: r.source, ...(r.url ? { url: r.url } : {}) },
+      metadata: {
+        title: r.title,
+        source: r.source,
+        ...(isHttp ? { url: mediaUrl } : mediaUrl ? { local_path: mediaUrl } : {}),
+      },
     });
+    // 新加的 clip 不会经过 setTimeline，必须显式注册媒体，否则预览取不到元素显示占位块。
+    // HTTP 走 registerUrl（需 kind 与轨道一致）；**本地路径**走 by-path 代理 URL，
+    // 旧实现漏了这条 → local_path 结果入轨后预览出不来（M-06）。
+    // registerUrl 只接受 audio/image/video；其它 ClipKind（如 animation）不注册。
+    const urlKind = (kind === 'audio' || kind === 'image' || kind === 'video') ? kind : null;
+    if (urlKind) {
+      if (isHttp) {
+        mediaManager.registerUrl(r.id, mediaUrl, urlKind);
+      } else if (mediaUrl) {
+        mediaManager.registerUrl(r.id, assetApi.byPathUrl(mediaUrl), urlKind);
+      }
+    }
   };
 
   return (
@@ -778,28 +820,60 @@ function AIMatchView() {
   );
 }
 
-function MaterialDetail({ data }: { data: MaterialAsset }) {
-  const thumb = data.thumbnail_url || data.url;
-  const size = data.file_size_bytes != null
-    ? data.file_size_bytes >= 1024 * 1024
-      ? `${(data.file_size_bytes / 1024 / 1024).toFixed(1)} MB`
-      : `${Math.max(1, Math.round(data.file_size_bytes / 1024))} KB`
+/**
+ * M-06：从 URL 扩展名推断素材类型（AI 匹配结果不一定带 kind 字段）。
+ * 取不到就返回 'video'（与旧行为一致的保守默认），不凭空猜音频。
+ */
+function guessKindFromUrl(url: unknown): 'video' | 'audio' | 'image' {
+  if (typeof url !== 'string') return 'video';
+  const clean = url.split(/[?#]/)[0].toLowerCase();
+  if (/\.(mp3|wav|m4a|aac|flac|ogg)$/.test(clean)) return 'audio';
+  if (/\.(png|jpe?g|webp|gif|bmp|avif)$/.test(clean)) return 'image';
+  return 'video';
+}
+
+/**
+ * M-01：素材详情必须能承受脏数据——后端/模型产物里 tags 可能不是数组、
+ * metadata 可能不是对象、detail 可能为 null。旧实现直接 `.length` / `Object.keys`
+ * 会在点「详情」时整页白屏（`Objects are not valid as a React child` 或 TypeError）。
+ * 这里在**渲染边界**做一次归一化：非数组 tags 视为空、非对象 metadata 视为空、
+ * null detail 显示空串，其余标量字段一律 `asText`。
+ */
+export function MaterialDetail({ data }: { data: MaterialAsset }) {
+  const tags = textList((data as { tags?: unknown }).tags);
+  const metadata = (() => {
+    const m = (data as { metadata?: unknown }).metadata;
+    return m && typeof m === 'object' && !Array.isArray(m) ? (m as Record<string, unknown>) : {};
+  })();
+  const detailText = asText((data as { detail?: unknown }).detail);
+  const num = (v: unknown): number | null =>
+    typeof v === 'number' && Number.isFinite(v) ? v : null;
+  const fileSize = num(data.file_size_bytes);
+  const duration = num(data.duration_sec);
+  const thumb = asText(data.thumbnail_url) || asText(data.url);
+  const size = fileSize != null
+    ? fileSize >= 1024 * 1024
+      ? `${(fileSize / 1024 / 1024).toFixed(1)} MB`
+      : `${Math.max(1, Math.round(fileSize / 1024))} KB`
     : null;
   const rows: { label: string; value: string }[] = [
-    { label: '类型', value: data.type },
-    { label: '来源', value: data.source },
-    ...(data.duration_sec != null ? [{ label: '时长', value: `${data.duration_sec.toFixed(1)}s` }] : []),
-    ...(data.resolution ? [{ label: '分辨率', value: data.resolution }] : []),
+    { label: '类型', value: asText(data.type) },
+    { label: '来源', value: asText(data.source) },
+    ...(duration != null ? [{ label: '时长', value: `${duration.toFixed(1)}s` }] : []),
+    ...(asText(data.resolution) ? [{ label: '分辨率', value: asText(data.resolution) }] : []),
     ...(size ? [{ label: '文件大小', value: size }] : []),
-    ...(data.local_path ? [{ label: '本地路径', value: data.local_path }] : []),
-    ...(data.url ? [{ label: 'URL', value: data.url }] : []),
-    ...(data.created_at ? [{ label: '创建时间', value: data.created_at }] : []),
+    ...(asText(data.local_path) ? [{ label: '本地路径', value: asText(data.local_path) }] : []),
+    ...(asText(data.url) ? [{ label: 'URL', value: asText(data.url) }] : []),
+    ...(asText(data.created_at) ? [{ label: '创建时间', value: asText(data.created_at) }] : []),
   ];
   return (
     <div className="space-y-4">
+      {asText(data.title) && (
+        <h4 className="text-title-sm font-semibold text-on-surface break-words">{asText(data.title)}</h4>
+      )}
       {thumb && (
         <div className="rounded-cw-sm overflow-hidden bg-surface">
-          <img src={thumb} alt={data.title} className="w-full max-h-56 object-contain" />
+          <img src={thumb} alt={asText(data.title)} className="w-full max-h-56 object-contain" />
         </div>
       )}
       <div className="space-y-1.5">
@@ -810,19 +884,22 @@ function MaterialDetail({ data }: { data: MaterialAsset }) {
           </div>
         ))}
       </div>
-      {data.tags.length > 0 && (
+      {detailText && (
+        <p className="text-body-sm text-on-surface whitespace-pre-wrap">{detailText}</p>
+      )}
+      {tags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {data.tags.map((t) => (
+          {tags.map((t) => (
             <span key={t} className="px-2 py-0.5 rounded-cw-full text-caption bg-primary-container/60 text-on-primary-container">{t}</span>
           ))}
         </div>
       )}
-      {Object.keys(data.metadata).length > 0 && (
+      {Object.keys(metadata).length > 0 && (
         <div>
           <p className="text-label text-on-surface-variant mb-1.5">元数据</p>
           <pre className="bg-surface rounded-cw-sm border border-outline-variant/30 px-3 py-2 font-mono text-caption
             text-track-audio leading-relaxed max-h-40 overflow-auto whitespace-pre-wrap">
-            {JSON.stringify(data.metadata, null, 2)}
+            {JSON.stringify(metadata, null, 2)}
           </pre>
         </div>
       )}

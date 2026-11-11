@@ -13,6 +13,7 @@ import { ChevronDown, ChevronRight, Film, Image as ImageIcon, Music, RefreshCw, 
 
 import { workspaceApi } from '@/services/api';
 import { useProjectStore } from '@/stores/projectStore';
+import { useAssetStore } from '@/stores/assetStore';
 import { asText } from '@/lib/render';
 
 interface MediaFile {
@@ -35,6 +36,9 @@ function sizeText(bytes: number): string {
 
 export function WorkspaceMediaTree({ search = '' }: { search?: string }) {
   const projectId = useProjectStore((s) => s.projectId);
+  // M-04：上传成功后 AssetPanel 会 bump refreshCounter，但旧实现只依赖 projectId，
+  // 目录树不重拉 → 新文件要手动刷新/切项目才出现。这里订阅计数即时刷新。
+  const refreshCounter = useAssetStore((s) => s.refreshCounter);
   const [tree, setTree] = useState<MediaTree | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -97,9 +101,9 @@ export function WorkspaceMediaTree({ search = '' }: { search?: string }) {
     }
   };
 
-  // 只随 projectId 重取：load 的身份每次渲染都会变，进依赖会自激
+  // 只随 projectId / 上传计数重取：load 的身份每次渲染都会变，进依赖会自激
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void load(); }, [projectId]);
+  useEffect(() => { void load(); }, [projectId, refreshCounter]);
 
   const kw = search.trim().toLowerCase();
   const dirs = useMemo(() => {

@@ -54,7 +54,7 @@ export const MG_PREVIEW_DRIVER = `(function(){
   function seek(t){
     time = Math.max(0, Math.min(duration, Number(t) || 0));
     var h = tl();
-    if (h && typeof h.seek === 'function') { try { h.seek(time); } catch (e) {} }
+    if (h && typeof h.seek === 'function') { try { h.seek(time); } catch (e) { /* 沙箱内 seek 失败不阻断预览时钟 */ } }
     post();
   }
 
@@ -93,7 +93,7 @@ export const MG_PREVIEW_DRIVER = `(function(){
     seek(0);
     try {
       parent.postMessage({ type: '${MG_PREVIEW_MSG}', event: 'ready', duration: duration }, '*');
-    } catch (e) {}
+    } catch (e) { /* 父窗口已卸载时 postMessage 会抛，忽略 */ }
   }
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {

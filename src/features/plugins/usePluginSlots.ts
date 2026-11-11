@@ -141,7 +141,11 @@ export function usePluginContributions(kind: string): SlotContribution[] {
 
 /** React 钩子：返回指定 slot 的贡献列表（挂载即拉取，卸载不取消缓存）。 */
 export function usePluginSlots(slot: SlotName): SlotContribution[] {
-  const [items, setItems] = useState<SlotContribution[]>(() => cache.get(slot)?.items ?? []);
+  // PL-12（审计 PRD §5D P3）：写入侧的缓存键是 `slot:${slot}`（见
+  // fetchSlotContributions），旧实现在这里用裸 `slot` 读缓存 → 永远不命中，
+  // 每次挂载都多发一次请求。两处必须用同一个键。
+  const cacheKey = `slot:${slot}`;
+  const [items, setItems] = useState<SlotContribution[]>(() => cache.get(cacheKey)?.items ?? []);
   useResyncOnInvalidate(slot, setItems);
   useEffect(() => {
     let alive = true;

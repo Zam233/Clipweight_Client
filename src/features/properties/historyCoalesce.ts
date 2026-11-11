@@ -32,6 +32,11 @@ export function endCoalesceWindow(clipId: string): void {
   lastPushByClip.delete(clipId);
 }
 
+/** 窗口是否已打开（供拖拽边界判断，避免重复 begin 清掉首次推送）。 */
+export function isCoalesceWindowOpen(clipId: string): boolean {
+  return openWindows.has(clipId);
+}
+
 export function shouldPush(
   clipId: string,
   now: number = Date.now(),

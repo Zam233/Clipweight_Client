@@ -14,6 +14,7 @@ import { useSelectionStore } from '@/stores/selectionStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { evalVisibleWhen } from './slots';
 import { usePluginSlots } from './usePluginSlots';
+import { authorizePluginCall, pluginCallNeedsConfirm } from './pluginApiGuard';
 
 interface ShortcutPayload {
   combo?: string;
@@ -43,16 +44,27 @@ export function usePluginShortcuts(): void {
       if (!evalVisibleWhen(c.visibleWhen, { playing, hasSelection, hasTimeline })) continue;
       const method = String(p.action?.method ?? 'POST').toUpperCase();
       const body = p.action?.body ?? {};
+      // PL-02：快捷键贡献里的 endpoint/method/body 也是插件提供的数据，
+      // 与 iframe call 共用同一门禁（默认拒绝未登记端点与破坏性方法）。
+      const decision = authorizePluginCall({
+        endpoint, method, body: body as Record<string, unknown>,
+      });
+      if (!decision.ok) continue;
+      const { endpoint: safeEndpoint, method: safeMethod, body: safeBody } = decision.call;
       disposers.push(keybindingEngine.register({
         id: `plugin:${c.id}`,
         combo: p.combo,
         label: p.label ?? c.title,
         category: '插件',
         handler: () => {
+          // 可写端点必须用户逐次确认，不能由插件静默触发。
+          if (pluginCallNeedsConfirm(safeEndpoint) && !window.confirm(
+            `插件「${c.title}」请求执行操作：${safeMethod} ${safeEndpoint}\n是否继续？`,
+          )) return;
           const client = getApiClient();
-          const req = method === 'GET'
-            ? client.get(endpoint)
-            : client.request({ url: endpoint, method, data: body });
+          const req = safeMethod === 'GET'
+            ? client.get(safeEndpoint)
+            : client.request({ url: safeEndpoint, method: safeMethod, data: safeBody });
           req.catch(() => toast(`插件快捷键执行失败：${c.title}`, 'error'));
         },
       }));

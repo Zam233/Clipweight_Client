@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getApiClient } from '@/services/api';
 import { apiBase } from '@/services/api/sse';
+import { authorizePluginCall } from './pluginApiGuard';
 
 /** B16：sandbox iframe 的 origin 恒为字符串 'null'（无 same-origin）。 */
 const SANDBOX_ORIGIN = 'null';
@@ -81,15 +82,27 @@ export function PluginBundleFrame({ pluginId, title }: { pluginId: string; title
         return;
       }
       if (data.type === 'call' && data.api?.endpoint) {
-        const method = String(data.api.method ?? 'POST').toUpperCase();
+        // PL-01：e.source/origin 校验只防"别的窗口伪造"，不能限制沙箱内脚本
+        // 自己调用什么。所有插件 call 必须先过统一授权门禁（默认拒绝）。
+        const decision = authorizePluginCall(data.api);
+        // 回执同样要经门禁：拒绝时把稳定错误码回给插件，绝不发宿主请求。
+        // jsdom / 非标准运行时不接受 'null' 作为 targetOrigin，失败也不影响宿主。
+        const reply = (payload: unknown) => {
+          try {
+            ref.current?.contentWindow?.postMessage(payload, SANDBOX_ORIGIN);
+          } catch {
+            /* 回执通道不可用时不让宿主异常外泄 */
+          }
+        };
+        if (!decision.ok) {
+          reply({ type: 'result', ok: false, error: decision.message, reason: decision.reason });
+          return;
+        }
+        const { endpoint, method, body } = decision.call;
         const client = getApiClient();
         const req = method === 'GET'
-          ? client.get(data.api.endpoint)
-          : client.request({ url: data.api.endpoint, method, data: data.api.body ?? {} });
-        // B16：目标 origin 只能是沙箱的 'null'——iframe 无 same-origin，'*' 在
-        // 此处是唯一可行值；接收侧已按 e.source 严格校验，不引入伪造面。
-        const reply = (payload: unknown) =>
-          ref.current?.contentWindow?.postMessage(payload, SANDBOX_ORIGIN);
+          ? client.get(endpoint)
+          : client.request({ url: endpoint, method, data: body });
         req
           .then((res) => reply({ type: 'result', ok: true, data: res.data }))
           .catch((err: unknown) => reply({

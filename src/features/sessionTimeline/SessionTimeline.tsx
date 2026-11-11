@@ -7,7 +7,7 @@
  * 渲染侧只有三件职责：
  * 1. **按 seq 顺序**铺开（顺序来自服务端，组件绝不排序）；
  * 2. **窗口化**（首屏最近 N 条 + 滚到顶自动加载更早）；
- * 3. **条目级折叠**（思考默认展开——用户要的就是"边生成边看得到"）。
+ * 3. **条目级折叠**（只有仍在流式中的思考默认展开，历史默认折叠且尊重手动展开）。
  *
  * 正文气泡与简报/规划书卡片由调用方注入（`renderContent` / `renderReport` / `renderPlan`），
  * 否则 Markdown、简报卡、规划书卡、时间戳这些"本来就有的东西"会被新面板悄悄丢掉。
@@ -17,7 +17,7 @@ import React from 'react';
 import { ChevronDown, ChevronRight, Wrench } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import { asText } from '@/lib/render';
+import { asText, textList } from '@/lib/render';
 import { handleArtifactClick } from '@/features/copilot/artifactOpen';
 import {
   EMPTY_BUCKET,
@@ -29,7 +29,6 @@ import {
   isBriefItem,
   itemObject,
   itemText,
-  reportBullets,
   type SessionTimelineItem,
 } from '@/features/sessionTimeline/types';
 import {
@@ -43,6 +42,29 @@ const WINDOW = 120;
 const ORIGIN_CN: Record<string, string> = {
   main: '主 agent', subagent: '子 agent', skill: '技能', internal: '内部',
 };
+
+// T-04：中文界面里不直接吐内部枚举。原始值留进 title，便于排查而不干扰阅读。
+const STATUS_CN: Record<string, string> = {
+  pending: '待处理', approved: '已授权', rejected: '已拒绝', denied: '已拒绝',
+  ok: '成功', done: '完成', success: '成功', error: '出错', failed: '失败',
+  dry_run: '试运行', running: '进行中', streaming: '进行中', interrupted: '中断',
+  skipped: '跳过', cancelled: '已取消', timeout: '超时',
+};
+const RISK_CN: Record<string, string> = {
+  low: '低风险', medium: '中风险', high: '高风险', critical: '极高风险',
+};
+const TYPE_CN: Record<string, string> = {
+  thinking: '思考', content: '正文', tool: '工具', skill: '技能',
+  subagent: '子 agent', report: '汇报', plan: '规划书', question: '提问',
+  answer: '回答', approval: '授权', degradation: '降级', stage: '阶段', artifact: '产物',
+};
+
+/** 统一状态映射：未知值显示「其他」，title 里保留原始枚举值。 */
+function enumLabel(raw: unknown, table: Record<string, string>): { label: string; raw: string } {
+  const original = asText(raw);
+  const known = Object.prototype.hasOwnProperty.call(table, original);
+  return { label: known ? table[original] : '其他', raw: original };
+}
 
 function StateBadge({ item }: { item: SessionTimelineItem }) {
   if (item.state === 'streaming') {
@@ -62,8 +84,10 @@ function StateBadge({ item }: { item: SessionTimelineItem }) {
 }
 
 function ThinkingRow({ item }: { item: SessionTimelineItem }) {
-  // 思考默认**展开**：折叠起来观感上等于"没有内容"
-  const [open, setOpen] = React.useState(true);
+  // T-08：只有当前仍在流式中的思考默认展开；历史思考默认折叠。
+  // `manual` 用 state 记住用户手动展开/折叠，条目状态随后变化也不抢这个选择。
+  const [manual, setManual] = React.useState<boolean | null>(null);
+  const open = manual ?? (item.state === 'streaming');
   const text = itemText(item);
   const truncated = !!(item.meta?.truncated || item.state === 'interrupted');
   return (
@@ -71,7 +95,7 @@ function ThinkingRow({ item }: { item: SessionTimelineItem }) {
       <button
         type="button"
         className="flex items-center gap-1 text-caption text-on-surface-variant hover:text-on-surface"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setManual((v) => !(v ?? (item.state === 'streaming')))}
         aria-expanded={open}
       >
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -94,26 +118,42 @@ function ThinkingRow({ item }: { item: SessionTimelineItem }) {
   );
 }
 
-function ApprovalRow({ item }: { item: SessionTimelineItem }) {
+// T-03：按条目 id 记提交结果（组件内 state，切会话不串），提交成功即撤掉整组按钮。
+type SubmittedMap = Record<string, string>;
+type OnSubmitted = (id: string, note: string) => void;
+
+function ApprovalRow({ item, submittedNote, onSubmitted }: {
+  item: SessionTimelineItem;
+  submittedNote?: string;
+  onSubmitted: OnSubmitted;
+}) {
   const taskId = typeof item.meta?.task_id === 'string' ? item.meta.task_id : '';
-  const status = String(item.meta?.status ?? (item.state === 'streaming' ? 'pending' : 'done'));
-  const tool = String(item.meta?.tool ?? '');
-  const risk = typeof item.meta?.risk === 'string' ? item.meta.risk : '';
+  const status = enumLabel(
+    item.meta?.status ?? (item.state === 'streaming' ? 'pending' : 'done'), STATUS_CN);
+  const tool = asText(item.meta?.tool);
+  const riskRaw = asText(item.meta?.risk);
+  const risk = enumLabel(riskRaw, RISK_CN);
   const approvalId = typeof item.meta?.approval_id === 'string' ? item.meta.approval_id : '';
+  const locked = !!submittedNote;
   return (
     <div className="flex flex-wrap items-baseline gap-2 px-2 py-0.5 text-caption"
       data-testid="session-item-approval" data-seq={item.seq}>
       <span className="text-warning">授权</span>
       <span className="text-on-surface-variant">{tool}</span>
-      <span className="text-on-surface-variant/80">{status}</span>
-      {risk && <span className="text-on-surface-variant/60">risk={risk}</span>}
-      {approvalId && taskId && <ApprovalButtons taskId={taskId} approvalId={approvalId} risk={risk} />}
+      <span className="text-on-surface-variant/80" title={status.raw}>{status.label}</span>
+      {riskRaw && <span className="text-on-surface-variant/60" title={riskRaw}>{risk.label}</span>}
+      {locked
+        ? <span className="text-on-surface-variant/80">{submittedNote}</span>
+        : (approvalId && taskId &&
+          <ApprovalButtons taskId={taskId} approvalId={approvalId} risk={riskRaw}
+            onSubmitted={(note) => onSubmitted(`approval:${approvalId}`, note)} />)}
     </div>
   );
 }
 
-function ApprovalButtons({ taskId, approvalId, risk }: {
+function ApprovalButtons({ taskId, approvalId, risk, onSubmitted }: {
   taskId: string; approvalId: string; risk: string;
+  onSubmitted: (note: string) => void;
 }) {
   const [busy, setBusy] = React.useState(false);
   const [note, setNote] = React.useState('');
@@ -126,7 +166,9 @@ function ApprovalButtons({ taskId, approvalId, risk }: {
       const { supervisorApi } = await import('@/services/api');
       if (approve) await supervisorApi.approveExec(taskId, approvalId, highRisk, risk === 'critical');
       else await supervisorApi.rejectExec(taskId, approvalId);
-      setNote(approve ? '已授权' : '已拒绝');
+      // 提交成功即锁定该条目的所有按钮，只留结果（T-03）
+      onSubmitted(approve ? '已授权' : '已拒绝');
+      return;
     } catch (e) {
       setNote(`提交失败：${(e as Error)?.message || '未知错误'}`);
     } finally {
@@ -150,24 +192,30 @@ function ApprovalButtons({ taskId, approvalId, risk }: {
 
 /** 问题条目上的作答入口（选项 + 可选自由文本）。提交走 requirementsApi.answer。 */
 function QuestionActions({
-  questionId, options, allowFreeText, onAnswer,
+  questionId, options, allowFreeText, onAnswer, submittedNote, onSubmitted,
 }: {
   questionId: string;
   options: { id?: string; label?: string; detail?: string }[];
   allowFreeText: boolean;
   onAnswer?: (a: { questionId: string; optionId?: string | null; text?: string | null }) => Promise<void>;
+  submittedNote?: string;
+  onSubmitted: OnSubmitted;
 }) {
   const [busy, setBusy] = React.useState(false);
   const [freeText, setFreeText] = React.useState('');
   const [note, setNote] = React.useState('');
+  // 提交结果按条目 id 存在父组件：本组件重挂载（窗口化 / 折叠）也仍锁定
+  const done = !!submittedNote;
   if (!onAnswer || !questionId) return null;
 
   const submit = async (optionId?: string | null, text?: string | null) => {
-    if (busy) return;
+    if (busy || done) return;
     setBusy(true);
     try {
       await onAnswer({ questionId, optionId: optionId ?? null, text: text ?? null });
-      setNote('已提交');
+      // 提交成功即锁定整组按钮，只留结果（T-03）
+      onSubmitted(`question:${questionId}`, '已提交');
+      return;
     } catch (e) {
       setNote(`提交失败：${(e as Error)?.message || '未知错误'}`);
     } finally {
@@ -178,11 +226,14 @@ function QuestionActions({
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1.5"
       data-testid="session-question-actions">
+      {done
+        ? <span className="text-on-surface-variant/80">{submittedNote}</span>
+        : <>
       {options.map((opt) => {
-        const id = String(opt.id ?? '');
+        const id = asText(opt.id);
         return (
           <button
-            key={id || String(opt.label ?? '')}
+            key={id || asText(opt.label)}
             type="button"
             disabled={busy}
             data-question-option={id}
@@ -219,17 +270,20 @@ function QuestionActions({
           </button>
         </>
       )}
-      {note && <span className="text-on-surface-variant/80">{note}</span>}
+      </>}
+      {note && !done && <span className="text-on-surface-variant/80">{note}</span>}
     </div>
   );
 }
 
 function Row({
-  item, answeredQids, onAnswer,
+  item, answeredQids, onAnswer, submitted, onSubmitted,
 }: {
   item: SessionTimelineItem;
   answeredQids: Set<string>;
   onAnswer?: (a: { questionId: string; optionId?: string | null; text?: string | null }) => Promise<void>;
+  submitted: SubmittedMap;
+  onSubmitted: OnSubmitted;
 }) {
   switch (item.type) {
     case 'thinking':
@@ -237,13 +291,15 @@ function Row({
     case 'tool':
     case 'skill':
     case 'subagent': {
-      const originRaw = String(item.meta?.event_type ?? '');
+      const originRaw = asText(item.meta?.event_type);
       const origin = item.type === 'skill' ? 'skill'
         : item.type === 'subagent' ? 'subagent'
           : originRaw === 'subagent_tool' ? 'subagent' : 'main';
-      const label = String(item.meta?.tool ?? item.meta?.skill ?? item.meta?.agent
-        ?? itemText(item) ?? '');
+      const label = asText(item.meta?.tool ?? item.meta?.skill ?? item.meta?.agent)
+        || itemText(item);
+      const status = enumLabel(item.meta?.status ?? item.state, STATUS_CN);
       const ms = typeof item.meta?.duration_ms === 'number' ? item.meta.duration_ms : undefined;
+      const errText = asText(item.meta?.error);
       return (
         <div className="flex items-baseline gap-2 px-2 py-0.5 text-caption"
           data-testid="session-item-tool" data-seq={item.seq} data-origin={origin}>
@@ -252,21 +308,19 @@ function Row({
             {ORIGIN_CN[origin] ?? origin}
           </span>
           <span className="w-40 shrink-0 truncate font-mono text-on-surface-variant">{label}</span>
-          <span className={item.state === 'failed' ? 'text-error' : 'text-primary'}>
-            {String(item.meta?.status ?? item.state)}
-          </span>
+          <span className={item.state === 'failed' ? 'text-error' : 'text-primary'}
+            title={status.raw}>{status.label}</span>
           {typeof ms === 'number' && <span className="text-on-surface-variant/60">{ms}ms</span>}
-          {typeof item.meta?.error === 'string' && item.meta.error && (
-            <span className="truncate text-error/80">{item.meta.error}</span>
-          )}
+          {errText && <span className="truncate text-error/80">{errText}</span>}
         </div>
       );
     }
     case 'stage':
     case 'degradation': {
-      const label = String(item.meta?.stage ?? item.meta?.kind ?? item.meta?.event_type
+      const label = asText(item.meta?.stage ?? item.meta?.kind ?? item.meta?.event_type
         ?? item.type);
-      const summary = itemText(item) || String(item.meta?.message ?? '');
+      const summary = itemText(item) || asText(item.meta?.message);
+      const status = enumLabel(item.meta?.status ?? item.state, STATUS_CN);
       return (
         <div className="flex items-baseline gap-2 px-2 py-0.5 text-caption"
           data-testid="session-item-stage" data-seq={item.seq}>
@@ -278,21 +332,24 @@ function Row({
           )}>
             {item.type === 'degradation' ? '降级' : label}
           </span>
-          <span className="text-on-surface-variant/80">{String(item.meta?.status ?? item.state)}</span>
+          <span className="text-on-surface-variant/80" title={status.raw}>{status.label}</span>
           {summary && <span className="truncate text-on-surface-variant/70">{summary}</span>}
         </div>
       );
     }
     case 'approval':
-      return <ApprovalRow item={item} />;
+      return <ApprovalRow item={item}
+        submittedNote={submitted[`approval:${asText(item.meta?.approval_id)}`]}
+        onSubmitted={onSubmitted} />;
     case 'question': {
       const obj = itemObject(item);
-      const qid = String(item.meta?.question_id ?? obj.question_id ?? '');
-      const question = String(item.meta?.question ?? obj.question ?? itemText(item) ?? '');
+      const qid = asText(item.meta?.question_id ?? obj.question_id);
+      const question = asText(item.meta?.question ?? obj.question) || itemText(item);
+      const submittedNote = submitted[`question:${qid}`];
+      // 本地提交由 QuestionActions 自己按 id 锁定并留「已提交」；服务端 answer 到达后
+      // answeredQids 继续兜底（整组入口让位给「已答」）。
       const answered = qid ? answeredQids.has(qid) : false;
-      const options = Array.isArray(obj.options)
-        ? (obj.options as { id?: string; label?: string; detail?: string }[])
-        : [];
+      const options = Array.isArray(obj.options) ? obj.options : [];
       const allowFreeText = obj.allow_free_text === true
         || item.meta?.allow_free_text === true;
       return (
@@ -309,6 +366,8 @@ function Row({
               options={options}
               allowFreeText={allowFreeText}
               onAnswer={onAnswer}
+              submittedNote={submittedNote}
+              onSubmitted={onSubmitted}
             />
           )}
         </div>
@@ -326,7 +385,7 @@ function Row({
     }
     case 'artifact': {
       const path = typeof item.meta?.path === 'string' ? item.meta.path : '';
-      const label = String(item.meta?.title ?? item.meta?.artifact ?? itemText(item) ?? '');
+      const label = asText(item.meta?.title ?? item.meta?.artifact) || itemText(item);
       return (
         <div className="flex items-baseline gap-2 px-2 py-0.5 text-caption"
           data-testid="session-item-artifact" data-seq={item.seq}>
@@ -353,10 +412,11 @@ function Row({
     default: {
       // content / report / plan 之外的兜底：宁可平铺，也不要"条目消失"
       const text = itemText(item);
+      const type = enumLabel(item.type, TYPE_CN);
       return (
         <div className="px-2 py-0.5 text-caption text-on-surface-variant/70"
           data-testid="session-item-log" data-seq={item.seq} data-type={item.type}>
-          <span className="mr-1 font-mono">{item.type}</span>
+          <span className="mr-1 font-mono" title={type.raw}>{type.label}</span>
           {text}
         </div>
       );
@@ -374,7 +434,10 @@ function EmptyState({
 }: {
   link: SessionLinkState; error: string; backfilled: number; onRetry: () => void;
 }) {
-  // 1) 还在同步
+  // 1) 还在同步 / 重连中：绝不能落到"这个会话还没有记录"（T-06）
+  if (link === 'retry') {
+    return <span data-empty="retry">正在重连…</span>;
+  }
   if (link === 'loading' || link === 'idle') {
     return <span data-empty="loading">正在同步会话记录…</span>;
   }
@@ -440,34 +503,82 @@ export function SessionTimeline({
     const set = new Set<string>();
     for (const i of items) {
       if (i.type !== 'answer') continue;
-      const qid = String(i.meta?.question_id ?? '');
+      const qid = asText(i.meta?.question_id);
       if (qid) set.add(qid);
     }
     return set;
   }, [items]);
 
+  // T-02：同一条流式条目（thinking delta 合并）长度不变，但内容会一直长；
+  // 用最后一条的"seq + 状态 + 长度 + 文本尾段"做指纹，内容变化也触发跟随。
+  const lastFingerprint = React.useMemo(() => {
+    const last = items[items.length - 1];
+    if (!last) return '';
+    const text = itemText(last);
+    return `${last.seq}:${last.state}:${text.length}:${text.slice(-64)}`;
+  }, [items]);
+  const headSeq = items.length ? items[0].seq : 0;
+
   const [visible, setVisible] = React.useState(WINDOW);
   const [loadingOlder, setLoadingOlder] = React.useState(false);
+  // T-03：按条目 id 记提交结果，成功后立即锁定；服务端 answer 到达由 answeredQids 兜底
+  const [submitted, setSubmitted] = React.useState<SubmittedMap>({});
+  const onSubmitted = React.useCallback<OnSubmitted>((id, note) => {
+    setSubmitted((prev) => (prev[id] ? prev : { ...prev, [id]: note }));
+  }, []);
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   const stickBottom = React.useRef(true);
+  // T-01：同步 in-flight ref（state 的 loadingOlder 是异步的，挡不住同一批 scroll 事件）
+  const earlierInFlight = React.useRef(false);
+  const prependAnchor = React.useRef<{ height: number; top: number; headSeq: number } | null>(null);
 
   // 跟随最新：用户本来就在底部（或首屏）时滚到底；主动上滑看历史时不打扰
   React.useEffect(() => {
     const el = scrollerRef.current;
     if (!el || !stickBottom.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [items.length, visible]);
+  }, [items.length, visible, lastFingerprint]);
+
+  // T-01：历史记录插到顶部后，浏览器不会自动保持视觉位置 —— 用加载前的
+  // scrollHeight 差值把 scrollTop 补回去。只在"触发了 loadEarlier"的场景挂锚点。
+  React.useLayoutEffect(() => {
+    const anchor = prependAnchor.current;
+    if (!anchor || headSeq === anchor.headSeq) return;   // 还没有更早条目插入
+    const el = scrollerRef.current;
+    prependAnchor.current = null;
+    if (!el) return;
+    const delta = el.scrollHeight - anchor.height;
+    if (delta > 0) el.scrollTop = anchor.top + delta;
+  }, [headSeq, items.length]);
+
+  const requestEarlier = React.useCallback(() => {
+    if (earlierInFlight.current || !hasMore) return;
+    earlierInFlight.current = true;
+    const el = scrollerRef.current;
+    if (el) {
+      prependAnchor.current = {
+        height: el.scrollHeight, top: el.scrollTop, headSeq,
+      };
+    }
+    setLoadingOlder(true);
+    void loadEarlier(sessionId)
+      .then((added) => {
+        // 服务端没有更早记录（或全是重复条目）时别把锚点留到下一次无关的追加
+        if (!added) prependAnchor.current = null;
+      })
+      .finally(() => {
+        earlierInFlight.current = false;
+        setLoadingOlder(false);
+      });
+  }, [hasMore, headSeq, sessionId]);
 
   const onScroll = React.useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
     stickBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     if (el.scrollTop > 24) return;
     setVisible((v) => (v < 4000 ? v + WINDOW : v));
-    if (hasMore && !loadingOlder) {
-      setLoadingOlder(true);
-      void loadEarlier(sessionId).finally(() => setLoadingOlder(false));
-    }
-  }, [hasMore, loadingOlder, sessionId]);
+    requestEarlier();
+  }, [requestEarlier]);
 
   if (!items.length) {
     return (
@@ -502,13 +613,12 @@ export function SessionTimeline({
           className="mb-1 px-2 text-caption text-primary hover:underline"
           onClick={() => {
             setVisible((v) => v + WINDOW);
-            if (hasMore) {
-              setLoadingOlder(true);
-              void loadEarlier(sessionId).finally(() => setLoadingOlder(false));
-            }
+            requestEarlier();
           }}
         >
-          {loadingOlder ? '加载中…' : `加载更早（还有 ${Math.max(hidden, 0)} 条${hasMore ? '，服务端仍有更早记录' : ''}）`}
+          {loadingOlder ? '加载中…'
+            : hidden <= 0 ? '加载更早记录'
+              : `加载更早（还有 ${hidden} 条${hasMore ? '，服务端仍有更早记录' : ''}）`}
         </button>
       )}
       {shown.map((item) => {
@@ -529,8 +639,8 @@ export function SessionTimeline({
         if (item.type === 'report' || item.type === 'plan') {
           // 默认视图：简报/规划书给摘要卡，内核汇报给 bullets —— 绝不静默丢失
           const obj = itemObject(item);
-          const title = String(item.meta?.title ?? obj.title ?? '');
-          const bullets = reportBullets(item);
+          const title = asText(item.meta?.title ?? obj.title);
+          const bullets = textList(obj.bullets ?? item.meta?.bullets);
           return (
             <div key={key} className="px-2 py-1" data-testid={`session-item-${item.type}`}
               data-seq={item.seq}>
@@ -552,7 +662,8 @@ export function SessionTimeline({
         }
         return (
           <div key={key}>
-            <Row item={item} answeredQids={answeredQids} onAnswer={onAnswerQuestion} />
+            <Row item={item} answeredQids={answeredQids} onAnswer={onAnswerQuestion}
+              submitted={submitted} onSubmitted={onSubmitted} />
             <StateBadge item={item} />
           </div>
         );

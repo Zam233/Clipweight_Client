@@ -23,6 +23,7 @@ import {
 import { collectSnapTargets, applySnap } from './snap';
 import { clamp } from '@/lib/utils';
 import { mediaManager } from '@/services/media/mediaManager';
+import { toast } from '@/stores/toastStore';
 
 export class TimelineEngine {
   private canvas: HTMLCanvasElement;
@@ -84,6 +85,12 @@ export class TimelineEngine {
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.rafId);
+    // TL-13：dispose 同时清掉反馈定时器，避免卸载后回调仍写 dropFeedback/触发渲染
+    if (this.feedbackTimer) {
+      clearTimeout(this.feedbackTimer);
+      this.feedbackTimer = null;
+    }
+    this.dropFeedback = null;
     this.unsubscribers.forEach((u) => u());
     this.removePointerEvents();
     this.canvas.removeEventListener('wheel', this.onWheel);
@@ -104,6 +111,17 @@ export class TimelineEngine {
       this.dropFeedback = null;
       this.dirty = true;
     }, 600);
+  }
+
+  /** TL-04：锁定/隐藏轨投放被拒时给可读反馈（toast + 既有红色 reject 反馈态）。 */
+  private rejectDrop(reason: 'locked' | 'hidden', trackId: string, time: number) {
+    this.showDropFeedback('reject', '', trackId, time);
+    toast(
+      reason === 'locked'
+        ? '轨道已锁定，无法投放素材（请先解锁）'
+        : '隐藏轨不可作为投放目标',
+      'error',
+    );
   }
 
   resize() {
@@ -1027,12 +1045,13 @@ export class TimelineEngine {
     if (prev) usePreviewStore.getState().setCurrentTime(prev.time);
   }
 
-  /** Jump to the next clip edge (start or end). */
+  /** Jump to the next clip edge (start or end). TL-09：隐藏/锁定轨不参与编辑点跳转。 */
   jumpToNextEdit() {
     const t = usePreviewStore.getState().currentTimeSec;
     const tl = useTimelineStore.getState().timeline;
     let best = Infinity;
     for (const tr of tl.tracks) {
+      if (tr.hidden || tr.locked) continue;
       for (const c of tr.clips) {
         if (c.start_sec > t + 0.001 && c.start_sec < best) best = c.start_sec;
         const end = c.start_sec + c.duration_sec;
@@ -1042,12 +1061,13 @@ export class TimelineEngine {
     if (best < Infinity) usePreviewStore.getState().setCurrentTime(best);
   }
 
-  /** Jump to the previous clip edge. */
+  /** Jump to the previous clip edge. TL-09：隐藏/锁定轨不参与编辑点跳转。 */
   jumpToPrevEdit() {
     const t = usePreviewStore.getState().currentTimeSec;
     const tl = useTimelineStore.getState().timeline;
     let best = -Infinity;
     for (const tr of tl.tracks) {
+      if (tr.hidden || tr.locked) continue;
       for (const c of tr.clips) {
         if (c.start_sec < t - 0.001 && c.start_sec > best) best = c.start_sec;
         const end = c.start_sec + c.duration_sec;
@@ -1080,14 +1100,27 @@ export class TimelineEngine {
     // Snap drop time to a sensible grid (0.1s)
     const startSec = Math.round(dropTime * 10) / 10;
 
-    // Find existing tracks of the same kind
+    // Find existing tracks of the same kind.
+    // TL-04：锁定/隐藏轨既不作为投放目标，也不进入自动选轨候选（隐藏轨永不自动选）。
     const tracks = store.timeline.tracks;
-    const sameKindTracks = tracks.filter((t) => t.kind === clipKind);
+    const isDroppable = (t: Track) => !t.locked && !t.hidden;
+    const sameKindTracks = tracks.filter((t) => t.kind === clipKind && isDroppable(t));
 
-    // Prefer the dropped-on track if its kind matches
+    // 明确落在某个同类型轨道上：locked 直接拒绝并给反馈；hidden 不成其为投放目标
+    const droppedOn = dropTrackIdx >= 0 && dropTrackIdx < tracks.length ? tracks[dropTrackIdx] : undefined;
+    if (droppedOn && droppedOn.kind === clipKind && droppedOn.locked) {
+      this.rejectDrop('locked', droppedOn.id, startSec);
+      return;
+    }
+    if (droppedOn && droppedOn.kind === clipKind && droppedOn.hidden) {
+      this.rejectDrop('hidden', droppedOn.id, startSec);
+      return;
+    }
+
+    // Prefer the dropped-on track if its kind matches（已排除 locked/hidden）
     let targetTrack: Track | undefined =
-      dropTrackIdx >= 0 && dropTrackIdx < tracks.length && tracks[dropTrackIdx].kind === clipKind
-        ? tracks[dropTrackIdx]
+      droppedOn && droppedOn.kind === clipKind && isDroppable(droppedOn)
+        ? droppedOn
         : undefined;
 
     // Check overlap on the preferred track

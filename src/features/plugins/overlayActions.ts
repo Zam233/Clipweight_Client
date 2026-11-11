@@ -8,6 +8,7 @@
  * 单独成模块是为了让测试只 mock 这两个函数，而不是整条 axios 客户端。
  */
 import { getApiClient } from '@/services/api/client';
+import { authorizePluginCall } from './pluginApiGuard';
 
 export type Json = Record<string, unknown>;
 
@@ -27,25 +28,26 @@ export function asRecord(value: unknown): Json {
   return value && typeof value === 'object' ? (value as Json) : {};
 }
 
-/** GET probe 端点，返回原始 JSON（失败抛错，由调用方静默处理）。 */
+/** GET probe 端点，返回原始 JSON（失败抛错，由调用方静默处理）。
+ *  PL-01：插件声明的 probe 端点同样先过宿主白名单，非法即抛错不发请求。 */
 export async function probeEndpoint(endpoint: string): Promise<Json> {
-  const { data } = await getApiClient().get(endpoint);
+  const decision = authorizePluginCall({ endpoint, method: 'GET' });
+  if (!decision.ok) throw new Error(decision.message);
+  const { data } = await getApiClient().get(decision.call.endpoint);
   return asRecord(data);
 }
 
-/** 触发安装：默认 POST，可声明 PUT/DELETE。 */
+/** 触发安装：默认 POST，可声明 PUT/DELETE（破坏性方法一律被门禁拒绝）。 */
 export async function triggerEndpoint(
   endpoint: string,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'POST',
 ): Promise<Json> {
+  const decision = authorizePluginCall({ endpoint, method });
+  if (!decision.ok) throw new Error(decision.message);
+  const safe = decision.call;
   const client = getApiClient();
-  const { data } =
-    method === 'GET'
-      ? await client.get(endpoint)
-      : method === 'PUT'
-        ? await client.put(endpoint)
-        : method === 'DELETE'
-          ? await client.delete(endpoint)
-          : await client.post(endpoint);
+  const { data } = safe.method === 'GET'
+    ? await client.get(safe.endpoint)
+    : await client.post(safe.endpoint, safe.body);
   return asRecord(data);
 }

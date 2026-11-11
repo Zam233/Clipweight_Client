@@ -6,7 +6,7 @@ import { toast } from '@/stores/toastStore';
 import { Button } from '@/components/ui';
 import { ConfigValueInput } from '@/components/ConfigValueInput';
 import { cn } from '@/lib/utils';
-import { asText } from '@/lib/render';
+import { asText, textList } from '@/lib/render';
 import type { PluginConfigField, PluginConfigResponse } from '@/types/api';
 import {
   Puzzle, Power, Loader2, RefreshCw, Zap, Settings, X, Save, Trash2, Eye, Box,
@@ -210,19 +210,27 @@ export function PluginsPanel() {
   const toggle = async (p: PluginItem) => {
     setBusyId(p.id);
     try {
-      // M8: 启停持久化 — enable/disable 落盘，重启后保持状态
+      // PL-04：不再无条件翻转开关。后端 /enable 失败会 502 并回退禁用态，
+      // 成功响应也必须带 enabled=true；随后以服务端实际列表为准刷新，
+      // 避免"本地显示 ACTIVE 但服务端其实没加载"。
       if (p.loaded) {
-        await pluginApi.disable(p.id);
-        setPlugins((ps) => ps.map((x) => (x.id === p.id ? { ...x, loaded: false } : x)));
+        const res = await pluginApi.disable(p.id) as { status?: string; enabled?: string | boolean } | null;
+        if (!res || (res.status && res.status !== 'ok')) {
+          throw new Error('禁用未成功，服务端状态未变更');
+        }
       } else {
-        await pluginApi.enable(p.id);
-        // 批C：以后端实际状态为准——enable 加载失败会 502 并回退禁用态，
-        // 旧实现吞错后无条件翻转开关，用户看到假 ACTIVE
-        setPlugins((ps) => ps.map((x) => (x.id === p.id ? { ...x, loaded: true } : x)));
+        const res = await pluginApi.enable(p.id) as { status?: string; enabled?: string | boolean } | null;
+        // 后端 /enable 成功返回 {status:'ok', enabled:'true'}；旧版本/测试桩可能
+        // 只给 status。显式 enabled=false 才算失败，缺省按 status 判定。
+        const explicitlyDisabled = res?.enabled === false || res?.enabled === 'false';
+        if (!res || (res.status && res.status !== 'ok') || explicitlyDisabled) {
+          throw new Error('启用未成功，服务端未确认已加载');
+        }
       }
       // B8：插件启停必须失效前端 Slot 缓存，否则已挂载的宿主 Slot 仍显示
       // 旧贡献（G7「禁用后 UI 同步消失」此前只在测试里成立）
       invalidatePluginSlots();
+      await load();
     } catch (e) {
       const anyE = e as { response?: { data?: { detail?: string } }; code?: string };
       const isNetwork = anyE?.code === 'ERR_NETWORK' || anyE?.code === 'ECONNABORTED';
@@ -283,12 +291,13 @@ export function PluginsPanel() {
 
   const saveConfig = async () => {
     if (!configId) return;
-    // P1-10：secret 字段回显的是掩码（后端不出明文）——直接保存会把掩码存成密钥。
-    // 后端掩码还原上线前，至少让用户知情确认。
+    // P1-10：secret 字段回显掩码、原样回传即「保留旧值」（后端 put_plugin_config 会
+    // 用已存明文还原含 `****` 的提交值）。旧实现在这里弹「会把掩码存成密钥」的确认框，
+    // 与后端实际行为相反；这里只做一次可读提示，不再伪造风险。
     const masked = Object.values(configFields).some(
       (f) => f.secret && typeof f.value === 'string' && f.value.includes('****'),
     );
-    if (masked && !window.confirm('密钥字段显示为掩码，直接保存会把掩码存为密钥导致其失效。如需更新请取消后重新粘贴完整密钥。确认继续保存？')) return;
+    if (masked) toast('未改动的密钥字段将沿用已存密钥', 'info');
     const yaml = buildConfigYaml(configFields);
     if (!yaml) return;
     setConfigSaving(true);
@@ -426,7 +435,7 @@ export function PluginsPanel() {
 
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2.5">
-                  <p className="font-mono text-body-sm font-semibold text-on-surface truncate">{p.id}</p>
+                  <p className="font-mono text-body-sm font-semibold text-on-surface truncate">{asText(p.id)}</p>
                   {p.version && <span className="font-mono text-caption text-on-surface-variant shrink-0">v{p.version}</span>}
                   {p.kind && <span className="text-caption text-on-surface-variant/50 font-mono">{p.kind}</span>}
                   {p.agents && p.agents.length > 0 && (
@@ -451,7 +460,7 @@ export function PluginsPanel() {
                   )}
                   {p.health?.dependency_ok === false && (
                     <span className="font-mono text-caption text-warning shrink-0 flex items-center gap-1"
-                      title={`缺少依赖：${(p.health.missing_dependencies ?? []).join(', ')}`}>
+                      title={`缺少依赖：${textList(p.health.missing_dependencies).join(', ')}`}>
                       <Link2 className="w-3 h-3" /> 缺依赖
                     </span>
                   )}
@@ -470,11 +479,11 @@ export function PluginsPanel() {
                     </span>
                   )}
                 </div>
-                {p.description && <p className="text-caption text-on-surface-variant truncate mt-0.5">{p.description}</p>}
+                {p.description && <p className="text-caption text-on-surface-variant truncate mt-0.5">{asText(p.description)}</p>}
                 {p.health && p.health.issues.length > 0 && (
                   <p className="text-caption text-on-surface-variant/70 mt-0.5 truncate"
-                    title={p.health.issues.join('；')}>
-                    问题：{p.health.issues.join('；')}
+                    title={textList(p.health.issues).join('；')}>
+                    问题：{textList(p.health.issues).join('；')}
                   </p>
                 )}
               </div>
@@ -545,6 +554,11 @@ export function PluginsPanel() {
                       {field.description && (
                         <span className="block text-caption text-on-surface-variant/60 font-normal mt-0.5">{field.description}</span>
                       )}
+                      {field.secret && (
+                        <span className="block text-caption text-on-surface-variant/60 font-normal mt-0.5">
+                          密钥以掩码显示：不改动即沿用已存密钥，粘贴新值会覆盖。
+                        </span>
+                      )}
                     </label>
                     <ConfigValueInput
                       type={field.type}
@@ -599,8 +613,8 @@ export function PluginsPanel() {
                 {health.plugins.map((h) => (
                   <div key={h.plugin_id} className="bg-surface rounded-cw-xs border border-outline-variant/20 px-3 py-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-label-sm text-on-surface">{h.plugin_id}</span>
-                      {h.version && <span className="font-mono text-caption text-on-surface-variant">v{h.version}</span>}
+                      <span className="font-mono text-label-sm text-on-surface">{asText(h.plugin_id)}</span>
+                      {h.version && <span className="font-mono text-caption text-on-surface-variant">v{asText(h.version)}</span>}
                       <span className={cn('font-mono text-caption px-1.5 rounded-cw-xs',
                         h.status === 'ok' ? 'bg-track-audio/15 text-track-audio'
                           : h.status === 'error' ? 'bg-error/15 text-error' : 'bg-warning/15 text-warning')}>
@@ -613,11 +627,11 @@ export function PluginsPanel() {
                       </span>
                     </div>
                     {h.issues.length > 0 && (
-                      <p className="text-caption text-on-surface-variant/70 mt-1">· {h.issues.join('；')}</p>
+                      <p className="text-caption text-on-surface-variant/70 mt-1">· {textList(h.issues).join('；')}</p>
                     )}
                     {h.missing_dependencies.length > 0 && (
                       <p className="font-mono text-caption text-warning/80 mt-0.5">
-                        缺：{h.missing_dependencies.join(', ')}
+                        缺：{textList(h.missing_dependencies).join(', ')}
                       </p>
                     )}
                   </div>
@@ -751,14 +765,14 @@ export function PluginsPanel() {
               {pluginErrors.map((e, i) => (
                 <li key={i} className="bg-surface rounded-cw-xs border border-error/20 px-3 py-2">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-label-sm text-on-surface">{e.plugin_id}</span>
-                    <span className="text-caption font-mono text-error/80">{e.phase}</span>
+                    <span className="font-mono text-label-sm text-on-surface">{asText(e.plugin_id)}</span>
+                    <span className="text-caption font-mono text-error/80">{asText(e.phase)}</span>
                     <span className="text-caption text-on-surface-variant/50 font-mono ml-auto">
                       {new Date(e.ts * 1000).toLocaleTimeString()}
                     </span>
                   </div>
-                  <p className="text-label-sm text-on-surface mt-1">{e.message}</p>
-                  {e.details && <p className="text-caption text-on-surface-variant/60 font-mono mt-1 break-all">{e.details}</p>}
+                  <p className="text-label-sm text-on-surface mt-1">{asText(e.message)}</p>
+                  {e.details && <p className="text-caption text-on-surface-variant/60 font-mono mt-1 break-all">{asText(e.details)}</p>}
                 </li>
               ))}
             </ul>
