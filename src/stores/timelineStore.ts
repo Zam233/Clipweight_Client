@@ -910,14 +910,32 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
       }
     }
     if (flat.length === 0) return;
-    // 平铺到原轨道上（时间 = 父起点 + 相对时间）
-    const tracks = state.tracks.map((t) => ({
+    // TL-07（PRD §5C P2）：按**子轨**逐条展开回主时间线——旧实现把所有片段
+    // 平铺到父轨单轨，跨类型混轨（视频/音频同轨）与同轨重叠。创建时每条来源轨
+    // 映射为一条子轨（同名同 kind），展开时按 (name, kind) 找回或重建对应轨道，
+    // 往返后 clip 回到各自来源轨道且不重叠。
+    let tracks = state.tracks.map((t) => ({
       ...t,
       clips: t.clips.filter((c) => c.id !== clipId),
     }));
+    const findOrCreateTrack = (sub: Track): Track => {
+      const existing = tracks.find(
+        (t) => t.kind === sub.kind && t.name === sub.name && !t.locked);
+      if (existing) return existing;
+      const created: Track = {
+        id: uid('track'),
+        name: sub.name,
+        kind: sub.kind,
+        index: tracks.length,
+        locked: false,
+        muted: false,
+        clips: [],
+      };
+      tracks = [...tracks, created];
+      return created;
+    };
     for (const { clip, track } of flat) {
-      const target = tracks.find((t) => t.id === parentTrack!.id) ?? tracks[0];
-      if (!target) continue;
+      const target = findOrCreateTrack(track);
       target.clips.push({
         ...clip,
         id: uid('clip'),
