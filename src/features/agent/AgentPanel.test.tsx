@@ -1199,7 +1199,9 @@ describe('单流视图（session-timeline）：服务端条目按 seq 渲染', (
       .map((el) => Number(el.getAttribute('data-seq')));
     expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
     expect(timeline.textContent).toContain('做一期数码评测');
-    expect(timeline.textContent).toContain('先想清楚受众');
+    // T-08（PRD §5 T-08）：历史思考默认折叠，只显示字数摘要；正文需展开才可见。
+    expect(timeline.textContent).toContain('思考');
+    expect(timeline.textContent).not.toContain('先想清楚受众');
     expect(timeline.textContent).toContain('好的，先确认三点');
     setSessionTimelineEnabled(null);
   });

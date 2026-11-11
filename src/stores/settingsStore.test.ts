@@ -86,3 +86,54 @@ describe('settingsStore 连接配置持久化', () => {
     expect(useSettingsStore.getState().authToken).toBeNull();
   });
 });
+
+/**
+ * E-07：自动保存 / 默认帧率 / 默认分辨率三项设置刷新后失效。
+ * loadEditorPrefs() 的返回值缺这三项，读取端却从返回值里取，恒为 undefined。
+ * 这里用「写入 → resetModules 重新加载 → 读回」复现刷新场景。
+ */
+describe('E-07 编辑器偏好持久化（autoSave / defaultFps / defaultResolution）', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => vi.resetModules());
+
+  it('关掉自动保存、改帧率与竖屏分辨率后，刷新仍保持用户值', async () => {
+    const { useSettingsStore } = await importFreshStore();
+    useSettingsStore.getState().setAutoSave(false);
+    useSettingsStore.getState().setDefaultFps(25);
+    useSettingsStore.getState().setDefaultResolution({ width: 1080, height: 1920 });
+
+    const fresh = await importFreshStore();
+    const s = fresh.useSettingsStore.getState();
+    expect(s.autoSave).toBe(false);
+    expect(s.defaultFps).toBe(25);
+    expect(s.defaultResolution).toEqual({ width: 1080, height: 1920 });
+  });
+
+  it('未存过偏好时回落默认值（true / 30 / 1920×1080）', async () => {
+    const { useSettingsStore } = await importFreshStore();
+    const s = useSettingsStore.getState();
+    expect(s.autoSave).toBe(true);
+    expect(s.defaultFps).toBe(30);
+    expect(s.defaultResolution).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it('损坏的偏好值由迁移链与读取端共同收敛，不把 NaN / 字符串写进状态', async () => {
+    // migrateLocalPrefs 在模块加载时会把 -1 钳到合法下界 1、把非数字分辨率补默认；
+    // 读取端再校验一次。这里断言结果始终是合法数字而非 NaN / 字符串。
+    localStorage.setItem('clipwright.editorPrefs', JSON.stringify({
+      autoSave: 'no', defaultFps: -1, defaultResolution: { width: 'x', height: 0 },
+    }));
+    const { useSettingsStore } = await importFreshStore();
+    const s = useSettingsStore.getState();
+    expect(s.autoSave).toBe(true);
+    expect(typeof s.defaultFps).toBe('number');
+    expect(Number.isFinite(s.defaultFps)).toBe(true);
+    expect(s.defaultFps).toBeGreaterThanOrEqual(1);
+    expect(typeof s.defaultResolution.width).toBe('number');
+    expect(typeof s.defaultResolution.height).toBe('number');
+    expect(s.defaultResolution.width).toBeGreaterThanOrEqual(16);
+    expect(s.defaultResolution.height).toBeGreaterThanOrEqual(16);
+    expect(s.defaultResolution.width).toBeLessThanOrEqual(7680);
+    expect(s.defaultResolution.height).toBeLessThanOrEqual(7680);
+  });
+});

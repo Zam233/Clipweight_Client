@@ -366,3 +366,66 @@ describe('historyStore O3：选择快照', () => {
   });
 });
 
+// W07 (TL-01): undo/redo 经 swapTimeline 以 history 来源切回，
+// 脏标记由「恢复的时间线 !== 落盘基线」决定，不能被无条件清成「已保存」。
+describe('historyStore W07: undo/redo 的 isDirty 语义 (TL-01)', () => {
+  beforeEach(() => {
+    // resetTimeline 清基线，随后每个用例显式建立 server 基线
+    useTimelineStore.getState().resetTimeline();
+    useHistoryStore.setState({ undoStack: [], redoStack: [] });
+  });
+
+  it('undo 回到落盘快照 → isDirty=false', () => {
+    const srv = makeTimeline('saved');
+    useTimelineStore.getState().setTimeline(srv, { source: 'server' }); // 基线 = srv，干净
+    expect(useTimelineStore.getState().isDirty).toBe(false);
+
+    // 编辑前把当前（= 落盘）快照压栈，再模拟一次未落盘编辑
+    useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'edit');
+    const edited = makeTimeline('edited');
+    useTimelineStore.setState({ timeline: edited, isDirty: true });
+    expect(useTimelineStore.getState().isDirty).toBe(true);
+
+    useHistoryStore.getState().undo(); // 经 history 来源恢复 srv
+    expect(useTimelineStore.getState().timeline).toBe(srv);
+    expect(useTimelineStore.getState().isDirty).toBe(false);
+  });
+
+  it('undo 到未落盘快照 → isDirty=true（撤销越过最后一次保存）', () => {
+    const srv = makeTimeline('saved');
+    useTimelineStore.getState().setTimeline(srv, { source: 'server' }); // 基线 = srv
+
+    // 第一次编辑 + 保存：基线更新为 e1
+    useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'edit-1');
+    const e1 = makeTimeline('edit-1');
+    useTimelineStore.setState({ timeline: e1, isDirty: true });
+    useTimelineStore.getState().markSaved(); // 保存成功 → 基线 = e1，干净
+    expect(useTimelineStore.getState().isDirty).toBe(false);
+
+    // 第二次编辑（未落盘）
+    useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'edit-2');
+    const e2 = makeTimeline('edit-2');
+    useTimelineStore.setState({ timeline: e2, isDirty: true });
+
+    // undo 一次 → 回到 e1（最后一次落盘快照）→ 干净
+    useHistoryStore.getState().undo();
+    expect(useTimelineStore.getState().isDirty).toBe(false);
+    // 再 undo → 回到 srv（落盘之前的版本）→ 与基线不同 → 必须保持脏
+    useHistoryStore.getState().undo();
+    expect(useTimelineStore.getState().isDirty).toBe(true);
+  });
+
+  it('redo 到未落盘快照同样保持 isDirty=true', () => {
+    const srv = makeTimeline('saved');
+    useTimelineStore.getState().setTimeline(srv, { source: 'server' });
+    useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'edit');
+    const edited = makeTimeline('edited');
+    useTimelineStore.setState({ timeline: edited, isDirty: true });
+
+    useHistoryStore.getState().undo(); // 回到 srv（落盘）→ 干净
+    expect(useTimelineStore.getState().isDirty).toBe(false);
+    useHistoryStore.getState().redo(); // 重做到 edited（未落盘）→ 脏
+    expect(useTimelineStore.getState().isDirty).toBe(true);
+  });
+});
+

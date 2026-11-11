@@ -132,6 +132,30 @@ describe('PluginsPage M8 启停持久化', () => {
     expect(await screen.findByText(/未定义 UI/)).toBeTruthy();
   });
 
+  /** PL-04：enable 失败/未确认时开关不能翻成 ACTIVE，且要按服务端状态刷新。 */
+  it('PL-04：enable 返回失败 → 不标记 loaded，服务端列表重新确认状态', async () => {
+    mocks.list.mockResolvedValue([]);
+    mocks.discover.mockResolvedValue(['plug_b']);
+    mocks.enable.mockRejectedValue(new Error('插件加载失败: 502'));
+    render(<PluginsPage />);
+    const toggle = await screen.findByTitle('启用（持久化）');
+    fireEvent.click(toggle);
+    await waitFor(() => expect(mocks.enable).toHaveBeenCalledWith('plug_b'));
+    // 列表来自服务端（仍为空 → 未加载），不能出现"已加载"态
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTitle('禁用（持久化）')).toBeNull();
+  });
+
+  it('PL-04：enable 显式 enabled=false → 视为失败，不翻开关', async () => {
+    mocks.list.mockResolvedValue([]);
+    mocks.discover.mockResolvedValue(['plug_b']);
+    mocks.enable.mockResolvedValue({ status: 'ok', enabled: 'false' });
+    render(<PluginsPage />);
+    fireEvent.click(await screen.findByTitle('启用（持久化）'));
+    await waitFor(() => expect(mocks.enable).toHaveBeenCalledWith('plug_b'));
+    expect(screen.queryByTitle('禁用（持久化）')).toBeNull();
+  });
+
   it('错误通道按钮加载并展示插件错误（M7）', async () => {
     render(<PluginsPage />);
     fireEvent.click(await screen.findByRole('button', { name: /错误通道/ }));

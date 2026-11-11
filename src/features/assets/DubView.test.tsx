@@ -70,3 +70,49 @@ describe('B21: dub segments wired into projectStore', () => {
     expect(useProjectStore.getState().dubSegments).toBeNull();
   });
 });
+
+describe('M-07/M-08 空段守卫与失败重试', () => {
+  it('M-07：没有可加段时不建空音轨、给出可读提示', async () => {
+    render(<DubView />);
+    // 所有段都没有 audio_url → 可加段为空
+    mocks.voiceDub.mockResolvedValue({
+      segments: [{ index: 0, text: '无音频', duration_sec: 3 }],
+      total: 1, total_duration_sec: 3,
+    });
+    fireEvent.click(screen.getByText('确认配音'));
+    await waitFor(() => expect(mocks.voiceDub).toHaveBeenCalled());
+
+    // 没有音频时不渲染「加入时间轴」按钮，所以直接从底部找错误/重试入口
+    expect(screen.getByTestId('dub-error')).toBeTruthy();
+    // 时间线不应多出 audio 轨道
+    const tl = await import('@/stores/timelineStore');
+    expect(
+      tl.useTimelineStore.getState().timeline.tracks.filter((t) => t.kind === 'audio'),
+    ).toHaveLength(0);
+  });
+
+  it('M-08：音色列表加载失败给出可点重试', async () => {
+    mocks.voiceList.mockRejectedValueOnce(new Error('网络中断'));
+    mocks.voiceList.mockResolvedValueOnce([{ id: 'v1', voice_name: '小青', provider: 'qwen' }]);
+
+    render(<DubView />);
+    const err = await screen.findByTestId('dub-voices-error');
+    expect(err.textContent).toContain('音色列表加载失败');
+
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    await waitFor(() => expect(mocks.voiceList).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByTestId('dub-voices-error')).toBeNull());
+  });
+
+  it('M-08：配音失败显示可点「重试配音」', async () => {
+    mocks.voiceDub.mockRejectedValue(new Error('合成服务不可用'));
+    render(<DubView />);
+    fireEvent.click(screen.getByText('确认配音'));
+    await waitFor(() => expect(screen.getByTestId('dub-error')).toBeTruthy());
+    expect(screen.getByRole('button', { name: '重试配音' })).toBeTruthy();
+
+    mocks.voiceDub.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: '重试配音' }));
+    await waitFor(() => expect(mocks.voiceDub).toHaveBeenCalledTimes(1));
+  });
+});

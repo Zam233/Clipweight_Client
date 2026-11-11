@@ -26,6 +26,43 @@ describe('G2: cancelling state', () => {
   });
 });
 
+/**
+ * E-06 线索 1（复核确认，PRD §5A）：resetPipeline 只清内存不清持久化，
+ * 刷新后旧项目的 pipelineId 会经 loadPipelineId() 复活并重连 SSE。
+ */
+describe('E-06 resetPipeline 清理管线持久化', () => {
+  it('resetPipeline 后 loadPipelineId 返回 null（sessionStorage 与 localStorage 均清）', async () => {
+    const { savePipelineId, loadPipelineId, clearPipelineId } = await import(
+      '@/services/storage/pipelineSession');
+    clearPipelineId();
+    savePipelineId('pl_old_project');
+
+    expect(loadPipelineId()).toBe('pl_old_project');
+    useAgentStore.getState().resetPipeline();
+    expect(loadPipelineId()).toBeNull();
+    clearPipelineId(); // 测试自清理
+  });
+});
+
+/**
+ * E-06 线索 7（复核确认，PRD §5A）：恢复快照时残留 streaming:true → 打字光标常驻。
+ */
+describe('E-06 restoreAgentState 收敛 streaming 标记', () => {
+  it('恢复的消息 streaming 一律置 false', () => {
+    useAgentStore.getState().restoreAgentState({
+      requirementsSessionId: 'sess_x',
+      requirementsStatus: 'gathering',
+      requirementsMessages: [
+        { id: 'a', role: 'user', content: 'hi', timestamp: '' },
+        { id: 'b', role: 'assistant', content: '生成中…', timestamp: '', streaming: true },
+      ],
+    } as never);
+    const msgs = useAgentStore.getState().requirementsMessages;
+    expect(msgs.find((m) => m.id === 'b')?.streaming).toBe(false);
+    expect(msgs.find((m) => m.id === 'a')?.streaming).toBeFalsy();
+  });
+});
+
 describe('E7: log entry cap', () => {
   it('601 条 addLogEntry 后仅保留最近 500 条', () => {
     const s = useAgentStore.getState();

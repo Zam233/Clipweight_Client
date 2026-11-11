@@ -384,6 +384,165 @@ describe('timelineStore M1 (rolling/slip/slide 编辑族)', () => {
     // 首片段前移 1s → 被 0 边界钳制
     expect(b.start_sec).toBeCloseTo(0, 5);
   });
+
+  /**
+   * TL-02（PRD §5C P1）：旧实现把 prev/next 的可压缩量对调，
+   * A(0s,10s) / B(10s,1s) / C(11s,1s) 把 B 大幅右移时 C 会变成负时长。
+   * 修正后：右移受 next 可压缩量限制，任意方向邻居时长恒 ≥0.1s。
+   */
+  it('slideClip TL-02：大幅右移不会把后邻居压成负时长', () => {
+    const tid = useTimelineStore.getState().addTrack('video', 'V1');
+    const A = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 0, duration_sec: 10 });
+    const B = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 10, duration_sec: 1 });
+    const C = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 11, duration_sec: 1 });
+
+    useTimelineStore.getState().slideClip(B, 9.9);
+
+    const a = useTimelineStore.getState().getClip(A)!;
+    const b = useTimelineStore.getState().getClip(B)!;
+    const c = useTimelineStore.getState().getClip(C)!;
+    // C 最多被压缩到 0.1s，绝不出现负时长
+    expect(c.duration_sec).toBeGreaterThanOrEqual(0.1 - 1e-9);
+    expect(a.duration_sec).toBeGreaterThan(0);
+    expect(b.duration_sec).toBeCloseTo(1, 5);
+    // 同轨片段不得重叠
+    expect(b.start_sec + b.duration_sec).toBeLessThanOrEqual(c.start_sec + 1e-9);
+  });
+
+  it('slideClip TL-02：大幅左移不会把前邻居压成负时长', () => {    const tid = useTimelineStore.getState().addTrack('video', 'V1');
+    const A = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 0, duration_sec: 1 });
+    const B = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 1, duration_sec: 1 });
+    const C = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 2, duration_sec: 10 });
+
+    useTimelineStore.getState().slideClip(B, -9.9);
+
+    const a = useTimelineStore.getState().getClip(A)!;
+    expect(a.duration_sec).toBeGreaterThanOrEqual(0.1 - 1e-9);
+    const all = useTimelineStore.getState().timeline.tracks[0].clips;
+    for (const clip of all) expect(clip.duration_sec).toBeGreaterThanOrEqual(0.1 - 1e-9);
+    // 左移的位移由 prev 缩短 + next 加长共同吸收，总时长保持 12s 不变
+    const total = all.reduce((m, c) => Math.max(m, c.start_sec + c.duration_sec), 0);
+    expect(total).toBeCloseTo(12, 5);
+  });
+});
+
+// TL-02 / W08：slide 正向按 next 可压缩量、反向按 prev 可压缩量钳制。
+// 旧实现把两项对调，A(10s)/B(1s)/C(1s) 大幅右移会把 C 压成负时长。
+describe('TL-02: slideClip 邻接钳制（不产生负时长/重叠）', () => {
+  beforeEach(() => {
+    useTimelineStore.getState().setTimeline(createEmptyTimeline());
+  });
+
+  // A(0s,10s) / B(10s,1s) / C(11s,1s)
+  function abc() {
+    const tid = useTimelineStore.getState().addTrack('video', 'V1');
+    const a = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 0, duration_sec: 10 });
+    const b = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 10, duration_sec: 1 });
+    const c = useTimelineStore.getState().addClip(tid, { kind: 'video', start_sec: 11, duration_sec: 1 });
+    return { a, b, c };
+  }
+
+  it('大幅右移 B：C 恒 >=0.1s，绝不产生负时长/重叠（正向受 next 可压缩量限制）', () => {
+    const { a, b, c } = abc();
+    useTimelineStore.getState().slideClip(b, 99);
+    const clips = useTimelineStore.getState().timeline.tracks[0].clips;
+    const A = clips.find((x) => x.id === a)!;
+    const B = clips.find((x) => x.id === b)!;
+    const C = clips.find((x) => x.id === c)!;
+    // 右移时 C 被压缩，最多压到 0.1s（next 可压缩量 = 1 - 0.1 = 0.9）
+    expect(C.duration_sec).toBeGreaterThanOrEqual(0.1 - 1e-9);
+    expect(C.duration_sec).toBeCloseTo(0.1, 5);
+    expect(C.start_sec).toBeCloseTo(B.start_sec + B.duration_sec, 5); // 紧密相邻
+    expect(A.duration_sec).toBeGreaterThanOrEqual(0.1 - 1e-9);
+    expect(B.duration_sec).toBeCloseTo(1, 5); // 自身时长不变
+    expect(B.start_sec).toBeLessThanOrEqual(10 + 0.9 + 1e-9); // 右移被 0.9s 钳住
+    // 全部片段时长非负且首尾相接，无重叠
+    expect(clips.every((x) => x.duration_sec >= 0.1 - 1e-9)).toBe(true);
+  });
+
+  it('大幅左移 B：A 恒 >=0.1s，绝不产生负时长/重叠（反向受 prev 可压缩量限制）', () => {
+    const { a, b, c } = abc();
+    useTimelineStore.getState().slideClip(b, -99);
+    const clips = useTimelineStore.getState().timeline.tracks[0].clips;
+    const A = clips.find((x) => x.id === a)!;
+    const B = clips.find((x) => x.id === b)!;
+    const C = clips.find((x) => x.id === c)!;
+    // 左移时 A 被压缩，最多压到 0.1s（prev 可压缩量 = 10 - 0.1 = 9.9）
+    expect(A.duration_sec).toBeGreaterThanOrEqual(0.1 - 1e-9);
+    expect(A.duration_sec).toBeCloseTo(0.1, 5);
+    expect(B.start_sec).toBeCloseTo(A.start_sec + A.duration_sec, 5); // 紧密相邻
+    expect(C.duration_sec).toBeGreaterThanOrEqual(0.1 - 1e-9);
+    expect(B.duration_sec).toBeCloseTo(1, 5);
+    expect(B.start_sec).toBeGreaterThanOrEqual(10 - 9.9 - 1e-9);
+    expect(clips.every((x) => x.duration_sec >= 0.1 - 1e-9)).toBe(true);
+  });
+
+  it('任意方向邻居时长恒 >=0.1s（随机方向极值不产生重叠）', () => {
+    const { a, b, c } = abc();
+    for (const d of [99, -99, 0.5, -0.5, 9.9, -9.9]) {
+      useTimelineStore.getState().setTimeline(createEmptyTimeline());
+      const ids = abc();
+      useTimelineStore.getState().slideClip(ids.b, d);
+      const clips = useTimelineStore.getState().timeline.tracks[0].clips;
+      expect(clips).toHaveLength(3);
+      const sorted = [...clips].sort((x, y) => x.start_sec - y.start_sec);
+      for (const x of sorted) expect(x.duration_sec).toBeGreaterThanOrEqual(0.1 - 1e-9);
+      // 相邻片段首尾相接，不重叠
+      for (let i = 1; i < sorted.length; i += 1) {
+        expect(sorted[i].start_sec).toBeGreaterThanOrEqual(sorted[i - 1].start_sec + sorted[i - 1].duration_sec - 1e-9);
+      }
+    }
+    void a; void b; void c;
+  });
+});
+
+describe('timelineStore TL-05 (锁定轨写入守卫)', () => {
+  beforeEach(() => {
+    useTimelineStore.getState().setTimeline(createEmptyTimeline());
+  });
+
+  function lockedTrackWithClip() {
+    const tid = useTimelineStore.getState().addTrack('video', 'V1');
+    const cid = useTimelineStore.getState().addClip(
+      tid, { kind: 'video', start_sec: 0, duration_sec: 4 })!;
+    useTimelineStore.getState().toggleTrackLock(tid);
+    return { tid, cid };
+  }
+
+  /**
+   * TL-05（PRD §5C P2）：锁定轨上的片段此前仍可被属性面板 updateClip、
+   * 删除与切分直接改写（store 不查锁定，只靠 UI 自觉）。
+   * 这里把守卫下沉到 store，UI 绕不绕都改不动。
+   */
+  it('updateClip 不动锁定轨上的片段', () => {
+    const { cid } = lockedTrackWithClip();
+    const before = useTimelineStore.getState().getClip(cid)!;
+    useTimelineStore.getState().updateClip(cid, { duration_sec: 99, opacity: 0.1 });
+    const after = useTimelineStore.getState().getClip(cid)!;
+    expect(after.duration_sec).toBeCloseTo(before.duration_sec, 5);
+    expect(after.opacity).toBe(before.opacity);
+  });
+
+  it('removeClip 不删除锁定轨上的片段', () => {
+    const { cid } = lockedTrackWithClip();
+    useTimelineStore.getState().removeClip(cid);
+    expect(useTimelineStore.getState().getClip(cid)).toBeTruthy();
+  });
+
+  it('splitClip 不动锁定轨上的片段', () => {
+    const { tid, cid } = lockedTrackWithClip();
+    useTimelineStore.getState().splitClip(cid, 2);
+    const track = useTimelineStore.getState().timeline.tracks.find((t) => t.id === tid)!;
+    expect(track.clips).toHaveLength(1);
+    expect(track.clips[0].duration_sec).toBeCloseTo(4, 5);
+  });
+
+  it('解锁后同一片段可正常编辑（守卫只针对锁定态）', () => {
+    const { tid, cid } = lockedTrackWithClip();
+    useTimelineStore.getState().toggleTrackLock(tid);
+    useTimelineStore.getState().updateClip(cid, { duration_sec: 6 });
+    expect(useTimelineStore.getState().getClip(cid)!.duration_sec).toBeCloseTo(6, 5);
+  });
 });
 
 describe('timelineStore M2 (编组)', () => {
@@ -581,5 +740,70 @@ describe('P1-04: 关键帧时间基归一化', () => {
     // 绝对秒保持原样、无 clip_local 标记（后端启发式可正确识别 absolute）
     expect(clip.keyframes![0].time).toBe(240);
     expect(clip.metadata?.kf_time_base).toBeUndefined();
+  });
+});
+
+// W07 (TL-01/TL-03): setTimeline 区分来源，history 与「落盘基线」比较决定脏标记。
+describe('W07: setTimeline 来源 / 落盘基线 / isDirty (TL-01/TL-03)', () => {
+  beforeEach(() => {
+    // resetTimeline 清基线 + 清脏，保证用例之间互不污染
+    useTimelineStore.getState().resetTimeline();
+  });
+
+  it('server 水合不误标脏，并记录落盘基线', () => {
+    const srv = createEmptyTimeline();
+    useTimelineStore.getState().addTrack('video', 'V1'); // 先制造一个「旧状态」脏标记
+    expect(useTimelineStore.getState().isDirty).toBe(true);
+
+    useTimelineStore.getState().setTimeline(srv, { source: 'server' });
+    expect(useTimelineStore.getState().isDirty).toBe(false);
+
+    // 基线 = srv：history 恢复到该快照 → 不脏；恢复到一个不同快照 → 脏
+    useTimelineStore.getState().setTimeline(srv, { source: 'history' });
+    expect(useTimelineStore.getState().isDirty).toBe(false);
+    useTimelineStore.getState().setTimeline(createEmptyTimeline(), { source: 'history' });
+    expect(useTimelineStore.getState().isDirty).toBe(true);
+  });
+
+  it('local 来源（JSON 导入 / 代理切换 / Agent 产物替换）→ isDirty=true', () => {
+    useTimelineStore.getState().setTimeline(createEmptyTimeline(), { source: 'server' });
+    expect(useTimelineStore.getState().isDirty).toBe(false);
+
+    useTimelineStore.getState().setTimeline(createEmptyTimeline(), { source: 'local' });
+    expect(useTimelineStore.getState().isDirty).toBe(true);
+  });
+
+  it('history 来源：恢复的时间线与落盘基线不同 → 保持 isDirty=true', () => {
+    const srv = createEmptyTimeline();
+    useTimelineStore.getState().setTimeline(srv, { source: 'server' });
+    const edited = createEmptyTimeline();
+    useTimelineStore.getState().setTimeline(edited, { source: 'history' });
+    expect(useTimelineStore.getState().isDirty).toBe(true);
+  });
+
+  it('markSaved 后清脏，并把落盘基线更新为当前 timeline', () => {
+    const srv = createEmptyTimeline();
+    useTimelineStore.getState().setTimeline(srv, { source: 'server' });
+    useTimelineStore.getState().setTimeline(createEmptyTimeline(), { source: 'local' });
+    expect(useTimelineStore.getState().isDirty).toBe(true);
+
+    const saved = useTimelineStore.getState().timeline;
+    useTimelineStore.getState().markSaved();
+    expect(useTimelineStore.getState().isDirty).toBe(false);
+    // 基线已更新为 saved：history 回到 saved 不脏，回到旧 server 快照脏
+    useTimelineStore.getState().setTimeline(saved, { source: 'history' });
+    expect(useTimelineStore.getState().isDirty).toBe(false);
+    useTimelineStore.getState().setTimeline(srv, { source: 'history' });
+    expect(useTimelineStore.getState().isDirty).toBe(true);
+  });
+
+  it('缺省（无 source）行为保持不变：isDirty=false 且同样建立落盘基线', () => {
+    useTimelineStore.getState().addTrack('video', 'V1');
+    expect(useTimelineStore.getState().isDirty).toBe(true);
+    const legacy = createEmptyTimeline();
+    useTimelineStore.getState().setTimeline(legacy); // 既有调用点不传来源
+    expect(useTimelineStore.getState().isDirty).toBe(false);
+    useTimelineStore.getState().setTimeline(legacy, { source: 'history' });
+    expect(useTimelineStore.getState().isDirty).toBe(false);
   });
 });
