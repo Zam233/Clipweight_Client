@@ -116,6 +116,11 @@
   - **F-11**：`loop` 档位 `disabled` 并注明「暂未支持」。
   - **F-12**：`dataMode` 初值改 `'live'`（首屏不再闪「演示数据」）；页脚去掉 `v0.1.0 · Phase 5`。
   - 红→绿：`HomePage.test.tsx` 新增 4 例（F-08 摘要、F-04 配音态、F-03 过期预判丢弃、F-12 不闪演示数据）→ 24 passed（+`splitScript` 8 = 32）。
+- KK-09 形态统一 + BE-09 结构项（第十轮）：
+  - **KK-09 terminal_reason 形态统一**：`_gate_hit` 触闸路径的 emit 由 `_treason`（当时是字符串）改为 `str(_treason)` 显式化，与 ok 路径的 `_treason.value` 同形态，消费者不必兼容两种类型。
+  - **BE-09 Mongo 静默失效**：`_persist_render_task`/`_drop_render_task` 的 `except Exception: pass` 改为 `logger.warning`（降级可接受但必须留痕——否则"刷新后任务消失"无迹可循）。
+  - **BE-09 sys.path 只加不除**：`_migrate_config` 迁移完成后用 `try/finally` 把插件根从 `sys.path` 摘掉（旧实现永久 append，多插件重名 `migrations.py`/`utils.py` 互相遮蔽，reload 越积越多）。
+  - 回归：`test_agent_kernel.py` + 审计测试 42 passed；插件治理 + kernel 56 passed。
 - M-09 mediaManager 两项（第九轮）：
   - **AudioContext 生命周期**：`clear()`（项目切换/编辑器卸载）时 `audioCtx.close()` 并清空 `analyser`——旧实现只建不关，反复切换项目累积解码资源。`sourceNodes` 是 WeakMap（以媒体元素为键），元素随 entry 释放后由 GC 回收，无需手动清。下次 `attachAnalyser` 时 `ensureAudioCtx` 懒重建。
   - **crossOrigin 条件化**：新增 `applyCrossOrigin(el, url)`——只有**真跨源**（http(s) 且非当前 origin）才设 `anonymous`；同源代理（/api/asset/by-path 等）与 blob: URL 不再设，避免后端无 ACAO 头时媒体请求直接失败、封面永远空。五处赋值点（registerFile/RegisterUrl 三类/缩略图 video）统一走它。
@@ -192,7 +197,7 @@ PRD 全量仍未关闭。以下按优先级列出本轮**未做**的编号，建
 | 优先级 | 编号 | 说明 |
 |---|---|---|
 | P2 | TL-06/07/08、P-02～P-09 | 波纹删除跨轨、嵌套序列、trim 钳制、预览单击/双击语义与性能（**需产品口径**，见 coding plan §1） |
-| P3 | BE-09 结构性三项（Mongo 静默失效、sys.path 只加不除、preset 字段重复）；M-09 的扫描 SSE 关流一项 | 结构性，留待后续 |
+| P3 | BE-09 剩两项（preset 字段重复声明、render SSE 恢复订阅语义）——结构性且影响面小 | 留待后续批次 |
 | 待复核 | E-05/E-06 | **E-06 已逐项核实并处理**（见下方记录）；E-05 维持「低优先级观察」——唯一中断路径已有 cancelInFlight 挽救逻辑与恢复流程，等用户实测再上移连接所有权 |
 
 **W01 的跨仓尾巴**：前端已默认拒绝任意插件 API 调用，但后端「插件专用受限代理 + 服务端权限裁定」尚未实现。在此之前该项只能算「前端收口」，不能宣称 PRD 的 PL-01/PL-02 已完全关闭。
