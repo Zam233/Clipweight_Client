@@ -36,7 +36,7 @@
 | W05 | E-01～04/E-07, F-01/F-02 | 已验 | 主会话 | 启动信封/跨项目快照/reset 全覆盖/音色不被旧偏好覆盖/新建态不显示旧项目素材；F-03 待办 |
 | W06 | F-03～F-12 | 已验 | 主会话 | 预判代际、配音三态、步骤编号、默认类型如实标注、预判时长生效、Agent 数与端口文案、未支持选项禁用、首屏不闪演示数据、离线回退受开关控制、工作区失败可见 |
 | W07 | TL-01/03 | 已验（store 层） | 子代理 | `setTimeline` 来源区分 + 落盘基线；10 个新用例红→绿 |
-| W08 | TL-02/04/05/09/10/11/12（+TL-13 dispose） | 已验（子集） | 主会话接手 | slideClip 钳制、锁/隐轨投放拒绝、跳转与命中跳过、锁轨写入守卫下沉 store、keyframes 缺省不崩、pointer 监听不叠加、Bezier DPI（复核已正确）；TL-06/07/08 未做 |
+| W08 | TL-02/04/05/06/07/08/09/10/11/12/13 | 已验 | 主会话接手 | 全部时间线条目完成：钳制、锁/隐轨、keyframes 缺省、嵌套往返按子轨展开、面板 trim 同口径、dirty 驱动渲染循环 |
 | W09a | S-01～06 | 已验 | 主会话（接手失败子代理） | start 检查 refused、窗口游标同步、runEvents 合并、replan 代际、错误分槽、inject 反馈 |
 | W09b | T-01～08 | 已验（存在） | 子代理 | SessionTimeline UI，12 例 |
 | W10 | P-01（P-02/03～09 未做） | 部分已验 | 主会话 | 导出帧等待 seeked；其余预览项未做 |
@@ -133,6 +133,12 @@
   - **复现属实**：`pipeline_budget_usd` 为空串/非数字时，旧实现原样透传 pydantic `float` → `TaskLimits` 构造即抛 `ValidationError`（实测 `''` 与 `'abc'` 都 RAISES）——任务 create 阶段 500。
   - **修复**：`limits_from_settings` 对预算值先做 `float()` 转换 + NaN/Inf 检查；无效值按「未配置」处理（None）并留 warning。五种形态验证：`''`/`'abc'`→None（留痕）、`None`→None、`'2.5'`→2.5、`3`→3.0。
   - 回归：新增 6 例参数化用例（3 非法 + 3 合法透传）→ 审计测试 21 passed；后端 8 文件 **80 passed**（含 `test_budget.py`）。
+- TL-06/07/08/13（第十六轮，预览/时间线最后一批）：
+  - **TL-06**：核实跨轨联动与锁定轨不动**已被 P1-31 修复**（实现+测试均在）；本补齐验收第二句——新增"波纹窗口内未删片段保持原位"的行为固定用例（产品若改口径再更新）。
+  - **TL-08**：属性面板起点/时长改走 `trimClipStart`/`trimClipEnd`（与画布拖拽同口径）；起点移动保持右端不动（时长=原右端−新起点），不再裸 `set` 拖出单轨重叠。
+  - **TL-07**：`expandNestedSequence` 按**子轨** (name, kind) 展开回主时间线（找不到则按子轨属性重建）——旧实现全平铺到父轨单轨，跨类型混轨+重叠。新增跨类型（视频+音频）往返回归用例：不混轨、位置正确、同轨无重叠。
+  - **TL-13 空闲 rAF**：渲染循环改为 dirty 驱动——`requestRender()` 经 `ensureLoop()` 启动循环，连续渲染后无 dirty 即挂起（构造函数初始渲染一次后同样挂起）。engine 全部 69 例通过（wheel/scroll/markers 等交互路径未回归）。
+  - 回归：timelineStore 62 passed；properties 33 passed；engine 69 passed。
 - W01 后端受限代理（第十五轮，跨仓契约落地）：
   - **后端**：`api/plugin.py` 新增 `POST /api/plugin/proxy/{plugin_id}/{method}`——服务端按 `_PLUGIN_PROXY_ALLOWED`（plugin → method:action → 目标端点）做最终裁定；plugin 必须已发现**且启用**（禁用即 403）；请求体只含 `{action, payload}`（无 path/endpoint 字段，插件不能自报目标）；目标端点由服务端映射，只放行 `/api/tool/execute`（POST:tool）与 `/api/render/browser[/install]`（探针/安装）。普通宿主令牌不因代理放宽。
   - **前端**：`pluginApiGuard` 新增 `toPluginProxyRequest()`（授权后改写为代理请求）；`PluginBundleFrame` 与 `usePluginShortcuts` 两个调用点改走代理（`client.post(proxy.url, proxy.body)`），快捷键无 `owner`（贡献归属）时默认拒绝。
@@ -223,8 +229,6 @@ PRD 全量仍未关闭。以下按优先级列出本轮**未做**的编号，建
 
 | 优先级 | 编号 | 说明 |
 |---|---|---|
-| P3 | KK-09 余项（ok 路径收口报告 + deliverable_status 校验）——涉及成功语义变更，需与产品确认口径 | 留待后续批次 |
-| P3 | KK-09 余项（ok 路径收口报告 + deliverable_status 校验）——涉及成功语义变更，需与产品确认口径 | 留待后续批次 |
-| 待复核 | E-05/E-06 | **E-06 已逐项核实并处理**（见下方记录）；E-05 维持「低优先级观察」——唯一中断路径已有 cancelInFlight 挽救逻辑与恢复流程，等用户实测再上移连接所有权 |
+| 待复核 | E-05 | 维持「低优先级观察」——切标签中断路径已有 cancelInFlight 挽救与恢复流程，等用户实测再上移连接所有权（E-06 已全部闭环） |
 
 **W01 的跨仓尾巴**：前端已默认拒绝任意插件 API 调用，但后端「插件专用受限代理 + 服务端权限裁定」尚未实现。在此之前该项只能算「前端收口」，不能宣称 PRD 的 PL-01/PL-02 已完全关闭。
