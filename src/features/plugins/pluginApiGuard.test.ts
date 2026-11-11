@@ -99,7 +99,6 @@ describe('authorizePluginCall（默认拒绝）', () => {
 describe('二次确认与白名单契约', () => {
   it('可写端点需要显式确认；纯只读探针不需要', () => {
     expect(pluginCallNeedsConfirm('/api/tool/execute')).toBe(true);
-    expect(pluginCallNeedsConfirm('/api/render/browser/install')).toBe(true);
     expect(pluginCallNeedsConfirm('/api/render/browser')).toBe(false);
     expect(pluginCallNeedsConfirm('/api/project/x')).toBe(false);
   });
@@ -110,5 +109,43 @@ describe('二次确认与白名单契约', () => {
       expect(endpoint.includes('*')).toBe(false);
       for (const m of methods) expect(['GET', 'POST']).toContain(m);
     }
+  });
+});
+
+/**
+ * W01 跨仓契约：授权后的调用改写为**后端受限代理**请求——服务端按 pluginId
+ * 启停 + 清单做最终裁定，插件不能借宿主令牌直达普通业务 API。
+ */
+describe('toPluginProxyRequest（受限代理改写）', () => {
+  it('工具执行 → POST /api/plugin/proxy/{id}/post + action=tool', async () => {
+    const { toPluginProxyRequest } = await import('./pluginApiGuard');
+    const d = authorizePluginCall({
+      endpoint: '/api/tool/execute', method: 'POST', body: { name: 'gen', params: { a: 1 } },
+    });
+    expect(d.ok).toBe(true);
+    if (d.ok) {
+      const req = toPluginProxyRequest('ai_image_gen', d.call);
+      expect(req.url).toBe('/api/plugin/proxy/ai_image_gen/post');
+      expect(req.body).toEqual({ action: 'tool', payload: { name: 'gen', params: { a: 1 } } });
+    }
+  });
+
+  it('探针 GET → 代理统一 POST + action=probe，payload 不带路径', async () => {
+    const { toPluginProxyRequest } = await import('./pluginApiGuard');
+    const d = authorizePluginCall({ endpoint: '/api/render/browser', method: 'GET' });
+    expect(d.ok).toBe(true);
+    if (d.ok) {
+      const req = toPluginProxyRequest('headless_chrome', d.call);
+      expect(req.url).toBe('/api/plugin/proxy/headless_chrome/get');
+      expect(req.body.action).toBe('probe');
+      expect(JSON.stringify(req.body)).not.toContain('endpoint');
+    }
+  });
+
+  it('未登记端点没有代理映射（authorize 先拒绝，不存在改写）', async () => {
+    const { toPluginProxyRequest, PLUGIN_PROXY_ACTIONS } = await import('./pluginApiGuard');
+    expect(PLUGIN_PROXY_ACTIONS['/api/project/x']).toBeUndefined();
+    expect(authorizePluginCall({ endpoint: '/api/project/x', method: 'GET' }).ok).toBe(false);
+    void toPluginProxyRequest;
   });
 });

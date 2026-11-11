@@ -8,6 +8,7 @@ const { mocks } = vi.hoisted(() => ({
     register: vi.fn((_opts: unknown) => vi.fn()),
     contribs: [] as Array<Record<string, unknown>>,
     get: vi.fn(),
+    post: vi.fn(),
     request: vi.fn(),
     confirm: vi.fn(() => true),
   },
@@ -17,7 +18,7 @@ vi.mock('@/features/keyboard/KeybindingEngine', () => ({
   keybindingEngine: { register: mocks.register },
 }));
 vi.mock('@/services/api', () => ({
-  getApiClient: () => ({ get: mocks.get, request: mocks.request }),
+  getApiClient: () => ({ get: mocks.get, post: mocks.post, request: mocks.request }),
 }));
 vi.mock('@/stores/toastStore', () => ({ toast: vi.fn() }));
 vi.mock('./usePluginSlots', () => ({
@@ -53,6 +54,7 @@ beforeEach(() => {
   mocks.confirm.mockReturnValue(true);
   vi.stubGlobal('confirm', mocks.confirm);
   mocks.get.mockResolvedValue({ data: { ok: true } });
+  mocks.post.mockResolvedValue({ data: { ok: true } });
   mocks.request.mockResolvedValue({ data: { ok: true } });
 });
 afterEach(() => {
@@ -86,15 +88,21 @@ describe('PL-02 快捷键门禁', () => {
     expect(mocks.register).not.toHaveBeenCalled();
   });
 
-  it('白名单 GET 探针 → 注册且触发时只发 GET 到该端点', async () => {
-    mocks.contribs = [contrib({ endpoint: '/api/render/browser', method: 'GET' })];
+  it('白名单 GET 探针 → 注册且触发时改写为受限代理请求（W01）', async () => {
+    mocks.contribs = [{
+      ...contrib({ endpoint: '/api/render/browser', method: 'GET' }),
+      owner: 'headless_chrome',
+    }];
     render(<Probe />);
     await waitFor(() => expect(mocks.register).toHaveBeenCalledTimes(1));
     const handler = (mocks.register.mock.calls[0]?.[0] as { handler?: () => void })?.handler;
     expect(handler).toBeTypeOf('function');
     handler?.();
-    await waitFor(() => expect(mocks.get).toHaveBeenCalledWith('/api/render/browser'));
-    expect(mocks.request).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith(
+      '/api/plugin/proxy/headless_chrome/get',
+      expect.objectContaining({ action: 'probe' }),
+    ));
+    expect(mocks.get).not.toHaveBeenCalled();
   });
 
   it('白名单 POST 工具执行需用户确认；取消则不发请求', async () => {

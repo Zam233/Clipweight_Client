@@ -6,10 +6,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { render, screen, waitFor } from '@testing-library/react';
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), request: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), request: vi.fn() }));
 
 vi.mock('@/services/api', () => ({
-  getApiClient: () => ({ get: mocks.get, request: mocks.request }),
+  getApiClient: () => ({ get: mocks.get, post: mocks.post, request: mocks.request }),
 }));
 vi.mock('@/services/api/sse', () => ({ apiBase: () => '' }));
 
@@ -121,7 +121,8 @@ describe('PL-01：插件 iframe 的 call 消息必须过授权门禁', () => {
     mocks.get.mockReset();
     mocks.request.mockReset();
     mocks.get.mockRejectedValue(new Error('403'));
-    mocks.request.mockResolvedValue({ data: { ok: true } });
+    mocks.post.mockResolvedValue({ data: { ok: true } });
+  mocks.request.mockResolvedValue({ data: { ok: true } });
   });
 
   const sendFromFrame = (frame: HTMLIFrameElement, api: Record<string, unknown>) => {
@@ -168,14 +169,20 @@ describe('PL-01：插件 iframe 的 call 消息必须过授权门禁', () => {
     expect(mocks.get.mock.calls.length).toBe(getCallsBefore);
   });
 
-  it('白名单内 /api/render/browser GET → 放行，且回包带 result', async () => {
+  it('白名单内 /api/render/browser GET → 改写为受限代理请求（W01）', async () => {
     mocks.get.mockRejectedValueOnce(new Error('403')); // bundle 取档失败
-    mocks.get.mockResolvedValueOnce({ data: { installed: true } }); // 授权后的 GET
-    render(<PluginBundleFrame pluginId="bundle_plug" title="Bundle 插件" />);
+    mocks.request.mockResolvedValue({ data: { installed: true } });
+    render(<PluginBundleFrame pluginId="headless_chrome" title="探针插件" />);
     const frame = screen.getByTestId('plugin-bundle-frame') as HTMLIFrameElement;
     await waitFor(() => expect(frame.getAttribute('src')).toBeTruthy());
 
+    const getCallsBefore = mocks.get.mock.calls.length;
     sendFromFrame(frame, { endpoint: '/api/render/browser', method: 'GET' });
-    await waitFor(() => expect(mocks.get).toHaveBeenCalledWith('/api/render/browser'));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith(
+      '/api/plugin/proxy/headless_chrome/get',
+      expect.objectContaining({ action: 'probe' }),
+    ));
+    // 不得直达普通宿主 API
+    expect(mocks.get.mock.calls.length).toBe(getCallsBefore);
   });
 });
