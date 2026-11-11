@@ -85,6 +85,8 @@ export interface SlotContribution {
   title: string;
   /** 贡献类型（后端 /contributions 返回；ui_slot / export_preset / …） */
   kind?: string;
+  /** 贡献所属插件 id（后端 owner 字段）——受限代理按它路由（W01） */
+  owner?: string;
   /** 默认 100；内核元素用 <100（单一排序来源）。 */
   order?: number;
   /** lucide 图标名，白名单校验。 */

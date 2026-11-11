@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getApiClient } from '@/services/api';
 import { apiBase } from '@/services/api/sse';
-import { authorizePluginCall } from './pluginApiGuard';
+import { authorizePluginCall, toPluginProxyRequest } from './pluginApiGuard';
 
 /** B16：sandbox iframe 的 origin 恒为字符串 'null'（无 same-origin）。 */
 const SANDBOX_ORIGIN = 'null';
@@ -98,11 +98,11 @@ export function PluginBundleFrame({ pluginId, title }: { pluginId: string; title
           reply({ type: 'result', ok: false, error: decision.message, reason: decision.reason });
           return;
         }
-        const { endpoint, method, body } = decision.call;
+        // W01：改写为受限代理请求——服务端按 pluginId 启停 + 清单最终裁定，
+        // 插件调用不再直达普通宿主业务 API。
+        const proxy = toPluginProxyRequest(pluginId, decision.call);
         const client = getApiClient();
-        const req = method === 'GET'
-          ? client.get(endpoint)
-          : client.request({ url: endpoint, method, data: body });
+        const req = client.post(proxy.url, proxy.body);
         req
           .then((res) => reply({ type: 'result', ok: true, data: res.data }))
           .catch((err: unknown) => reply({

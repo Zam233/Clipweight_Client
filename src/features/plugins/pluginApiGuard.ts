@@ -45,13 +45,16 @@ export type PluginCallDecision =
 /**
  * 宿主显式登记的"插件可调用端点"白名单。
  *
- * key 为规范化后的站内绝对路径，value 为允许的方法集合。
- * 目前仅保留仓库内置插件**实际声明**的只读/工具执行入口：
- * - `/api/tool/execute`：ai_image_gen / ai_music_gen / ai_video_gen 的 ui.json 按钮
- * - `/api/render/browser`：headless_chrome 依赖探针（GET）
- * - `/api/render/browser/install`：headless_chrome 安装触发（POST，需用户点确认）
+ * W01 跨仓契约：插件调用统一走**后端受限代理** `/api/plugin/proxy/{pluginId}/{method}`
+ * ——服务端按 pluginId 启停状态与允许清单做最终裁定（前端白名单只是防误用）。
+ * proxy body 里带 `{ action, payload }`，目标端点由服务端映射，插件不能自报路径。
  *
- * 任何未登记端点（含 `/api/project/*`、`/api/plugin/*`、`/api/settings/*`）默认拒绝。
+ * 目前仅保留仓库内置插件实际声明的动作：
+ * - `POST /api/tool/execute` → 代理 `POST /api/plugin/proxy/{id}/post` + action=tool
+ * - `GET  /api/render/browser` → 代理 `POST /api/plugin/proxy/{id}/get` + action=probe
+ *   （代理端点统一 POST；探针 GET 语义由 action=probe 表达）
+ *
+ * 任何未登记端点（含 `/api/project/*`、`/api/settings/*`）默认拒绝。
  */
 export const PLUGIN_ALLOWED_ENDPOINTS: Readonly<Record<string, readonly PluginHttpMethod[]>> = {
   '/api/tool/execute': ['POST'],
@@ -59,9 +62,33 @@ export const PLUGIN_ALLOWED_ENDPOINTS: Readonly<Record<string, readonly PluginHt
   '/api/render/browser/install': ['POST'],
 };
 
+/** 原始（未代理）目标端点 → 代理 action 映射。 */
+export const PLUGIN_PROXY_ACTIONS: Readonly<Record<string, string>> = {
+  '/api/tool/execute': 'tool',
+  '/api/render/browser': 'probe',
+  '/api/render/browser/install': 'install',
+};
+
+/** 把授权后的调用改写为受限代理请求（服务端最终裁定）。 */
+export function toPluginProxyRequest(
+  pluginId: string, call: AuthorizedPluginCall,
+): { url: string; body: Record<string, unknown> } {
+  const action = PLUGIN_PROXY_ACTIONS[call.endpoint] ?? '';
+  const methodPart = call.method === 'GET' ? 'get' : 'post';
+  return {
+    url: `/api/plugin/proxy/${encodeURIComponent(pluginId)}/${methodPart}`,
+    body: {
+      action,
+      // 工具执行：{name, params}；探针：payload 不带路径，服务端自映射
+      payload: call.endpoint === '/api/tool/execute'
+        ? { name: (call.body as { name?: unknown }).name ?? '', params: (call.body as { params?: unknown }).params ?? {} }
+        : call.body,
+    },
+  };
+}
+
 /** 可写端点：触发前必须由宿主做一次显式用户确认（防止插件静默改状态）。 */
 export const PLUGIN_CONFIRM_REQUIRED_ENDPOINTS: readonly string[] = [
-  '/api/render/browser/install',
   '/api/tool/execute',
 ];
 
