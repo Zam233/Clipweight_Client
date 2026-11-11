@@ -67,6 +67,23 @@ function loadEditorPrefs() {
     showFramesInRuler: typeof raw.showFramesInRuler === 'boolean' ? raw.showFramesInRuler : false,
     showPerfPanel: typeof raw.showPerfPanel === 'boolean' ? raw.showPerfPanel : false,
     /**
+     * E-07：三项「死设置」以前不在这个返回值里，读取端从返回值取恒为 undefined，
+     * 于是刷新后 autoSave 永远 true、默认帧率/分辨率永远回落硬编码。现在统一校验后返回。
+     */
+    autoSave: typeof raw.autoSave === 'boolean' ? raw.autoSave : true,
+    // E-07：非法值不应被"钳到边界"当成有效偏好——损坏数据直接回落默认。
+    defaultFps: typeof raw.defaultFps === 'number'
+      && isFinite(raw.defaultFps) && raw.defaultFps >= 1 && raw.defaultFps <= 240
+      ? Math.round(raw.defaultFps) : 30,
+    defaultResolution: (() => {
+      const res = raw.defaultResolution;
+      if (!res || typeof res !== 'object' || Array.isArray(res)) return { width: 1920, height: 1080 };
+      const r = res as Record<string, unknown>;
+      const valid = (v: unknown) => typeof v === 'number' && isFinite(v) && v >= 16 && v <= 7680;
+      if (!valid(r.width) || !valid(r.height)) return { width: 1920, height: 1080 };
+      return { width: Math.round(r.width as number), height: Math.round(r.height as number) };
+    })(),
+    /**
      * 连续播放（devplan M1 · PRD W1.1/W1.2）。
      *
      * 默认值 = `true`（新路径：连续解码 + 解码池）。**只改变"从没存过这个偏好"的行为**：
@@ -104,10 +121,7 @@ function loadConnectionPrefs() {
 }
 
 const prefs = loadEditorPrefs();
-// P2-02: 三个死设置接线——读取端补齐默认帧率/分辨率/自动保存偏好
-const rawFps = (prefs as Record<string, unknown>).defaultFps;
-const rawRes = (prefs as Record<string, unknown>).defaultResolution as { width?: number; height?: number } | undefined;
-const rawAutoSave = (prefs as Record<string, unknown>).autoSave;
+// E-07：三项设置现在由 loadEditorPrefs 统一校验并返回，不再从返回值里读不存在的键。
 const connPrefs = loadConnectionPrefs();
 // 轮 89：演示回退开关持久化在 editorPrefs
 const rawAllowDemoFallback = loadPref<Record<string, unknown>>('editorPrefs', {}).allowDemoFallback;
@@ -119,7 +133,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   theme: prefs.theme,
   language: 'zh',
   authToken: null,
-  autoSave: typeof rawAutoSave === 'boolean' ? rawAutoSave : true,
+  autoSave: prefs.autoSave,
   autoSaveIntervalSec: 30,
   maxUndoHistory: 200,
   snapEnabled: prefs.snapEnabled,
@@ -131,11 +145,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   // O6: 性能诊断默认关（面向排障，不是日常 UI）
   showPerfPanel: prefs.showPerfPanel,
   previewContinuousPlayback: prefs.previewContinuousPlayback,
-  defaultFps: typeof rawFps === 'number' && rawFps > 0 ? rawFps : 30,
-  defaultResolution: {
-    width: typeof rawRes?.width === 'number' ? rawRes.width : 1920,
-    height: typeof rawRes?.height === 'number' ? rawRes.height : 1080,
-  },
+  defaultFps: prefs.defaultFps,
+  defaultResolution: prefs.defaultResolution,
   // 轮 89：演示回退默认关闭——生产环境后端不可达时应显示错误而非假数据
   allowDemoFallback: typeof rawAllowDemoFallback === 'boolean' ? rawAllowDemoFallback : false,
 

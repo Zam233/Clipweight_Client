@@ -11,7 +11,12 @@ interface AssetState {
   history: Asset[];
   isLoading: boolean;
   searchQuery: string;
-  uploadProgress: number | null;
+  /**
+   * M-05（PRD §5B P2）：上传进度既可能是百分比（0–100），也可能是逐文件文本
+   * （「2/5 正在上传：a.mp4」）——workspaceApi.upload 没有字节级回调，只能给后者。
+   * null = 没有正在进行的上传。
+   */
+  uploadProgress: number | string | null;
   refreshCounter: number;
 
   // Actions
@@ -21,7 +26,7 @@ interface AssetState {
   addToHistory: (asset: Asset) => void;
   setLoading: (loading: boolean) => void;
   setSearchQuery: (query: string) => void;
-  setUploadProgress: (progress: number | null) => void;
+  setUploadProgress: (progress: number | string | null) => void;
   clearAssets: () => void;
 }
 

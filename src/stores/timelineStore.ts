@@ -12,7 +12,11 @@ interface TimelineState {
   // Timeline-level actions
   setTimeline: (
     timeline: Timeline,
-    options?: { preserveSelection?: boolean },
+    options?: {
+      preserveSelection?: boolean;
+      /** W07 (TL-01/TL-03)：写入来源，决定 isDirty 是否随替换被误清。缺省=server/旧行为。 */
+      source?: 'server' | 'local' | 'history';
+    },
   ) => void;
   resetTimeline: () => void;
   /** 轮75：保存成功后清除未保存标记（状态栏「未保存」指示用） */
@@ -70,8 +74,20 @@ interface TimelineState {
   getTrack: (trackId: string) => Track | undefined;
   getClip: (clipId: string) => Clip | undefined;
   findClipAtTime: (trackId: string, timeSec: number) => Clip | undefined;
+  /** TL-05：片段是否在锁定轨上（写入守卫与 UI 禁用共用） */
+  isClipOnLockedTrack: (clipId: string) => boolean;
   exportTimeline: () => Timeline;
 }
+
+/**
+ * W07 (TL-01/TL-03)：最后一次「已落盘」的时间线引用（落盘基线）。
+ *
+ * 内部基线，不进 store 状态：history 来源（undo/redo/jumpTo）用它判断
+ * 恢复出来的快照是否就是已保存的那一版，避免无条件把 isDirty 清成 false。
+ * 记录时机：server 水合 / 缺省（兼容未显式传来源的旧调用点）、markSaved；
+ * 清除时机：resetTimeline。local 来源不更新基线（改动尚未落盘）。
+ */
+let savedTimeline: Timeline | null = null;
 
 /**
  * P1-04：关键帧时间基归一化——把 Agent 产出的绝对秒关键帧转换为编辑器约定的
@@ -93,7 +109,10 @@ function normalizeKeyframeTimeBase(timeline: Timeline): Timeline {
       if (times.every((t) => t >= 0 && t <= 1)) return clip; // 已是归一化基
       if (!times.every((t) => t > 1)) return clip; // 混合基，保守不动
       const start = clip.start_sec ?? 0;
-      if (Math.min(...times) < start - 0.001) return clip; // 时间不在片段窗口内，保守不动
+      // 容差与后端 `keyframes_expr._EPS`(0.05) 对齐：绝对秒在 JSON 里常被四舍五入到
+      // 2 位，比 start_sec 差几毫秒就会被旧判据（0.001）判成「不在窗口内」而跳过归一化，
+      // 预览于是把绝对秒当 [0,1] 用，整段停在首帧（实测 tc_531b39bc 差 -0.0042s）。
+      if (Math.min(...times) < start - 0.05) return clip; // 时间确实不在片段窗口内，保守不动
       changed = true;
       return {
         ...clip,
@@ -118,7 +137,21 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     // 且带有效时长/起点时判定为绝对秒，转换为 (t-start)/duration。
     // 归一化后所有 time ≤ 1，重复调用幂等。
     const normalized = normalizeKeyframeTimeBase(timeline);
-    set({ timeline: normalized, isDirty: false });
+    // W07 (TL-01/TL-03)：按来源决定 isDirty，不能再「一替换就清脏」。
+    // - local（JSON 导入 / 代理切换 / Agent 产物替换）：前端本地整体替换，尚未落盘 → 脏。
+    // - history（undo/redo/jumpTo）：恢复的快照与落盘基线不同才算未保存；回到落盘快照 → 清脏。
+    // - server / 缺省（兼容既有调用点）：来自服务端的水合，视为已落盘 → 清脏并记录基线。
+    const source = options?.source;
+    let isDirty: boolean;
+    if (source === 'local') {
+      isDirty = true;
+    } else if (source === 'history') {
+      isDirty = timeline !== savedTimeline;
+    } else {
+      isDirty = false;
+      savedTimeline = normalized;
+    }
+    set({ timeline: normalized, isDirty });
     // 同步预览/选择状态，避免 playhead 钳位失效与悬空选择
     usePreviewStore.getState().setDuration(timeline.duration_sec);
     usePreviewStore.getState().setFps(timeline.fps);
@@ -135,12 +168,17 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
   },
 
   resetTimeline: () => {
+    savedTimeline = null; // W07：清落盘基线
     set({ timeline: createEmptyTimeline(), isDirty: false });
     usePreviewStore.getState().setDuration(0);
     useSelectionStore.getState().deselectAll();
   },
 
-  markSaved: () => set({ isDirty: false }),
+  /** W07：保存成功后清脏，并把落盘基线更新为当前时间线（供 history 来源比较）。 */
+  markSaved: () => {
+    savedTimeline = get().timeline;
+    set({ isDirty: false });
+  },
 
   setTimelineMarkers: (markers) =>
     set((state) => ({
@@ -271,6 +309,10 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 
   addClip: (trackId, clipData) => {
     const id = uid('clip');
+    // TL-04 (W08)：store 最终写入层拒绝 locked/hidden 轨——引擎侧已提前反馈，
+    // 这里是不变量收口的第二道闸（防止其它调用点绕过 UI 校验直接写入）。
+    const targetTrack = get().timeline.tracks.find((t) => t.id === trackId);
+    if (!targetTrack || targetTrack.locked || targetTrack.hidden) return '';
     set((state) => {
       const clip = createDefaultClip({ ...clipData, id, track_id: trackId });
       const tracks = state.timeline.tracks.map((t) =>
@@ -291,6 +333,9 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
   },
 
   removeClip: (clipId) => {
+    // TL-05：锁定轨守卫下沉到 store —— UI（属性面板/时间线菜单/批量操作）
+    // 绕不绕都改不动锁定轨上的片段，而不是只靠各调用点自觉。
+    if (get().isClipOnLockedTrack(clipId)) return;
     set((state) => {
       const tracks = state.timeline.tracks.map((t) => ({
         ...t,
@@ -310,7 +355,9 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     }));
   },
 
-  updateClip: (clipId, updates) =>
+  updateClip: (clipId, updates) => {
+    // TL-05：锁定轨上的片段不可被属性面板/批量更新改写。
+    if (get().isClipOnLockedTrack(clipId)) return;
     set((state) => {
       const tracks = state.timeline.tracks.map((t) => ({
         ...t,
@@ -326,7 +373,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         },
         isDirty: true,
       };
-    }),
+    });
+  },
 
   updateTrackClips: (trackId, updates) =>
     set((state) => {
@@ -378,7 +426,9 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
       };
     }),
 
-  splitClip: (clipId, splitTimeSec) =>
+  splitClip: (clipId, splitTimeSec) => {
+    // TL-05：锁定轨上的片段不可切分。
+    if (get().isClipOnLockedTrack(clipId)) return;
     set((state) => {
       const tracks = state.timeline.tracks.map((t) => {
         const clipIndex = t.clips.findIndex((c) => c.id === clipId);
@@ -420,7 +470,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         timeline: { ...state.timeline, tracks, duration_sec: computeTotalDuration(tracks) },
         isDirty: true,
       };
-    }),
+    });
+  },
 
   trimClipStart: (clipId, newStartSec) =>
     set((state) => {
@@ -509,9 +560,17 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
           updated.set(clip.id, {
             start_sec: clip.start_sec,
             duration_sec: clip.duration_sec + d,
-            source_offset_sec: remapOffset(clip, -d),
+            // P2-08：尾边界延长只动出点，入点不变——旧实现在这里 remapOffset(clip,-d)
+            // 会把 clip 自己的素材窗口整体前移（内容跳变）
+            source_offset_sec: clip.source_offset_sec,
           });
-          updated.set(next.id, { start_sec: next.start_sec + d, duration_sec: next.duration_sec - d });
+          updated.set(next.id, {
+            start_sec: next.start_sec + d,
+            duration_sec: next.duration_sec - d,
+            // 邻居头部被吃掉/让出 d 秒 → 其素材入点必须同步平移 d*speed，
+            // 否则 rolling 后邻居从原素材位置继续播（画面跳变）
+            source_offset_sec: remapOffset(next, d),
+          });
         }
         return {
           ...t,
@@ -554,13 +613,17 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         const clip = sorted[idx];
         const prev = sorted[idx - 1];
         const next = sorted[idx + 1];
-        // 前移上限 = 前一片段可压缩量（且不能越过 0）；后移上限 = 后一片段可压缩量
-        const maxFwd = Math.min(prev ? prev.duration_sec - 0.1 : Infinity, clip.start_sec);
-        const maxBack = next ? next.duration_sec - 0.1 : Infinity;
-        const d = Math.max(
-          maxBack === Infinity ? -(clip.duration_sec - 0.1) : -maxBack,
-          Math.min(maxFwd === Infinity ? clip.duration_sec - 0.1 : maxFwd, deltaSec),
-        );
+        // TL-02 (W08)：右移(delta>0) 压缩 next、左移(delta<0) 压缩 prev。
+        // 旧实现把两项对调（右移被 prev 的可压缩量放行），A(10s)/B(1s)/C(1s)
+        // 大幅右移会让 C 变成负时长。两个方向的邻居时长都必须恒 >=0.1s。
+        // - 右移上限 = next 可压缩量；左移下限 = prev 可压缩量（本次修正的核心）。
+        // - 无 prev 时再按 clip.start_sec 钳住右移（否则首片段右移会在 0 处留空洞，
+        //   保持既有行为）；无 next 时再按自身时长兜底左移（否则总时长被缩短）。
+        const maxFwd = next ? next.duration_sec - 0.1 : clip.duration_sec - 0.1;
+        const maxBack = prev ? prev.duration_sec - 0.1 : clip.start_sec;
+        const fwdCap = prev ? maxFwd : Math.min(maxFwd, clip.start_sec);
+        const backCap = next ? maxBack : Math.min(maxBack, clip.duration_sec - 0.1);
+        const d = Math.max(-backCap, Math.min(fwdCap, deltaSec));
         const updated = new Map<string, { start_sec: number; duration_sec: number }>();
         updated.set(clip.id, { start_sec: clip.start_sec + d, duration_sec: clip.duration_sec });
         if (prev) {
@@ -882,11 +945,24 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 
   findClipAtTime: (trackId, timeSec) => {
     const track = get().timeline.tracks.find((t) => t.id === trackId);
-    if (!track) return undefined;
+    // TL-09：隐藏/锁定轨不参与命中查询（与引擎 hitTestClip 同口径）
+    if (!track || track.hidden || track.locked) return undefined;
     return track.clips.find(
       (c) => timeSec >= c.start_sec && timeSec < c.start_sec + c.duration_sec,
     );
   },
+
+  /**
+   * TL-05（PRD §5C P2）：该片段是否位于锁定轨。
+   *
+   * 守卫下沉到 store 的理由：属性面板（updateClip/batchUpdate）、时间线菜单
+   * （removeClip/rippleDelete/splitClip）与键盘命令各自会调 store，只在 UI 上
+   * 加 disabled 很容易漏掉一条路径。store 层统一拒绝，UI 只是可读性优化。
+   */
+  isClipOnLockedTrack: (clipId) =>
+    get().timeline.tracks.some(
+      (t) => t.locked && t.clips.some((c) => c.id === clipId),
+    ),
 
   exportTimeline: () => {
     const { timeline } = get();
