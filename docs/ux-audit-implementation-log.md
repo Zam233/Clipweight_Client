@@ -116,6 +116,15 @@
   - **F-11**：`loop` 档位 `disabled` 并注明「暂未支持」。
   - **F-12**：`dataMode` 初值改 `'live'`（首屏不再闪「演示数据」）；页脚去掉 `v0.1.0 · Phase 5`。
   - 红→绿：`HomePage.test.tsx` 新增 4 例（F-08 摘要、F-04 配音态、F-03 过期预判丢弃、F-12 不闪演示数据）→ 24 passed（+`splitScript` 8 = 32）。
+- P-01～P-09（第十四轮，预览交互与性能）：
+  - **P-02/P-03**：新增纯决策函数 `canvasClickAction.resolveCanvasClickAction`（5 例测试先行），画布单击不再切播放（只做选中/取消选中），播放走按钮/空格；双击标记 `lastUpWasDouble` 在 pointerdown 复位、handleDoubleClick 置位、pointerup 消费。**口径来自 coding plan §1 默认值，产品可推翻后只改决策函数一处**。
+  - **P-04**：新增 `interpolatedTransformAt(clip, t)`（与渲染同一插值路径），手柄布局改用它——带位置/缩放关键帧时手柄不再停在原位。
+  - **P-05**：撤销点从 pointerdown 移到**首次真实位移**（move handler 里 `pushed` 标志），误点手柄不再空耗一步 Ctrl+Z。
+  - **P-06**：音频同步 effect 依赖去掉 `currentTimeSec`（播放中由新增的纯 rAF 循环驱动，读 getState/refs，不再每帧重渲染整树）；`audioClipsRef`/`volumeRef` 镜像避免循环重建。
+  - **P-07**：新增 `FullscreenMiniBar` 组件（仅全屏时渲染，悬停出现）：播放/暂停、静音、时间码、退出全屏。
+  - **P-08**：`AudioLevelMeter` 暂停/静音态从每帧 rAF 降为 500ms interval，播放中保持每帧。
+  - **P-09**：切走标签页暂停时 toast 提示「已切换标签页，预览已暂停」。
+  - 回归：`canvasClickAction.test.ts` 5 例新绿；`src/features/preview` 16 文件 151 passed；tsc 干净。
 - BE-09 最后两项结构项（第十三轮）：
   - **preset/soft_subtitle 字段重复声明**：`RenderSettings` 里各声明了两次（Pydantic 静默用后者）→ 删除重复，各保留一份带描述的定义。验证：`model_fields` 计数各为 1，roundtrip 正常，render 相关 28 passed。
   - **render SSE 恢复订阅语义**：刷新后从 Mongo 恢复的**非终态**记录（queued/rendering）——进程重启后永远不会再有 worker 处理。旧实现发 `Task not found` 误导前端当错误；现在如实发 `failed` + "服务进程已重启，该渲染任务已中断（未完成）"，给终态语义让前端正常收尾。
@@ -208,7 +217,7 @@ PRD 全量仍未关闭。以下按优先级列出本轮**未做**的编号，建
 
 | 优先级 | 编号 | 说明 |
 |---|---|---|
-| P2 | TL-06/07/08、P-02～P-09 | 波纹删除跨轨、嵌套序列、trim 钳制、预览单击/双击语义与性能（**需产品口径**，见 coding plan §1） |
+| P3 | KK-09 余项（ok 路径收口报告 + deliverable_status 校验）——涉及成功语义变更，需与产品确认口径 | 留待后续批次 |
 | P3 | KK-09 余项（ok 路径收口报告 + deliverable_status 校验）——涉及成功语义变更，需与产品确认口径 | 留待后续批次 |
 | 待复核 | E-05/E-06 | **E-06 已逐项核实并处理**（见下方记录）；E-05 维持「低优先级观察」——唯一中断路径已有 cancelInFlight 挽救逻辑与恢复流程，等用户实测再上移连接所有权 |
 
