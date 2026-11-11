@@ -116,6 +116,10 @@
   - **F-11**：`loop` 档位 `disabled` 并注明「暂未支持」。
   - **F-12**：`dataMode` 初值改 `'live'`（首屏不再闪「演示数据」）；页脚去掉 `v0.1.0 · Phase 5`。
   - 红→绿：`HomePage.test.tsx` 新增 4 例（F-08 摘要、F-04 配音态、F-03 过期预判丢弃、F-12 不闪演示数据）→ 24 passed（+`splitScript` 8 = 32）。
+- KK-09 `limits_from_settings` 待复现项（第十二轮）：
+  - **复现属实**：`pipeline_budget_usd` 为空串/非数字时，旧实现原样透传 pydantic `float` → `TaskLimits` 构造即抛 `ValidationError`（实测 `''` 与 `'abc'` 都 RAISES）——任务 create 阶段 500。
+  - **修复**：`limits_from_settings` 对预算值先做 `float()` 转换 + NaN/Inf 检查；无效值按「未配置」处理（None）并留 warning。五种形态验证：`''`/`'abc'`→None（留痕）、`None`→None、`'2.5'`→2.5、`3`→3.0。
+  - 回归：新增 6 例参数化用例（3 非法 + 3 合法透传）→ 审计测试 21 passed；后端 8 文件 **80 passed**（含 `test_budget.py`）。
 - KK-09 收口期 repeat-fail 误判 capped（第十一轮）：
   - **核实属实**：`_classify_gate` 的 `in_closeout` 分支排在行为性失败之后，但 agent_loop 的 raise 文案是"同一工具连续失败 3 次"——**不含**"熔断"关键字，repeat-fail 分支匹配不到 → 收口期落进 `in_closeout` 判成 `capped`、blocker 错标 `budget_exhausted`。
   - **修复**：`_classify_gate` 先判行为性失败（匹配词扩为 `"重复动作熔断" or "连续失败"` / `"没有新进展"`），再判收口封顶；正常收口窗口用尽仍是 capped（`test_closeout_window_still_capped` 守护）。
@@ -201,7 +205,7 @@ PRD 全量仍未关闭。以下按优先级列出本轮**未做**的编号，建
 | 优先级 | 编号 | 说明 |
 |---|---|---|
 | P2 | TL-06/07/08、P-02～P-09 | 波纹删除跨轨、嵌套序列、trim 钳制、预览单击/双击语义与性能（**需产品口径**，见 coding plan §1） |
-| P3 | BE-09 剩两项（preset 字段重复声明、render SSE 恢复订阅语义）——结构性且影响面小；KK-09 余项（ok 路径收口报告、limits_from_settings 待复现） | 留待后续批次 |
+| P3 | BE-09 剩两项（preset 字段重复声明、render SSE 恢复订阅语义）；KK-09 余项（ok 路径收口报告、terminal_reason 消费端核对） | 留待后续批次 |
 | 待复核 | E-05/E-06 | **E-06 已逐项核实并处理**（见下方记录）；E-05 维持「低优先级观察」——唯一中断路径已有 cancelInFlight 挽救逻辑与恢复流程，等用户实测再上移连接所有权 |
 
 **W01 的跨仓尾巴**：前端已默认拒绝任意插件 API 调用，但后端「插件专用受限代理 + 服务端权限裁定」尚未实现。在此之前该项只能算「前端收口」，不能宣称 PRD 的 PL-01/PL-02 已完全关闭。
