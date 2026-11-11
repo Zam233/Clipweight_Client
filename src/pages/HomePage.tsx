@@ -1792,29 +1792,8 @@ function Backdrop() {
   );
 }
 
-function RulerStrip() {
-  const ticks = Array.from({ length: 80 });
-  return (
-    <div className="relative h-7 border-b border-outline-variant/25 bg-ruler-bg overflow-hidden select-none" aria-hidden>
-      <div className="absolute inset-0 flex items-end">
-        {ticks.map((_, i) => (
-          <span
-            key={i}
-            className={`w-px shrink-0 ${i % 5 === 0 ? 'h-3 bg-ruler-tick' : 'h-1.5 bg-ruler-tick/50'}`}
-            style={{ marginRight: i % 5 === 0 ? '34px' : '6px' }}
-          />
-        ))}
-      </div>
-      <span className="absolute top-0 bottom-0 w-px bg-playhead shadow-[0_0_8px_rgba(255,68,68,0.8)] ruler-sweep" />
-      <style>{`
-        @keyframes rulerSweep { 0% { left: -2%; } 100% { left: 102%; } }
-        .ruler-sweep { animation: rulerSweep 9s linear infinite; }
-      `}</style>
-    </div>
-  );
-}
-
-// RulerStrip 与旧 TopBar 已由图一左侧栏（HomeSidebar）替代，不再使用。
+// F-13（PRD §1 P3）：RulerStrip 与旧 TopBar 已由图一左侧栏（HomeSidebar）替代，
+// 无任何引用的死代码，已删除（历史实现见 git history）。
 
 
 
