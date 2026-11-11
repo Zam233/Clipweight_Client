@@ -106,7 +106,7 @@ export function AssetPanel() {
     const inputPath = asset.path || asset.id;
     if (!inputPath) { toast('素材路径缺失，无法处理', 'error'); return; }
     try {
-      toast(`正在处理「${asset.filename}」…`, 'info');
+      toast(`正在处理「${asText(asset.filename)}」…`, 'info');
       const res = await toolApi.execute(effect, { input_path: inputPath });
       if (res.status !== 'success') {
         toast(`特效处理失败：${res.error ?? '未知错误'}`, 'error');
@@ -451,8 +451,8 @@ export const AssetCard = memo(function AssetCard({ asset, onAdd, onDelete, onEff
         )}
       </div>
       <div className="px-2 py-1.5">
-        <p className="text-label-sm text-on-surface truncate">{asset.filename}</p>
-        <p className="text-caption text-on-surface-variant capitalize">{asset.kind}</p>
+        <p className="text-label-sm text-on-surface truncate">{asText(asset.filename)}</p>
+        <p className="text-caption text-on-surface-variant capitalize">{asText(asset.kind)}</p>
       </div>
     </div>
   );
@@ -487,7 +487,7 @@ function EffectMenu({ asset, onEffect }: {
         className="w-7 h-7 rounded-cw-full bg-black/60 text-white flex items-center justify-center
           opacity-0 group-hover:opacity-100 transition-opacity duration-short3 pointer-events-auto cursor-pointer hover:bg-primary"
         title="特效工具"
-        aria-label={`特效工具 ${asset.filename}`}
+        aria-label={`特效工具 ${asText(asset.filename)}`}
       >
         <Wand2 className="w-3.5 h-3.5" />
       </button>
@@ -736,13 +736,13 @@ function AIMatchView() {
               <span className="w-9 h-9 rounded-cw-xs bg-track-video/15 text-track-video flex items-center justify-center shrink-0 text-body">🎬</span>
             )}
             <span className="flex-1 min-w-0">
-              <span className="block text-label-sm text-on-surface truncate group-hover:text-primary transition-colors">{r.title}</span>
+              <span className="block text-label-sm text-on-surface truncate group-hover:text-primary transition-colors">{asText(r.title)}</span>
               <span className="flex items-center gap-1.5 text-caption text-on-surface-variant">
                 <span className="font-mono text-track-audio">{Math.round(r.score * 100)}%</span>
-                <span>· {r.source}</span>
+                <span>· {asText(r.source)}</span>
                 {r.duration_sec != null && <span>· {r.duration_sec.toFixed(1)}s</span>}
               </span>
-              {r.reason && <span className="block text-caption text-on-surface-variant/70 truncate">{r.reason}</span>}
+              {r.reason && <span className="block text-caption text-on-surface-variant/70 truncate">{asText(r.reason)}</span>}
             </span>
             <Plus className="w-3.5 h-3.5 text-on-surface-variant group-hover:text-primary shrink-0" />
             {/* 演示回退结果没有真实素材 id，详情接口必 404 → 直接禁用 */}

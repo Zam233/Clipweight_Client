@@ -183,7 +183,8 @@ export function WorkspaceMediaTree({ search = '' }: { search?: string }) {
             >
               {isFolded ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
               <span className="truncate">{asText(key)}</span>
-              <span className="ml-auto shrink-0 text-on-surface-variant/50">{d.count}</span>
+              {/* M-09：搜索过滤时显示**过滤后**的文件数（d.count 是磁盘原始数，与列表不符） */}
+              <span className="ml-auto shrink-0 text-on-surface-variant/50">{d.files.length}</span>
             </button>
             {!isFolded && (
               <ul className="mt-0.5 space-y-0.5 pl-4">

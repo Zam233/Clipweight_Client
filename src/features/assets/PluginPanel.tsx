@@ -84,7 +84,7 @@ export function PluginPanel() {
           const Icon = PLUGIN_ICONS[t.pluginId] || Puzzle;
           return (
             <button
-              key={t.id}
+              key={t.pluginId}
               onClick={() => setActiveTab(t.pluginId)}
               className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-label font-medium
                 border-b-2 transition-colors duration-short3 cursor-pointer ${
@@ -100,10 +100,13 @@ export function PluginPanel() {
         })}
       </div>
 
-      {/* 插件内容区 — 每个 tab 使用 usePluginUI 动态渲染 */}
+      {/* 插件内容区 — 每个 tab 使用 usePluginUI 动态渲染。
+          M-09（PRD §5B P3）：旧实现**全部** tab 立即挂载并各自请求 UI；
+          现在只挂载激活的 tab（懒加载），且 key 用 pluginId（旧 key 用派生前缀
+          `image/music/video`，两个插件前缀撞车时会复用错误的状态）。 */}
       <div className="flex-1 overflow-y-auto p-3 min-h-0">
-        {tabs.map((t) => (
-          <div key={t.pluginId} className={activeTab === t.pluginId ? '' : 'hidden'}>
+        {tabs.filter((t) => t.pluginId === activeTab).map((t) => (
+          <div key={t.pluginId}>
             <PluginTabView pluginId={t.pluginId} />
           </div>
         ))}
