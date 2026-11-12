@@ -18,18 +18,30 @@ import type { CreativeBrief, ProductionPlan } from '@/types/persona';
  * 发送选题并请求生成创意简报 / 规划书。全程仅使用全局 store action。
  */
 export function useRequirementsAutoStart(ready: boolean) {
+  // 仍订阅 topic 供 render 期语义使用，但**不进依赖数组**（见文末说明）。
   const requirementsTopic = useProjectStore((s) => s.requirementsTopic);
+  // E-01（PRD §5A P1）：旧实现把 requirementsTopic 放进依赖数组，但 effect 内部
+  // 又同步 `setRequirementsTopic('')` 消费它 → 依赖变化触发 cleanup → `cancelled=true`
+  // → 异步主流程每次 await 后都提前 return，且 finally 在 cancelled 时不清 busy
+  // → 用户只看到自己的首条消息和永远转圈。
+  //
+  // 修法：**依赖只留 ready**，topic 在 effect 执行时从 store 读取一次；取消判定改为
+  // 「项目 id 是否变化」——项目切换时旧请求才作废，消费 topic 不再自杀。
+  const projectId = useProjectStore((s) => s.projectId);
   const autoStartedRef = useRef(false);
 
   useEffect(() => {
     if (!ready) return; // 等待项目加载并恢复 requirements 数据后再启动
     if (autoStartedRef.current) return;
-    if (!requirementsTopic) return;
+    const topicNow = useProjectStore.getState().requirementsTopic;
+    if (!topicNow) return;
     if (useAgentStore.getState().requirementsMessages.length > 0) return;
     autoStartedRef.current = true;
 
     const st = useProjectStore.getState();
-    const t = requirementsTopic;
+    const t = topicNow;
+    // 记录启动时归属的项目：只有项目被换掉才算"过期"，本 effect 的 cleanup 不取消自己。
+    const forProjectId = st.projectId;
     st.setRequirementsTopic(''); // consume so it won't re-trigger
 
     const ag = useAgentStore.getState();
@@ -41,7 +53,9 @@ export function useRequirementsAutoStart(ready: boolean) {
     firstMsg += `预估时长：${st.requirementsAudioDuration}秒。请帮我生成创意简报。`;
     ag.addRequirementsMessage({ id: uid('m'), role: 'user', content: firstMsg, timestamp: new Date().toISOString() });
 
-    let cancelled = false;
+    // 过期判定：项目被换掉 / 组件卸载（unmounted 标志）。消费 topic 本身不再触发取消。
+    let unmounted = false;
+    const stale = () => unmounted || useProjectStore.getState().projectId !== forProjectId;
     (async () => {
       try {
         const res = await requirementsApi.init({
@@ -67,7 +81,7 @@ export function useRequirementsAutoStart(ready: boolean) {
           },
         });
         // 初始化期间切了项目/卸载：旧会话不能写进新项目的全局 store。
-        if (cancelled) return;
+        if (stale()) return;
         useAgentStore.getState().setRequirementsSession(res.session_id);
         try {
           // unified-stream PRD §M1：首轮必须走**流式**，否则思考与逐字输出在自动开始的
@@ -95,7 +109,7 @@ export function useRequirementsAutoStart(ready: boolean) {
           } catch {
             chatRes = await requirementsApi.chat({ session_id: res.session_id, message: firstMsg });
           }
-          if (cancelled) return;
+          if (stale()) return;
           const brief = (chatRes.creative_brief ?? null) as CreativeBrief | null;
           const plan = (chatRes.production_plan ?? null) as ProductionPlan | null;
           const ag2 = useAgentStore.getState();
@@ -116,7 +130,7 @@ export function useRequirementsAutoStart(ready: boolean) {
             });
           }
         } catch {
-          if (cancelled) return;
+          if (stale()) return;
           if (!useSettingsStore.getState().allowDemoFallback) {
             useAgentStore.getState().addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '后端暂不可达，无法生成简报（可在设置中开启离线演示回退）' });
             useAgentStore.getState().setRequirementsStatus('idle');
@@ -129,7 +143,7 @@ export function useRequirementsAutoStart(ready: boolean) {
           ag2.addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '已为你生成创意简报，请审阅后确认。', creative_brief: brief });
         }
       } catch {
-        if (cancelled) return;
+        if (stale()) return;
         if (!useSettingsStore.getState().allowDemoFallback) {
           const ag2 = useAgentStore.getState();
           ag2.addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '后端暂不可达，无法生成简报（可在设置中开启离线演示回退）' });
@@ -142,9 +156,12 @@ export function useRequirementsAutoStart(ready: boolean) {
         ag2.setRequirementsStatus('brief_ready');
         ag2.addRequirementsMessage({ id: uid('m'), role: 'assistant', timestamp: new Date().toISOString(), content: '已为你生成创意简报，请审阅后确认。', creative_brief: brief });
       } finally {
-        if (!cancelled) useAgentStore.getState().setRequirementsBusy(false);
+        if (!stale()) useAgentStore.getState().setRequirementsBusy(false);
       }
     })();
-    return () => { cancelled = true; };
-  }, [ready, requirementsTopic]);
+    return () => { unmounted = true; };
+    // 依赖只留 ready 与 projectId：topic 在 effect 内从 store 读取。
+    // 把 requirementsTopic 放进依赖会让「消费 topic」本身重新触发本例程并自取消（E-01 根因）。
+    // projectId 变化时允许重新尝试（切项目应能启动新项目的需求会话）。
+  }, [ready, projectId]);
 }

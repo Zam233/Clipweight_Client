@@ -96,6 +96,8 @@ export function EditorPage() {
   // 否则首次挂载的 resetProject 会清空 store，第二次挂载快照到的是已清空的值，导致恢复失败。
   // B16: 捕获全部字段（含文稿/音色/配音/模式），resetProject 后再恢复。
   const pendingReqRef = useRef<{
+    /** E-03：快照归属的项目 id——组件内 /editor/A → /editor/B 不复用旧参数 */
+    forProjectId: string | null;
     topic: string;
     script: string;
     audioDur: number;
@@ -109,6 +111,17 @@ export function EditorPage() {
     autoDub: boolean;
     personaId: string | null;
     pluginId: string | null;
+    // E-02：此前遗漏的启动开关——漏了会导致「勾了 dry-run / 关掉视觉解读进编辑器后被重置回默认」
+    dryRun: boolean;
+    workspaceAutoIndex: boolean;
+    workspaceVisionIndex: boolean;
+    workspaceRoot: string;
+    creativePrompt: string;
+    creativeAvoid: string[];
+    cutOnBeat: boolean;
+    beatBpm: number | null;
+    shotFloorPolicy: string;
+    shotCapPolicy: string;
   } | null>(null);
 
   // Auto-start the requirements Agent when launched from HomePage (panel-independent).
@@ -121,10 +134,14 @@ export function EditorPage() {
     loadTraceRef.current = [`load:${projectId}`];
     (async () => {
       try {
-        // 仅在首次捕获 HomePage.launch() 写入的需求数据（ref 跨 StrictMode 重挂载保留）
-        if (pendingReqRef.current === null) {
+        // 仅在首次捕获 HomePage.launch() 写入的需求数据（ref 跨 StrictMode 重挂载保留）。
+        // E-03：ref 记录归属项目——同一路由组件内从 A 切到 B 时必须重新采集，
+        // 否则 B 会沿用 A 的 pendingTopic（清掉 B 的草稿并对 B 自动发起 A 的需求会话）。
+        if (pendingReqRef.current === null
+            || pendingReqRef.current.forProjectId !== projectId) {
           const preResetProject = useProjectStore.getState();
           pendingReqRef.current = {
+            forProjectId: projectId,
             topic: preResetProject.requirementsTopic,
             script: preResetProject.requirementsScript,
             audioDur: preResetProject.requirementsAudioDuration,
@@ -138,6 +155,18 @@ export function EditorPage() {
             autoDub: preResetProject.autoDub,
             personaId: preResetProject.personaId,
             pluginId: preResetProject.pluginId,
+            // E-02：首页开关必须随启动参数一起带走（resetProject 会清掉其中一部分，
+            // 另一半此前根本没被采集 → 上一个项目的创作提示词/踩点偷偷带到下一个项目）
+            dryRun: preResetProject.dryRun,
+            workspaceAutoIndex: preResetProject.workspaceAutoIndex,
+            workspaceVisionIndex: preResetProject.workspaceVisionIndex,
+            workspaceRoot: preResetProject.workspaceRoot,
+            creativePrompt: preResetProject.creativePrompt,
+            creativeAvoid: preResetProject.creativeAvoid,
+            cutOnBeat: preResetProject.cutOnBeat,
+            beatBpm: preResetProject.beatBpm,
+            shotFloorPolicy: preResetProject.shotFloorPolicy,
+            shotCapPolicy: preResetProject.shotCapPolicy,
           };
         }
         const pendingTopic = pendingReqRef.current.topic;
@@ -185,11 +214,11 @@ export function EditorPage() {
         // P2-02: 空时间线应用设置中的默认帧率/分辨率（原硬编 1920x1080@30）
         const _emptyTl = () => {
           const st = useSettingsStore.getState();
-          const tl = createEmptyTimeline();
-          tl.fps = st.defaultFps;
-          tl.width = st.defaultResolution.width;
-          tl.height = st.defaultResolution.height;
-          return tl;
+          return createEmptyTimeline('', {
+            fps: st.defaultFps,
+            width: st.defaultResolution.width,
+            height: st.defaultResolution.height,
+          });
         };
         useTimelineStore.getState().setTimeline(project.timeline ?? _emptyTl());
         // 注册项目时间线中的真实媒体（video/audio/image），供预览真实渲染
@@ -246,6 +275,17 @@ export function EditorPage() {
           useProjectStore.getState().setAutoDub(pending.autoDub);
           useProjectStore.getState().setPersonaId(pending.personaId);
           useProjectStore.getState().setPluginId(pending.pluginId);
+          // E-02：恢复首页勾选的开关与创作参数（此前 resetProject 后这些全部回默认）
+          useProjectStore.getState().setDryRun(pending.dryRun);
+          useProjectStore.getState().setWorkspaceAutoIndex(pending.workspaceAutoIndex);
+          useProjectStore.getState().setWorkspaceVisionIndex(pending.workspaceVisionIndex);
+          useProjectStore.getState().setWorkspaceRoot(pending.workspaceRoot);
+          useProjectStore.getState().setCreativePrompt(pending.creativePrompt);
+          useProjectStore.getState().setCreativeAvoid(pending.creativeAvoid);
+          useProjectStore.getState().setCutOnBeat(pending.cutOnBeat);
+          useProjectStore.getState().setBeatBpm(pending.beatBpm);
+          useProjectStore.getState().setShotFloorPolicy(pending.shotFloorPolicy);
+          useProjectStore.getState().setShotCapPolicy(pending.shotCapPolicy);
         } else {
           // 非首页新启动 → 恢复项目保存的 Agent 状态（需求对话/简报/规划书/执行日志）
           if (project.agent_state) useAgentStore.getState().restoreAgentState(project.agent_state);
@@ -605,10 +645,18 @@ export function EditorPage() {
 
   // Page-hide save flush — best-effort immediate save when leaving
   useEffect(() => {
+    // E-06 线索 3（复核确认，PRD §5A）：pagehide 与 beforeunload 在同一关页动作
+    // 里**都会**触发（Chrome/Edge 关页、刷新时两事件按序各来一次），旧实现没有
+    // 去重 → 同一份 payload 发两次 keepalive PUT（幂等但浪费，且后端日志翻倍）。
+    // 这里用「一次关页只冲刷一次」的标记去重；SPA 内卸载（组件 unmount）不置位，
+    // 因为那是切页不是关页，dirtyRef 语义不变。
+    let pageTeardownFlushed = false;
     const flush = () => {
+      if (pageTeardownFlushed) return;
       if (!dirtyRef.current) return;
       const st = useProjectStore.getState();
       if (!st.projectId) return;
+      pageTeardownFlushed = true;
       const base = getApiClient().defaults.baseURL || '';
       const token = useSettingsStore.getState().authToken;
       // F3 负载大小守卫：>48KB 时退化为紧凑元数据，避免 keepalive 静默丢弃大负载

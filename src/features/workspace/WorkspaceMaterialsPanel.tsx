@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FolderOpen, RefreshCw, Upload, Loader2, Film, Image as ImageIcon, Music, AlertTriangle } from 'lucide-react';
 import { Button, Badge } from '@/components/ui';
-import { asText } from '@/lib/render';
+import { asText, textList } from '@/lib/render';
 import { connectSseStream, type SseStreamHandle } from '@/services/api/sseStream';
 import {
   workspaceApi, type WorkspaceStatus, type WorkspaceMaterial, type WorkspaceEvent,
@@ -108,6 +108,8 @@ export function WorkspaceMaterialsPanel({ projectId, compact = false }: {
   const [failures, setFailures] = useState<ScanFailure[]>([]);
   const lastSeqRef = useRef(0);
   const streamRef = useRef<SseStreamHandle | null>(null);
+  /** M-03：reload 代际号——切项目后丢弃旧响应，避免旧项目数据覆盖新项目。 */
+  const reloadGenRef = useRef(0);
 
   const appendEvents = useCallback((incoming: WorkspaceEvent[]) => {
     if (!incoming.length) return;
@@ -127,13 +129,19 @@ export function WorkspaceMaterialsPanel({ projectId, compact = false }: {
 
   const reload = useCallback(async () => {
     if (!projectId) return;
+    // M-03（PRD §5B P2）：快速切项目时旧响应会覆盖新项目数据。用代际号丢弃过期响应。
+    const gen = ++reloadGenRef.current;
+    const forProject = projectId;
     setError(null);
     try {
-      const st = await workspaceApi.get(projectId);
+      const st = await workspaceApi.get(forProject);
+      if (gen !== reloadGenRef.current) return;
       setStatus(st);
-      const list = await workspaceApi.materials(projectId);
+      const list = await workspaceApi.materials(forProject);
+      if (gen !== reloadGenRef.current) return;
       setItems(list.items ?? []);
     } catch (e: unknown) {
+      if (gen !== reloadGenRef.current) return;
       const err = e as { response?: { data?: { detail?: string } }; message?: string };
       setError(String(err?.response?.data?.detail ?? err?.message ?? e));
     }
@@ -299,9 +307,9 @@ export function WorkspaceMaterialsPanel({ projectId, compact = false }: {
           </p>
           <ul className="mt-1 space-y-0.5">
             {failures.slice(0, 20).map((f) => (
-              <li key={f.rel} className="font-mono text-caption text-on-surface-variant break-all">
-                {f.sha256 && <span className="mr-1 text-on-surface-variant/50">{f.sha256.slice(0, 8)}</span>}
-                {f.rel} — {f.reason}
+              <li key={asText(f.rel) || asText(f.sha256)} className="font-mono text-caption text-on-surface-variant break-all">
+                {asText(f.sha256) && <span className="mr-1 text-on-surface-variant/50">{asText(f.sha256).slice(0, 8)}</span>}
+                {asText(f.rel)} — {asText(f.reason)}
               </li>
             ))}
           </ul>
@@ -322,34 +330,40 @@ export function WorkspaceMaterialsPanel({ projectId, compact = false }: {
             </thead>
             <tbody>
               {items.slice(0, 50).map((m) => {
-                const Icon = KIND_ICON[m.kind] ?? Film;
+                // M-02（PRD §5B P1）：后端字段运行时可能不是声明的类型——
+                // 对象/数组直进 JSX 会抛 "Objects are not valid as a React child"，
+                // 整块面板白屏。所有展示字段在这里统一过 asText / textList。
+                const kind = asText(m.kind);
+                const Icon = KIND_ICON[kind] ?? Film;
                 const vision = m.vision;
                 const degraded = vision?.status === 'degraded' || vision?.source === 'filename';
-                const visionText = vision?.summary || (vision?.tags ?? []).join('、');
+                const visionText = asText(vision?.summary)
+                  || textList((vision as { tags?: unknown } | undefined)?.tags).join('、');
+                const rel = asText(m.rel) || asText(m.path);
                 return (
-                  <tr key={m.sha256} className="border-t border-outline-variant/20">
-                    <td className="px-2 py-1 max-w-[240px] truncate" title={m.path}>{m.rel || m.path}</td>
-                    <td className="px-2 py-1"><Icon className="w-3 h-3 inline mr-1" />{m.kind}</td>
+                  <tr key={asText(m.sha256)} className="border-t border-outline-variant/20">
+                    <td className="px-2 py-1 max-w-[240px] truncate" title={asText(m.path)}>{rel}</td>
+                    <td className="px-2 py-1"><Icon className="w-3 h-3 inline mr-1" />{kind}</td>
                     <td className="px-2 py-1">
-                      <span className={m.status === 'indexed' ? 'text-primary' : 'text-on-surface-variant'}>
-                        {m.status}
+                      <span className={asText(m.status) === 'indexed' ? 'text-primary' : 'text-on-surface-variant'}>
+                        {asText(m.status)}
                       </span>
                       {vision?.status && vision.status !== 'ok' && (
-                        <span className="text-on-surface-variant/60"> · vision:{vision.status}</span>
+                        <span className="text-on-surface-variant/60"> · vision:{asText(vision.status)}</span>
                       )}
                     </td>
                     <td className="px-2 py-1 max-w-[220px] truncate text-on-surface-variant">
-                      {(m.tags ?? []).slice(0, 4).join('、') || '—'}
+                      {textList(m.tags).slice(0, 4).join('、') || '—'}
                     </td>
                     <td
                       className="px-2 py-1 max-w-[260px] truncate"
-                      title={visionText ? `${vision?.source ? `[${vision.source}] ` : ''}${visionText}` : ''}
+                      title={visionText ? `${vision?.source ? `[${asText(vision.source)}] ` : ''}${visionText}` : ''}
                     >
                       {visionText ? (
                         <span className={degraded ? 'text-amber-600' : 'text-on-surface'}>
                           {vision?.source && (
                             <span className="text-caption text-on-surface-variant/70 mr-1">
-                              {vision.source === 'llm' ? '模型' : vision.source === 'filename' ? '未读画面' : vision.source}
+                              {vision.source === 'llm' ? '模型' : vision.source === 'filename' ? '未读画面' : asText(vision.source)}
                             </span>
                           )}
                           {visionText}

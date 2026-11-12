@@ -40,6 +40,7 @@ const { mocks, stores } = vi.hoisted(() => {
       timeline: {
         tracks: [] as Array<{ id: string; kind: string; name: string; clips: unknown[] }>,
       },
+      isDirty: false as boolean,
       addTrack: vi.fn(),
       addClip: vi.fn(),
       setTimeline: vi.fn(),
@@ -48,13 +49,23 @@ const { mocks, stores } = vi.hoisted(() => {
     settings: { setCheatSheetOpen: vi.fn() },
   };
   return {
-    mocks: { toast: vi.fn(), post: vi.fn(), navigate: vi.fn() },
+    mocks: {
+      toast: vi.fn(), post: vi.fn(), navigate: vi.fn(),
+      switchToProxy: vi.fn(), switchToFull: vi.fn(), generate: vi.fn(),
+    },
     stores,
   };
 });
 
 vi.mock('@/stores/toastStore', () => ({ toast: mocks.toast }));
-vi.mock('@/services/api', () => ({ getApiClient: () => ({ post: mocks.post }) }));
+vi.mock('@/services/api', () => ({
+  getApiClient: () => ({ post: mocks.post }),
+  proxyApi: {
+    switchToProxy: mocks.switchToProxy,
+    switchToFull: mocks.switchToFull,
+    generate: mocks.generate,
+  },
+}));
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => mocks.navigate }));
 
 vi.mock('@/stores/projectStore', () => {
@@ -243,5 +254,81 @@ describe('轮74: SRT 导入只落 caption 轨', () => {
 
     expect(stores.timeline.addTrack).not.toHaveBeenCalled();
     expect(calls[0][0]).toBe('tr_cap');
+  });
+});
+
+// W07 (TL-03): JSON 导入 / 代理切换是「前端本地替换时间线」，必须显式以 local
+// 来源写回，真实 store 据此置 isDirty=true；否则状态栏显示「已保存」但内容未落盘。
+describe('W07/TL-03: 导入 JSON 与代理切换以 local 来源写回（不误清未保存标记）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stores.timeline.timeline = {
+      tracks: [{ id: 'tr', kind: 'video', name: 'V1', clips: [
+        { id: 'c1', kind: 'video', start_sec: 0, duration_sec: 3, asset_id: 'orig-1' },
+      ] }],
+    };
+    stores.timeline.isDirty = false;
+    // 让 mock 的 setTimeline 复现真实 store 的来源契约：local → isDirty=true。
+    // 修复前调用方不传 source，isDirty 保持 false → 用例红；修复后传 local → 绿。
+    stores.timeline.setTimeline.mockImplementation(
+      (_tl: unknown, options?: { source?: string }) => {
+        stores.timeline.isDirty = options?.source === 'local';
+      },
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('导入 JSON 后 isDirty=true（setTimeline 收到 local 来源）', async () => {
+    const data = {
+      tracks: [{ id: 'tr_new', kind: 'video', name: 'V', clips: [
+        { id: 'c_new', kind: 'video', start_sec: 0, duration_sec: 2 },
+      ] }],
+    };
+    const file = { name: 'tl.json', text: async () => JSON.stringify(data) };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fakeInput: any = { type: '', accept: '', files: [file] };
+    fakeInput.click = () => { void fakeInput.onchange?.(); };
+    const realCreateElement = document.createElement.bind(document);
+    const createSpy = vi.spyOn(document, 'createElement').mockImplementation(
+      (tagName: string, opts?: ElementCreationOptions) =>
+        tagName === 'input' ? (fakeInput as unknown as HTMLElement) : realCreateElement(tagName, opts),
+    );
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    try {
+      const { container } = render(<EditorToolbar />);
+      // 导入 Timeline JSON 按钮：Upload 图标（lucide-upload）
+      const btn = container.querySelector('button .lucide-upload')?.closest('button') as HTMLButtonElement;
+      expect(btn).toBeTruthy();
+      fireEvent.click(btn);
+      await waitFor(() => expect(stores.timeline.setTimeline).toHaveBeenCalled());
+      // 关键回归：必须显式传 local 来源
+      expect(stores.timeline.setTimeline).toHaveBeenCalledWith(data, { source: 'local' });
+      expect(stores.timeline.isDirty).toBe(true);
+    } finally {
+      confirmSpy.mockRestore();
+      createSpy.mockRestore();
+    }
+  });
+
+  it('代理切换后 isDirty=true（setTimeline 收到 local 来源）', async () => {
+    // 后端返回改写后的时间线（asset_id 变化 → changed>0 → 走成功分支）
+    const nextTl = {
+      tracks: [{ id: 'tr', kind: 'video', name: 'V1', clips: [
+        { id: 'c1', kind: 'video', start_sec: 0, duration_sec: 3, asset_id: 'proxy-1' },
+      ] }],
+    };
+    mocks.switchToProxy.mockResolvedValueOnce(nextTl);
+
+    const { container } = render(<EditorToolbar />);
+    const btn = container.querySelector('button[aria-label="切换代理/原片"]') as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    fireEvent.click(btn);
+    await waitFor(() => expect(stores.timeline.setTimeline).toHaveBeenCalled());
+    // 关键回归：必须显式传 local 来源
+    expect(stores.timeline.setTimeline).toHaveBeenCalledWith(nextTl, { source: 'local' });
+    expect(stores.timeline.isDirty).toBe(true);
   });
 });

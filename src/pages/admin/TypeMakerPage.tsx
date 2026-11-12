@@ -22,6 +22,27 @@ interface VideoType {
 }
 
 /**
+ * P2-26：把「后端不可达」与「404/400 业务错误」分开。
+ * 旧实现所有失败都写死「后端不可达」，内置类型的 404 与真实离线无法区分。
+ */
+function apiErrorText(e: unknown, action: string): string {
+  const err = e as {
+    code?: string;
+    response?: { status?: number; data?: { detail?: unknown } };
+  };
+  const status = err?.response?.status;
+  const detail = err?.response?.data?.detail;
+  if (err?.code === 'ERR_NETWORK' || err?.code === 'ECONNABORTED' || status === undefined) {
+    return `${action}：后端不可达`;
+  }
+  if (typeof detail === 'string' && detail.trim()) return `${action}：${detail}`;
+  if (status === 404) return `${action}：对象不存在（内置类型不可修改，或已被删除）`;
+  if (status === 400) return `${action}：请求被拒绝（参数或定义不合法）`;
+  if (status === 409) return `${action}：名称/ID 冲突`;
+  return `${action}：HTTP ${status}`;
+}
+
+/**
  * TypeMakerPage — author video-type plugins. Each type is a card showing its
  * rhythmic signature (shot length / transition / animation density).
  * CRUD backed by /api/type-maker/* (built-in types are read-only).
@@ -74,8 +95,8 @@ export function TypeMakerPage() {
         name: `${t.name} 副本`,
       } as never);
       await reload();
-    } catch {
-      setNotice('复制失败：后端不可达或 ID 冲突');
+    } catch (e) {
+      setNotice(apiErrorText(e, '复制失败'));
     }
   };
 
@@ -84,8 +105,8 @@ export function TypeMakerPage() {
       await typeMakerApi.remove(id);
       setTypes((ts) => ts.filter((t) => t.id !== id));
       setConfirmDelete(null);
-    } catch {
-      setNotice('删除失败：后端不可达或内置类型受保护');
+    } catch (e) {
+      setNotice(apiErrorText(e, '删除失败'));
       setConfirmDelete(null);
     }
   };
@@ -99,8 +120,8 @@ export function TypeMakerPage() {
       const definition = await typeMakerApi.get(t.id) as unknown as Parameters<typeof typeMakerApi.preview>[0];
       const result = await typeMakerApi.preview(definition);
       setPreviewResult(result);
-    } catch {
-      setPreviewResult({ valid: false, errors: ['预览失败：后端不可达'], shot_params: null as never, sample_translation: {} });
+    } catch (e) {
+      setPreviewResult({ valid: false, errors: [apiErrorText(e, '预览失败')], shot_params: null as never, sample_translation: {} });
     } finally {
       setPreviewLoading(false);
     }
@@ -146,8 +167,8 @@ export function TypeMakerPage() {
       } as never);
       await reload();
       setEditing(id);
-    } catch {
-      setNotice('新建失败：后端不可达');
+    } catch (e) {
+      setNotice(apiErrorText(e, '新建失败'));
     }
   };
 
@@ -168,8 +189,8 @@ export function TypeMakerPage() {
         },
       } as never);
       await reload();
-    } catch {
-      setNotice('保存失败：后端不可达');
+    } catch (e) {
+      setNotice(apiErrorText(e, '保存失败'));
     }
   };
 

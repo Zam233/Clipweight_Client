@@ -4,6 +4,7 @@
  * 供「后端配置」页与插件配置弹窗共用；bool 渲染开关、int/float 数字框、
  * dict/list 渲染 JSON 文本域，其余按字符串输入框处理。
  */
+import { useEffect, useState } from 'react';
 
 export interface ConfigValueInputProps {
   type: string;
@@ -16,6 +17,48 @@ export interface ConfigValueInputProps {
 
 const INPUT_CLS =
   'w-full bg-surface rounded-cw-xs px-2.5 py-1.5 text-body-sm text-on-surface outline-none border border-outline-variant/30 focus:border-primary disabled:opacity-50';
+
+/**
+ * P2-14：数字输入不能用 `Number(v)||0` 直连 store——空串会被写成 0，
+ * 用户既清不空也没法先输「-」。这里用本地草稿：输入过程中允许 ""/"-"，
+ * 只在解析出有限数时提交；失焦时丢弃非法中间态（显示回原值）。
+ */
+function NumberField({
+  value, integer, step, disabled, onChange,
+}: {
+  value: unknown;
+  integer: boolean;
+  step: number;
+  disabled?: boolean;
+  onChange: (v: number) => void;
+}) {
+  const toText = (v: unknown) => (v == null || v === '' ? '' : String(v));
+  const [draft, setDraft] = useState<string>(() => toText(value));
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setDraft(toText(value));
+  }, [value, focused]);
+
+  return (
+    <input
+      type="number"
+      step={step}
+      disabled={disabled}
+      value={focused ? draft : toText(value)}
+      onFocus={() => { setFocused(true); setDraft(toText(value)); }}
+      onBlur={() => setFocused(false)}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        const trimmed = raw.trim();
+        if (trimmed === '' || trimmed === '-' || trimmed === '.' || trimmed === '-.') return;
+        const n = integer ? parseInt(trimmed, 10) : parseFloat(trimmed);
+        if (Number.isFinite(n)) onChange(n);
+      }}
+      className={INPUT_CLS}
+    />
+  );
+}
 
 export function ConfigValueInput({ type, value, onChange, disabled, placeholder }: ConfigValueInputProps) {
   switch (type) {
@@ -36,22 +79,16 @@ export function ConfigValueInput({ type, value, onChange, disabled, placeholder 
       );
     case 'int':
       return (
-        <input
-          type="number" step={1}
-          disabled={disabled}
-          value={Number(value) || 0}
-          onChange={(e) => onChange(parseInt(e.target.value) || 0)}
-          className={INPUT_CLS}
+        <NumberField
+          value={value} integer step={1} disabled={disabled}
+          onChange={(v) => onChange(v)}
         />
       );
     case 'float':
       return (
-        <input
-          type="number" step={0.1}
-          disabled={disabled}
-          value={Number(value) || 0}
-          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-          className={INPUT_CLS}
+        <NumberField
+          value={value} integer={false} step={0.1} disabled={disabled}
+          onChange={(v) => onChange(v)}
         />
       );
     case 'dict':

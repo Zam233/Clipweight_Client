@@ -13,7 +13,9 @@ import {
   type AnimationPreset, type BackendAnimationDef,
 } from './animationPresets';
 import { animationApi, personaApi } from '@/services/api';
-import { shouldPush } from './historyCoalesce';
+import {
+  beginCoalesceWindow, endCoalesceWindow, isCoalesceWindowOpen, shouldPush,
+} from './historyCoalesce';
 import { sectionsForKind } from './sectionsForKind';
 import { Slot } from '@/features/plugins/Slot';
 import { useProjectStore } from '@/stores/projectStore';
@@ -37,9 +39,54 @@ import {
 // undo point, scoped PER CLIP so switching clips always opens a fresh window.
 // The first push captures the pre-edit state; pushes within the window are skipped
 // so one gesture ≠ dozens of undo steps. 合并窗口按片段隔离。
+//
+// P2-15：显式拖拽边界——按下时开窗、抬起时关窗。旧实现只靠 600ms 滑动窗口，
+// 一次长拖拽能落一个点，但「拖完立刻再拖」会被误合并成一个撤销点。
+const draggingClipIds = new Set<string>();
+let pointerIsDown = false;
+/**
+ * TL-10（PRD §5C P2）：模块级 `window` 监听在 HMR / 多次模块求值时会被**反复注册**，
+ * 旧监听永不卸载 → 一次 pointerup 触发 N 次 endCoalesceWindow。
+ * 用 globalThis 上的句柄记录上一次注册的两个监听，重新求值时先摘掉旧的再加新的。
+ */
+type PointerGuard = { down: () => void; up: () => void };
+const POINTER_GUARD_KEY = '__clipwrightPointerGuard';
+if (typeof window !== 'undefined') {
+  const g = globalThis as unknown as Record<string, PointerGuard | undefined>;
+  const prev = g[POINTER_GUARD_KEY];
+  if (prev) {
+    window.removeEventListener('pointerdown', prev.down, true);
+    window.removeEventListener('pointerup', prev.up, true);
+  }
+  const onDown = () => { pointerIsDown = true; };
+  const onUp = () => {
+    pointerIsDown = false;
+    for (const id of draggingClipIds) endCoalesceWindow(id);
+    draggingClipIds.clear();
+  };
+  window.addEventListener('pointerdown', onDown, true);
+  window.addEventListener('pointerup', onUp, true);
+  g[POINTER_GUARD_KEY] = { down: onDown, up: onUp };
+}
+
 function pushHistoryCoalesced(clipId: string, label: string) {
+  if (!clipId) return;
+  if (pointerIsDown && !isCoalesceWindowOpen(clipId)) {
+    beginCoalesceWindow(clipId);
+    draggingClipIds.add(clipId);
+  }
   if (!shouldPush(clipId)) return;
   useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, label);
+}
+
+/**
+ * TL-11（PRD §5C P2）：`clip.keyframes` 在旧项目/脏数据里可能是 undefined，
+ * 直接 `.map`/`.length` 会让属性面板整体崩溃。统一按空数组处理，
+ * 与 `AnimationSection` 已有的 `?? []` 口径一致。
+ */
+function safeKeyframes(clip: { keyframes?: unknown }): NonNullable<Clip['keyframes']> {
+  const kfs = (clip as { keyframes?: NonNullable<Clip['keyframes']> }).keyframes;
+  return Array.isArray(kfs) ? kfs : [];
 }
 
 /**
@@ -285,10 +332,28 @@ export function PropertiesPanel() {
             {/* Timing */}
             <Section title="时间">
               <Row label="起点 (s)">
-                <NumberInput value={round2(clip.start_sec)} onChange={(v) => { pushHistory(); set({ start_sec: Math.max(0, v) }); }} />
+                {/* TL-08（PRD §5C P2）：起点/时长走 store 的 trim 钳制（与画布拖拽
+                    同口径——不越过前邻结尾/下一片段起点），旧实现裸 set 可拖出单轨重叠。 */}
+                <NumberInput value={round2(clip.start_sec)} onChange={(v) => {
+                  pushHistory();
+                  const right = clip.start_sec + clip.duration_sec;
+                  useTimelineStore.getState().trimClipStart(clip.id, Math.max(0, v));
+                  const clamped = useTimelineStore.getState().getClip(clip.id);
+                  const newStart = clamped?.start_sec ?? Math.max(0, v);
+                  if (newStart !== clip.start_sec) {
+                    // 起点移动保持右端不动：时长 = 原右端 − 新起点
+                    useTimelineStore.getState().updateClip(clip.id, {
+                      duration_sec: Math.max(0.1, right - newStart),
+                    });
+                  }
+                }} />
               </Row>
               <Row label="时长 (s)">
-                <NumberInput value={round2(clip.duration_sec)} onChange={(v) => { pushHistory(); set({ duration_sec: Math.max(0.1, v) }); }} />
+                <NumberInput value={round2(clip.duration_sec)} onChange={(v) => {
+                  pushHistory();
+                  useTimelineStore.getState().trimClipEnd(
+                    clip.id, clip.start_sec + Math.max(0.1, v));
+                }} />
               </Row>
               <Row label="素材偏移 (s)">
                 <NumberInput value={round2(clip.source_offset_sec)} onChange={(v) => { pushHistory(); set({ source_offset_sec: Math.max(0, v) }); }} />
@@ -751,7 +816,7 @@ function AnimationSection({ clip }: { clip: Clip }) {
     if (!preset) return;
     pushHistory();
     // Merge preset keyframes with existing ones (preset wins on same time)
-    const existing = clip.keyframes ?? [];
+    const existing = safeKeyframes(clip);
     const presetKfs = presetKeyframes(preset);
     const presetTimes = new Set(presetKfs.map((k) => k.time));
     const kept = existing.filter((k) => !presetTimes.has(k.time));
@@ -817,7 +882,7 @@ function AnimationSection({ clip }: { clip: Clip }) {
             <span className="absolute top-0 bottom-0 w-px bg-playhead z-10" style={{ left: `${localT * 100}%` }} />
           )}
           {/* keyframe diamonds */}
-          {clip.keyframes.map((kf, i) => (
+          {safeKeyframes(clip).map((kf, i) => (
             <span key={i}
               className="absolute top-1/2 w-2.5 h-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-keyframe-dot border border-black/30
                 hover:scale-125 transition-transform z-20"
@@ -825,7 +890,7 @@ function AnimationSection({ clip }: { clip: Clip }) {
               title={`t=${kf.time.toFixed(2)}`}
             />
           ))}
-          {clip.keyframes.length === 0 && (
+          {safeKeyframes(clip).length === 0 && (
             <span className="absolute inset-0 flex items-center justify-center text-caption text-on-surface-variant/50">
               无关键帧 — 应用预设或手动添加
             </span>
@@ -1117,7 +1182,7 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
   const pushHistory = () => pushHistoryCoalesced(clip.id, 'keyframe');
 
   // Current interpolated values at playhead (for the "add keyframe" snapshot)
-  const liveProps = interpolateProperties(clip.keyframes, localT);
+  const liveProps = interpolateProperties(safeKeyframes(clip), localT);
   const snapshotProps: Record<string, number> = Object.keys(liveProps).length > 0
     ? liveProps
     : { opacity: clip.opacity };
@@ -1132,7 +1197,7 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
   const addSpeedAtPlayhead = () => {
     if (!inClip) return;
     pushHistory();
-    const cur = interpolateProperties(clip.keyframes, localT);
+    const cur = interpolateProperties(safeKeyframes(clip), localT);
     const speedVal = cur.speed ?? clip.speed;
     addKeyframe(clip.id, Math.round(localT * 1000) / 1000, { speed: speedVal });
   };
@@ -1140,7 +1205,7 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
   // M5: 移除指定时间的 speed 属性（回退为静态 clip.speed）
   const removeSpeedAt = (time: number) => {
     pushHistory();
-    const kfs = clip.keyframes.map((k) => {
+    const kfs = safeKeyframes(clip).map((k) => {
       if (Math.abs(k.time - time) < 0.001) {
         const { speed: _s, ...rest } = k.properties;
         return { ...k, properties: rest };
@@ -1158,7 +1223,7 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
   const setEasing = (time: number, easing: string) => {
     pushHistory();
     // 显式选名字时清掉自定义曲线：否则 bezier 优先，用户会以为下拉没生效
-    const kfs = clip.keyframes.map((k) => (Math.abs(k.time - time) < 0.001
+    const kfs = safeKeyframes(clip).map((k) => (Math.abs(k.time - time) < 0.001
       ? { ...k, easing, bezier: undefined }
       : k));
     updateClip(clip.id, { keyframes: kfs });
@@ -1167,7 +1232,7 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
   /** 曲线编辑器写入自定义贝塞尔（保留 easing 名字作为回退/展示） */
   const setBezier = (time: number, handles: { x1: number; y1: number; x2: number; y2: number }, commit: boolean) => {
     if (commit) pushHistory();
-    const kfs = clip.keyframes.map((k) => (Math.abs(k.time - time) < 0.001 ? { ...k, bezier: handles } : k));
+    const kfs = safeKeyframes(clip).map((k) => (Math.abs(k.time - time) < 0.001 ? { ...k, bezier: handles } : k));
     updateClip(clip.id, { keyframes: kfs });
   };
 
@@ -1187,7 +1252,7 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
    * 因此这里定位「播放头所在区段的结束帧」，并把它前面的帧作为区段起点展示。
    */
   const curveTarget = useMemo(() => {
-    if (!clip || clip.keyframes.length < 2) return null;
+    if (!clip || safeKeyframes(clip).length < 2) return null;
     const sorted = [...clip.keyframes].sort((a, b) => a.time - b.time);
     let target = sorted[sorted.length - 1];
     for (let i = 1; i < sorted.length; i += 1) {
@@ -1203,7 +1268,7 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
   }, [clip, localT]);
 
   const jumpTo = (dir: 1 | -1) => {
-    const times = clip.keyframes.map((k) => k.time).sort((a, b) => a - b);
+    const times = safeKeyframes(clip).map((k) => k.time).sort((a, b) => a - b);
     if (times.length === 0) return;
     const target = dir === 1
       ? times.find((t) => t > localT + 0.001)
@@ -1227,12 +1292,12 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
           <Plus className="w-3.5 h-3.5" />
           {inClip ? `在播放头添加 (${localT.toFixed(2)})` : '播放头不在片段内'}
         </button>
-        <button onClick={() => jumpTo(-1)} disabled={clip.keyframes.length === 0}
+        <button onClick={() => jumpTo(-1)} disabled={safeKeyframes(clip).length === 0}
           className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface disabled:opacity-30 transition-colors cursor-pointer"
           title="上一个关键帧">
           <ChevronLeft className="w-3.5 h-3.5" />
         </button>
-        <button onClick={() => jumpTo(1)} disabled={clip.keyframes.length === 0}
+        <button onClick={() => jumpTo(1)} disabled={safeKeyframes(clip).length === 0}
           className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface disabled:opacity-30 transition-colors cursor-pointer"
           title="下一个关键帧">
           <ChevronRight className="w-3.5 h-3.5" />
@@ -1252,13 +1317,13 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
         {inClip ? '添加速度关键帧 (变速)' : '播放头不在片段内'}
       </button>
 
-      {clip.keyframes.length === 0 ? (
+      {safeKeyframes(clip).length === 0 ? (
         <p className="text-label-sm text-on-surface-variant leading-relaxed">
           无关键帧。将播放头移到片段内，点击「添加」记录当前属性值，即可创建动画。
         </p>
       ) : (
         <div className="space-y-1.5">
-          {clip.keyframes.map((kf, i) => (
+          {safeKeyframes(clip).map((kf, i) => (
             <div key={i} className="flex items-center gap-2 bg-surface-container rounded-cw-xs px-2 py-1.5 group">
               <Diamond className="w-3 h-3 text-keyframe-dot shrink-0" />
               <button
@@ -1284,18 +1349,12 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
                     <label key={prop} className="flex items-center gap-0.5 text-caption font-mono text-on-surface-variant"
                       title={`${prop} = ${val}`}>
                       <span className="text-[10px] uppercase">{shortPropLabel(prop)}</span>
-                      <input
-                        type="number"
-                        step="0.05"
+                      <KfNumberInput
+                        value={val}
+                        step={0.05}
                         min={KEYFRAME_PROP_RANGES[prop]?.[0]}
                         max={KEYFRAME_PROP_RANGES[prop]?.[1]}
-                        value={Math.round(val * 100) / 100}
-                        onChange={(e) => {
-                          const n = Number(e.target.value);
-                          if (Number.isFinite(n)) setProperty(kf.time, prop, n);
-                        }}
-                        className="w-12 bg-surface rounded-cw-xs px-1 py-0.5 text-caption font-mono text-on-surface
-                          outline-none border border-outline-variant/30 focus:border-primary"
+                        onChange={(n) => setProperty(kf.time, prop, n)}
                       />
                     </label>
                   ))}
@@ -1327,7 +1386,7 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
       )}
 
       {/* O-曲线编辑：曲线上每个可调区段一个编辑器（默认展开第一个有曲线的区段） */}
-      {clip.keyframes.length > 1 && curveTarget && (
+      {safeKeyframes(clip).length > 1 && curveTarget && (
         <BezierCurveEditor
           value={curveTarget.bezier}
           segmentLabel={curveTarget.label}
@@ -1400,6 +1459,48 @@ function NumberInput({ value, onChange }: { value: number; onChange: (v: number)
       onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
       className="w-20 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm font-mono text-on-surface
         outline-none border border-outline-variant/30 focus:border-primary text-right"
+    />
+  );
+}
+
+/**
+ * P2-14：关键帧属性框此前直接受控 `value={Math.round(val*100)/100}` + `Number('')→0`，
+ * 清空输入会把属性写成 0。这里用本地草稿，空串/「-」等中间态不提交，失焦回原值。
+ */
+function KfNumberInput({
+  value, step, min, max, onChange,
+}: {
+  value: number;
+  step: number;
+  min?: number;
+  max?: number;
+  onChange: (v: number) => void;
+}) {
+  const fmt = (v: number) => String(Math.round(v * 100) / 100);
+  const [text, setText] = useState(fmt(value));
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setText(fmt(value));
+  }, [value, focused]);
+  const commit = () => {
+    const s = text.trim();
+    const n = Number(s);
+    if (s !== '' && s !== '-' && Number.isFinite(n)) onChange(n);
+    else setText(fmt(value));
+  };
+  return (
+    <input
+      type="number"
+      step={step}
+      min={min}
+      max={max}
+      value={text}
+      onFocus={() => setFocused(true)}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => { setFocused(false); commit(); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      className="w-12 bg-surface rounded-cw-xs px-1 py-0.5 text-caption font-mono text-on-surface
+        outline-none border border-outline-variant/30 focus:border-primary"
     />
   );
 }

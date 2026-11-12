@@ -269,7 +269,7 @@ export function VideoEditorPage() {
   return (
     <ConsoleShell>
       <ConsoleHeading kicker="Operations / Video Editor" title="视频编辑器控制台"
-        desc="后端 video-editor 服务：项目/会话 CRUD、undo/redo、clips 增删移分、时间线导出，以及集成的 proxy（生成/切换）与波形生成控件。" />
+        desc="工具页（非项目时间线编辑器）：直连后端 video-editor 服务的项目/会话 CRUD、undo/redo、clips 增删移分与时间线导出，并集成 proxy（生成/切换）与波形生成。日常剪辑请用「编辑器」页，两者工程与撤销栈不互通。" />
 
       {/* status strip */}
       <div className="flex flex-wrap items-center gap-3 mb-5">

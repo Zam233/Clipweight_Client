@@ -46,6 +46,11 @@ export interface TaskState {
   list: TaskListItem[];
   loading: boolean;
   error: string;
+  /** S-05：任务列表刷新的错误单独一槽，不与当前任务的操作错误互相污染 */
+  listError: string;
+  /** S-06：最近一次成功插话（时间戳 + 原文），供运行条显示「已发送给主 Agent」 */
+  injectedAt: number;
+  injectedText: string;
 
   createTask: (body: Parameters<typeof taskApi.create>[0]) => Promise<Task | null>;
   load: (taskId: string) => Promise<void>;
@@ -79,6 +84,9 @@ const EMPTY = {
   seqGap: null,
   loading: false,
   error: '',
+  listError: '',
+  injectedAt: 0,
+  injectedText: '',
 };
 
 /**
@@ -297,8 +305,19 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         const merged = new Map<number, TaskEvent>();
         for (const e of [...items, ...state.events]) merged.set(e.seq, e);
         const ordered = [...merged.values()].sort((a, b) => a.seq - b.seq);
+        // S-03：翻页拿到的历史里同样可能有 agent_run_*，旧实现只并 events，
+        // 导致刷新后较早启动、仍在运行的子 Agent 不出现（翻页也不出现）。
+        const runMerged = new Map<number, TaskEvent>();
+        for (const e of [...items.filter((x) => x.type.startsWith('agent_run_')),
+          ...state.runEvents]) {
+          runMerged.set(e.seq, e);
+        }
+        const orderedRuns = [...runMerged.values()]
+          .sort((a, b) => a.seq - b.seq)
+          .slice(-MAX_RUN_EVENTS);
         return {
           events: ordered,
+          runEvents: orderedRuns,
           oldestLoadedSeq: ordered.length ? ordered[0].seq : state.oldestLoadedSeq,
           hasEarlierEvents: Boolean(res.has_more),
         };
@@ -341,6 +360,12 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     const runEvents = event.type.startsWith('agent_run_')
       ? [...get().runEvents, event].slice(-MAX_RUN_EVENTS)
       : get().runEvents;
+    // S-02：窗口裁剪后必须同步最早游标，否则「加载更早」会以被裁掉的旧游标为
+    // beforeSeq，拿回比窗口还早得多的一段，中间被裁区域永远看不到（也不报缺口）。
+    const trimmed = get().events.length + 1 > MAX_TASK_EVENTS;
+    const oldestLoadedSeq = trimmed && events.length
+      ? events[0].seq
+      : get().oldestLoadedSeq;
     const task = get().task;
     let nextTask = task;
     if (task) {
@@ -372,12 +397,27 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         nextTask = { ...(nextTask as Task) };
       }
     }
-    set({ events, runEvents, lastSeq: event.seq, task: nextTask });
+    set({
+      events,
+      runEvents,
+      lastSeq: event.seq,
+      task: nextTask,
+      oldestLoadedSeq,
+      // 裁剪发生了 → 本地一定有更早但未加载的记录，必须允许「加载更早」
+      ...(trimmed ? { hasEarlierEvents: true } : {}),
+    });
   },
 
   start: async (taskId) => {
     try {
-      await taskApi.resume(taskId);   // resume = 从当前检查点开跑（新任务等价于开跑）
+      // S-01：resume 对终态任务返回 refused（后端 409），旧实现不看返回值直接
+      // load，界面像"点了没反应"。与 resume 同口径展示拒绝原因。
+      set({ error: '' });
+      const res = await taskApi.resume(taskId);   // resume = 从当前检查点开跑
+      if (res?.refused) {
+        set({ error: res.message || '任务已结束，无法开始' });
+        return;
+      }
       await get().load(taskId);
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
@@ -419,27 +459,39 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 
   inject: async (taskId, text) => {
     try {
+      // S-05：每次操作先清自身错误，避免上一次失败的红字一直挂着。
+      set({ error: '' });
       await taskApi.inject(taskId, text);
+      // S-06：成功必须给反馈——旧实现成功后什么都不改，用户不知道插话是否送达。
+      set({ injectedAt: Date.now(), injectedText: text });
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
     }
   },
 
   replan: async (taskId) => {
+    // S-04：与 load 同款代际校验——点了重新规划后立刻切任务，旧响应不得覆盖当前视图。
+    if (get().activeTaskId !== taskId) return;
+    const epoch = _taskEpoch;
     try {
+      set({ error: '' });
       const res = await taskApi.replan(taskId);
+      if (epoch !== _taskEpoch || get().activeTaskId !== taskId) return;
       set({ task: res.task });
     } catch (e) {
+      if (epoch !== _taskEpoch || get().activeTaskId !== taskId) return;
       set({ error: e instanceof Error ? e.message : String(e) });
     }
   },
 
   loadList: async () => {
     try {
+      // S-05：列表错误与任务错误分槽，避免"刷新列表失败一次后任务视图永远挂红字"。
+      set({ listError: '' });
       const res = await taskApi.list();
       set({ list: res.items });
     } catch (e) {
-      set({ error: e instanceof Error ? e.message : String(e) });
+      set({ listError: e instanceof Error ? e.message : String(e) });
     }
   },
 

@@ -122,6 +122,25 @@ describe('readInstallableDependency', () => {
       ),
     ).toBeNull();
   });
+
+  it('PL-01：未登记 probe/install 端点 → 整条贡献被丢弃', () => {
+    const evil = contribution({
+      payload: {
+        kind: 'installable-dependency',
+        probe: { endpoint: '/api/project/secret' },
+        install: { endpoint: '/api/project/delete', method: 'POST' },
+      },
+    });
+    expect(readInstallableDependency(evil)).toBeNull();
+    const partial = contribution({
+      payload: {
+        kind: 'installable-dependency',
+        probe: { endpoint: '/api/render/browser' },
+        install: { endpoint: '/api/tool/execute', method: 'DELETE' },
+      },
+    });
+    expect(readInstallableDependency(partial)).toBeNull();
+  });
 });
 
 describe('InstallableDependencyDialog（声明驱动，不认识具体依赖）', () => {

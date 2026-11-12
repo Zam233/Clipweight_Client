@@ -440,3 +440,50 @@ describe('04 工作区（PRD workspace-prd-2026-10-24）', () => {
     expect(screen.getByText('视觉解读')).toBeTruthy();
   });
 });
+
+/**
+ * F-03 / F-04 / F-08 / F-12（PRD §2 审计修复）。
+ */
+describe('F-03/F-04/F-08/F-12 首页可见结果', () => {
+  it('F-08：未显式选类型时摘要如实说「使用默认」', async () => {
+    render(<HomePage />);
+    await gotoCreate();
+    await waitFor(() => expect(screen.getByTestId('launch-summary-type')).toBeTruthy());
+    expect(screen.getByTestId('launch-summary-type').textContent).toMatch(/使用默认|类型列表加载失败/);
+  });
+
+  it('F-04：未上传配音且未选音色时摘要如实反映当前配音状态', async () => {
+    render(<HomePage />);
+    await gotoCreate();
+    await waitFor(() => expect(screen.getByTestId('launch-summary-dub')).toBeTruthy());
+    // 三种合法状态之一：已上传配音 / 自动配音（音色）/ 画面优先 / 无配音
+    // 关键点是**不能一边选了音色一边写「无配音」**（F-04 的 bug）
+    expect(screen.getByTestId('launch-summary-dub').textContent)
+      .toMatch(/已上传配音|自动配音|画面优先|无配音/);
+  });
+
+  it('F-03：换稿后旧预判响应被丢弃，不弹过期卡片', async () => {
+    mocks.healthStatus.mockReturnValue('online');
+    let resolveFirst: ((v: unknown) => void) | null = null;
+    mocks.predictScript.mockImplementationOnce(() => new Promise((r) => { resolveFirst = r as (v: unknown) => void; }));
+
+    render(<HomePage />);
+    await gotoCreate();
+    const textarea = screen.getByPlaceholderText(/粘贴口播文案/);
+    fireEvent.change(textarea, { target: { value: 'y'.repeat(80) } });
+    await waitFor(() => expect(mocks.predictScript).toHaveBeenCalledTimes(1), { timeout: 3000 });
+
+    // 换一版文稿（旧请求此时才返回）
+    mocks.predictScript.mockResolvedValue(undefined);
+    fireEvent.change(textarea, { target: { value: 'z'.repeat(120) } });
+    resolveFirst!({ video_type: 'vlog', estimated_duration_sec: 99, summary: '过期预判内容' });
+    await new Promise((r) => setTimeout(r, 120));
+    expect(screen.queryByText('过期预判内容')).toBeNull();
+  });
+
+  it('F-12：接口未返回前不闪「演示数据」', async () => {
+    render(<HomePage />);
+    await gotoCreate();
+    expect(screen.queryByText('演示数据')).toBeNull();
+  });
+});

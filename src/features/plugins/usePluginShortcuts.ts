@@ -14,6 +14,7 @@ import { useSelectionStore } from '@/stores/selectionStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { evalVisibleWhen } from './slots';
 import { usePluginSlots } from './usePluginSlots';
+import { authorizePluginCall, pluginCallNeedsConfirm, toPluginProxyRequest } from './pluginApiGuard';
 
 interface ShortcutPayload {
   combo?: string;
@@ -43,17 +44,34 @@ export function usePluginShortcuts(): void {
       if (!evalVisibleWhen(c.visibleWhen, { playing, hasSelection, hasTimeline })) continue;
       const method = String(p.action?.method ?? 'POST').toUpperCase();
       const body = p.action?.body ?? {};
+      // PL-02：快捷键贡献里的 endpoint/method/body 也是插件提供的数据，
+      // 与 iframe call 共用同一门禁（默认拒绝未登记端点与破坏性方法）。
+      const decision = authorizePluginCall({
+        endpoint, method, body: body as Record<string, unknown>,
+      });
+      if (!decision.ok) continue;
+      const { endpoint: safeEndpoint } = decision.call;
       disposers.push(keybindingEngine.register({
         id: `plugin:${c.id}`,
         combo: p.combo,
         label: p.label ?? c.title,
         category: '插件',
         handler: () => {
+          // 可写端点必须用户逐次确认，不能由插件静默触发。
+          if (pluginCallNeedsConfirm(safeEndpoint) && !window.confirm(
+            `插件「${c.title}」请求执行操作：${safeEndpoint}\n是否继续？`,
+          )) return;
+          // W01：改写为受限代理请求（服务端按插件启停 + 清单最终裁定）。
+          // owner 是后端 contributions 响应里的插件 id；缺失时拒绝（默认拒绝口径）。
+          const proxyOwner = c.owner || '';
+          if (!proxyOwner) {
+            toast(`插件快捷键缺少贡献归属（owner），已拒绝执行：${c.title}`, 'error');
+            return;
+          }
+          const proxy = toPluginProxyRequest(proxyOwner, decision.call);
           const client = getApiClient();
-          const req = method === 'GET'
-            ? client.get(endpoint)
-            : client.request({ url: endpoint, method, data: body });
-          req.catch(() => toast(`插件快捷键执行失败：${c.title}`, 'error'));
+          client.post(proxy.url, proxy.body)
+            .catch(() => toast(`插件快捷键执行失败：${c.title}`, 'error'));
         },
       }));
     }

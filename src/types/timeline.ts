@@ -182,13 +182,16 @@ export interface TimelineMarker {
   name?: string;
 }
 
-/** Create an empty timeline with defaults */
-export function createEmptyTimeline(id = ''): Timeline {
+/** Create an empty timeline with defaults (P2-02: 可传入设置项，不再只硬编 1080p30) */
+export function createEmptyTimeline(
+  id = '',
+  opts?: { width?: number; height?: number; fps?: number },
+): Timeline {
   return {
     id,
-    width: 1920,
-    height: 1080,
-    fps: 30,
+    width: opts?.width ?? 1920,
+    height: opts?.height ?? 1080,
+    fps: opts?.fps ?? 30,
     duration_sec: 0,
     tracks: [],
     markers: [],

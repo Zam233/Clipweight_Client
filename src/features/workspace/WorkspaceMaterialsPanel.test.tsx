@@ -75,4 +75,84 @@ describe('WorkspaceMaterialsPanel', () => {
     render(<WorkspaceMaterialsPanel projectId="" />);
     expect(screen.getByText(/启动制作时按项目创建/)).toBeTruthy();
   });
+
+  /**
+   * M-02（PRD §5B P1）：后端字段未过渲染边界时，对象/数组直进 JSX 会抛
+   * "Objects are not valid as a React child" 把整块面板打崩。
+   */
+  it('M-02：rel/kind/status/tags/vision 为脏形状时面板不白屏', async () => {
+    mocks.materials.mockResolvedValue({
+      project_id: 'p1', root: 'J:/ws/p1', count: 1, pending: 0,
+      items: [{
+        sha256: 'dirty01',
+        path: { p: '/x' },
+        rel: { name: 'video/dirty.mp4' },
+        kind: { k: 'video' },
+        status: { s: 'indexed' },
+        tags: [{ name: '舞台' }, 42, null],
+        vision: { status: 'ok', summary: { text: '画面描述' }, tags: [{ name: '夜景' }] },
+      }],
+    });
+    expect(() => render(<WorkspaceMaterialsPanel projectId="p1" />)).not.toThrow();
+    // 脏对象被转成可读文本，而不是 [object Object] 或整页崩
+    await screen.findByText(/素材 /);
+    expect(document.body.textContent).not.toContain('[object Object]');
+    expect(document.body.textContent).toContain('video/dirty.mp4');
+    expect(document.body.textContent).toContain('舞台');
+  });
+
+  it('M-02：failed 索引列表的 rel/reason 为对象时也不崩', async () => {
+    mocks.materials.mockResolvedValue({
+      project_id: 'p1', root: 'J:/ws/p1', count: 0, pending: 1,
+      items: [{
+        sha256: 'dirty02', path: 'J:/x', rel: 'video/b.mp4', kind: 'video',
+        size: 1, status: 'failed', tags: [],
+        vision: { status: 'failed', summary: { why: '解码失败' } },
+      }],
+    });
+    expect(() => render(<WorkspaceMaterialsPanel projectId="p1" />)).not.toThrow();
+    await screen.findByText(/素材 /);
+    expect(document.body.textContent).not.toContain('[object Object]');
+  });
+
+  /**
+   * M-03（PRD §5B P2）：快速切项目时，旧项目的响应可能后到并覆盖新项目数据。
+   */
+  it('M-03：切项目后旧响应不会覆盖新项目数据', async () => {
+    // p1 的 materials 故意慢返回，p2 的立即返回
+    let resolveP1!: (v: unknown) => void;
+    const p1Materials = new Promise((r) => { resolveP1 = r; });
+    mocks.materials.mockImplementation((pid: string) => (
+      pid === 'p1'
+        ? p1Materials
+        : Promise.resolve({
+          project_id: 'p2', root: 'J:/ws/p2', count: 1, pending: 0,
+          items: [{
+            sha256: 'p2only', path: 'J:/ws/p2/materials/video/new.mp4',
+            rel: 'video/new.mp4', kind: 'video', size: 1, status: 'indexed',
+            tags: [], vision: { status: 'ok' },
+          }],
+        })
+    ));
+
+    const { rerender } = render(<WorkspaceMaterialsPanel projectId="p1" />);
+    // 立刻切到 p2，此时 p1 的请求还没返回
+    rerender(<WorkspaceMaterialsPanel projectId="p2" />);
+
+    await waitFor(() => expect(screen.getByText('video/new.mp4')).toBeTruthy());
+
+    // p1 之后才返回：不得把新项目的行覆盖回旧数据
+    resolveP1({
+      project_id: 'p1', root: 'J:/ws/p1', count: 1, pending: 0,
+      items: [{
+        sha256: 'p1only', path: 'J:/ws/p1/materials/video/old.mp4',
+        rel: 'video/old.mp4', kind: 'video', size: 1, status: 'indexed',
+        tags: [], vision: { status: 'ok' },
+      }],
+    });
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(screen.queryByText('video/old.mp4')).toBeNull();
+    expect(screen.getByText('video/new.mp4')).toBeTruthy();
+  });
 });

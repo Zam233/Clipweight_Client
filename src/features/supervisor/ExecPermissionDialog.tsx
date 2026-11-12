@@ -14,6 +14,7 @@ import { useEffect, useId, useState } from 'react';
 
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { useModalKeybindingGuard } from '@/features/keyboard/useModalKeybindingGuard';
 import type { PendingExecApproval } from '@/types/supervisor';
 
 import { ExecLevelBadge } from './ExecLevelBadge';
@@ -32,6 +33,8 @@ export function ExecPermissionDialog({ approval, onApprove, onReject, busy, clas
   const [finalConfirmed, setFinalConfirmed] = useState(false);
   const checkId = useId();
   const finalId = useId();
+  // P2-19：授权弹层打开时停用单键快捷键（Space 会误触播放/时间线操作）
+  useModalKeybindingGuard(Boolean(approval));
 
   // 换一条待授权命令就回到第一级（否则上一轮的勾选会污染这一轮）
   useEffect(() => {

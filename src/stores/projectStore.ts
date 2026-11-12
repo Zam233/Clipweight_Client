@@ -162,10 +162,14 @@ export const useProjectStore = create<ProjectState>((set) => ({
   setShotCapPolicy: (v) => set({ shotCapPolicy: v }),
   resetProject: () =>
     set({
+      // E-02（PRD §5A P1）：reset 必须覆盖**全部**字段。旧实现漏了
+      // creativePrompt/creativeAvoid/cutOnBeat/beatBpm/shot*Policy/personas/reasoningEffort
+      // → 上一个项目的创作提示词与镜头策略会悄悄带进下一个项目。
       projectId: null,
       projectName: 'Untitled Project',
       personaId: null,
       pluginId: null,
+      personas: [],
       isSaving: false,
       lastSavedAt: null,
       saveError: false,
@@ -183,8 +187,15 @@ export const useProjectStore = create<ProjectState>((set) => ({
       requirementsTopic: '',
       requirementsScript: '',
       requirementsAudioDuration: 0,
+      creativePrompt: '',
+      creativeAvoid: [],
       materialSourceIds: [],
       dubSegments: null,
       dryRun: false,
+      reasoningEffort: '',
+      cutOnBeat: false,
+      beatBpm: null,
+      shotFloorPolicy: 'default',
+      shotCapPolicy: 'default',
     }),
 }));

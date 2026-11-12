@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { uid } from '@/lib/utils';
+import { clearPipelineId } from '@/services/storage/pipelineSession';
 import type { Timeline } from '@/types/timeline';
 import type {
   PipelinePhase,
@@ -191,7 +192,12 @@ export const useAgentStore = create<AgentState>((set) => ({
 
   setCancelling: (busy) => set({ cancelling: busy }),
 
-  resetPipeline: () =>
+  resetPipeline: () => {
+    // E-06 线索 1（复核确认，PRD §5A）：旧实现只清内存 store，不清
+    // pipelineSession 的 sessionStorage/localStorage 持久化 —— 切项目后刷新，
+    // AgentPanel 会从持久化恢复**上一个项目的 pipelineId** 并重连 SSE，
+    // 把旧管线 diff 弹进新项目。清 store 的同时必须清持久化。
+    clearPipelineId();
     set({
       pipelineId: null,
       phase: 'idle',
@@ -206,7 +212,8 @@ export const useAgentStore = create<AgentState>((set) => ({
       pipelineSummary: null,
       mgTotal: 0,
       mgDone: 0,
-    }),
+    });
+  },
 
   addLogEntry: (entry) =>
     set((state) => ({
@@ -313,7 +320,11 @@ export const useAgentStore = create<AgentState>((set) => ({
     set({
       requirementsSessionId: snapshot.requirementsSessionId ?? null,
       requirementsStatus: (snapshot.requirementsStatus as RequirementsStatus) ?? 'idle',
-      requirementsMessages: (snapshot.requirementsMessages as RequirementMessage[]) ?? [],
+      // E-06 线索 7（复核确认，PRD §5A）：草稿/服务端快照里恢复的消息可能残留
+      // `streaming: true`（刷新发生在流式过程中）——渲染层按它显示打字光标，
+      // 恢复后光标常驻。恢复路径一律把 streaming 收敛为 false。
+      requirementsMessages: ((snapshot.requirementsMessages as RequirementMessage[]) ?? [])
+        .map((m) => (m?.streaming ? { ...m, streaming: false } : m)),
       creativeBrief: (snapshot.creativeBrief as CreativeBrief) ?? null,
       productionPlan: (snapshot.productionPlan as ProductionPlan) ?? null,
       logEntries: (snapshot.logEntries as LogEntry[]) ?? [],

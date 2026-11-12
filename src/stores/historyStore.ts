@@ -95,7 +95,9 @@ export function applySelection(selection: SelectionSnapshot, timeline: Timeline 
  * 那会用默认参数再清一次选择。
  */
 function swapTimeline(timeline: Timeline, selection: SelectionSnapshot): void {
-  useTimelineStore.getState().setTimeline(timeline, { preserveSelection: true });
+  // W07 (TL-01)：undo/redo/jumpTo 属于历史恢复，显式传 history 来源——
+  // timelineStore 据此把 isDirty 与「落盘基线」比较，而不是无条件清成已保存。
+  useTimelineStore.getState().setTimeline(timeline, { preserveSelection: true, source: 'history' });
   applySelection(selection, timeline);
 }
 

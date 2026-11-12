@@ -25,9 +25,11 @@ import { formatTimecode, clamp } from '@/lib/utils';
 import { secondsToFrame } from '@/lib/mediaTime';
 import { mediaManager } from '@/services/media/mediaManager';
 import { interpolateProperties } from '@/features/timeline/engine/easing';
-import { Maximize, Shield, Volume2, VolumeX, ZoomIn, ZoomOut, Camera, Repeat, Play, Pause, Gauge } from 'lucide-react';
+import { Maximize, Minimize, Shield, Volume2, VolumeX, ZoomIn, ZoomOut, Camera, Repeat, Play, Pause, Gauge } from 'lucide-react';
 import { Tooltip, Slider } from '@/components/ui';
 import { applyMasterVolume } from './volume';
+import { toast } from '@/stores/toastStore';
+import { resolveCanvasClickAction } from './canvasClickAction';
 import { contentKey, getPreviewLayerCache, quantize, type Layer2DContext } from './layerCache';
 import { createFramePerf, previewPerf, type FramePerf } from './perf';
 import { PreviewPerfOverlay } from './PreviewPerfOverlay';
@@ -46,7 +48,7 @@ export function PreviewPanel() {
   const wrapRef = useRef<HTMLDivElement>(null);
   // Drag-scrub state: start coords + dragging flag + rAF-merged target time.
   // 拖拽刷洗状态：起点坐标 + 拖拽标志 + rAF 合并的目标时间。
-  const scrubRef = useRef({ startX: 0, startY: 0, dragging: false, raf: 0, targetTime: -1 });
+  const scrubRef = useRef({ startX: 0, startY: 0, dragging: false, raf: 0, targetTime: -1, lastUpWasDouble: false });
 
   const timeline = useTimelineStore((s) => s.timeline);
   const currentTimeSec = usePreviewStore((s) => s.currentTimeSec);
@@ -76,7 +78,7 @@ export function PreviewPanel() {
   const [editingText, setEditingText] = useState<{ clipId: string; text: string; x: number; y: number } | null>(null);
   const editTextRef = useRef<HTMLTextAreaElement>(null);
   // O-变换手柄：拖拽会话 + 吸附参考线（参考线在画布上叠加绘制）
-  const transformDragRef = useRef<{ ctx: DragContext; clipId: string } | null>(null);
+  const transformDragRef = useRef<{ ctx: DragContext; clipId: string; pushed?: boolean } | null>(null);
   const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
   /** 参考线的绘制循环可见副本（draw 闭包读 ref，避免闭包过期） */
   const guidesRef = useRef<SnapGuide[]>([]);
@@ -84,6 +86,8 @@ export function PreviewPanel() {
   const guidesEpochRef = useRef(0);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    // P-02：标记这次 up 序列是双击，pointerup 的点击决策据此不再切播放。
+    scrubRef.current.lastUpWasDouble = true;
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
@@ -157,15 +161,27 @@ export function PreviewPanel() {
     return out;
   }, [timeline]);
 
+  // P-06：rAF 同步循环读取的镜像（避免循环依赖 audioClips/volume 重建循环）
+  const audioClipsRef = useRef(audioClips);
+  audioClipsRef.current = audioClips;
+  const volumeRef = useRef(volume);
+  volumeRef.current = volume;
+
   useEffect(() => {
     const prev = audioStateRef.current;
     const stateChanged = prev.playing !== isPlaying || prev.muted !== isMuted;
     audioStateRef.current = { playing: isPlaying, muted: isMuted, tl: timeline };
     const now = performance.now();
-    if (!stateChanged && now - lastAudioSyncRef.current < 20) return;
+    // P-06（PRD §2 P2）：播放中不再依赖 currentTimeSec 触发本 effect（那等于
+    // 每帧重跑一遍并让整棵组件树跟着渲染）。播放中的同步由下方 rAF 循环驱动；
+    // 本 effect 只在 播放/静音/时间线/音量 变化时执行一次（用 getState 拿最新 t）。
+    if (isPlaying && !stateChanged && prev.tl === timeline && now - lastAudioSyncRef.current < 1e9) {
+      // 播放中的周期同步走 rAF（见 useEffect [isPlaying]），这里直接跳过
+      return;
+    }
     lastAudioSyncRef.current = now;
 
-    const t = currentTimeSec;
+    const t = usePreviewStore.getState().currentTimeSec;
     const playing = isPlaying;
     const muted = isMuted;
     for (const item of audioClips) {
@@ -208,7 +224,46 @@ export function PreviewPanel() {
       }
       if (upcoming.size > 0) mediaManager.prebuffer([...upcoming]);
     }
-  }, [currentTimeSec, isPlaying, isMuted, timeline, volume, audioClips]);
+    // P-06：依赖里去掉 currentTimeSec（播放中由下方 rAF 驱动同步，不再每帧重渲染整树）
+  }, [isPlaying, isMuted, timeline, volume, audioClips]);
+
+  // P-06：播放中的音频同步 rAF——从"每帧触发 React effect"改为纯 ref 循环，
+  // 与合成 rAF（读取 store，不触发渲染）同构；volume 经 ref 读取避免重建循环。
+  useEffect(() => {
+    if (!isPlaying) return;
+    let raf = 0;
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const pst = usePreviewStore.getState();
+      if (!pst.isPlaying) return;
+      const t = pst.currentTimeSec;
+      for (const item of audioClipsRef.current) {
+        const entry = mediaManager.get(item.assetId);
+        const el = entry?.audioEl ?? entry?.videoEl;
+        if (!el) continue;
+        const inClip = t >= item.start && t < item.end;
+        const localT = (t - item.start) * item.speed + item.offset;
+        el.volume = applyMasterVolume(item.volume, volumeRef.current);
+        el.muted = pst.isMuted || item.trackMuted;
+        if (Math.abs(el.playbackRate - item.speed) > 0.01) {
+          try { el.playbackRate = item.speed; } catch { /* not supported */ }
+        }
+        if (inClip) {
+          if (Math.abs(el.currentTime - localT) > 0.08) {
+            try { el.currentTime = localT; } catch { /* seek not available */ }
+          }
+          if (el.paused) {
+            mediaManager.attachAnalyser(item.assetId);
+            el.play().catch(() => {});
+          }
+        } else if (!el.paused) {
+          el.pause();
+        }
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isPlaying, audioClips]);
 
   // Playback loop
   //
@@ -331,6 +386,9 @@ export function PreviewPanel() {
       if (document.hidden && usePreviewStore.getState().isPlaying) {
         usePreviewStore.getState().setPlaying(false);
         mediaManager.pauseAll();
+        // P-09（PRD §2 P3）：切走标签页导致暂停时给用户一个提示——
+        // 否则切回来只看到画面停着，不知道为什么。
+        toast('已切换标签页，预览已暂停（点击播放继续）', 'info');
       }
     };
     document.addEventListener('visibilitychange', onVis);
@@ -367,6 +425,8 @@ export function PreviewPanel() {
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture unavailable */ }
+    // P-02：新手势开始时复位双击标记（由 handleDoubleClick 置位、pointerup 消费）
+    scrubRef.current.lastUpWasDouble = false;
 
     // 先判手柄：命中则进入变换拖拽，不再刷洗播放头
     const target = transformTargetClip();
@@ -378,9 +438,11 @@ export function PreviewPanel() {
       const layout = transformHandleLayout(target.frame, tf);
       const hit = hitTestTransform(px, py, layout);
       if (hit) {
-        useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'transform');
+        // P-05（PRD §2 P2）：不再"按下手柄即入撤销栈"——改在**首次真实位移**时入栈
+        // （见 handlePointerMove），误点手柄后 Ctrl+Z 不会空耗一步。
         transformDragRef.current = {
           clipId: target.clip.id,
+          pushed: false,
           ctx: {
             kind: hit.kind,
             anchor: hit.anchor,
@@ -417,6 +479,12 @@ export function PreviewPanel() {
       const outcome = applyTransformDrag(
         { ...drag.ctx, shiftKey: e.shiftKey }, px, py,
       );
+      // P-05：首次真实位移才入撤销栈（快照的是拖拽前状态）
+      if (!drag.pushed) {
+        drag.pushed = true;
+        useHistoryStore.getState().pushState(
+          useTimelineStore.getState().timeline, 'transform');
+      }
       const store = useTimelineStore.getState();
       const clip = store.getClip(drag.clipId);
       if (clip) {
@@ -477,7 +545,14 @@ export function PreviewPanel() {
       // V10: 画布点击后移除焦点——残留焦点在按钮上时空格会二次触发该按钮（焦点陷阱）
       const ae = document.activeElement as HTMLElement | null;
       if (ae && ae !== document.body && typeof ae.blur === 'function') ae.blur();
-      usePreviewStore.getState().togglePlay();
+      // P-02/P-03（coding plan §1 默认口径）：画布单击不再切播放——旧行为让
+      // "点空白取消选中"把视频播起来（P-03）、"双击编辑文字"先播放/暂停闪一下
+      // （P-02）。单击只做选中/取消选中；播放由播放按钮与空格快捷键控制。
+      // 判定输入：双击窗口内（pointerdown 记录 lastUpWasDouble）。
+      resolveCanvasClickAction({
+        hitsText: s.lastUpWasDouble === true,
+        isDouble: s.lastUpWasDouble === true,
+      });
     }
     if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
       try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* already released */ }
@@ -797,7 +872,7 @@ export function PreviewPanel() {
             </button>
           </Tooltip>
           <Tooltip content="导出当前帧 (PNG)">
-            <button onClick={() => {
+            <button onClick={() => { void (async () => {
               // V10: 离屏按时间线分辨率重渲当前帧——直接导出预览画布会带上
               // safe-area 叠层/窗口 DPR 缩放/黑边，与成片不一致
               const tl = useTimelineStore.getState().timeline;
@@ -805,6 +880,20 @@ export function PreviewPanel() {
               const t = tl.duration_sec > 0
                 ? Math.min(usePreviewStore.getState().currentTimeSec, tl.duration_sec - 0.001)
                 : 0;
+              // P-01：先等所有可见视频 seek 到目标时刻的新帧再合成，
+              // 否则导出的是上一帧（与监视器不一致）。
+              const visibleClips = orderTracksForComposite(tl.tracks)
+                .filter((track) => !track.hidden)
+                .flatMap((track) => track.clips)
+                .filter((clip) => !clip.nested_timeline
+                  && clip.enabled !== false
+                  && t >= clip.start_sec && t < clip.start_sec + clip.duration_sec);
+              const prep = await mediaManager.prepareFrameAt(visibleClips, t);
+              if (!prep.ready) {
+                // 有素材没就绪：明确提示，不导出占位/旧帧（宁可不出也不给错图）
+                toast('部分素材尚未解码到该帧，请稍后重试或先播放一下', 'info');
+                return;
+              }
               const off = document.createElement('canvas');
               off.width = tl.width;
               off.height = tl.height;
@@ -829,7 +918,7 @@ export function PreviewPanel() {
               link.download = `frame_${Math.floor(usePreviewStore.getState().currentTimeSec * 1000)}.png`;
               link.href = off.toDataURL('image/png');
               link.click();
-            }}
+            })(); }}
               className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
               <Camera className="w-3.5 h-3.5" />
             </button>
@@ -880,6 +969,9 @@ export function PreviewPanel() {
         >
           {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
         </button>
+        {/* P-07（PRD §2 P2）：全屏内的迷你控制条——全屏的是 wrapRef（画布区域），
+            头部工具栏与信息条不在其中，旧实现全屏后无法暂停/看时间码。 */}
+        <FullscreenMiniBar />
       </div>
 
       {/* Resolution / info bar */}
@@ -1408,6 +1500,27 @@ function isCacheableTrack(track: Track): boolean {
 }
 
 /**
+ * P-04（PRD §2 P2）：取片段在时刻 t 的**插值后**变换。
+ *
+ * 旧实现手柄用 `getClipTransform`（静态 metadata），画面却用关键帧插值后的
+ * tf → 带位置/缩放关键帧的片段，手柄框停在原位、画面在别处。渲染（drawClipToPreview）
+ * 与手柄（drawTransformOverlay）必须用同一个插值结果。
+ */
+function interpolatedTransformAt(clip: Clip, t: number): Transform2D {
+  const localT = clip.duration_sec > 0 ? (t - clip.start_sec) / clip.duration_sec : 0;
+  const tf: Transform2D = { ...getClipTransform(clip) };
+  const kfs = Array.isArray(clip.keyframes) ? clip.keyframes : [];
+  if (kfs.length > 0) {
+    const props = interpolateProperties(kfs, localT);
+    tf.scale = props.scale ?? tf.scale;
+    tf.x = props.position_x ?? tf.x;
+    tf.y = props.position_y ?? tf.y;
+    tf.rotation = props.rotation ?? tf.rotation;
+  }
+  return tf;
+}
+
+/**
  * 绘制变换手柄与吸附参考线（O-变换手柄）。
  *
  * 只在"选中了 video/image 片段、且播放头落在该片段内、预览未播放"时显示——
@@ -1435,7 +1548,8 @@ function drawTransformOverlay(
   }
   if (!target) return;
 
-  const layout = transformHandleLayout(frame, getClipTransform(target));
+  // P-04：手柄用与画面渲染相同的插值变换
+  const layout = transformHandleLayout(frame, interpolatedTransformAt(target, t));
 
   // 吸附参考线（先画，手柄压在上面）
   if (guides.length > 0) {
@@ -1825,9 +1939,67 @@ function shadeColor(hex: string, amt: number): string {
 
 import { useEffect as useEffect2, useRef as useRef2 } from 'react';
 
+/**
+ * P-07（PRD §2 P2）：全屏内的迷你控制条（仅全屏时显示，悬停出现）。
+ * 提供 播放/暂停、静音、退出全屏、时间码——全屏 wrapRef 只含画布区域，
+ * 头部工具栏不在其中，旧实现全屏后没有任何控件。
+ */
+function FullscreenMiniBar() {
+  const isFullscreen = usePreviewStore((s) => s.isFullscreen);
+  const isPlaying = usePreviewStore((s) => s.isPlaying);
+  const isMuted = usePreviewStore((s) => s.isMuted);
+  const toggleMute = usePreviewStore((s) => s.toggleMute);
+  const setFullscreen = usePreviewStore((s) => s.setFullscreen);
+  const timeline = useTimelineStore((s) => s.timeline);
+  const currentTimeSec = usePreviewStore((s) => s.currentTimeSec);
+  if (!isFullscreen) return null;
+  return (
+    <div
+      data-testid="fullscreen-mini-bar"
+      className="absolute left-1/2 -translate-x-1/2 bottom-3 z-30 flex items-center gap-2 px-3 py-1.5
+        rounded-cw-md bg-black/70 text-white backdrop-blur-sm opacity-0 group-hover/preview:opacity-100
+        transition-opacity duration-short3"
+    >
+      <button
+        type="button"
+        aria-label={isPlaying ? '暂停' : '播放'}
+        onClick={() => usePreviewStore.getState().togglePlay()}
+        className="p-1 hover:text-primary cursor-pointer"
+      >
+        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+      </button>
+      <button
+        type="button"
+        aria-label={isMuted ? '取消静音' : '静音'}
+        onClick={toggleMute}
+        className="p-1 hover:text-primary cursor-pointer"
+      >
+        {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+      </button>
+      <span className="font-mono text-caption tabular-nums">
+        {formatTimecode(currentTimeSec, timeline.fps)}
+      </span>
+      <button
+        type="button"
+        aria-label="退出全屏"
+        onClick={() => {
+          try { void document.exitFullscreen?.(); } catch { /* ignore */ }
+          setFullscreen(false);
+        }}
+        className="p-1 hover:text-primary cursor-pointer"
+      >
+        <Minimize className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
 function AudioLevelMeter() {
   const canvasRef = useRef2<HTMLCanvasElement>(null);
   const rafRef = useRef2(0);
+  // P-08（PRD §2 P3）：暂停/静音时降频到 500ms（电平表无输入，全速 rAF 是浪费）；
+  // 播放中保持每帧。isPlaying 从 store 读取（小组件独立订阅，不影响整树）。
+  const isPlaying = usePreviewStore((s) => s.isPlaying);
 
   useEffect2(() => {
     const canvas = canvasRef.current;
@@ -1835,7 +2007,7 @@ function AudioLevelMeter() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const tick = () => {
+    const draw = () => {
       const [left, right] = mediaManager.getAudioLevels();
       const w = canvas.width;
       const h = canvas.height;
@@ -1855,12 +2027,21 @@ function AudioLevelMeter() {
       const rw = Math.round(right * (w - 2));
       ctx.fillStyle = right > 0.9 ? '#ef4444' : right > 0.6 ? '#f59e0b' : '#34D399';
       ctx.fillRect(1, h / 2 + 1, rw, h / 2 - 2);
-
-      rafRef.current = requestAnimationFrame(tick);
     };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, []);
+
+    if (isPlaying) {
+      const tick = () => {
+        rafRef.current = requestAnimationFrame(tick);
+        draw();
+      };
+      rafRef.current = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(rafRef.current);
+    }
+    // 静止态：500ms 一次（衰减到零之后画面不再变化，成本低）
+    draw();
+    const iv = setInterval(draw, 500);
+    return () => clearInterval(iv);
+  }, [isPlaying]);
 
   return (
     <canvas

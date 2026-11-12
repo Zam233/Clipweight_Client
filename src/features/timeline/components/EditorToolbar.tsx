@@ -129,8 +129,17 @@ export function EditorToolbar() {
 
   const handleCopy = () => {
     const sel = useSelectionStore.getState().selectedClipIds;
-    if (sel.length === 0) return;
     const store = useTimelineStore.getState();
+    const hasClips = store.timeline.tracks.some((t) => t.clips.length > 0);
+    if (!hasClips) {
+      toast('时间线为空，没有可复制的片段', 'info');
+      return;
+    }
+    // §7.3：空选中不再静默 return，明确提示（旧实现点了没反应）
+    if (sel.length === 0) {
+      toast('请先选择要复制的片段', 'info');
+      return;
+    }
     const found: Clip[] = [];
     for (const tr of store.timeline.tracks) {
       for (const c of tr.clips) {
@@ -192,14 +201,30 @@ export function EditorToolbar() {
       const result = next === 'proxy'
         ? await proxyApi.switchToProxy(tl as unknown as Record<string, unknown>)
         : await proxyApi.switchToFull(tl as unknown as Record<string, unknown>);
-      useHistoryStore.getState().pushState(tl, 'proxy-switch');
       const nextTl = result as unknown as ReturnType<typeof createEmptyTimeline>;
-      useTimelineStore.getState().setTimeline(nextTl);
+      // P2-42：按后端返回的**实际变更**判定，而不是假设成功。后端只返回改写后的
+      // 时间线（没有变更计数），旧实现无论有没有代理都提示成功并持久化假状态。
+      const before = new Map<string, string>();
+      for (const tr of tl.tracks) for (const c of tr.clips) before.set(c.id, c.asset_id);
+      const changed = nextTl.tracks.reduce(
+        (n, tr) => n + tr.clips.reduce(
+          (m, c) => m + (before.get(c.id) !== c.asset_id ? 1 : 0), 0), 0);
+      if (changed === 0) {
+        setProxyNotice(next === 'proxy'
+          ? '没有可切换的代理素材（请先生成代理）'
+          : '当前已是原始素材，无需切换');
+        return;
+      }
+      useHistoryStore.getState().pushState(tl, 'proxy-switch');
+      // W07/TL-03：代理切换是前端本地替换时间线，显式标 local → isDirty=true（未落盘）
+      useTimelineStore.getState().setTimeline(nextTl, { source: 'local' });
       setProxyMode(next);
       try { localStorage.setItem('clipwright_proxy_mode', next); } catch { /* ignore */ }
       // V6: setTimeline 内部已按 URL 变化全量重注册媒体（timelineStore 旋点），
       // 切换改写的素材路径由此获得新 URL，预览不再指向旧地址
-      setProxyNotice(next === 'proxy' ? '已切换到代理素材（低分辨率）' : '已切回原始素材（全分辨率）');
+      setProxyNotice(next === 'proxy'
+        ? `已切换 ${changed} 个片段到代理素材（低分辨率）`
+        : `已切回原始素材（${changed} 个片段，全分辨率）`);
     } catch {
       setProxyNotice('切换失败（后端离线）');
     } finally {
@@ -468,12 +493,31 @@ export function EditorToolbar() {
           toast('JSON 导入失败 — 缺少 tracks 数组（不是 ClipWright 时间线文件？）', 'error');
           return;
         }
+        // P2-43: 逐级校验必需的轨道/片段字段——旧实现只判断 tracks 是数组，
+        // `tracks: ["x"]` 这类坏文件也能整体替换当前时间线
+        const badTrack = data.tracks.find(
+          (t: { id?: unknown; clips?: unknown }) => !t || typeof t !== 'object'
+            || typeof t.id !== 'string' || !Array.isArray(t.clips));
+        if (badTrack !== undefined) {
+          toast('JSON 导入失败 — 轨道缺少 id/clips 字段或类型不符', 'error');
+          return;
+        }
+        const badClip = data.tracks
+          .flatMap((t: { clips: unknown[] }) => t.clips)
+          .find((c: { id?: unknown; kind?: unknown; start_sec?: unknown; duration_sec?: unknown }) =>
+            !c || typeof c !== 'object' || typeof c.id !== 'string' || typeof c.kind !== 'string'
+            || !Number.isFinite(c.start_sec) || !Number.isFinite(c.duration_sec));
+        if (badClip !== undefined) {
+          toast('JSON 导入失败 — 片段缺少 id/kind/start_sec/duration_sec', 'error');
+          return;
+        }
         const clipCount = data.tracks.reduce(
           (n: number, t: { clips?: unknown[] }) => n + (Array.isArray(t?.clips) ? t.clips.length : 0), 0);
         if (!window.confirm(`将用导入文件替换当前时间线（${data.tracks.length} 轨 / ${clipCount} 片段）？此操作可撤销。`)) return;
         const store = useTimelineStore.getState();
         useHistoryStore.getState().pushState(store.timeline, 'import-json');
-        store.setTimeline(data);
+        // W07/TL-03：JSON 导入是前端本地替换时间线，显式标 local → isDirty=true（未落盘）
+        store.setTimeline(data, { source: 'local' });
       } catch {
         toast('JSON 导入失败 — 文件格式无效', 'error');
       }
@@ -762,6 +806,12 @@ export function EditorToolbar() {
         </Button>
         <Button size="sm" variant="default" onClick={() => {
           const pid = useProjectStore.getState().projectId;
+          // §7.3：空时间线仍可点「导出」——先拦下并说明，避免到导出页才发现没有内容
+          const hasClips = useTimelineStore.getState().timeline.tracks.some((t) => t.clips.length > 0);
+          if (!hasClips) {
+            toast('时间线为空，请先添加片段再导出', 'info');
+            return;
+          }
           if (pid) navigate({ to: '/export/$projectId', params: { projectId: pid } });
         }}>
           导出

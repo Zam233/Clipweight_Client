@@ -46,18 +46,20 @@ describe('P4 语音 provider 列表门面驱动', () => {
     expect(screen.getByRole('button', { name: 'Qwen TTS' })).toBeTruthy();
   });
 
-  it('门面不可用时回落内置三项', async () => {
+  it('门面不可用时不再硬编码厂商：如实提示未获取到 provider（PL-09）', async () => {
     mocks.available.mockRejectedValue(new Error('offline'));
     await openCloneDialog();
-    for (const label of ['Qwen TTS', 'CosyVoice', 'MiniMax']) {
-      expect(screen.getByRole('button', { name: label })).toBeTruthy();
-    }
+    await waitFor(() => expect(screen.getByText(/未获取到可用的 TTS provider/)).toBeTruthy());
+    // 旧实现会显示写死的 Qwen TTS / CosyVoice / MiniMax
+    expect(screen.queryByRole('button', { name: 'CosyVoice' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'MiniMax' })).toBeNull();
   });
 
-  it('门面返回空列表时也保留内置兜底', async () => {
+  it('门面返回空列表时同样如实为空，不伪造三项兜底（PL-09）', async () => {
     mocks.available.mockResolvedValue({ tts_provider: [] });
     await openCloneDialog();
-    expect(screen.getByRole('button', { name: 'Qwen TTS' })).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/未获取到可用的 TTS provider/)).toBeTruthy());
+    expect(screen.queryByRole('button', { name: 'Qwen TTS' })).toBeNull();
   });
 
   it('插件 provider 的显示名与能力位由 provider_meta 下发（不按厂商猜）', async () => {
@@ -72,6 +74,8 @@ describe('P4 语音 provider 列表门面驱动', () => {
     });
     await openCloneDialog();
     await waitFor(() => expect(screen.getByRole('button', { name: 'ElevenLabs' })).toBeTruthy());
+    // 选中该 provider 后，能力位由 provider_meta 决定（needs_uploader=false）
+    fireEvent.click(screen.getByRole('button', { name: 'ElevenLabs' }));
     // needs_uploader=false → 提示"直接按文本合成"，而不是"需要公网 URL"
     expect(screen.getByText(/直接按文本合成/)).toBeTruthy();
   });

@@ -35,7 +35,10 @@ interface TtsProviderOption {
  * 下发，前端不再按厂商名硬编码 label/提示。
  */
 function useTtsProviders(): TtsProviderOption[] {
-  const [ids, setIds] = useState<string[]>(['qwen-tts', 'cosyvoice', 'minimax']);
+  // PL-09（审计 PRD §5D P2）：旧实现把 ['qwen-tts','cosyvoice','minimax'] 写死为
+  // 初始值——后端离线或插件卸载后，界面仍会显示并不存在的厂商选项。
+  // 现在初始为空，一律从 `/api/providers/available` 派生；拿不到就如实为空。
+  const [ids, setIds] = useState<string[]>([]);
   const [meta, setMeta] = useState<Record<string, { name?: string; needs_uploader?: boolean }>>({});
   useEffect(() => {
     let alive = true;
@@ -299,7 +302,16 @@ function CloneDialog({ onClose }: { onClose: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState('');
   const providers = useTtsProviders();
-  const [provider, setProvider] = useState('qwen-tts');
+  // PL-09：默认 provider 取后端下发的第一项（不再写死 'qwen-tts'）；
+  // 拿不到列表时保持空串，由提交流程拦下并提示，而不是猜一个厂商。
+  const [provider, setProvider] = useState('');
+  useEffect(() => {
+    if (provider) {
+      // 已选 provider 不在列表里（插件被禁用）→ 回落到第一项
+      if (providers.some((p) => p.id === provider)) return;
+    }
+    setProvider(providers[0]?.id ?? '');
+  }, [providers, provider]);
   const [dragOver, setDragOver] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -337,6 +349,11 @@ function CloneDialog({ onClose }: { onClose: () => void }) {
 
   const submit = async () => {
     if (!file || !name.trim()) return;
+    // PL-09：没有可用 provider 时不发请求，给可读提示（旧实现会带硬编码厂商名发出）
+    if (!provider) {
+      useVoiceStore.setState({ error: '暂无可用 TTS provider，请在设置里配置后再试' });
+      return;
+    }
     const ok = await cloneVoice(file, name.trim(), provider);
     if (ok) onClose();
   };
@@ -397,6 +414,11 @@ function CloneDialog({ onClose }: { onClose: () => void }) {
         <div>
           <label className="block text-label text-on-surface-variant mb-1.5">提供者</label>
           <div className="flex gap-2">
+            {providers.length === 0 && (
+              <p className="text-caption text-on-surface-variant/70">
+                未获取到可用的 TTS provider（后端离线或未配置），请先在「设置 → 模型服务」配置后再试。
+              </p>
+            )}
             {providers.map((p) => (
               <button
                 key={p.id}

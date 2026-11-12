@@ -84,6 +84,8 @@ export function ProvidersPage() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [editingModel, setEditingModel] = useState('');
+  /** PL-05：重命名输入受控，确认按钮与 Enter 必须提交同一个新值（旧实现确认按钮读 m.name 旧值）。 */
+  const [renameDraft, setRenameDraft] = useState('');
   /** B6：模型列表探测四态（idle = 还没点过） */
   const [fetchState, setFetchState] = useState<'idle' | 'loading' | 'ok' | 'empty' | 'error'>('idle');
   /** B4：正在编辑生成参数的模型 id（空 = 全部收起） */
@@ -176,6 +178,11 @@ export function ProvidersPage() {
 
   const removeSource = async () => {
     if (!selectedId) return;
+    // PL-06（审计 PRD §5D P2）：删除源是不可逆操作且会解绑角色，旧实现直接 DELETE。
+    const who = form.name || selectedId;
+    if (!window.confirm(
+      `确定删除数据源「${who}」？\n\n引用它的角色会被解绑，相关功能将不可用。此操作不可撤销。`,
+    )) return;
     setBusy('remove');
     try {
       await providersApi.remove(selectedId);
@@ -303,6 +310,10 @@ export function ProvidersPage() {
 
   const removeModel = async (modelId: string) => {
     if (!selectedId) return;
+    // PL-06：删模型同样不可逆（该模型若正被角色绑定，会立刻不可用）。
+    if (!window.confirm(
+      `确定删除模型「${modelId}」？\n\n如果某个角色正绑定该模型，删除后需要重新绑定。`,
+    )) return;
     try {
       const updated = await providersApi.deleteModel(selectedId, modelId);
       setForm((f) => ({ ...f, models: updated.models ?? f.models }));
@@ -709,7 +720,7 @@ export function ProvidersPage() {
                         <SlidersHorizontal className="w-3.5 h-3.5" />
                       </Button>
                       <Button size="icon-sm" variant="ghost" aria-label={`编辑 ${m.id}`}
-                        onClick={() => setEditingModel(m.id)}>
+                        onClick={() => { setEditingModel(m.id); setRenameDraft(m.name || m.id); }}>
                         <Pencil className="w-3.5 h-3.5" />
                       </Button>
                       <Button size="icon-sm" variant="ghost" aria-label={`删除模型 ${m.id}`}

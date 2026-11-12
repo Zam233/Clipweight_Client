@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { asRecord, pickPath, probeEndpoint, triggerEndpoint } from './overlayActions';
+import { authorizePluginCall } from './pluginApiGuard';
 import type { SlotContribution } from './slots';
 
 export interface InstallableDependencyPayload {
@@ -81,6 +82,12 @@ export function readInstallableDependency(
   const endpoint = typeof probe.endpoint === 'string' ? probe.endpoint : '';
   const installEndpoint = typeof install.endpoint === 'string' ? install.endpoint : '';
   if (!endpoint || !installEndpoint) return null;
+  // PL-01：在读取贡献时就把非法/未登记端点挡掉，整个浮层不渲染，
+  // 也不发探针或安装请求（默认拒绝，不依赖后续调用点记得校验）。
+  if (!authorizePluginCall({ endpoint, method: 'GET' }).ok) return null;
+  if (!authorizePluginCall({
+    endpoint: installEndpoint, method: install.method ?? 'POST',
+  }).ok) return null;
   return {
     kind: 'installable-dependency',
     once: payload.once as InstallableDependencyPayload['once'],

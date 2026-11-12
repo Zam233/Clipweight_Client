@@ -10,7 +10,51 @@ import { getApiClient } from '@/services/api';
 import { Button } from '@/components/ui';
 import { Loader2, AlertCircle, CheckCircle2, Info, Upload, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { asText } from '@/lib/render';
 import type { UILayout, UIWidget, UIRenderState } from './types';
+import { authorizePluginCall } from './pluginApiGuard';
+
+/**
+ * PL-03：插件 layout 来自后端/模型产物，TS 声明为 string 的字段运行时可能是
+ * `{name:...}` 对象，直接进 JSX 会抛 "Objects are not valid as a React child"
+ * 整块白屏。在渲染边界**递归**把所有展示文本字段收成字符串（对象转 JSON 文本），
+ * 并过滤非字符串选项，保持结构不变；渲染代码无需逐个 `asText`。
+ */
+function sanitizeLayout(raw: UILayout): UILayout {
+  const str = (v: unknown, fallback = ''): string => {
+    if (v === undefined || v === null) return fallback;
+    return typeof v === 'string' ? v : asText(v);
+  };
+  const walk = (w: unknown): UIWidget => {
+    if (!w || typeof w !== 'object') return { type: 'text', content: '' } as UIWidget;
+    const o = { ...(w as Record<string, unknown>) } as Record<string, unknown>;
+    for (const key of [
+      'type', 'key', 'label', 'placeholder', 'title', 'content', 'alt',
+      'sourceField', 'textField', 'contentField', 'optionsFrom', 'accept',
+      'defaultValue', 'severity', 'size', 'variant',
+    ]) {
+      if (key in o && o[key] !== undefined) {
+        // 数值型 defaultValue / 控件类型等按原类型保留；其余展示字段一律收成字符串
+        if (key === 'defaultValue' && (typeof o[key] === 'number' || typeof o[key] === 'boolean')) continue;
+        o[key] = str(o[key]);
+      }
+    }
+    if ('options' in o && Array.isArray(o.options)) {
+      o.options = (o.options as unknown[]).filter((s): s is string => typeof s === 'string');
+    }
+    for (const container of ['children', 'widgets']) {
+      if (container in o && Array.isArray(o[container])) {
+        o[container] = (o[container] as unknown[]).map(walk);
+      }
+    }
+    return o as unknown as UIWidget;
+  };
+  return {
+    ...raw,
+    title: str(raw.title),
+    widgets: Array.isArray(raw.widgets) ? raw.widgets.map(walk) : [],
+  };
+}
 
 export interface PluginOptionSource {
   value: string;
@@ -29,10 +73,12 @@ export function PluginLayoutRenderer({
   onChange?: (values: Record<string, unknown>) => void;
 }) {
   const [state, setState] = useState<UIRenderState>({});
+  // PL-03：先归一化整棵布局树，后续所有渲染点拿到的都是安全字符串。
+  const safeLayout = useMemo(() => sanitizeLayout(layout), [layout]);
   const updatingRef = useRef(false);
   // P2-17: schema（布局）变化时重置渲染状态——旧实现跨插件/跨版本复用 state，
   // 残留的旧 key 会污染新布局的取值
-  const layoutSig = JSON.stringify(layout);
+  const layoutSig = JSON.stringify(safeLayout);
   const prevSigRef = useRef(layoutSig);
   if (prevSigRef.current !== layoutSig) {
     // React 官方支持的「渲染期条件重置」模式：布局（schema）变化即清空
@@ -57,7 +103,18 @@ export function PluginLayoutRenderer({
   }, [state]);
 
   const getValue = useCallback(
-    (key: string | undefined) => (key ? state[key] : undefined),
+    (key: string | undefined): unknown => {
+      if (!key) return undefined;
+      const raw = state[key];
+      // PL-03：状态值来自接口/模型回填，运行时可能是对象。渲染点多数直接
+      // 把它放进 JSX 或当字符串用，这里统一把非标量收成安全文本。
+      if (raw === null || raw === undefined) return raw;
+      const t = typeof raw;
+      if (t === 'string' || t === 'number' || t === 'boolean') return raw;
+      // File 对象（UIFile 控件）必须原样保留给宿主 onChange，不能转文本
+      if (typeof File !== 'undefined' && raw instanceof File) return raw;
+      return asText(raw);
+    },
     [state],
   );
 
@@ -81,7 +138,20 @@ export function PluginLayoutRenderer({
       };
 
       const body = action.body ? resolveBody(action.body) : undefined;
+      // PL-01/02 同源风险：声明式布局的 button.action 也是插件提供的 endpoint/method。
+      // 与 iframe call / shortcut 共用同一门禁，默认拒绝未登记端点与破坏性方法。
+      const decision = authorizePluginCall({
+        endpoint: action.endpoint, method: action.method, body,
+      });
       const seq = ++actionSeqRef.current;
+      if (!decision.ok) {
+        const updates: Record<string, unknown> = {};
+        if (action.loadingKey) updates[action.loadingKey] = false;
+        if (action.errorKey) updates[action.errorKey] = decision.message;
+        setState((s) => ({ ...s, ...updates }));
+        return;
+      }
+      const { endpoint: safeEndpoint, method: safeMethod, body: safeBody } = decision.call;
 
       // Set loading state
       if (action.loadingKey) {
@@ -92,13 +162,13 @@ export function PluginLayoutRenderer({
 
       try {
         const config =
-          action.method === 'GET'
-            ? { params: body }
+          safeMethod === 'GET'
+            ? { params: safeBody }
             : { headers: { 'Content-Type': 'application/json' } };
         const res =
-          action.method === 'GET'
-            ? await getApiClient().get(action.endpoint, config)
-            : await getApiClient().post(action.endpoint, body, config);
+          safeMethod === 'GET'
+            ? await getApiClient().get(safeEndpoint, config)
+            : await getApiClient().post(safeEndpoint, safeBody, config);
 
         const data = res.data;
         const updates: Record<string, unknown> = {};
@@ -443,7 +513,7 @@ export function PluginLayoutRenderer({
     [getValue, handleAction, setUIState],
   );
 
-  return <div className="space-y-3">{layout.widgets.map((w, i) => renderWidget(w, i))}</div>;
+  return <div className="space-y-3">{safeLayout.widgets.map((w, i) => renderWidget(w, i))}</div>;
 }
 
 

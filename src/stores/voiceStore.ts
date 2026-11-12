@@ -43,7 +43,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     }
   },
 
-  cloneVoice: async (file, name, provider = 'qwen_tts') => {
+  cloneVoice: async (file, name, provider = '') => {
+    // PL-09：不再把 provider 默认成具体厂商名（原 'qwen_tts'）。调用方必须显式传
+    // 当前选中的 provider；缺省留空由后端按已配置 provider 决定。
     set({ cloneStep: 'uploading', error: null });
     try {
       const uploaded = await voiceApi.upload(file);
@@ -51,7 +53,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       await voiceApi.clone({
         voice_name: name,
         data_uri: uploaded.data_uri,
-        provider,
+        ...(provider ? { provider } : {}),
       });
       set({ cloneStep: 'done' });
       await get().fetchVoices();

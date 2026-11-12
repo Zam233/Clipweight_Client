@@ -32,6 +32,7 @@ import { CreativePromptField } from '@/features/creation/CreativePromptField';
 import { fmtDur, relTime, uid } from '@/lib/utils';
 import { asText } from '@/lib/render';
 import { toast } from '@/stores/toastStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 // 首页四个 tab 与独立页曾经各写一套（能力不同、字段不同、必然漂移）。
 // 现在统一复用同一份面板实现：人格 → /persona 的画廊，类型 → 类型总览，
 // 插件 → 插件管理页，设置 → 偏好设置面板。
@@ -56,13 +57,18 @@ interface DubAudio { path: string; name: string; duration: number }
 interface MatSource { id: string; name: string }
 
 const PLUGIN_PALETTE = ['#4F8CFF', '#FF6B6B', '#A855F7', '#34D399', '#FBBF24', '#F59E0B'];
+/**
+ * F-08：默认类型插件的 id。它作为表单初值存在，但**不算用户显式选择**——
+ * 步骤完成度与摘要文案要区分「用了默认」和「用户选过」。
+ */
+const DEFAULT_PLUGIN_ID = 'knowledge_longform';
 const PROJECT_GRADS: [string, string][] = [
   ['#A855F7', '#4F8CFF'], ['#4F8CFF', '#34D399'], ['#FF6B6B', '#FBBF24'], ['#34D399', '#F59E0B'],
 ];
 
 const WORKFLOW = [
   { icon: ListChecks, title: '需求规划', desc: '需求 Agent 梳理创意简报与制作规划书', color: '#4F8CFF' },
-  { icon: Bot, title: 'Agent 生成初稿', desc: '六 Agent 管线自动产出多轨时间线', color: '#A855F7' },
+  { icon: Bot, title: 'Agent 生成初稿', desc: '七 Agent 管线自动产出多轨时间线', color: '#A855F7' },
   { icon: PenLine, title: '人在时间轴审阅', desc: '逐帧微调，不满意可让 Agent 局部重做', color: '#FBBF24', highlight: true },
   { icon: PackageCheck, title: '渲染导出', desc: '一键导出 B 站 / 抖音 / YouTube 预设', color: '#34D399' },
 ];
@@ -120,7 +126,10 @@ export function HomePage() {
     () => buildHealthComponents(healthState.detail),
     [healthState.detail],
   );
-  const [dataMode, setDataMode] = useState<'live' | 'demo'>('demo');
+  // F-12（PRD §2 P3）：初值是 'demo' → 接口返回前首屏会闪一个「演示数据」徽标与
+  // 「后端未连接」文案，看起来像已经连不上。改为初值 'live'，只有真正离线/空列表
+  // 分支才切到 'demo'。
+  const [dataMode, setDataMode] = useState<'live' | 'demo'>('live');
   // 人格/类型列表只服务于「创作」表单的下拉选项——展示由共享面板（PersonaGalleryPanel /
   // TypeCatalogPanel）各拉各的，这里不再兼任展示职责，也不再塞演示数据。
   const [personas, setPersonas] = useState<PersonaOpt[]>([]);
@@ -130,7 +139,7 @@ export function HomePage() {
   const [topic, setTopic] = useState('');
   const [script, setScript] = useState('');
   const [personaId, setPersonaId] = useState('');
-  const [pluginId, setPluginId] = useState('knowledge_longform');
+  const [pluginId, setPluginId] = useState(DEFAULT_PLUGIN_ID);
   const [mode, setMode] = useState<'voiceover' | 'visual'>('voiceover');
   // F-04：不再让用户二选一——有配音时按台词节奏编排，否则按画面与文案匹配
   const [creativePrompt, setCreativePrompt] = useState('');
@@ -207,6 +216,8 @@ export function HomePage() {
     recommended_persona_tone?: string;
     summary?: string;
   } | null>(null);
+  /** F-03：预测请求代际号——过期响应必须丢弃（清理函数挡不住已发出的请求）。 */
+  const predictionGenRef = useRef(0);
 
   // PRD §19.6：载入可选工作区父目录（失败静默：只显示默认根）
   useEffect(() => {
@@ -227,13 +238,21 @@ export function HomePage() {
   }, []);
 
   // G6: 防抖调用 predict-script（800ms），失败静默（不影响启动）
-  useEffect(() => {    if (backend !== 'online' || script.trim().length < 50) {
+  // F-03（PRD §2 P1）：清理函数只 clearTimeout 挡不住**已经发出**的请求——
+  // 粘贴长文稿后马上清空/替换，几秒后旧响应仍会 setPrediction 弹出过期预判。
+  // 用代际号 + 内容指纹：响应回来时若文稿已变，直接丢弃。
+  useEffect(() => {
+    const gen = ++predictionGenRef.current;
+    const forScript = script.trim();
+    if (backend !== 'online' || forScript.length < 50) {
       setPrediction(null);
       return;
     }
     const timer = setTimeout(async () => {
       try {
-        const res = await pipelineApi.predictScript(script.trim());
+        const res = await pipelineApi.predictScript(forScript);
+        if (gen !== predictionGenRef.current) return;          // 过期响应
+        if (script.trim() !== forScript) return;                // 文稿已改
         if (res && typeof res === 'object') setPrediction(res as typeof prediction);
       } catch (e) {
         // P3-06: 留痕
@@ -264,7 +283,7 @@ export function HomePage() {
           setPersonas(ps.map((p) => ({
             id: p.persona_id,
             name: p.persona_name,
-            tone: p.parameter?.identity?.tone ?? '通用',
+            tone: asText(p.parameter?.identity?.tone) || '通用',
           })));
         }
         if (Array.isArray(projs)) {
@@ -342,11 +361,19 @@ export function HomePage() {
     });
   }, [captions, audio?.duration]);
 
+  /** F-09：一键填入预判的时长覆盖（null = 用文案/音频估算）。 */
+  const [durationOverride, setDurationOverride] = useState<number | null>(null);
+
   const estDuration = useMemo(() => {
     if (audio?.duration) return audio.duration;
+    // F-09（PRD §2 P2）：旧实现卡片展示"预估时长"，点「一键填入」却只设了类型，
+    // 时长完全没变（按钮文案与行为不一致）。override 优先于文本估算。
+    if (durationOverride && durationOverride > 0) {
+      return Math.max(30, Math.min(1800, Math.round(durationOverride)));
+    }
     if (script.trim()) return Math.max(30, Math.min(1800, script.trim().length / 5));
     return 60;
-  }, [audio, script]);
+  }, [audio, script, durationOverride]);
 
   // 裁定 C（2026-11-02）：03 配音步骤的内容由 TTS 功能插件通过 `create.dub` 贡献；
   // 没有贡献时才回落到下面的内置控件（过渡期，PRD §15.9 第 3 项最终删除内置块）。
@@ -354,7 +381,7 @@ export function HomePage() {
   // 插件贡献的配音控件值（裁定 C）：插件声明 optionsFrom/控件 key，宿主只提供数据与回填。
   const [pluginDub, setPluginDub] = useState<Record<string, unknown>>({});
   const dubOptionSources = useMemo(
-    () => ({ voices: voices.map((v) => ({ value: v.voice_id, label: `${v.voice_name}（${v.provider}）` })) }),
+    () => ({ voices: voices.map((v) => ({ value: v.voice_id, label: `${asText(v.voice_name)}（${asText(v.provider)}）` })) }),
     [voices],
   );
   // 插件选的音色/自动配音要回填进工程状态（引擎侧仍读这两个字段，不改成插件私有约定）
@@ -372,7 +399,10 @@ export function HomePage() {
   }, [pluginDub]);
   const stepDone = {
     script: Boolean(topic.trim() || script.trim()),
-    style: Boolean(personaId || pluginId),
+    // F-08（PRD §2 P2）：旧实现 `Boolean(personaId || pluginId)`，而 pluginId 默认
+    // 'knowledge_longform' → 用户什么都没选 02 就打了勾；类型列表加载失败时也打勾。
+    // 现在必须"显式选择过"才算完成（pluginId 初值不算显式选择）。
+    style: Boolean(personaId) || (Boolean(pluginId) && pluginId !== DEFAULT_PLUGIN_ID),
     // 有上传配音，或「自动配音 + 已选音色」才算这一步完成；纯画面模式不需要配音
     // 有插件贡献时以插件控件值为准（否则创作页永远显示「未完成」）
     dub: mode === 'visual'
@@ -387,21 +417,40 @@ export function HomePage() {
   // G6: 一键填入预判推荐（类型插件 / 时长）。仅映射已知插件；时长覆盖当前估算（无真实音频时）。
   const applyPrediction = () => {
     if (!prediction) return;
-    if (prediction.video_type) {
-      const type = prediction.video_type.toLowerCase();
-      const mapping: Record<string, string> = {
-        'knowledge': 'knowledge_longform',
-        '知识': 'knowledge_longform',
-        'long': 'knowledge_longform',
-        'fastcut': 'kichiku_fastcut',
-        '鬼畜': 'kichiku_fastcut',
-        'review': 'digital_review',
-        '评测': 'digital_review',
-        'vlog': 'vlog_daily',
-      };
-      for (const [key, pid] of Object.entries(mapping)) {
-        if (type.includes(key)) { setPluginId(pid); break; }
+    // F-09：类型匹配优先用后端返回的类型列表（含用户自定义类型），
+    // 再回落内置 4 个 id 的关键词表——旧实现只认写死的 4 个，自定义类型永远匹配不到。
+    const wanted = (prediction.video_type ?? '').trim().toLowerCase();
+    if (wanted) {
+      const byList = plugins.find((p) =>
+        String(p.name ?? '').toLowerCase() === wanted || String(p.id).toLowerCase() === wanted);
+      if (byList) {
+        setPluginId(byList.id);
+      } else {
+        const mapping: Record<string, string> = {
+          'knowledge': 'knowledge_longform',
+          '知识': 'knowledge_longform',
+          'long': 'knowledge_longform',
+          'fastcut': 'kichiku_fastcut',
+          '鬼畜': 'kichiku_fastcut',
+          'review': 'digital_review',
+          '评测': 'digital_review',
+          'vlog': 'vlog_daily',
+        };
+        // 名称包含匹配也要先考虑后端列表里已有的名字
+        const byName = plugins.find((p) => wanted.includes(String(p.name ?? '').toLowerCase())
+          || String(p.name ?? '').toLowerCase().includes(wanted));
+        if (byName) setPluginId(byName.id);
+        else {
+          for (const [key, pid] of Object.entries(mapping)) {
+            if (wanted.includes(key)) { setPluginId(pid); break; }
+          }
+        }
       }
+    }
+    // F-09：时长必须真的生效（有真实音频时以音频为准，不覆盖）
+    const est = prediction.estimated_duration_sec;
+    if (!audio?.duration && typeof est === 'number' && Number.isFinite(est) && est > 0) {
+      setDurationOverride(est);
     }
     setPrediction(null);
   };
@@ -497,13 +546,22 @@ export function HomePage() {
     st.setDryRun(dryRun); // P8: 传递 dry-run 预览模式
     st.setShotFloorPolicy(shotFloorPolicy); // D23: 镜头下限策略
     st.setShotCapPolicy(shotCapPolicy); // D23: 镜头上限策略（V35 切分）
-    try {
-      const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
-      if (prefs.voiceId) st.setVoiceId(prefs.voiceId);
-      if (typeof prefs.autoDub === 'boolean') st.setAutoDub(prefs.autoDub);
-    } catch (e) {
-      // P3-06: 留痕（本地偏好读取失败不影响主流程）
-      console.warn('[HomePage] 本地偏好读取失败:', e);
+    // F-01（PRD §2 P1）：旧实现在这里无条件用 localStorage 的旧偏好覆盖
+    // `voiceId/autoDub`，会把插件（`create.dub`）里刚选的音色冲掉。
+    // 现在以**当前表单值**为准：只有表单没选过（空）时才用本地偏好补齐。
+    const formVoiceId = useProjectStore.getState().voiceId || voicePick || '';
+    if (formVoiceId) {
+      st.setVoiceId(formVoiceId);
+      st.setAutoDub(autoDubPref);
+    } else {
+      try {
+        const prefs = JSON.parse(localStorage.getItem('clipwright_voice_prefs') || '{}');
+        if (prefs.voiceId) st.setVoiceId(prefs.voiceId);
+        if (typeof prefs.autoDub === 'boolean') st.setAutoDub(prefs.autoDub);
+      } catch (e) {
+        // P3-06: 留痕（本地偏好读取失败不影响主流程）
+        console.warn('[HomePage] 本地偏好读取失败:', e);
+      }
     }
 
     // Create project on backend
@@ -538,7 +596,15 @@ export function HomePage() {
               st.setWorkspaceRoot(ws.root);
             }
           } catch (e) {
+            // F-06（PRD §2 P2）：旧实现只有 console.warn —— 项目建好了但工作区没建出来，
+            // 用户进编辑器上传素材/找 materials 目录时才发现，也不知道原因。
             console.warn('[HomePage] 工作区创建失败（不阻断启动）:', e);
+            const d = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+            toast(
+              `项目已创建，但工作区初始化失败${typeof d === 'string' && d ? `：${d}` : ''}`
+              + '（可在编辑器资源面板「重建工作区」）',
+              'error',
+            );
           }
           // 仅在项目创建成功后清除旧 draft，失败则保留草稿
           clearRequirementsDraft();
@@ -560,7 +626,14 @@ export function HomePage() {
         }
       }
     }
-    // Offline / backend create failed → open a local empty project (demo mode)
+    // Offline / backend create failed → 仅当 allowDemoFallback 开启时进本地演示项目。
+    // F-05（PRD §2 P2）：旧实现无条件滑进演示项目并把 allowDemoFallback 开关当空气，
+    // 用户在离线时会以为自己在正常工作、编辑不会保存。
+    if (!useSettingsStore.getState().allowDemoFallback) {
+      toast('后端离线，无法创建项目（可在设置里开启离线演示回退）', 'error');
+      setLaunching(false);
+      return;
+    }
     const localId = uid('proj');
     st.setProjectId(localId);
     clearRequirementsDraft();
@@ -578,16 +651,40 @@ export function HomePage() {
       }
       if (online) {
         try {
+          // F-05：与 launch 同口径——非网络错误（鉴权/校验）要报错并保留在原地，
+          // 不能静默滑进一个不会保存的本地项目。
           const project = await projectApi.create({ name: '未命名项目', timeline: null });
           st.setProjectId(project.id);
           navigate({ to: '/editor/$projectId', params: { projectId: project.id } });
           return;
-        } catch { /* fall through */ }
+        } catch (e) {
+          const anyE = e as { response?: { data?: { detail?: string } }; code?: string };
+          const isNetwork = anyE?.code === 'ERR_NETWORK' || anyE?.code === 'ECONNABORTED';
+          if (!isNetwork) {
+            const detail = anyE?.response?.data?.detail;
+            // F-05：失败时清掉残留的 requirements 字段，避免随后点空项目意外启动需求会话（E-04）
+            useProjectStore.setState({
+              requirementsTopic: '', requirementsScript: '', requirementsAudioDuration: 0,
+            });
+            toast(`创建空项目失败：${typeof detail === 'string' && detail ? detail : '请稍后重试'}`, 'error');
+            setLaunching(false);
+            return;
+          }
+        }
       }
     }
-    // Offline → open a local empty project (demo mode)
+    // Offline → 同 launch：受 allowDemoFallback 控制
+    if (!useSettingsStore.getState().allowDemoFallback) {
+      toast('后端离线，无法创建空项目（可在设置里开启离线演示回退）', 'error');
+      setLaunching(false);
+      return;
+    }
     const localId = uid('proj');
     st.setProjectId(localId);
+    // E-04：清掉首页留下的 requirements 字段，否则编辑器会把残留 topic 当 pendingTopic 自动启动
+    useProjectStore.setState({
+      requirementsTopic: '', requirementsScript: '', requirementsAudioDuration: 0,
+    });
     navigate({ to: '/editor/$projectId', params: { projectId: localId } });
   };
 
@@ -890,14 +987,16 @@ export function HomePage() {
                         <p className="mb-1 text-caption text-on-surface-variant/70">候选选题（点击填入标题，可再编辑）</p>
                         <ul className="space-y-1">
                           {topicIdeas.map((t) => (
-                            <li key={t.title}>
+                            // E-06 线索 6（PRD §5A）：title/reason 来自模型产物，
+                            // 运行时可能是对象——直进 JSX 会炸整块表单。
+                            <li key={asText(t.title)}>
                               <button
                                 type="button"
-                                onClick={() => { setTopic(t.title); setTopicIdeas([]); }}
+                                onClick={() => { setTopic(asText(t.title)); setTopicIdeas([]); }}
                                 className="w-full text-left text-body-sm text-on-surface hover:text-primary cursor-pointer"
                               >
-                                {t.title}
-                                {t.reason && <span className="ml-1 text-caption text-on-surface-variant/60">— {t.reason}</span>}
+                                {asText(t.title)}
+                                {t.reason && <span className="ml-1 text-caption text-on-surface-variant/60">— {asText(t.reason)}</span>}
                               </button>
                             </li>
                           ))}
@@ -925,16 +1024,17 @@ export function HomePage() {
                           <span className="ml-auto text-caption text-on-surface-variant/60">基于文稿分析</span>
                         </div>
                         {prediction.video_type && (
-                          <p className="text-label-sm text-on-surface"><span className="text-on-surface-variant">推荐类型：</span>{prediction.video_type}</p>
+                          // E-06 线索 6：模型产物字段一律过 asText
+                          <p className="text-label-sm text-on-surface"><span className="text-on-surface-variant">推荐类型：</span>{asText(prediction.video_type)}</p>
                         )}
                         {prediction.estimated_duration_sec && (
-                          <p className="text-label-sm text-on-surface"><span className="text-on-surface-variant">预估时长：</span>约 {prediction.estimated_duration_sec}s</p>
+                          <p className="text-label-sm text-on-surface"><span className="text-on-surface-variant">预估时长：</span>约 {asText(prediction.estimated_duration_sec)}s</p>
                         )}
                         {prediction.recommended_persona_tone && (
-                          <p className="text-label-sm text-on-surface"><span className="text-on-surface-variant">风格基调：</span>{prediction.recommended_persona_tone}</p>
+                          <p className="text-label-sm text-on-surface"><span className="text-on-surface-variant">风格基调：</span>{asText(prediction.recommended_persona_tone)}</p>
                         )}
                         {prediction.summary && (
-                          <p className="text-caption text-on-surface-variant mt-1">{prediction.summary}</p>
+                          <p className="text-caption text-on-surface-variant mt-1">{asText(prediction.summary)}</p>
                         )}
                         <button
                           onClick={applyPrediction}
@@ -961,7 +1061,7 @@ export function HomePage() {
                           }`}
                         >
                           {asText(p.name)}
-                          <span className="opacity-60 ml-1">· {p.tone}</span>
+                          <span className="opacity-60 ml-1">· {asText(p.tone)}</span>
                         </button>
                       ))}
                       <button
@@ -1059,7 +1159,7 @@ export function HomePage() {
                         >
                           <option value="">不指定音色</option>
                           {voices.map((v) => (
-                            <option key={v.id} value={v.voice_id}>{v.voice_name}（{v.provider}）</option>
+                            <option key={v.id} value={v.voice_id}>{asText(v.voice_name)}（{asText(v.provider)}）</option>
                           ))}
                         </select>
                       )}
@@ -1291,18 +1391,21 @@ export function HomePage() {
                           </span>
                         )}
                       </div>
-                      {projectId ? (
-                        <WorkspaceMaterialsPanel projectId={projectId} compact />
-                      ) : (
-                        <p className="text-caption text-on-surface-variant/60">
-                          启动制作后会按项目名创建：<code className="font-mono">workspaces/&lt;项目名&gt;-&lt;id&gt;/</code>
-                          （materials/ 可随时打开丢素材）。
-                        </p>
-                      )}
+                      {/*
+                        F-02（PRD §2 P1）：创作表单是「新建项目」表单，但 projectId
+                        来自跨页面保留的 projectStore——从编辑器返回首页时它是**上一个**
+                        项目的 id。旧实现在这里只要有 projectId 就渲染面板，用户会以为
+                        素材已经带进来了，甚至误往旧项目里丢文件。
+                        新建态一律只显示说明；真实面板在进入编辑器后由该项目的工作区承载。
+                      */}
+                      <p className="text-caption text-on-surface-variant/60">
+                        启动制作后会按项目名创建：<code className="font-mono">workspaces/&lt;项目名&gt;-&lt;id&gt;/</code>
+                        （materials/ 可随时打开丢素材）。
+                      </p>
                     </div>
                   </ConsoleStep>
 
-                  {/* ── 03.5 创作提示词（F-04）── */}
+                  {/* ── 05 创作提示词（F-07：按视觉顺序连续编号，旧注释是 03.5）── */}
                   <CreativePromptField
                     value={creativePrompt}
                     avoid={creativeAvoid}
@@ -1311,13 +1414,33 @@ export function HomePage() {
                     onOpenChat={() => setChatOpen(true)}
                   />
 
-                  {/* ── 04 启动 ── */}
+                  {/* ── 06 启动（F-07：此前与工作区同为「04」）── */}
                   <div className="border-t border-outline-variant/25 pt-4">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-4 font-mono text-caption text-on-surface-variant">
                       <span className="flex items-center gap-1"><FileText className="w-3 h-3" />{captions.length || '—'} 段字幕</span>
                       <span className="flex items-center gap-1"><Clock className="w-3 h-3" />≈ {fmtDur(estDuration)}</span>
-                      <span className="flex items-center gap-1"><Mic className="w-3 h-3" />{mode === 'voiceover' ? (audio ? '已上传配音' : '无配音') : '画面优先'}</span>
-                      <span className="flex items-center gap-1"><Layers className="w-3 h-3" />{plugins.find((p) => p.id === pluginId)?.name ?? pluginId}</span>
+                      {/*
+                        F-04（PRD §2 P2）：`mode === 'voiceover'` 既包含「已上传配音」，
+                        也包含「自动配音 + 已选音色」（见 estDuration 的判定）。
+                        旧文案在这两种情况下都写「无配音」，让用户以为设置没生效。
+                      */}
+                      <span className="flex items-center gap-1" data-testid="launch-summary-dub"><Mic className="w-3 h-3" />{
+                        mode !== 'voiceover'
+                          ? '画面优先'
+                          : audio
+                            ? '已上传配音'
+                            : voicePick
+                              ? `自动配音（${voices.find((v) => v.voice_id === voicePick)?.voice_name ?? voicePick}）`
+                              : '无配音'
+                      }</span>
+                      {/* F-08：未显式选类型时如实说「使用默认」，不要伪装成用户已选 */}
+                      <span className="flex items-center gap-1" data-testid="launch-summary-type"><Layers className="w-3 h-3" />{
+                        pluginId && pluginId !== DEFAULT_PLUGIN_ID
+                          ? (plugins.find((p) => p.id === pluginId)?.name ?? pluginId)
+                          : plugins.length === 0
+                            ? '类型列表加载失败'
+                            : `使用默认：${plugins.find((p) => p.id === pluginId)?.name ?? '知识区长片'}`
+                      }</span>
                     </div>
                     {launchErr && (
                       <div className="mb-3 bg-error/10 border border-error/30 rounded-cw-sm px-3 py-2 text-label-sm text-error">
@@ -1362,7 +1485,9 @@ export function HomePage() {
                         <option value="default">跟随类型节奏（合并达标，保总时长）</option>
                         <option value="record">仅记录冲突（C2）</option>
                         <option value="extend">拉长画面到下限</option>
-                        <option value="loop">循环填充（渲染待支持）</option>
+                        {/* F-11（PRD §2 P2）：后端渲染尚不支持 loop，旧实现允许选中并下发，
+                            用户选了却看不到效果 → 明确禁用并说明原因。 */}
+                        <option value="loop" disabled>循环填充（暂未支持，渲染端未实现）</option>
                         <option value="off">不处理</option>
                       </select>
                     </label>
@@ -1426,7 +1551,14 @@ export function HomePage() {
                         : backend === 'offline' ? 'text-error'
                         : 'text-track-text'
                     }>
-                      {backend === 'online' ? `已连接 ${(() => { try { return new URL(getApiClient().defaults.baseURL || 'http://localhost:8000').host; } catch { return 'localhost:8000'; } })()}`
+                      {backend === 'online' ? `已连接 ${(() => {
+                        // F-10：端口/主机必须读真实 baseURL；失败时如实说「未知」，
+                        // 旧实现回落写死的 localhost:8000（后端默认其实是 8080）。
+                        try {
+                          const raw = getApiClient().defaults.baseURL || '';
+                          return raw ? new URL(raw, window.location.origin).host : window.location.host;
+                        } catch { return '未知地址'; }
+                      })()}`
                         : backend === 'offline' ? '离线 · 演示模式'
                         : '检测中…'}
                     </span>
@@ -1435,7 +1567,7 @@ export function HomePage() {
                 <p className="text-caption text-on-surface-variant/70 mt-1.5 leading-relaxed">
                   {backend === 'offline'
                     ? '未检测到后端。编辑器仍可独立使用，Agent 功能将以演示数据运行。'
-                    : 'Persona 引擎、六 Agent 管线与渲染队列已就绪。'}
+                    : 'Persona 引擎、七 Agent 管线与渲染队列已就绪。'}
                 </p>
                 {/* 组件级健康：后端 /health 逐项探测 mongodb / llm / ffmpeg /
                     hyperframes / 队列，前端此前只读 status 把这些全丢了。
@@ -1477,7 +1609,8 @@ export function HomePage() {
               <span>Del = 删除</span>
               <span>Ctrl+滚轮 = 缩放</span>
               <span>M = 标记</span>
-              <span className="ml-auto">ClipWright v0.1.0 · Phase 5</span>
+              {/* F-12：去掉内部版本/阶段标记（v0.1.0 · Phase 5 是开发期信息，对用户无意义） */}
+              <span className="ml-auto">ClipWright</span>
             </div>
           </footer>
         </main>
@@ -1659,29 +1792,8 @@ function Backdrop() {
   );
 }
 
-function RulerStrip() {
-  const ticks = Array.from({ length: 80 });
-  return (
-    <div className="relative h-7 border-b border-outline-variant/25 bg-ruler-bg overflow-hidden select-none" aria-hidden>
-      <div className="absolute inset-0 flex items-end">
-        {ticks.map((_, i) => (
-          <span
-            key={i}
-            className={`w-px shrink-0 ${i % 5 === 0 ? 'h-3 bg-ruler-tick' : 'h-1.5 bg-ruler-tick/50'}`}
-            style={{ marginRight: i % 5 === 0 ? '34px' : '6px' }}
-          />
-        ))}
-      </div>
-      <span className="absolute top-0 bottom-0 w-px bg-playhead shadow-[0_0_8px_rgba(255,68,68,0.8)] ruler-sweep" />
-      <style>{`
-        @keyframes rulerSweep { 0% { left: -2%; } 100% { left: 102%; } }
-        .ruler-sweep { animation: rulerSweep 9s linear infinite; }
-      `}</style>
-    </div>
-  );
-}
-
-// RulerStrip 与旧 TopBar 已由图一左侧栏（HomeSidebar）替代，不再使用。
+// F-13（PRD §1 P3）：RulerStrip 与旧 TopBar 已由图一左侧栏（HomeSidebar）替代，
+// 无任何引用的死代码，已删除（历史实现见 git history）。
 
 
 

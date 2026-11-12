@@ -163,13 +163,28 @@ describe('ProvidersPage（模型提供商）', () => {
     }));
   });
 
-  it('删除模型调 deleteModel', async () => {
+  it('删除模型调 deleteModel（PL-06：需用户确认，取消则不删）', async () => {
     mocks.deleteModel.mockResolvedValue({ models: [] });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<ProvidersPage />);
     await screen.findByTestId('source-src_a');
     fireEvent.click(screen.getByTestId('source-src_a'));
     fireEvent.click(screen.getByLabelText('删除模型 deepseek-chat'));
     await waitFor(() => expect(mocks.deleteModel).toHaveBeenCalledWith('src_a', 'deepseek-chat'));
+    expect(confirmSpy).toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('PL-06：删除确认被取消时不发 DELETE', async () => {
+    mocks.deleteModel.mockClear();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<ProvidersPage />);
+    await screen.findByTestId('source-src_a');
+    fireEvent.click(screen.getByTestId('source-src_a'));
+    fireEvent.click(screen.getByLabelText('删除模型 deepseek-chat'));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mocks.deleteModel).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 
   it('自定义模型走 upsertModel', async () => {

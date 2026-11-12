@@ -294,15 +294,21 @@ function RequirementsView() {
   // 「轨迹」面板自己订阅任务流。两条流同时挂会重复应用事件、成本翻倍。
   useTaskEvents(taskId || null, false);
   // 不同阶段的"忙"含义不同：需求澄清才谈得上思考，规划/管线阶段说清楚在干什么
-  const busyLabel =
-    stageHint
+  // E-06 线索 8（复核确认，PRD §5A）：busyLabel 属于 RequirementsView 本地 state
+  // （stageHint 由 stage 帧写入），而终态事件由 BottomBar 的流处理——跨组件清
+  // stageHint 会踩错作用域。改为：终态（pipeline_done / idle）时忙碌条整体不渲染，
+  // stageHint 残留也不可见；下一次 stage 帧到来时自然覆盖。
+  const terminal = status === 'pipeline_done' || status === 'idle';
+  const busyLabel = terminal
+    ? ''
+    : (stageHint
       || (status === 'brief_ready' || status === 'brief_confirmed'
         ? '正在修改创作方案…'
         : status === 'planning'
           ? '正在生成制作规划书…'
           : status === 'plan_ready' || status === 'plan_confirmed'
             ? '正在处理规划…'
-            : '正在思考…');
+            : '正在思考…'));
   const [draftLoaded, setDraftLoaded] = useState(false);
   const requirementsSessionId = useAgentStore((s) => s.requirementsSessionId);
 
@@ -632,15 +638,14 @@ function RequirementsView() {
       // 如实上屏错误；仅在流正常返回但无内容时回退
       const _pid = useProjectStore.getState().projectId || '';
       res = await requirementsApi.streamChat(sessionId, message, (chunk) => {
-        // P2-33: 按后端权威状态映射（旧实现硬编码 gathering，会把 planning
-        // 阶段打回 gathering 导致输入框在错误时机出现）
+        // P2-33: 按后端权威状态映射——只接受已知状态；`typing` 与未知值保持当前状态。
+        // 旧实现把白名单外的值一律打回 gathering，后端每轮发的 "typing" 会让
+        // planning 阶段在流式过程中闪回 gathering（输入框在错误时机出现）。
         if (chunk.type === 'status' && typeof chunk.data === 'string') {
           const st = chunk.data;
-          setStatus(
-            (['gathering', 'brief_ready', 'brief_confirmed', 'planning', 'plan_ready', 'plan_confirmed', 'pipeline_running', 'pipeline_done'] as const).includes(st as never)
-              ? (st as Parameters<typeof setStatus>[0])
-              : 'gathering',
-          );
+          const KNOWN = ['gathering', 'brief_ready', 'brief_confirmed', 'planning',
+            'plan_ready', 'plan_confirmed', 'pipeline_running', 'pipeline_done'];
+          if (KNOWN.includes(st)) setStatus(st as Parameters<typeof setStatus>[0]);
         }
         else if (chunk.type === 'delta' && typeof chunk.data === 'string') pushDelta(chunk.data);
         // PRD §19.4：provider 给了 reasoning 就逐块上屏（旧实现声明了 liveReasoning

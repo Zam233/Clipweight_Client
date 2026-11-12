@@ -185,7 +185,16 @@ export function EditorLayout() {
   return (
     <div className="flex flex-col h-full w-full bg-surface overflow-hidden">
       {/* Top Toolbar */}
-      <EditorToolbar />
+      {isNarrow ? (
+        // P2-45: 窄屏只读——工具栏此前在遮罩之外，编辑按钮仍可点。整条工具栏停用
+        // （导出/复制等只读动作也一并让位，移动端本来就不提供剪辑工作流）
+        <div className="opacity-50 pointer-events-none select-none" aria-disabled="true"
+          title="窄屏只读：请使用 768px 以上视口编辑">
+          <EditorToolbar />
+        </div>
+      ) : (
+        <EditorToolbar />
+      )}
 
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden">

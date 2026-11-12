@@ -36,6 +36,21 @@ export function resolveMediaUrl(clip: Pick<Clip, 'metadata' | 'asset_id'>): stri
   return withMediaToken(`/api/asset/by-path?path=${encodeURIComponent(clip.asset_id)}`);
 }
 
+/**
+ * M-09（PRD §5B P3）：crossOrigin='anonymous' 只在**真跨源**（外部 CDN）时设置。
+ *
+ * 为什么不能无脑设：同源代理 URL（/api/asset/...、by-path、blob:）默认走
+ * 同源凭据请求；一旦带上 CORS 模式，后端若没回 ACAO 头，媒体请求直接失败
+ * → 封面/预览永远空。画布读取只对外部源需要 taint 保护（同源本就可读）。
+ */
+function applyCrossOrigin(el: HTMLVideoElement | HTMLAudioElement | HTMLImageElement, url: string): void {
+  const u = String(url || '');
+  const isCrossOrigin = /^https?:\/\//i.test(u)
+    && typeof window !== 'undefined'
+    && !u.startsWith(window.location.origin);
+  if (isCrossOrigin) el.crossOrigin = 'anonymous';
+}
+
 interface MediaEntry {
   url: string;
   kind: 'video' | 'audio' | 'image';
@@ -229,7 +244,7 @@ class MediaManager {
     } else {
       // image: probe dimensions via an Image
       const img = new Image();
-      img.crossOrigin = 'anonymous'; // no-op for same-origin blob URLs, but required for canvas reads later
+      applyCrossOrigin(img, url);
       img.src = url;
       img.onload = () => this.notify(assetId);
       img.onerror = () => {
@@ -251,7 +266,7 @@ class MediaManager {
       v.src = url;
       v.preload = 'metadata';
       v.muted = true;
-      v.crossOrigin = 'anonymous';
+      applyCrossOrigin(v, url);
       v.addEventListener('loadedmetadata', () => { entry.durationSec = v.duration; this.notify(assetId); });
       v.addEventListener('error', () => {
         entry.error = true;
@@ -263,7 +278,7 @@ class MediaManager {
       const a = new Audio();
       a.src = url;
       a.preload = 'metadata';
-      a.crossOrigin = 'anonymous';
+      applyCrossOrigin(a, url);
       a.addEventListener('loadedmetadata', () => { entry.durationSec = a.duration; this.notify(assetId); });
       a.addEventListener('error', () => {
         entry.error = true;
@@ -272,7 +287,7 @@ class MediaManager {
       entry.audioEl = a;
     } else if (kind === 'image') {
       const img = new Image();
-      img.crossOrigin = 'anonymous'; // must precede src assignment so the fetch uses CORS mode
+      applyCrossOrigin(img, url); // must precede src assignment
       img.src = url;
       img.onload = () => this.notify(assetId);
       img.onerror = () => {
@@ -401,12 +416,22 @@ class MediaManager {
     e.thumbnails.clear();
     if (e.isObjectUrl) URL.revokeObjectURL(e.url);
     this.entries.delete(assetId);
+    // M-09：sourceNodes 是 WeakMap（以元素为键），元素随 entry 释放后可被 GC，
+    // 无需手动删除；AudioContext 的关闭统一放在 clear()。
     this.notify(assetId);
   }
 
   /** Release all registered assets (e.g. on project switch / editor unmount). */
   clear(): void {
     for (const id of [...this.entries.keys()]) this.unregister(id);
+    // M-09：项目切换后关闭 AudioContext（分析器随 ctx 一起释放；WeakMap 源节点
+    // 由 GC 回收），下次 attachAnalyser 时 ensureAudioCtx 会懒重建。
+    // 只建不关会在反复切换项目时累积解码资源。
+    if (this.audioCtx) {
+      try { void this.audioCtx.close(); } catch { /* already closed */ }
+      this.audioCtx = null;
+      this.analyser = null;
+    }
   }
 
   /** Pause all playing media elements without releasing them. */
@@ -461,6 +486,64 @@ class MediaManager {
       } catch { /* not ready */ }
     }
     return v;
+  }
+
+  /**
+   * P-01（审计 PRD §3 P1）：seek 并**等待新帧就绪**，供「导出当前帧」这类
+   * 必须与监视器严格一致的一次性快照使用。
+   *
+   * 旧实现导出时同步 `drawClipToPreview` → 内部 seekVideo 后立刻 drawImage，
+   * 而 seek 是异步的，画出来的是**上一帧**（PNG 与看到的画面不一致）。
+   * 返回 false 表示超时/媒体缺失——调用方应提示而不是导出占位图。
+   */
+  async seekVideoAndWait(
+    assetId: string, timeSec: number, timeoutMs = 1500,
+  ): Promise<boolean> {
+    const e = this.entries.get(assetId);
+    if (!e?.videoEl) return false;
+    const v = e.videoEl;
+    const target = Math.max(0, Math.min(timeSec, (e.durationSec || timeSec) - 0.01));
+    if (Math.abs(v.currentTime - target) <= 0.03 && v.readyState >= 2) return true;
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        v.removeEventListener('seeked', onSeeked);
+        v.removeEventListener('error', onError);
+        resolve(ok);
+      };
+      const onSeeked = () => finish(v.readyState >= 2);
+      const onError = () => finish(false);
+      v.addEventListener('seeked', onSeeked, { once: true });
+      v.addEventListener('error', onError, { once: true });
+      try {
+        v.currentTime = target;
+      } catch {
+        finish(false);
+        return;
+      }
+      setTimeout(() => finish(false), timeoutMs);
+    });
+  }
+
+  /** 当前时间点需要先 seek 的所有视频片段（导出快照前批量等待）。 */
+  async prepareFrameAt(
+    clips: Array<{ asset_id?: string; start_sec: number; duration_sec: number; speed?: number; source_offset_sec?: number }>,
+    timeSec: number,
+  ): Promise<{ ready: boolean; missing: string[] }> {
+    const missing: string[] = [];
+    for (const c of clips) {
+      const id = c.asset_id;
+      if (!id) continue;
+      const t = timeSec - c.start_sec;
+      if (t < 0 || t >= c.duration_sec) continue;
+      const speed = c.speed && c.speed > 0 ? c.speed : 1;
+      const sourceT = t * speed + (c.source_offset_sec || 0);
+      const ok = await this.seekVideoAndWait(id, sourceT);
+      if (!ok) missing.push(id);
+    }
+    return { ready: missing.length === 0, missing };
   }
 
   /** Capture a thumbnail frame as a dataURL (cached per time bucket). */
@@ -522,7 +605,7 @@ class MediaManager {
       tv.src = e.url;
       tv.preload = 'auto';
       tv.muted = true;
-      tv.crossOrigin = 'anonymous';
+      applyCrossOrigin(tv, e.url);
       tv.playsInline = true;
       e.thumbVideoEl = tv;
       return tv;

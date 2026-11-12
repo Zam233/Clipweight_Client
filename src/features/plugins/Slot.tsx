@@ -5,6 +5,7 @@
  * 不重写；其余 slot 类型由各自的渲染器（D-3 逐点迁移时接入）扩展。
  */
 import type { ReactNode } from 'react';
+import { asText } from '@/lib/render';
 import { PluginLayoutRenderer, type PluginOptionSource } from './PluginLayoutRenderer';
 import { PluginBundleFrame } from './PluginBundleFrame';
 import { evalVisibleWhen, type SlotName, type SlotVisibilityContext } from './slots';
@@ -39,19 +40,22 @@ export function Slot({ name, context = {}, fallback = null, renderLayout, filter
         // M8：受信任 bundle 档——贡献带 payload.bundle 标记时由 iframe 沙箱承载
         // （可用性由后端 /bundle 门禁决定：未开启或缺签名即 403 空白）
         if ((c.payload as { bundle?: unknown } | undefined)?.bundle === true) {
+          // PL-03：贡献 title 来自后端/插件，运行时可能是对象 → 直进 JSX 会整块白屏。
+          const title = asText(c.title);
           return (
             <div key={c.id} className="space-y-1">
-              <div className="text-label-sm text-on-surface-variant">{c.title}</div>
-              <PluginBundleFrame pluginId={c.id} title={c.title} />
+              <div className="text-label-sm text-on-surface-variant">{title}</div>
+              <PluginBundleFrame pluginId={c.id} title={title} />
             </div>
           );
         }
         if (c.layout) {
-          if (renderLayout) return <div key={c.id}>{renderLayout(c.layout, c.title)}</div>;
+          const title = asText(c.title);
+          if (renderLayout) return <div key={c.id}>{renderLayout(c.layout, title)}</div>;
           return (
             <section key={c.id} className="rounded-cw-md border border-outline-variant/30 overflow-hidden">
               <header className="px-3 py-2 bg-surface-container-high border-b border-outline-variant/20">
-                <span className="text-label font-medium text-on-surface">{c.title}</span>
+                <span className="text-label font-medium text-on-surface">{title}</span>
               </header>
               <div className="p-3">
                 <PluginLayoutRenderer

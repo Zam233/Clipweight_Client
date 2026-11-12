@@ -372,11 +372,13 @@ describe('mediaManager image registration', () => {
     }
   });
 
-  it('sets crossOrigin to anonymous on the registered image', () => {
+  it('sets crossOrigin to anonymous on真跨源 image；同源/blob 不设（M-09）', () => {
+    // jsdom origin 是 http://localhost:3000 —— http://mock.local 属于真跨源，需要 CORS 模式
     mediaManager.registerUrl('c', 'http://mock.local/blue.png', 'image');
     expect(mediaManager.get('c')!.img!.crossOrigin).toBe('anonymous');
 
+    // registerFile 走 blob: URL —— 同源读取本就允许，设 CORS 反而可能因后端无 ACAO 而失败
     mediaManager.registerFile('g', new File(['x'], 'green.png', { type: 'image/png' }));
-    expect(mediaManager.get('g')!.img!.crossOrigin).toBe('anonymous');
+    expect(mediaManager.get('g')!.img!.crossOrigin).toBeNull();
   });
 });

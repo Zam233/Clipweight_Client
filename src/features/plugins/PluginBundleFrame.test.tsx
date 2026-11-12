@@ -6,10 +6,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { render, screen, waitFor } from '@testing-library/react';
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), request: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), request: vi.fn() }));
 
 vi.mock('@/services/api', () => ({
-  getApiClient: () => ({ get: mocks.get, request: mocks.request }),
+  getApiClient: () => ({ get: mocks.get, post: mocks.post, request: mocks.request }),
 }));
 vi.mock('@/services/api/sse', () => ({ apiBase: () => '' }));
 
@@ -108,5 +108,81 @@ describe('B7：带凭据取档（令牌模式 iframe 不再必然 403）', () =>
     await new Promise((r) => setTimeout(r, 0));
     expect(mocks.get).not.toHaveBeenCalledWith('/api/evil');
     expect(frame.getAttribute('sandbox')).toBe('allow-scripts');
+  });
+});
+
+/**
+ * PL-01：沙箱 iframe **自己**发的 call 也不能借宿主凭据打任意端点。
+ * 这里模拟合法来源（e.source === iframe.contentWindow、origin='null'），
+ * 旧实现会直接 client.get/request，安全修复后必须先过门禁。
+ */
+describe('PL-01：插件 iframe 的 call 消息必须过授权门禁', () => {
+  beforeEach(() => {
+    mocks.get.mockReset();
+    mocks.request.mockReset();
+    mocks.get.mockRejectedValue(new Error('403'));
+    mocks.post.mockResolvedValue({ data: { ok: true } });
+  mocks.request.mockResolvedValue({ data: { ok: true } });
+  });
+
+  const sendFromFrame = (frame: HTMLIFrameElement, api: Record<string, unknown>) => {
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'call', api },
+      origin: 'null',
+      source: frame.contentWindow,
+    }));
+  };
+
+  it('恶意 iframe 打 /api/project/xxx DELETE → 拒绝且不发任何请求', async () => {
+    render(<PluginBundleFrame pluginId="bundle_plug" title="Bundle 插件" />);
+    const frame = screen.getByTestId('plugin-bundle-frame') as HTMLIFrameElement;
+    await waitFor(() => expect(frame.getAttribute('src')).toBeTruthy());
+
+    const getCallsBefore = mocks.get.mock.calls.length;
+    sendFromFrame(frame, { endpoint: '/api/project/abc', method: 'DELETE' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mocks.request).not.toHaveBeenCalled();
+    expect(mocks.get.mock.calls.length).toBe(getCallsBefore);
+  });
+
+  it('恶意 iframe 打未登记的 /api/plugin/disable POST → 拒绝且不发请求', async () => {
+    render(<PluginBundleFrame pluginId="bundle_plug" title="Bundle 插件" />);
+    const frame = screen.getByTestId('plugin-bundle-frame') as HTMLIFrameElement;
+    await waitFor(() => expect(frame.getAttribute('src')).toBeTruthy());
+
+    const getCallsBefore = mocks.get.mock.calls.length;
+    sendFromFrame(frame, { endpoint: '/api/plugin/disable', method: 'POST', body: { id: 'x' } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mocks.request).not.toHaveBeenCalled();
+    expect(mocks.get.mock.calls.length).toBe(getCallsBefore);
+  });
+
+  it('编码穿越 /api/tool/execute/../../project DELETE → 拒绝且不发请求', async () => {
+    render(<PluginBundleFrame pluginId="bundle_plug" title="Bundle 插件" />);
+    const frame = screen.getByTestId('plugin-bundle-frame') as HTMLIFrameElement;
+    await waitFor(() => expect(frame.getAttribute('src')).toBeTruthy());
+
+    const getCallsBefore = mocks.get.mock.calls.length;
+    sendFromFrame(frame, { endpoint: '/api/tool/execute/..%2f..%2fproject/x', method: 'DELETE' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mocks.request).not.toHaveBeenCalled();
+    expect(mocks.get.mock.calls.length).toBe(getCallsBefore);
+  });
+
+  it('白名单内 /api/render/browser GET → 改写为受限代理请求（W01）', async () => {
+    mocks.get.mockRejectedValueOnce(new Error('403')); // bundle 取档失败
+    mocks.request.mockResolvedValue({ data: { installed: true } });
+    render(<PluginBundleFrame pluginId="headless_chrome" title="探针插件" />);
+    const frame = screen.getByTestId('plugin-bundle-frame') as HTMLIFrameElement;
+    await waitFor(() => expect(frame.getAttribute('src')).toBeTruthy());
+
+    const getCallsBefore = mocks.get.mock.calls.length;
+    sendFromFrame(frame, { endpoint: '/api/render/browser', method: 'GET' });
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith(
+      '/api/plugin/proxy/headless_chrome/get',
+      expect.objectContaining({ action: 'probe' }),
+    ));
+    // 不得直达普通宿主 API
+    expect(mocks.get.mock.calls.length).toBe(getCallsBefore);
   });
 });

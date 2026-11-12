@@ -11,15 +11,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-const { api, navigate } = vi.hoisted(() => ({
+const { api, artifacts, navigate } = vi.hoisted(() => ({
   api: {
     result: vi.fn(),
     toProject: vi.fn(),
+  },
+  artifacts: {
+    list: vi.fn(),
+    rawUrl: vi.fn((pluginId: string, artifactId: string, projectId: string) =>
+      `/raw/${pluginId}/${artifactId}?project_id=${projectId}`),
   },
   navigate: vi.fn(),
 }));
 
 vi.mock('@/services/api/task', () => ({ taskApi: api }));
+vi.mock('@/services/api/artifacts', () => ({ artifactsApi: artifacts }));
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigate }));
 
 import { TaskArtifacts } from './TaskArtifacts';
@@ -27,6 +33,7 @@ import { TaskArtifacts } from './TaskArtifacts';
 beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
+  artifacts.list.mockResolvedValue({ items: [], next_cursor: '', total_estimate: 0 });
 });
 
 describe('TaskArtifacts', () => {
@@ -71,6 +78,24 @@ describe('TaskArtifacts', () => {
     await screen.findByText(/1 条轨道/);
     fireEvent.click(screen.getByRole('button', { name: /在编辑器中打开/ }));
     expect(await screen.findByText(/还没有可编辑的 timeline/)).toBeTruthy();
+  });
+
+  it('有项目时列出通用产物，视频按 MIME 渲染', async () => {
+    api.result.mockResolvedValue({
+      task_id: 'task_1', has_timeline: false, tracks: 0, clips: 0,
+      duration_sec: 0, output_path: '', project_id: 'proj_1',
+    });
+    artifacts.list.mockResolvedValue({
+      items: [{
+        artifact_id: 'art_1', plugin_id: 'demo', mime: 'video/mp4', size: 2048,
+        role: 'render', status: 'ready',
+      }],
+      next_cursor: '', total_estimate: 1,
+    });
+    render(<TaskArtifacts taskId="task_1" />);
+
+    await waitFor(() => expect(artifacts.list).toHaveBeenCalledWith('proj_1', { taskId: 'task_1' }));
+    expect(await screen.findByTestId('artifact-video-art_1')).toBeTruthy();
   });
 
   it('enabled=false 时不请求也不渲染', () => {
