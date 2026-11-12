@@ -45,17 +45,17 @@ const h = vi.hoisted(() => {
 // 用 useSyncExternalStore 做最小 store 替身：改 state + emit 就能驱动真实重渲染。
 vi.mock('@/stores/sessionTimelineStore', async () => {
   const { useSyncExternalStore } = await import('react');
-  function store<T>(selector: (s: unknown) => T): T {
+  function useStore<T>(selector: (s: unknown) => T): T {
     return useSyncExternalStore(h.subscribe, () => selector(h.state), () => selector(h.state));
   }
-  (store as unknown as { getState: () => unknown }).getState = () => h.state;
+  (useStore as unknown as { getState: () => unknown }).getState = () => h.state;
   return {
     EMPTY_BUCKET: Object.freeze({}),
     itemsOf: (bucket?: Record<number, unknown>): unknown[] =>
       bucket
         ? Object.keys(bucket).map(Number).sort((a, b) => a - b).map((seq) => bucket[seq])
         : [],
-    useSessionTimelineStore: store,
+    useSessionTimelineStore: useStore,
   };
 });
 

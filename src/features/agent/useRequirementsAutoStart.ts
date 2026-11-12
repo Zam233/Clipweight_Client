@@ -163,6 +163,5 @@ export function useRequirementsAutoStart(ready: boolean) {
     // 依赖只留 ready 与 projectId：topic 在 effect 内从 store 读取。
     // 把 requirementsTopic 放进依赖会让「消费 topic」本身重新触发本例程并自取消（E-01 根因）。
     // projectId 变化时允许重新尝试（切项目应能启动新项目的需求会话）。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, projectId]);
 }
