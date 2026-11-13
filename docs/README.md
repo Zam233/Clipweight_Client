@@ -36,6 +36,8 @@
 | [前后端缺陷与体验优化 PRD](ux-and-bug-audit-prd-2026-11-09.md) | 代码审计的问题、证据与验收口径 |
 | [前后端缺陷与体验优化 Coding Plan](ux-and-bug-audit-coding-plan-2026-11-11.md) | 跨仓实施批次、依赖、回归测试与发布门槛 |
 | [缺陷审计实施台账](ux-audit-implementation-log.md) | W00–W14 逐项实施证据、红→绿记录、未完成清单 |
+| [Engine 插件层全功能治理 PRD](plugin-registration-runtime-optimization-prd-2026-11-13.md) | 当前功能全景、收益评估、保留与条件改造边界 |
+| [Engine 插件层全功能治理 Coding Plan](plugin-registration-runtime-optimization-coding-plan-2026-11-13.md) | 有益窄修工作包、全功能回归与 42 插件验收矩阵 |
 | [整数时间基座](timebase.md) | 整数 tick + 有理数帧率：换算纪律、时间码、漂移校正与切点的接线点 |
 | [素材内容理解与 NL 落位计划](content-understanding-plan-2026-09-14.md) | 内容索引（镜头级）→ 检索 → NL 意图 → 落位校验：让 Agent 知道在剪什么、用户说人话就能达到目的 |
 | [内容理解基准集与指标](content-understanding-benchmark.md) | R1–R10 的基准集构成、量化指标（含门槛 vs 实测）、**每个数字的验证边界**；一键复跑 `scripts/verify_all_metrics.py` |
