@@ -1,6 +1,6 @@
 # Clipwright Engine 插件层全功能治理 PRD
 
-> 状态：**第一期已实施**（2026-11-13）。Engine 分支 `doc/zam_plugin_system_optimization` 已有 8 个提交实施 P0/P1 与部分 C 项；前端同名分支已实施 C4 动作收口。本文件保留“当前功能全景 + 裁定”作为实施依据，未实施的 C 项仍在文档中标注为条件改造。Engine 基线：`J:/Clipwright` `c396962`（实施起点）；前端：`J:/Clipweight-Client` `672a23e`（实施起点）。
+> 状态：**第一期已实施**（2026-11-13）。Engine 分支 `ref/zam_plugin_system_optimization` 已有 8 个提交实施 P0/P1 与部分 C 项；前端同名分支已实施 C4 动作收口。本文件保留“当前功能全景 + 裁定”作为实施依据，未实施的 C 项仍在文档中标注为条件改造。Engine 基线：`J:/Clipwright` `c396962`（实施起点）；前端：`J:/Clipweight-Client` `672a23e`（实施起点）。
 
 ## 1. 问题与目标
 

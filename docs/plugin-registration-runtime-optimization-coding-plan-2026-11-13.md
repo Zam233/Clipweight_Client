@@ -4,7 +4,7 @@
 
 ## 0. 实施状态（2026-11-13）
 
-已落地的提交（Engine 分支 `doc/zam_plugin_system_optimization`）：
+已落地的提交（Engine 分支 `ref/zam_plugin_system_optimization`）：
 
 | 提交 | 覆盖工作包 |
 |---|---|

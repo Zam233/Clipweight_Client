@@ -1,6 +1,6 @@
 # 图片生成 Provider 化 PRD（含 `ai_*_gen` 系列下架）
 
-> 状态：**待评审，未实施**。基线：Engine `J:/Clipwright@a7d7924`（分支 `doc/zam_plugin_system_optimization`），前端 `J:/Clipweight-Client@8311dab`。本文只描述设计与验收口径，不表示代码已修改。
+> 状态：**待评审，未实施**。基线：Engine `J:/Clipwright@a7d7924`（分支 `ref/zam_plugin_system_optimization`），前端 `J:/Clipweight-Client@8311dab`。本文只描述设计与验收口径，不表示代码已修改。
 >
 > 本文严格区分两件事：**Engine 对插件的能力接口与宿主职责**（本文要做的）与**插件自身提供的生成能力**（本文只定义契约，不把厂商实现写进 Engine）。
 
