@@ -2,6 +2,25 @@
 
 > 配套 [PRD](plugin-registration-runtime-optimization-prd-2026-11-13.md)。本计划只执行 PRD §2 标记 `F` 的有益改动；`B` 功能做回归保护，`C` 方案只有触发证据后另立 PRD。不实施 DSH profile/bundle、Cordis 移植、全域事务或 19 类统一 disposer。Engine 基线 `J:/Clipwright@c396962`，前端 `J:/Clipweight-Client@672a23e`；执行前核对当前分支及用户现有改动。工作目录须分别是两个仓库。
 
+## 0. 实施状态（2026-11-13）
+
+已落地的提交（Engine 分支 `doc/zam_plugin_system_optimization`）：
+
+| 提交 | 覆盖工作包 |
+|---|---|
+| `c18a75e` | A1 严格 manifest YAML（Loader/worker 共用）+ `sandbox_demo` 重复键 |
+| `604b8fa` | P0 legacy `ui.json` `tool`→`name`；shortform 仅在显式类别时改尺寸 |
+| `3e50a12` | B2 子进程文件/协议限长；B6 代理方法大小写、目标工具与 owner 校验、bundle 真实验签 + 摘要 |
+| `7db969c` | B7 override 受控来源；C1 加载失败回收/依赖/未知 kind；C2 迁移持久化、Provider schema 回收、PUT/DELETE 假成功 |
+| `a673f02` | override 来源目录读取修正与迁移门禁兼容 |
+| `dcdb2e8` | B1 安装 ID 校验与解压配额；B4 素材 symlink/流式 hash、只读不建目录、artifact 并发、render 路径与实测校验 |
+| `deb4105` | B3 Job 幂等作用域/归属/进程组/digest；B5 capability 统一入口与宿主侧调用链 |
+| `2ae398c` | C1 渲染器缓存卸载、能力目录/直接名可用性；C2 worker 配置合并与 reload 旧 worker |
+
+前端提交：`b3ad97d`（PRD/Coding Plan）、`7dc867e`（C4 全入口 owner 代理、kind/可见性/旧响应/脏布局/预览只读/文案）。
+
+验证：后端插件相关 **281 passed**（`14` 个插件测试文件 + shortform/install/diagram/provider）；前端 `tsc --noEmit` 通过、`1345 passed / 5 skipped`、`npm run build` 成功。未实施项：B7 的“第三方签名通过”路径已实现策略但仓库 0 个签名插件，无真实签名样本；E2E 未跑真实后端浏览器流程；C 级的全域事务/实时 revision/OS 沙箱未做。
+
 ## 1. 执行总则与门槛
 
 1. 每包先阅读目标文件/当前测试，写失败用例，再修最小模块，再跑对应消费者回归；不得用 mock 掉 Loader、RPC 或执行入口的测试冒充集成验收。每包记录 `基线→红测→绿测→未验证平台`。危险验证只对测试临时目录、隔离 worker 和受控进程执行，绝不向宿主进程组发信号。

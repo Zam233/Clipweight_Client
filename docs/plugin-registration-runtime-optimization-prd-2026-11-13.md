@@ -1,6 +1,6 @@
 # Clipwright Engine 插件层全功能治理 PRD
 
-> 状态：待实施，依据当前源码的设计裁定，不表示问题已动态复现或代码已修改。Engine 基线：`J:/Clipwright` `c396962`；前端：`J:/Clipweight-Client` `672a23e`；DSH 对照源码：`_research/deepseek-harness` `e8f7b93a34`。插件清单为 42 份 `plugin.yaml`，随代码演进须重扫。本 PRD 覆盖**现有插件层的每条功能链及其保护要求**，但只改有明确收益的部分。不包含 DSH profile/bundle、市场服务重建或 Cordis 移植。
+> 状态：**第一期已实施**（2026-11-13）。Engine 分支 `doc/zam_plugin_system_optimization` 已有 8 个提交实施 P0/P1 与部分 C 项；前端同名分支已实施 C4 动作收口。本文件保留“当前功能全景 + 裁定”作为实施依据，未实施的 C 项仍在文档中标注为条件改造。Engine 基线：`J:/Clipwright` `c396962`（实施起点）；前端：`J:/Clipweight-Client` `672a23e`（实施起点）。
 
 ## 1. 问题与目标
 
