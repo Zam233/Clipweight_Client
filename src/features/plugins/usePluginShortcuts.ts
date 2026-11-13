@@ -7,14 +7,14 @@
  */
 import { useEffect } from 'react';
 import { keybindingEngine } from '@/features/keyboard/KeybindingEngine';
-import { getApiClient } from '@/services/api';
 import { toast } from '@/stores/toastStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { evalVisibleWhen } from './slots';
 import { usePluginSlots } from './usePluginSlots';
-import { authorizePluginCall, pluginCallNeedsConfirm, toPluginProxyRequest } from './pluginApiGuard';
+import { authorizePluginCall } from './pluginApiGuard';
+import { executePluginAction } from './executePluginAction';
 
 interface ShortcutPayload {
   combo?: string;
@@ -50,28 +50,23 @@ export function usePluginShortcuts(): void {
         endpoint, method, body: body as Record<string, unknown>,
       });
       if (!decision.ok) continue;
-      const { endpoint: safeEndpoint } = decision.call;
+      // C4：owner 用 c.owner（真实归属），并带 contribution_id 供后端核对 (ui_slot,id)。
+      // 统一执行器负责门禁、受限代理、写操作逐次确认与可读回执。
       disposers.push(keybindingEngine.register({
         id: `plugin:${c.id}`,
         combo: p.combo,
         label: p.label ?? c.title,
         category: '插件',
         handler: () => {
-          // 可写端点必须用户逐次确认，不能由插件静默触发。
-          if (pluginCallNeedsConfirm(safeEndpoint) && !window.confirm(
-            `插件「${c.title}」请求执行操作：${safeEndpoint}\n是否继续？`,
-          )) return;
-          // W01：改写为受限代理请求（服务端按插件启停 + 清单最终裁定）。
-          // owner 是后端 contributions 响应里的插件 id；缺失时拒绝（默认拒绝口径）。
-          const proxyOwner = c.owner || '';
-          if (!proxyOwner) {
-            toast(`插件快捷键缺少贡献归属（owner），已拒绝执行：${c.title}`, 'error');
-            return;
-          }
-          const proxy = toPluginProxyRequest(proxyOwner, decision.call);
-          const client = getApiClient();
-          client.post(proxy.url, proxy.body)
-            .catch(() => toast(`插件快捷键执行失败：${c.title}`, 'error'));
+          void executePluginAction(c.owner ?? '', {
+            endpoint: decision.call.endpoint,
+            method: decision.call.method,
+            body: decision.call.body,
+          }, { contributionId: c.id, label: c.title }).then((result) => {
+            if (!result.ok && result.reason !== 'cancelled') {
+              toast(`插件快捷键执行失败：${c.title} — ${result.message ?? ''}`, 'error');
+            }
+          });
         },
       }));
     }

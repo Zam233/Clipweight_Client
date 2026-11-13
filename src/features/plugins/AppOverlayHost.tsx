@@ -22,7 +22,7 @@ import {
   useInstallableDependency,
   type DependencyGate,
 } from './useInstallableDependency';
-import type { SlotContribution } from './slots';
+import { usableContributions, type SlotContribution } from './slots';
 
 interface DialogProps {
   gate: DependencyGate;
@@ -119,6 +119,12 @@ export function InstallableDependencyDialog({ gate, contributionId, className }:
           </p>
         )}
 
+        {!state.installing && state.cancelled && (
+          <p className="text-caption text-on-surface-variant">
+            已取消安装。需要时可以随时再点「立即安装」。
+          </p>
+        )}
+
         {!state.installing && !state.failed && state.message && (
           <p className="text-caption text-on-surface-variant">后端状态：{state.message}</p>
         )}
@@ -160,7 +166,11 @@ function DependencyOverlay({ contribution }: { contribution: SlotContribution })
 
 /** 全局挂载点：App 里挂一次，插件贡献什么就渲染什么 */
 export function AppOverlayHost() {
-  const items = usePluginSlots('app.overlay');
+  const raw = usePluginSlots('app.overlay');
+  // C4：与其他入口同一可见性集合——installable 贡献必须带合法 payload 才渲染。
+  const items = usableContributions(raw, {}, (c) =>
+    Boolean(readInstallableDependency(c)),
+  );
   return (
     <>
       {items.map((c) => (

@@ -142,6 +142,11 @@ export interface RenderRequest {
   /** V32 负时间片头：画面先起 N 秒、音频延后同样时长（0/缺省 = 无片头，上限 15） */
   preroll_sec?: number;
   settings: ExportSettings;
+  /**
+   * 显式视频类型插件 id（如 shortform_category）。
+   * 后端只在收到它时才让类型插件的 PRE_RENDER 改规格；缺省 = 不按类型改。
+   */
+  category_id?: string;
 }
 
 export interface RenderProgress {

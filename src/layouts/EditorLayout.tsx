@@ -6,6 +6,7 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { Slot } from '@/features/plugins/Slot';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
+import { usableContributions } from '@/features/plugins/slots';
 import { keybindingEngine } from '@/features/keyboard/KeybindingEngine';
 import { AssetPanel } from '@/features/assets/AssetPanel';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
@@ -66,6 +67,14 @@ export function EditorLayout() {
   const rightPanelContribs = usePluginSlots('editor.right-panel');
   const leftPanelContribs = usePluginSlots('editor.left-panel');
   const bottomPanelContribs = usePluginSlots('editor.bottom-panel');
+  // C4：列数必须与 Slot 用同一集合——visibleWhen=false 或无 layout/bundle 的贡献
+  // 不会渲染任何东西，旧实现按原始 length 计数会留下空白列。
+  const panelContext = { hasTimeline: true };
+  const withContent = (c: (typeof leftPanelContribs)[number]) =>
+    Boolean(c.layout || c.payload?.bundle);
+  const leftItems = usableContributions(leftPanelContribs, panelContext, withContent);
+  const bottomItems = usableContributions(bottomPanelContribs, panelContext, withContent);
+  const rightItems = usableContributions(rightPanelContribs, panelContext, withContent);
   const setMobilePanel = useWorkspaceStore((s) => s.setMobilePanel);
   const reviewMode = useAgentStore((s) => s.reviewMode);
   const setReviewMode = useAgentStore((s) => s.setReviewMode);
@@ -217,7 +226,7 @@ export function EditorLayout() {
 
         {/* D-3c：插件左栏面板（无贡献时整列不渲染）
             B10：必须同时受「素材面板」开关约束——关掉面板后插件列不能残留 */}
-        {leftPanelContribs.length > 0 && panels.assets && isDesktop && (
+        {leftItems.length > 0 && panels.assets && isDesktop && (
           <div
             className="h-full overflow-hidden shrink-0 border-r border-outline-variant/20"
             style={{ width: panelWidths.assets }}
@@ -246,7 +255,7 @@ export function EditorLayout() {
 
           {/* D-3c：插件下栏（时间线上方的横向条；无贡献零渲染）
               B10：下栏属于时间线区域，随时间线一起在窄屏折叠 */}
-          {bottomPanelContribs.length > 0 && timelineVisible && isDesktop && (
+          {bottomItems.length > 0 && timelineVisible && isDesktop && (
             <div className="shrink-0 max-h-[200px] overflow-y-auto border-t border-outline-variant/20 px-3 py-2">
               <Slot name="editor.bottom-panel" context={{ hasTimeline: true }} />
             </div>
@@ -291,7 +300,7 @@ export function EditorLayout() {
           </>
         )}
 
-        {rightPanelContribs.length > 0 && isDesktop && (
+        {rightItems.length > 0 && isDesktop && (
           <>
             <div className="panel-divider shrink-0" />
             <div

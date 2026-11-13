@@ -24,15 +24,23 @@ vi.mock('@/features/plugins/usePluginSlots', () => ({
 }));
 
 vi.mock('@/features/plugins/PluginLayoutRenderer', () => ({
-  PluginLayoutRenderer: ({ layout }: { layout: { title?: string } }) => (
-    <div data-testid="plugin-layout">{layout?.title ?? 'layout'}</div>
+  PluginLayoutRenderer: ({ layout, owner, contributionId }: {
+    layout: { title?: string }; owner?: string; contributionId?: string;
+  }) => (
+    <div
+      data-testid="plugin-layout"
+      data-owner={owner ?? ''}
+      data-contribution-id={contributionId ?? ''}
+    >
+      {layout?.title ?? 'layout'}
+    </div>
   ),
 }));
 
 import { PluginPage } from './PluginPage';
 
 const openPage = {
-  kind: 'ui_slot', id: 'open_page', title: '公开插件页', slot: 'page',
+  kind: 'ui_slot', id: 'open_page', owner: 'page_plug', title: '公开插件页', slot: 'page',
   payload: { path: 'open_page' },
   layout: { title: '公开插件页', widgets: [] },
 };
@@ -74,5 +82,21 @@ describe('PluginPage 匹配（D-3b）', () => {
     mocks.pageId = 'admin_page';
     render(<PluginPage />);
     expect(screen.getByTestId('plugin-layout')).toBeTruthy();
+  });
+
+  it('C4：页面渲染传 owner 与裸贡献 id（代理按钮据此路由与核对归属）', () => {
+    mocks.slots.mockReturnValue([openPage]);
+    render(<PluginPage />);
+    const layout = screen.getByTestId('plugin-layout');
+    expect(layout.getAttribute('data-owner')).toBe('page_plug');
+    expect(layout.getAttribute('data-contribution-id')).toBe('open_page');
+  });
+
+  it('C4：visibleWhen=false 的页面贡献不可达（按不存在处理）', () => {
+    mocks.slots.mockReturnValue([
+      { ...openPage, visibleWhen: "context.never === 'yes'" },
+    ]);
+    render(<PluginPage />);
+    expect(screen.getByText('插件页面不存在或已被禁用。')).toBeTruthy();
   });
 });

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useTimelineStore } from '@/stores/timelineStore';
+import { useTaskStore } from '@/stores/taskStore';
 import { usePluginContributions } from '@/features/plugins/usePluginSlots';
+import { usableContributions } from '@/features/plugins/slots';
 import { useProjectStore } from '@/stores/projectStore';
 import { renderApi, projectApi, assetApi, toolApi } from '@/services/api';
 import { connectSseStream, type SseStreamHandle } from '@/services/api/sseStream';
@@ -11,7 +13,7 @@ import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge } from '@/components/ui';
 import { uid, formatTimecode } from '@/lib/utils';
 import { asText } from '@/lib/render';
-import { resolveContainerExt, type ExportPresetDef } from './exportPreset';
+import { resolveContainerExt, sanitizePluginPreset, type ExportPresetDef } from './exportPreset';
 import { clampPreroll, prerollPayload } from '@/services/api/preroll';
 import { fingerprintLabel, timelineChanged, timelineFingerprint } from './exportSnapshot';
 import type { ExportSettings, RenderProgress } from '@/types/api';
@@ -58,6 +60,8 @@ interface QueueItem extends RenderProgress {
   /** 提交时的时间线快照 + 指纹：重试跑快照（可比较），不是跑"现在的"时间线 */
   retryTimeline?: Timeline;
   retryFingerprint?: string;
+  /** 提交时的类型插件 id：重试沿用，避免后改类型导致规格漂移 */
+  retryCategoryId?: string;
 }
 
 /**
@@ -216,24 +220,22 @@ export function ExportPage() {
   // D-3h：插件贡献的导出预设（kind=export_preset）——键前缀 plugin:，
   // 提交时置空 preset 名走显式参数（后端 _EXPORT_PRESETS 不含插件 id，
   // 避免 P1-06 的「未知导出预设 400」陷阱）
-  const pluginPresets = usePluginContributions('export_preset');
+  // C4：与其他入口同一可见性集合（visibleWhen=false 的预设不出现）。
+  const pluginPresets = usableContributions(
+    usePluginContributions('export_preset'),
+    {},
+    (c) => c.payload != null && typeof c.payload === 'object',
+  );
 
   // 合并后端预设与内置预设；后端字段缺失时回落到内置默认值，避免 NaN/undefined 设置
   const presets = useMemo(() => {
     const withPlugins: Record<string, PresetDef> = { ...PRESETS };
     for (const c of pluginPresets) {
-      const payload = (c.payload ?? {}) as Partial<PresetDef>;
-      if (!payload.width || !payload.height) continue;
-      withPlugins[`plugin:${c.id}`] = {
-        name: String(payload.name ?? c.title ?? c.id),
-        icon: c.icon ?? '🧩',
-        width: payload.width,
-        height: payload.height,
-        fps: payload.fps ?? 30,
-        bitrate: payload.bitrate ?? '6M',
-        // B12：插件预设可声明容器（payload.container / payload.ext）
-        ...(payload.container ? { container: String(payload.container) } : {}),
-      };
+      // C4：插件预设 payload 逐字段校验（正整数宽高 / 有限正 fps / 字符串 bitrate /
+      // 容器白名单），非法预设整条忽略，不让任意值混入导出设置。
+      const safe = sanitizePluginPreset(c.payload, { id: c.id, title: c.title, icon: c.icon });
+      if (!safe) continue;
+      withPlugins[`plugin:${c.id}`] = safe;
     }
     if (!apiPresets || Object.keys(apiPresets).length === 0) return withPlugins;
     const merged: Record<string, PresetDef> = { ...withPlugins };
@@ -265,6 +267,9 @@ export function ExportPage() {
   const submitRender = async () => {
     if (timeline.tracks.length === 0) return;
     setSubmitting(true);
+    // 类型插件 id：后端只在显式收到时才让类型插件改规格（如 shortform 竖屏）。
+    // 取当前任务的 category_plugin_id；没有任务（手导入工程）就不传，走默认。
+    const categoryId = useTaskStore.getState().task?.request?.category_plugin_id ?? '';
     const taskId = uid('render');
     // 文件名消毒：去掉路径分隔符与非法字符，空名称用默认值兜底
     const safeName = (projectName.trim() || 'project').replace(/[\\/:*?"<>|\s]+/g, '_');
@@ -283,6 +288,7 @@ export function ExportPage() {
       startedAt: new Date().toLocaleTimeString(), filename,
       retrySettings: { ...settings }, retryFilename: filename,
       retryTimeline: snapshot, retryFingerprint: timelineFingerprint(snapshot),
+      retryCategoryId: categoryId || undefined,
     };
     setQueue((q) => [item, ...q]);
 
@@ -295,6 +301,8 @@ export function ExportPage() {
         ...(bgmPath ? { bgm_file_path: bgmPath } : {}),
         // V32: 负时间片头（0 不传，保持后端默认）
         ...prerollPayload(prerollSec),
+        // 显式类型（空串不传，保持旧客户端语义）
+        ...(categoryId ? { category_id: categoryId } : {}),
       });
       // 后端返回真实 task_id（render_N_ts）；替换本地占位 ID 后再挂接进度流
       const realId = res.task_id ?? taskId;
@@ -359,6 +367,8 @@ export function ExportPage() {
         timeline: timelineToRun,
         output_path: `renders/${item.retryFilename}`,
         settings: item.retrySettings,
+        // 重试沿用提交时的类型，避免后改任务类型把重试跑成另一种规格
+        ...(item.retryCategoryId ? { category_id: item.retryCategoryId } : {}),
       });
       const realId = res.task_id ?? taskId;
       if (realId !== taskId) updateQueue(taskId, { task_id: realId });

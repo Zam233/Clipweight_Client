@@ -10,7 +10,7 @@ import { asText, textList } from '@/lib/render';
 import type { PluginConfigField, PluginConfigResponse } from '@/types/api';
 import {
   Puzzle, Power, Loader2, RefreshCw, Zap, Settings, X, Save, Trash2, Eye, Box,
-  AlertTriangle, Activity, ShieldCheck, Link2, Wand2, GitBranch, FileText } from 'lucide-react';
+  AlertTriangle, Activity, ShieldCheck, Link2, Wand2, GitBranch, FileText, Info } from 'lucide-react';
 import { PluginLayoutRenderer } from '@/features/plugins';
 import { invalidatePluginSlots } from '@/features/plugins/usePluginSlots';
 import type { UILayout } from '@/features/plugins/types';
@@ -243,6 +243,8 @@ export function PluginsPanel() {
     setLoadingAll(true);
     try {
       await pluginApi.loadAll();
+      // C4：批量加载会改变贡献清单——失效前端 Slot 缓存，避免旧贡献残留。
+      invalidatePluginSlots();
       await load(); // 批C：以服务端实际加载状态刷新列表（此前无条件全标 loaded）
     } catch {
       toast('后端离线，批量加载未执行', 'error');
@@ -250,15 +252,15 @@ export function PluginsPanel() {
     setLoadingAll(false);
   };
 
-  /** M8: 卸载删除——比「禁用」更进一步（移除落盘目录），需要确认。 */
+  /** B1/C4：卸载并清除插件数据（后端 DELETE 只清 PluginData，不删除安装目录），需要确认。 */
   const removePlugin = async (p: PluginItem) => {
-    if (!window.confirm(`确定删除插件「${p.name}」？这会从插件目录移除它，不只是禁用。`)) return;
+    if (!window.confirm(`确定卸载插件「${p.name}」并清除插件数据（不删除安装目录）？`)) return;
     setBusyId(p.id);
     try {
       await pluginApi.remove(p.id);
       invalidatePluginSlots();
       await load();
-      toast(`已删除插件 ${p.id}`);
+      toast(`已卸载插件 ${p.id}`);
     } catch (e) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       toast(detail ?? '删除失败（后端不可达或插件受保护）', 'error');
@@ -470,12 +472,14 @@ export function PluginsPanel() {
                       {p.health!.hooks} hook
                     </span>
                   )}
+                  {/* C4：declared_only 可能是正常的未配置可选能力，用中性信息样式，
+                      不再用红色错误 + AlertTriangle 误报「插件损坏」。 */}
                   {p.loaded && p.declaredOnly && p.declaredOnly.length > 0 && (
-                    <span className="font-mono text-caption text-error shrink-0 flex items-center gap-1"
+                    <span className="font-mono text-caption text-on-surface-variant/70 shrink-0 flex items-center gap-1"
                       data-testid={`declared-only-${p.id}`}
-                      title={`声明了但未注册（通常是缺少配置/密钥）：\n${p.declaredOnly.join('\n')}`}>
-                      <AlertTriangle className="w-3 h-3" />
-                      {p.declaredOnly.length} 项未生效
+                      title={`未启用（可能缺少配置/密钥）：\n${p.declaredOnly.join('\n')}`}>
+                      <Info className="w-3 h-3" />
+                      {p.declaredOnly.length} 项未启用
                     </span>
                   )}
                 </div>
@@ -514,7 +518,7 @@ export function PluginsPanel() {
 
               <button onClick={() => removePlugin(p)} disabled={busyId === p.id}
                 className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors cursor-pointer shrink-0"
-                title="删除插件（从插件目录移除）">
+                title="卸载并清除插件数据（不删除安装目录）">
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
 
@@ -791,7 +795,9 @@ export function PluginsPanel() {
             <p className="text-label-sm text-error py-4">{previewError}</p>
           ) : previewLayout ? (
             <div className="bg-surface rounded-cw-sm border border-outline-variant/20 p-3">
-              <PluginLayoutRenderer layout={previewLayout} />
+              {/* C4：管理页是只读预览——不给 owner（动作零请求），并显式 readOnly
+                  让 button/file 禁用、外链图片不渲染，避免“看起来能点”。 */}
+              <PluginLayoutRenderer layout={previewLayout} readOnly />
             </div>
           ) : null}
         </Modal>

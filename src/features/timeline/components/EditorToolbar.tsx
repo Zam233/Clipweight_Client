@@ -12,6 +12,8 @@ import { toast } from '@/stores/toastStore';
 import { Button, Tooltip } from '@/components/ui';
 import { formatTimecode, uid } from '@/lib/utils';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
+import { usableContributions } from '@/features/plugins/slots';
+import { executePluginAction } from '@/features/plugins/executePluginAction';
 import { HistoryPanel } from '@/features/history/HistoryPanel';
 import {
   alignCuesToFrames, parseSubtitles, summarizeParse,
@@ -44,13 +46,18 @@ export function extractImportError(err: unknown, actionLabel: string): string {
   return `${actionLabel} — 后端不可达`;
 }
 
-/** D-3d：插件贡献的工具栏按钮（payload {icon,label,action}；受控 API 调用，无任意 JS）。 */
+/** D-3d：插件贡献的工具栏按钮（payload {icon,label,action}；受控代理调用，无任意 JS）。 */
 function PluginToolbarButtons() {
   const items = usePluginSlots('editor.toolbar');
-  if (items.length === 0) return null;
+  // C4：与其他入口同一可见性集合——无 action 或 visibleWhen=false 的贡献不渲染。
+  const usable = usableContributions(items, {}, (c) => {
+    const action = (c.payload as { action?: { endpoint?: string } } | undefined)?.action;
+    return Boolean(action?.endpoint);
+  });
+  if (usable.length === 0) return null;
   return (
     <>
-      {items.map((c) => {
+      {usable.map((c) => {
         const action = (c.payload as { action?: { endpoint?: string; method?: string; body?: Record<string, unknown> } } | undefined)?.action;
         if (!action?.endpoint) return null;
         return (
@@ -60,12 +67,14 @@ function PluginToolbarButtons() {
             variant="outline"
             title={c.title}
             onClick={() => {
-              const method = String(action.method ?? 'POST').toUpperCase();
-              const client = getApiClient();
-              const req = method === 'GET'
-                ? client.get(action.endpoint!)
-                : client.request({ url: action.endpoint!, method, data: action.body ?? {} });
-              req.catch(() => toast(`插件操作失败：${c.title}`, 'error'));
+              // C4：统一走 executePluginAction（owner 用 c.owner，缺 owner 直接拒绝）。
+              void executePluginAction(c.owner ?? '', action, {
+                contributionId: c.id, label: c.title,
+              }).then((result) => {
+                if (!result.ok && result.reason !== 'cancelled') {
+                  toast(`插件操作失败：${c.title} — ${result.message ?? ''}`, 'error');
+                }
+              });
             }}
           >
             {c.title}

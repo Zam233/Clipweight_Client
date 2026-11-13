@@ -117,6 +117,48 @@ describe('B13/B14：请求合并与挂载态同步', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(mocks.get.mock.calls.length).toBe(callsBefore);
   });
+
+  it('C4：失效时先隐藏旧贡献，即使重取很慢也不残留', async () => {
+    mocks.get.mockResolvedValue({
+      data: {
+        contributions: [
+          { kind: 'ui_slot', id: 'old', title: '旧', slot: 'settings.section', layout: { title: '旧' } },
+        ],
+      },
+    });
+    invalidatePluginSlots();
+    render(<Slot name="settings.section" />);
+    expect(await screen.findByTestId('plugin-layout')).toBeTruthy();
+
+    // 下一次请求挂起（模拟慢后端 / 断网）：旧贡献必须立刻消失
+    let release: ((v: unknown) => void) | undefined;
+    mocks.get.mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    invalidatePluginSlots();
+
+    await waitFor(() => expect(screen.queryByTestId('plugin-layout')).toBeNull());
+    release?.({ data: { contributions: [] } });
+  });
+
+  it('C4：旧代响应不会覆盖失效后的空结果', async () => {
+    let resolveOld: ((v: unknown) => void) | undefined;
+    mocks.get.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+    const first = fetchSlotContributions('settings.section');
+    invalidatePluginSlots();
+    mocks.get.mockResolvedValue({ data: { contributions: [] } });
+    const second = await fetchSlotContributions('settings.section');
+    expect(second).toEqual([]);
+    // 旧请求晚到：不得把已失效的贡献写回
+    resolveOld?.({
+      data: {
+        contributions: [
+          { kind: 'ui_slot', id: 'stale', title: 'S', slot: 'settings.section', layout: { title: 'S' } },
+        ],
+      },
+    });
+    await first;
+    const third = await fetchSlotContributions('settings.section');
+    expect(third).toEqual([]);
+  });
 });
 
 describe('Slot 渲染 (D-2)', () => {

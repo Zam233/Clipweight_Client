@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { asText } from '@/lib/render';
 import { PluginLayoutRenderer, type PluginOptionSource } from './PluginLayoutRenderer';
 import { PluginBundleFrame } from './PluginBundleFrame';
-import { evalVisibleWhen, type SlotName, type SlotVisibilityContext } from './slots';
+import { usableContributions, type SlotName, type SlotVisibilityContext } from './slots';
 import { usePluginSlots } from './usePluginSlots';
 
 interface SlotProps {
@@ -25,13 +25,14 @@ interface SlotProps {
   optionSources?: Record<string, PluginOptionSource[]>;
   /** 控件值变化回调（宿主据此把插件控件接入业务流程）。 */
   onValuesChange?: (values: Record<string, unknown>) => void;
+  /** C4：只读预览（管理页 UI 预览传 true）——不执行动作、不渲染外链图片。 */
+  readOnly?: boolean;
 }
 
-export function Slot({ name, context = {}, fallback = null, renderLayout, filter, optionSources, onValuesChange }: SlotProps) {
+export function Slot({ name, context = {}, fallback = null, renderLayout, filter, optionSources, onValuesChange, readOnly = false }: SlotProps) {
   const items = usePluginSlots(name);
-  const visible = items
-    .filter((c) => (filter ? filter(c) : true))
-    .filter((c) => evalVisibleWhen(c.visibleWhen, context));
+  // C4：与其他消费方共用同一个可见性过滤（fail-closed 语义一致）。
+  const visible = usableContributions(items, context, (c) => (filter ? filter(c) : true));
   if (visible.length === 0) return <>{fallback}</>;
 
   return (
@@ -40,18 +41,21 @@ export function Slot({ name, context = {}, fallback = null, renderLayout, filter
         // M8：受信任 bundle 档——贡献带 payload.bundle 标记时由 iframe 沙箱承载
         // （可用性由后端 /bundle 门禁决定：未开启或缺签名即 403 空白）
         if ((c.payload as { bundle?: unknown } | undefined)?.bundle === true) {
+          // C4 / B6：bundle 与代理必须按贡献**归属 owner**取档/路由，缺 owner 不渲染。
+          if (!c.owner) return null;
           // PL-03：贡献 title 来自后端/插件，运行时可能是对象 → 直进 JSX 会整块白屏。
           const title = asText(c.title);
           return (
             <div key={c.id} className="space-y-1">
               <div className="text-label-sm text-on-surface-variant">{title}</div>
-              <PluginBundleFrame pluginId={c.id} title={title} />
+              <PluginBundleFrame pluginId={c.owner} contributionId={c.id} title={title} />
             </div>
           );
         }
         if (c.layout) {
           const title = asText(c.title);
           if (renderLayout) return <div key={c.id}>{renderLayout(c.layout, title)}</div>;
+          const stateKey = `${c.owner ?? ''}:${c.id}`;
           return (
             <section key={c.id} className="rounded-cw-md border border-outline-variant/30 overflow-hidden">
               <header className="px-3 py-2 bg-surface-container-high border-b border-outline-variant/20">
@@ -59,9 +63,14 @@ export function Slot({ name, context = {}, fallback = null, renderLayout, filter
               </header>
               <div className="p-3">
                 <PluginLayoutRenderer
+                  key={stateKey}
                   layout={c.layout as never}
                   optionSources={optionSources}
                   onChange={onValuesChange}
+                  owner={c.owner}
+                  stateKey={stateKey}
+                  contributionId={c.id}
+                  readOnly={readOnly}
                 />
               </div>
             </section>

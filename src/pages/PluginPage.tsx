@@ -12,14 +12,21 @@ import { Button } from '@/components/ui';
 import { Puzzle, ShieldAlert } from 'lucide-react';
 import { PluginLayoutRenderer } from '@/features/plugins/PluginLayoutRenderer';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
+import { usableContributions } from '@/features/plugins/slots';
 
 export function PluginPage() {
   const { pageId } = useParams({ from: '/plugin/$pageId' });
   const navigate = useNavigate();
-  const pages = usePluginSlots('page');
+  const rawPages = usePluginSlots('page');
 
   // 账号系统已剥离：本地/单用户模式下一律视为管理员（admin_only 贡献照常可见）。
   const [isAdmin] = useState(true);
+
+  // C4：与其它入口同一可见性集合——无页面内容或 visibleWhen=false 的贡献不可达。
+  const pages = usableContributions(rawPages, {}, (c) => {
+    const payload = c.payload as { layout?: unknown; path?: unknown } | undefined;
+    return Boolean(payload?.layout) || Boolean(payload?.path);
+  });
 
   // 匹配规则：贡献 id 或 payload.path 与路由参数一致
   const page = pages.find((c) => {
@@ -68,7 +75,13 @@ export function PluginPage() {
     <StandardLayout title={page.title}>
       <div className="max-w-3xl mx-auto space-y-4">
         {page.layout ? (
-          <PluginLayoutRenderer layout={page.layout as never} />
+          <PluginLayoutRenderer
+            key={`${page.owner ?? ''}:${page.id}`}
+            layout={page.layout as never}
+            owner={page.owner}
+            stateKey={`${page.owner ?? ''}:${page.id}`}
+            contributionId={page.id}
+          />
         ) : (
           <p className="text-body-sm text-on-surface-variant">该插件页面未提供布局内容。</p>
         )}

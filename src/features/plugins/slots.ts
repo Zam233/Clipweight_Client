@@ -157,6 +157,28 @@ export function isSlotName(value: unknown): value is SlotName {
   return typeof value === 'string' && (SLOT_NAMES as readonly string[]).includes(value);
 }
 
+/**
+ * C4：宿主侧统一可见性过滤（PRD §2.1「列数与 Slot 同集合」）。
+ *
+ * 所有消费方（Slot / EditorLayout / toolbar / timeline / nav / overlay / page）
+ * 都应该用它决定一条贡献是否渲染——只靠 `items.length` 分列或入口自判会让
+ * `visibleWhen=false` 的贡献占位或漏显。
+ *
+ * fail-closed 语义与 `evalVisibleWhen` 一致：表达式解析失败 = 不显示。
+ * `entryOk` 由调用方提供该入口的额外有效性判定（如 toolbar 要有 payload.action、
+ * page 要有 payload.layout）。
+ */
+export function usableContributions(
+  items: SlotContribution[],
+  context: SlotVisibilityContext,
+  entryOk?: (c: SlotContribution) => boolean,
+): SlotContribution[] {
+  return items.filter((c) => {
+    if (entryOk && !entryOk(c)) return false;
+    return evalVisibleWhen(c.visibleWhen, context);
+  });
+}
+
 export function sanitizeIContribution(c: SlotContribution): SlotContribution {
   return {
     ...c,

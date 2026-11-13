@@ -58,6 +58,8 @@ export interface DependencyState {
   version: string;
   message: string;
   failed: boolean;
+  /** C4：用户主动取消安装——与失败分开，UI 用中性文案，不给“重试”暗示。 */
+  cancelled: boolean;
   waitedSec: number;
 }
 
@@ -68,6 +70,7 @@ const EMPTY: DependencyState = {
   version: '',
   message: '',
   failed: false,
+  cancelled: false,
   waitedSec: 0,
 };
 
@@ -181,7 +184,7 @@ export function useInstallableDependency(
 
   const refresh = useCallback(async () => {
     try {
-      const raw = await probeEndpoint(payload.probe.endpoint);
+      const raw = await probeEndpoint(payload.probe.endpoint, contribution.owner ?? '', contribution.id);
       if (!alive.current) return;
       const node = asRecord(pickPath(raw, payload.probe.path));
       const installed = Boolean(node[payload.probe.installedField ?? 'installed']);
@@ -202,6 +205,7 @@ export function useInstallableDependency(
           version: String(node[payload.probe.versionField ?? 'version'] ?? ''),
           message: String(result.message ?? ''),
           failed: result.ok === false,
+          cancelled: false,
           waitedSec: installed ? 0 : prev.waitedSec,
         };
       });
@@ -210,7 +214,7 @@ export function useInstallableDependency(
       // 端点不可达（后端未启动 / 老版本没有该能力）：静默，绝不弹框打断
       if (alive.current) setState((prev) => (prev.loaded ? prev : { ...EMPTY, loaded: true }));
     }
-  }, [contribution.id, payload.once, payload.probe, stopPolling]);
+  }, [contribution.id, contribution.owner, payload.once, payload.probe, stopPolling]);
 
   useEffect(() => {
     void refresh();
@@ -248,16 +252,27 @@ export function useInstallableDependency(
       const res = await triggerEndpoint(
         payload.install.endpoint,
         payload.install.method ?? 'POST',
+        contribution.owner ?? '',
+        contribution.id,
       );
       if (res.ok === false) {
+        // 用户取消不是失败：回到未安装状态即可，别显示“安装没成功”。
+        if (res.cancelled === true) {
+          setState((prev) => ({
+            ...prev, installing: false, failed: false, cancelled: true, message: '',
+          }));
+          return;
+        }
         setState((prev) => ({
           ...prev,
           installing: false,
           failed: true,
+          cancelled: false,
           message: String(res.message ?? '安装未启动'),
         }));
         return;
       }
+      setState((prev) => ({ ...prev, cancelled: false }));
     } catch (e) {
       setState((prev) => ({
         ...prev,
@@ -268,7 +283,7 @@ export function useInstallableDependency(
       return;
     }
     await refresh();
-  }, [payload.install, refresh]);
+  }, [contribution.id, contribution.owner, payload.install, refresh]);
 
   const snooze = useCallback(() => {
     try {

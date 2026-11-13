@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from '@tanstack/react-router';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
-import { safePluginPath } from '@/features/plugins/slots';
+import { safePluginPath, usableContributions } from '@/features/plugins/slots';
 import { CONSOLE_NAV } from '@/features/settings/consoleNav';
 import { healthApi } from '@/services/api';
 import { cn } from '@/lib/utils';
@@ -27,7 +27,12 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   // D-3a：插件贡献的管理导航项（nav.settings）追加在内核导航之后
-  const pluginNav = usePluginSlots('nav.settings');
+  // C4：与其他入口同一可见性集合——to 非法或 visibleWhen=false 不渲染。
+  const pluginNav = usableContributions(
+    usePluginSlots('nav.settings'),
+    {},
+    (c) => safePluginPath((c.payload as { to?: unknown } | undefined)?.to) !== null,
+  );
 
   const PLUGIN_NAV_ICONS: Record<string, typeof Puzzle> = {
     Activity, Wrench, SlidersHorizontal, Puzzle, Sparkles, Type, Film, Captions,

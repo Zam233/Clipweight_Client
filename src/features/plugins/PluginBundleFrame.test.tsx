@@ -18,7 +18,8 @@ import { Slot } from './Slot';
 
 vi.mock('./usePluginSlots', () => ({
   usePluginSlots: () => ([{
-    kind: 'ui_slot', id: 'bundle_plug', title: 'Bundle 插件', slot: 'editor.right-panel',
+    kind: 'ui_slot', id: 'bundle_plug', owner: 'bundle_owner', title: 'Bundle 插件',
+    slot: 'editor.right-panel',
     payload: { bundle: true },
   }]),
 }));
