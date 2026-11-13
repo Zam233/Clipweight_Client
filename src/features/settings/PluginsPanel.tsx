@@ -518,7 +518,7 @@ export function PluginsPanel() {
 
               <button onClick={() => removePlugin(p)} disabled={busyId === p.id}
                 className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors cursor-pointer shrink-0"
-                title="删除插件（从插件目录移除）">
+                title="卸载并清除插件数据（不删除安装目录）">
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
 
@@ -795,7 +795,9 @@ export function PluginsPanel() {
             <p className="text-label-sm text-error py-4">{previewError}</p>
           ) : previewLayout ? (
             <div className="bg-surface rounded-cw-sm border border-outline-variant/20 p-3">
-              <PluginLayoutRenderer layout={previewLayout} />
+              {/* C4：管理页是只读预览——不给 owner（动作零请求），并显式 readOnly
+                  让 button/file 禁用、外链图片不渲染，避免“看起来能点”。 */}
+              <PluginLayoutRenderer layout={previewLayout} readOnly />
             </div>
           ) : null}
         </Modal>

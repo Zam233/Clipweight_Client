@@ -73,6 +73,7 @@ export function PluginPage() {
             layout={page.layout as never}
             owner={page.owner}
             stateKey={`${page.owner ?? ''}:${page.id}`}
+            contributionId={page.id}
           />
         ) : (
           <p className="text-body-sm text-on-surface-variant">该插件页面未提供布局内容。</p>

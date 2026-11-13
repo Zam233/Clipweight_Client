@@ -135,10 +135,12 @@ function PluginTabView({ pluginId }: { pluginId: string }) {
   }
 
   // C4：legacy ui.json 面板同样带 owner 走受限代理（pluginId 即已加载插件 id）。
+  // B6：贡献 id 用后端为旧 ui.json 合成的 `<plugin>_legacy`，不是 `plugin:legacy`。
   return <PluginLayoutRenderer
     key={`${pluginId}:legacy`}
     layout={layout}
     owner={pluginId}
     stateKey={`${pluginId}:legacy`}
+    contributionId={`${pluginId}_legacy`}
   />;
 }

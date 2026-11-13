@@ -90,6 +90,7 @@ export function PluginLayoutRenderer({
   onChange,
   owner,
   stateKey,
+  contributionId,
   readOnly = false,
 }: {
   layout: UILayout;
@@ -101,6 +102,12 @@ export function PluginLayoutRenderer({
   owner?: string;
   /** C4：按贡献身份隔离渲染状态（不同 owner/id 不串用）。 */
   stateKey?: string;
+  /**
+   * C4 / B6：贡献 **id**（裸 id，不是 `owner:id` 合成键）。
+   * 服务端按门面 `(ui_slot, id)` 核对归属；旧 ui.json 槽用 `<plugin>_legacy`。
+   * 缺省不发送（旧客户端语义）——不要回落到 stateKey，那会把合成键当 id 发。
+   */
+  contributionId?: string;
   /** C4：管理页 UI 预览只读——button/file 禁用，image 不渲染外链。 */
   readOnly?: boolean;
 }) {
@@ -201,7 +208,7 @@ export function PluginLayoutRenderer({
       const result = await executePluginAction(
         owner ?? '',
         { endpoint: action.endpoint, method: action.method, body: specBody },
-        { contributionId: identity, label: widget.label },
+        { contributionId: contributionId, label: widget.label },
       );
       if (seq !== actionSeqRef.current) return; // 过期响应，丢弃
 
@@ -235,7 +242,7 @@ export function PluginLayoutRenderer({
       setState((s) => ({ ...s, ...updates }));
       updatingRef.current = false;
     },
-    [state, owner, identity, readOnly],
+    [state, owner, identity, contributionId, readOnly],
   );
 
   const renderWidget = useMemo(

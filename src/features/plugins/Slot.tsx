@@ -70,6 +70,7 @@ export function Slot({ name, context = {}, fallback = null, renderLayout, filter
                   onChange={onValuesChange}
                   owner={c.owner}
                   stateKey={stateKey}
+                  contributionId={c.id}
                   readOnly={readOnly}
                 />
               </div>

@@ -39,7 +39,14 @@ describe('PluginLayoutRenderer M11 控件集', () => {
 
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     mocks.post.mockResolvedValue({ data: { ok: true } });
-    render(<PluginLayoutRenderer layout={layout} owner="plug_a" stateKey="plug_a:demo" />);
+    render(
+      <PluginLayoutRenderer
+        layout={layout}
+        owner="plug_a"
+        stateKey="plug_a:panel_x"
+        contributionId="panel_x"
+      />,
+    );
 
     // input defaultValue
     expect((screen.getByLabelText('名称') as HTMLInputElement).value).toBe('张三');
@@ -66,8 +73,33 @@ describe('PluginLayoutRenderer M11 控件集', () => {
       action: 'tool',
       payload: { name: '李四' },
     });
+    // B6：贡献 id 必须是**裸 id**（不是 owner:id 合成键），否则后端归属校验 403。
+    expect((body as { contribution_id?: string }).contribution_id).toBe('panel_x');
     expect((body as { payload: { params?: Record<string, unknown> } }).payload.params)
       .toMatchObject({ tone: '专业', enabled: false, speed: 8 });
+    confirmSpy.mockRestore();
+  });
+
+  it('B6：stateKey 只做状态隔离，不当作 contribution_id 发送', async () => {
+    const layout: UILayout = {
+      widgets: [
+        { type: 'button', label: '跑', action: { endpoint: '/api/tool/execute', method: 'POST', body: { name: 'x' } } },
+      ],
+    };
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    mocks.post.mockResolvedValue({ data: { ok: true } });
+    render(
+      <PluginLayoutRenderer
+        layout={layout}
+        owner="plug_a"
+        stateKey="plug_a:panel_x"
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '跑' }));
+    await vi.waitFor(() => expect(mocks.post).toHaveBeenCalled());
+    const body = mocks.post.mock.calls[0][1] as { contribution_id?: string };
+    // 未显式给 contributionId 时不得发送合成键（宁可省略，也不能发错值）
+    expect(body.contribution_id).toBeUndefined();
     confirmSpy.mockRestore();
   });
 
