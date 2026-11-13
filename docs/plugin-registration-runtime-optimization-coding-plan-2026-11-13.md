@@ -32,16 +32,16 @@
 已处理：`tts_feature` 整插件拒载（P0）、代理 `contribution_id` 契约不一致导致全布局按钮 403（P0）、调用链祖先丢失（P1）、`category_id` 无调用方 + strict 400（P1）、单插件加载带依赖必失败（P1）、70KB 帧杀 worker 与 `status` 误判失败（P2）、legacy `ui.json` 未按启用过滤（P2）、Job `list()` 未按 task 隔离（P2）、`resultMap` 读错层（P1）、预览非只读（P2）、删除 tooltip 不一致（P3）。
 
 仍开放（按报价从高到低，需另立任务）：
-1. **可见性统一**：`EditorLayout` 三列仍按原始 length 计数；toolbar/timeline/nav/page/overlay/export 未统一求值 `visibleWhen`（PRD §2.1 要求同集合、缺上下文 fail-closed）。
-2. **写操作确认策略**：非 GET 一律 `window.confirm`，安装入口出现双确认、取消被当成失败；`PluginBundleFrame` 未接同一确认口径。
-3. **失效先隐藏**：`invalidatePluginSlots` 只清缓存与代际，已挂载 Slot 仍显示旧贡献直到下次响应。
-4. **C2 配置接口真实性**：`reload()` 吞异常恒不抛，PUT/DELETE 仍可能返回 200 而插件已不可用。
-5. **B2 宿主审核 `extra_read_roots`**：目前仍由 manifest 自报，宿主未按目录白名单过滤。
-6. **协议版本校验**：host 侧未 `check_version`；worker 收到非法帧只 `continue` 不退出。
-7. **C1 失活 owner 拦截**：`ToolRegistry.execute` 未校验 `_plugin_id` 对应插件仍加载且启用。
-8. **B1 解包实际字节计数**：目前是 tar header 预检，与实际写出量仍有差距。
-9. **`resolve_name` 404/503 语义**：收紧可用性后，网关把“未配置”报成 404，丢失 503 提示。
-10. 测试债：`pluginApiGuard`/`usePluginSlots` 代际/`EditorToolbar`/`TimelinePanel`/`PluginPage` 的代理动作与 `sanitizePluginPreset` 尚无红测。
+1. **可见性统一（剩余消费方）**：`EditorLayout` 三列已按「可见且有 layout/bundle」计数；toolbar/timeline/nav/overlay/export 的 `visibleWhen` 尚未统一求值（这些入口当前无该类数据）。
+2. **写操作确认策略（剩余）**：安装入口已用 `confirmHandled` 去掉二次原生框、取消不再显示失败；bundle 档已接入同一确认。仍需把「取消」与「失败」在 UI 文案上彻底拆开（当前只做到不置 failed）。
+3. **失效先隐藏**：`invalidatePluginSlots` 已先清空挂载态再重取。
+4. **C2 配置接口真实性**：`reload()` 现返回 bool，PUT/DELETE 在回滚时返回 500。
+5. **B2 宿主审核 `extra_read_roots`**：已按插件目录/数据目录白名单过滤，越界写错误通道。
+6. **协议版本校验**：host 每条入站帧 `check_version` 并在坏帧时判死；worker 收到坏帧直接退出（码 3）。
+7. **C1 失活 owner 拦截**：`ToolRegistry.execute` 对 `_plugin_id` 已失活的工具返回 NOT_FOUND。
+8. **B1 解包实际字节计数**：改为分块复制并按实际写出量限额。
+9. **`resolve_name` 404/503 语义**：新增 `resolve_any`，网关仍能对「存在但未配置」报 503。
+10. 测试债（剩余）：`EditorToolbar`/`TimelinePanel`/`PluginPage` 的代理动作红测、`PluginsPanel` 预览只读红测仍未补；`pluginApiGuard`（contribution_id/旧 tool/显式 params）、`usePluginSlots` 代际与先隐藏、`sanitizePluginPreset` 已补。
 
 ## 1. 执行总则与门槛
 
