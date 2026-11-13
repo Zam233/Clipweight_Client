@@ -264,6 +264,10 @@ export interface TaskListItem {
 export interface TaskToolCall {
   tool: string;
   capability?: string;
+  /** 工具 or 技能（2026-11-14：skill 插件化后事件带 kind） */
+  kind?: string;
+  /** 干净技能名（不含 `skill:` 前缀） */
+  skill?: string;
   status?: string;
   duration_ms?: number;
   args_brief?: string;

@@ -51,17 +51,23 @@ function _splitAttempt(key: string): { stage: string; attempt: string } {
 function TraceRow({ call }: { call: TaskToolCall }) {
   const ok = _ok(call.status);
   const internal = call.source === 'internal';
+  const isSkill = call.kind === 'skill';
+  const displayName = asText(call.skill || call.tool).replace(/^skill:/, '');
   return (
     <li
       className="flex items-baseline gap-2 text-caption"
       data-tool-call={call.tool}
       data-status={call.status ?? ''}
       data-internal={internal ? '1' : '0'}
+      data-kind={call.kind || ''}
     >
       <span className={cn('w-1.5 shrink-0 self-center h-1.5 rounded-full',
         ok ? 'bg-primary' : 'bg-error')} />
-      <span className="w-40 shrink-0 truncate font-mono text-on-surface" title={call.tool}>
-        {asText(call.tool)}
+      {isSkill && (
+        <span className="shrink-0 rounded-cw-xs bg-primary/15 px-1 text-primary">技能</span>
+      )}
+      <span className="w-40 shrink-0 truncate font-mono text-on-surface" title={displayName}>
+        {displayName}
       </span>
       <span className={cn('w-16 shrink-0', ok ? 'text-on-surface-variant/70' : 'text-error')}>
         {call.status || 'ok'}

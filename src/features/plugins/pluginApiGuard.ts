@@ -82,7 +82,6 @@ function resolveToolName(body: Record<string, unknown>): unknown {
   if (tool === undefined || tool === null || tool === '') return name ?? '';
   if (!toolDeprecationWarned) {
     toolDeprecationWarned = true;
-    // eslint-disable-next-line no-console
     console.warn('[plugin] 旧版 ui.json 使用 body.tool（已废弃），请改用 body.name；本次已兼容映射为 name。');
   }
   return tool;
