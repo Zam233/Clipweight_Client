@@ -69,6 +69,18 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
 }));
 
+/** 当前任务类型：导出页据此决定是否把 category_id 交给后端。 */
+const taskState: { categoryId: string } = { categoryId: '' };
+vi.mock('@/stores/taskStore', () => ({
+  useTaskStore: {
+    getState: () => ({
+      task: taskState.categoryId
+        ? { request: { category_plugin_id: taskState.categoryId } }
+        : null,
+    }),
+  },
+}));
+
 /** Minimal EventSource stub — captures instances so tests can emit SSE messages. */
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
@@ -129,6 +141,60 @@ describe('U3: simulated renders are clearly marked', () => {
     const badge = screen.getByText('演示模式');
     expect(badge.getAttribute('title')).toBe('演示模式 — 未真实渲染，仅本地模拟进度');
     expect(screen.queryByTitle('下载')).toBeNull();
+  });
+});
+
+describe('C1: 类型插件 id 随渲染请求下发', () => {
+  afterEach(() => { taskState.categoryId = ''; });
+
+  it('有任务类型时 queue 请求带 category_id', async () => {
+    taskState.categoryId = 'shortform_category';
+    timelineState.timeline = { ...NONEMPTY_TIMELINE };
+    mocks.submitQueue.mockResolvedValue({ task_id: 'render_cat_1' });
+
+    render(<ExportPage />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /加入渲染队列/ }));
+
+    await waitFor(() => expect(mocks.submitQueue).toHaveBeenCalledTimes(1));
+    expect(mocks.submitQueue.mock.calls[0][0]).toMatchObject({
+      category_id: 'shortform_category',
+    });
+  });
+
+  it('没有任务类型时不传 category_id（保持旧客户端语义）', async () => {
+    timelineState.timeline = { ...NONEMPTY_TIMELINE };
+    mocks.submitQueue.mockResolvedValue({ task_id: 'render_cat_2' });
+
+    render(<ExportPage />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /加入渲染队列/ }));
+
+    await waitFor(() => expect(mocks.submitQueue).toHaveBeenCalledTimes(1));
+    expect('category_id' in mocks.submitQueue.mock.calls[0][0]).toBe(false);
+  });
+
+  it('重试沿用提交时的类型，不随后改任务类型漂移', async () => {
+    taskState.categoryId = 'shortform_category';
+    timelineState.timeline = { ...NONEMPTY_TIMELINE };
+    mocks.submitQueue.mockResolvedValue({ task_id: 'render_cat_3' });
+
+    render(<ExportPage />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole('button', { name: /加入渲染队列/ }));
+    await waitFor(() => expect(mocks.submitQueue).toHaveBeenCalledTimes(1));
+
+    const es = FakeEventSource.instances.find((i) => i.url.includes('render_cat_3'))!;
+    act(() => { es.emit({ type: 'failed', detail: '失败' }); });
+    // 提交后任务类型改变，重试仍应使用提交时的值
+    taskState.categoryId = 'gaming_category';
+    mocks.submitQueue.mockResolvedValue({ task_id: 'render_cat_4' });
+    fireEvent.click(screen.getByRole('button', { name: /重试/ }));
+
+    await waitFor(() => expect(mocks.submitQueue).toHaveBeenCalledTimes(2));
+    expect(mocks.submitQueue.mock.calls[1][0]).toMatchObject({
+      category_id: 'shortform_category',
+    });
   });
 });
 
