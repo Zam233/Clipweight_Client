@@ -16,10 +16,32 @@
 | `dcdb2e8` | B1 安装 ID 校验与解压配额；B4 素材 symlink/流式 hash、只读不建目录、artifact 并发、render 路径与实测校验 |
 | `deb4105` | B3 Job 幂等作用域/归属/进程组/digest；B5 capability 统一入口与宿主侧调用链 |
 | `2ae398c` | C1 渲染器缓存卸载、能力目录/直接名可用性；C2 worker 配置合并与 reload 旧 worker |
+| `eeaed87` | 调用链累积祖先（A→B→C→D 可拦）；override 允许表补 tts_feature 槽位（后被 `a4a64b4` 用更正确的规则取代） |
+| `cbade04` | B6 代理贡献 id 兼容裸 id / `owner:id` / `<plugin>_legacy`；legacy `ui.json` 只对已加载且启用的 owner 输出 |
+| `a4a64b4` | override 只对“可覆盖 kind”校验（附加槽位不再整包拒载）；单插件 `load()` 按需载入已安装依赖 |
+| `7b08c72` | 子进程 64KiB 行缓冲上限（70KB 结果不再杀 worker）、worker 只读合并配置并注入贡献对象、`ToolExecResult.status` 正确映射 success |
+| `94e22b0` | 渲染类别不可用不再 400；三份 legacy `ui.json` 的 `resultMap` 改 `output.*` |
+| `c51ab31` | legacy `/ui` 同样按启用+已加载过滤；Job `list()` 按 task 隔离；插件 UI 文档改 `name`/`output.*` |
 
-前端提交：`b3ad97d`（PRD/Coding Plan）、`7dc867e`（C4 全入口 owner 代理、kind/可见性/旧响应/脏布局/预览只读/文案）。
+前端提交：`b3ad97d`（PRD/Coding Plan）、`7dc867e`（C4 全入口 owner 代理、kind/可见性/旧响应/脏布局/文案）、`01a5db7`（导出透传 `category_id` 并在重试沿用）、`e72104a`（贡献 id 用裸 id、预览只读、删除 tooltip）、`a96eefc`（删除文案测试同步）。
 
-验证：后端插件相关 **281 passed**（`14` 个插件测试文件 + shortform/install/diagram/provider）；前端 `tsc --noEmit` 通过、`1345 passed / 5 skipped`、`npm run build` 成功。未实施项：B7 的“第三方签名通过”路径已实现策略但仓库 0 个签名插件，无真实签名样本；E2E 未跑真实后端浏览器流程；C 级的全域事务/实时 revision/OS 沙箱未做。
+验证（2026-11-13 收尾）：后端插件相关 **292 passed**；前端 `tsc --noEmit` 通过、**1349 passed / 5 skipped**、`npm run build` 成功。两仓工作树干净。
+
+### 0.1 两轮只读审查结论（已处理 / 仍开放）
+
+已处理：`tts_feature` 整插件拒载（P0）、代理 `contribution_id` 契约不一致导致全布局按钮 403（P0）、调用链祖先丢失（P1）、`category_id` 无调用方 + strict 400（P1）、单插件加载带依赖必失败（P1）、70KB 帧杀 worker 与 `status` 误判失败（P2）、legacy `ui.json` 未按启用过滤（P2）、Job `list()` 未按 task 隔离（P2）、`resultMap` 读错层（P1）、预览非只读（P2）、删除 tooltip 不一致（P3）。
+
+仍开放（按报价从高到低，需另立任务）：
+1. **可见性统一**：`EditorLayout` 三列仍按原始 length 计数；toolbar/timeline/nav/page/overlay/export 未统一求值 `visibleWhen`（PRD §2.1 要求同集合、缺上下文 fail-closed）。
+2. **写操作确认策略**：非 GET 一律 `window.confirm`，安装入口出现双确认、取消被当成失败；`PluginBundleFrame` 未接同一确认口径。
+3. **失效先隐藏**：`invalidatePluginSlots` 只清缓存与代际，已挂载 Slot 仍显示旧贡献直到下次响应。
+4. **C2 配置接口真实性**：`reload()` 吞异常恒不抛，PUT/DELETE 仍可能返回 200 而插件已不可用。
+5. **B2 宿主审核 `extra_read_roots`**：目前仍由 manifest 自报，宿主未按目录白名单过滤。
+6. **协议版本校验**：host 侧未 `check_version`；worker 收到非法帧只 `continue` 不退出。
+7. **C1 失活 owner 拦截**：`ToolRegistry.execute` 未校验 `_plugin_id` 对应插件仍加载且启用。
+8. **B1 解包实际字节计数**：目前是 tar header 预检，与实际写出量仍有差距。
+9. **`resolve_name` 404/503 语义**：收紧可用性后，网关把“未配置”报成 404，丢失 503 提示。
+10. 测试债：`pluginApiGuard`/`usePluginSlots` 代际/`EditorToolbar`/`TimelinePanel`/`PluginPage` 的代理动作与 `sanitizePluginPreset` 尚无红测。
 
 ## 1. 执行总则与门槛
 
