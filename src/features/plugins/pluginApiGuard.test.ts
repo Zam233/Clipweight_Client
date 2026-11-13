@@ -148,4 +148,43 @@ describe('toPluginProxyRequest（受限代理改写）', () => {
     expect(authorizePluginCall({ endpoint: '/api/project/x', method: 'GET' }).ok).toBe(false);
     void toPluginProxyRequest;
   });
+
+  it('contribution_id 只接受裸 id，不会被改写', async () => {
+    const { toPluginProxyRequest } = await import('./pluginApiGuard');
+    const d = authorizePluginCall({
+      endpoint: '/api/tool/execute', method: 'POST', body: { name: 'gen', params: {} },
+    });
+    expect(d.ok).toBe(true);
+    if (d.ok) {
+      const req = toPluginProxyRequest('ai_image_gen', d.call, 'ai_image_gen_legacy');
+      expect(req.body.contribution_id).toBe('ai_image_gen_legacy');
+      // 不传就不发字段（旧客户端语义）
+      expect('contribution_id' in toPluginProxyRequest('ai_image_gen', d.call).body).toBe(false);
+    }
+  });
+
+  it('旧 ui.json 的 body.tool 兼容为 name', async () => {
+    const { toPluginProxyRequest } = await import('./pluginApiGuard');
+    const d = authorizePluginCall({
+      endpoint: '/api/tool/execute', method: 'POST', body: { tool: 'legacy_gen', params: { x: 1 } },
+    });
+    expect(d.ok).toBe(true);
+    if (d.ok) {
+      const req = toPluginProxyRequest('ai_image_gen', d.call);
+      expect((req.body.payload as { name: string }).name).toBe('legacy_gen');
+    }
+  });
+
+  it('显式 params 存在时，顶层其它键不会混进工具参数', async () => {
+    const { toPluginProxyRequest } = await import('./pluginApiGuard');
+    const d = authorizePluginCall({
+      endpoint: '/api/tool/execute', method: 'POST',
+      body: { name: 'gen', params: { a: 1 }, meta: 'should-not-pass' },
+    });
+    expect(d.ok).toBe(true);
+    if (d.ok) {
+      const req = toPluginProxyRequest('ai_image_gen', d.call);
+      expect((req.body.payload as { params: Record<string, unknown> }).params).toEqual({ a: 1 });
+    }
+  });
 });

@@ -95,20 +95,22 @@ export function toPluginProxyRequest(
 ): { url: string; body: Record<string, unknown> } {
   const action = PLUGIN_PROXY_ACTIONS[call.endpoint] ?? '';
   const methodPart = call.method === 'GET' ? 'get' : 'post';
-  // 工具执行：显式 params 优先；旧 ui.json 把字段平铺在 body 顶层（如 tone/speed），
-  // 除 name 外一律收进 params，保持旧按钮可用且不改变代理契约。
+  // 工具执行：显式 params 优先且**只**用它——旧实现（C4 之前）就是只转发
+  // body.params，把顶层其它键当参数会让第三方旧 ui.json 的元数据变成工具
+  // kwargs（可能 TypeError/500）。只有完全没有 params 的旧式平铺 body 才把
+  // 除 name/tool 外的键当参数，保持那类按钮可用。
   let payload: Record<string, unknown> = call.body;
   if (call.endpoint === '/api/tool/execute') {
     const raw = (call.body ?? {}) as Record<string, unknown>;
     const explicit = raw.params;
-    const rest = Object.fromEntries(
+    const flat = Object.fromEntries(
       Object.entries(raw).filter(([k]) => k !== 'name' && k !== 'params' && k !== 'tool'),
     );
     payload = {
       name: resolveToolName(call.body),
       params: explicit && typeof explicit === 'object' && !Array.isArray(explicit)
-        ? { ...rest, ...(explicit as Record<string, unknown>) }
-        : rest,
+        ? (explicit as Record<string, unknown>)
+        : flat,
     };
   }
   const body: Record<string, unknown> = { action, payload };
