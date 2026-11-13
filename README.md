@@ -55,10 +55,7 @@ question, tool call and degradation is visible in the session timeline.
   or reject locally.
 - **One clock, one preview** — absolute-time playhead anchoring, decode budget capped at two active videos,
   and canvas compositing that matches the final render as closely as the browser can.
-- **Structured GenUI, contract-driven** — the Agent can render cards (plans, briefs, reviews) from *declarative
-  specs* shipped by plugins; the front end only renders what the plugin contract allows, and falls back to
-  plain entities when no contract is available.
-- **Plugin-first architecture** — providers, export presets, animation types, panel slots and GenUI specs are
+- **Pluggable plugin surface** — providers, export presets, animation types, panel slots and GenUI specs are
   plugin contributions. Disable a plugin and its capability disappears — no hidden built-ins.
 - **Real-time by SSE** — task events, session timeline, render progress and agent streaming share one
   sequencing model, with resume-by-`seq` after refresh.
