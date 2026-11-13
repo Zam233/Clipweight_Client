@@ -24,6 +24,7 @@ import type { TimelineVersionEntry } from '@/services/api/project';
 import { mediaManager } from '@/services/media/mediaManager';
 import { toast } from '@/stores/toastStore';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
+import { usableContributions, type SlotContribution } from '@/features/plugins/slots';
 import { executePluginAction } from '@/features/plugins/executePluginAction';
 
 /**
@@ -313,8 +314,13 @@ export function TimelinePanel() {
 
   // 轮 89（批次 10）：右键菜单项（复用工具栏既有动作）
   // D-3e/f：插件时间轴工具与右键菜单项（受控 API 调用）
-  const pluginTools = usePluginSlots('timeline.tool');
-  const pluginMenuItems = usePluginSlots('timeline.context-menu');
+  // C4：与其他入口同一可见性集合——无 action 或 visibleWhen=false 的贡献不出现。
+  const rawTools = usePluginSlots('timeline.tool');
+  const rawMenuItems = usePluginSlots('timeline.context-menu');
+  const hasAction = (c: SlotContribution) =>
+    Boolean((c.payload as { action?: { endpoint?: string } } | undefined)?.action?.endpoint);
+  const pluginTools = usableContributions(rawTools, {}, hasAction);
+  const pluginMenuItems = usableContributions(rawMenuItems, {}, hasAction);
 
   const buildContextMenuItems = (): TimelineContextMenuItem[] => [
     ...pluginMenuItems.map((c) => {

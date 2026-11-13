@@ -12,6 +12,7 @@ import { toast } from '@/stores/toastStore';
 import { Button, Tooltip } from '@/components/ui';
 import { formatTimecode, uid } from '@/lib/utils';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
+import { usableContributions } from '@/features/plugins/slots';
 import { executePluginAction } from '@/features/plugins/executePluginAction';
 import { HistoryPanel } from '@/features/history/HistoryPanel';
 import {
@@ -48,10 +49,15 @@ export function extractImportError(err: unknown, actionLabel: string): string {
 /** D-3d：插件贡献的工具栏按钮（payload {icon,label,action}；受控代理调用，无任意 JS）。 */
 function PluginToolbarButtons() {
   const items = usePluginSlots('editor.toolbar');
-  if (items.length === 0) return null;
+  // C4：与其他入口同一可见性集合——无 action 或 visibleWhen=false 的贡献不渲染。
+  const usable = usableContributions(items, {}, (c) => {
+    const action = (c.payload as { action?: { endpoint?: string } } | undefined)?.action;
+    return Boolean(action?.endpoint);
+  });
+  if (usable.length === 0) return null;
   return (
     <>
-      {items.map((c) => {
+      {usable.map((c) => {
         const action = (c.payload as { action?: { endpoint?: string; method?: string; body?: Record<string, unknown> } } | undefined)?.action;
         if (!action?.endpoint) return null;
         return (

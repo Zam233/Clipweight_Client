@@ -90,6 +90,7 @@ function gateOf(over: Partial<DependencyGate> = {}): DependencyGate {
       version: '',
       message: '',
       failed: false,
+      cancelled: false,
       waitedSec: 0,
     },
     visible: true,

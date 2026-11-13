@@ -3,7 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useProjectStore } from '@/stores/projectStore';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
 import { Slot } from '@/features/plugins/Slot';
-import { safePluginPath } from '@/features/plugins/slots';
+import { safePluginPath, usableContributions } from '@/features/plugins/slots';
 import { clearRequirementsDraft } from '@/stores/agentStore';
 import {
   useBackendHealthDetail,
@@ -1660,7 +1660,12 @@ function HomeSidebar({ activeTab, onTab }: {
   const navigate = useNavigate();
 
   // D-3a：插件主导航项
-  const pluginNav = usePluginSlots('nav.primary');
+  // C4：与其他入口同一可见性集合——payload.to 非法或 visibleWhen=false 不渲染。
+  const pluginNav = usableContributions(
+    usePluginSlots('nav.primary'),
+    {},
+    (c) => safePluginPath((c.payload as { to?: unknown } | undefined)?.to) !== null,
+  );
 
   const NAV: { id: HomeTab; label: string; icon: typeof Home }[] = [
     { id: 'home', label: '首页', icon: Home },

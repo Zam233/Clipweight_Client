@@ -58,6 +58,8 @@ export interface DependencyState {
   version: string;
   message: string;
   failed: boolean;
+  /** C4：用户主动取消安装——与失败分开，UI 用中性文案，不给“重试”暗示。 */
+  cancelled: boolean;
   waitedSec: number;
 }
 
@@ -68,6 +70,7 @@ const EMPTY: DependencyState = {
   version: '',
   message: '',
   failed: false,
+  cancelled: false,
   waitedSec: 0,
 };
 
@@ -202,6 +205,7 @@ export function useInstallableDependency(
           version: String(node[payload.probe.versionField ?? 'version'] ?? ''),
           message: String(result.message ?? ''),
           failed: result.ok === false,
+          cancelled: false,
           waitedSec: installed ? 0 : prev.waitedSec,
         };
       });
@@ -254,17 +258,21 @@ export function useInstallableDependency(
       if (res.ok === false) {
         // 用户取消不是失败：回到未安装状态即可，别显示“安装没成功”。
         if (res.cancelled === true) {
-          setState((prev) => ({ ...prev, installing: false, failed: false, message: '' }));
+          setState((prev) => ({
+            ...prev, installing: false, failed: false, cancelled: true, message: '',
+          }));
           return;
         }
         setState((prev) => ({
           ...prev,
           installing: false,
           failed: true,
+          cancelled: false,
           message: String(res.message ?? '安装未启动'),
         }));
         return;
       }
+      setState((prev) => ({ ...prev, cancelled: false }));
     } catch (e) {
       setState((prev) => ({
         ...prev,

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from '@tanstack/react-router';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useTaskStore } from '@/stores/taskStore';
 import { usePluginContributions } from '@/features/plugins/usePluginSlots';
+import { usableContributions } from '@/features/plugins/slots';
 import { useProjectStore } from '@/stores/projectStore';
 import { renderApi, projectApi, assetApi, toolApi } from '@/services/api';
 import { connectSseStream, type SseStreamHandle } from '@/services/api/sseStream';
@@ -219,7 +220,12 @@ export function ExportPage() {
   // D-3h：插件贡献的导出预设（kind=export_preset）——键前缀 plugin:，
   // 提交时置空 preset 名走显式参数（后端 _EXPORT_PRESETS 不含插件 id，
   // 避免 P1-06 的「未知导出预设 400」陷阱）
-  const pluginPresets = usePluginContributions('export_preset');
+  // C4：与其他入口同一可见性集合（visibleWhen=false 的预设不出现）。
+  const pluginPresets = usableContributions(
+    usePluginContributions('export_preset'),
+    {},
+    (c) => c.payload != null && typeof c.payload === 'object',
+  );
 
   // 合并后端预设与内置预设；后端字段缺失时回落到内置默认值，避免 NaN/undefined 设置
   const presets = useMemo(() => {

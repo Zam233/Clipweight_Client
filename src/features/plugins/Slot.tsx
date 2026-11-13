@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { asText } from '@/lib/render';
 import { PluginLayoutRenderer, type PluginOptionSource } from './PluginLayoutRenderer';
 import { PluginBundleFrame } from './PluginBundleFrame';
-import { evalVisibleWhen, type SlotName, type SlotVisibilityContext } from './slots';
+import { usableContributions, type SlotName, type SlotVisibilityContext } from './slots';
 import { usePluginSlots } from './usePluginSlots';
 
 interface SlotProps {
@@ -31,9 +31,8 @@ interface SlotProps {
 
 export function Slot({ name, context = {}, fallback = null, renderLayout, filter, optionSources, onValuesChange, readOnly = false }: SlotProps) {
   const items = usePluginSlots(name);
-  const visible = items
-    .filter((c) => (filter ? filter(c) : true))
-    .filter((c) => evalVisibleWhen(c.visibleWhen, context));
+  // C4：与其他消费方共用同一个可见性过滤（fail-closed 语义一致）。
+  const visible = usableContributions(items, context, (c) => (filter ? filter(c) : true));
   if (visible.length === 0) return <>{fallback}</>;
 
   return (

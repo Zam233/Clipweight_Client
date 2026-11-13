@@ -332,3 +332,64 @@ describe('W07/TL-03: 导入 JSON 与代理切换以 local 来源写回（不误�
     expect(stores.timeline.isDirty).toBe(true);
   });
 });
+
+describe('C4：编辑器工具栏插件按钮走受限代理', () => {
+  afterEach(() => cleanup());
+
+  function setupPluginSlot(items: unknown[]) {
+    // jsdom 无 matchMedia：EditorToolbar 用 useMediaQuery('(min-width:1024px)')
+    // 决定是否渲染桌面工具条，必须 stub 成宽屏。
+    vi.stubGlobal('matchMedia', (q: string) => ({
+      matches: true, media: q, onchange: null,
+      addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(),
+      removeListener: vi.fn(), dispatchEvent: vi.fn(),
+    }));
+    vi.doMock('@/features/plugins/usePluginSlots', () => ({
+      usePluginSlots: () => items,
+    }));
+    // 顶部已静态 import 过本模块（无插件 mock 的版本），必须重置注册表才能让
+    // 动态 import 拿到带 mock 的实例。
+    vi.resetModules();
+  }
+
+  it('插件按钮经代理发送 owner/贡献 id，而不是直连业务端点', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    setupPluginSlot([
+      {
+        kind: 'ui_slot', id: 'tb_act', owner: 'tool_plug', title: '插件动作',
+        slot: 'editor.toolbar',
+        payload: { action: { endpoint: '/api/tool/execute', method: 'POST', body: { name: 'tool_plug_run', params: { x: 1 } } } },
+      },
+    ]);
+    mocks.post.mockResolvedValue({ data: { ok: true } });
+    const { EditorToolbar: FreshToolbar } = await import('./EditorToolbar');
+    render(<FreshToolbar />);
+    fireEvent.click(await screen.findByRole('button', { name: '插件动作' }));
+
+    await vi.waitFor(() => expect(mocks.post).toHaveBeenCalled());
+    const [url, body] = mocks.post.mock.calls[0];
+    expect(url).toBe('/api/plugin/proxy/tool_plug/post');
+    expect(body).toMatchObject({ action: 'tool', payload: { name: 'tool_plug_run' } });
+    expect((body as { contribution_id?: string }).contribution_id).toBe('tb_act');
+    confirmSpy.mockRestore();
+    vi.doUnmock('@/features/plugins/usePluginSlots');
+  });
+
+  it('visibleWhen=false 或无 action 的贡献不渲染、不发请求', async () => {
+    setupPluginSlot([
+      {
+        kind: 'ui_slot', id: 'hidden', owner: 'p', title: '隐藏', slot: 'editor.toolbar',
+        visibleWhen: "context.never === 'yes'",
+        payload: { action: { endpoint: '/api/tool/execute', method: 'POST', body: { name: 'n' } } },
+      },
+      { kind: 'ui_slot', id: 'noact', owner: 'p', title: '无动作', slot: 'editor.toolbar' },
+    ]);
+    mocks.post.mockClear();
+    const { EditorToolbar: FreshToolbar } = await import('./EditorToolbar');
+    render(<FreshToolbar />);
+    expect(screen.queryByRole('button', { name: '隐藏' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '无动作' })).toBeNull();
+    expect(mocks.post).not.toHaveBeenCalled();
+    vi.doUnmock('@/features/plugins/usePluginSlots');
+  });
+});

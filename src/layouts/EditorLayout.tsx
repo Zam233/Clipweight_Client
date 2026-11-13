@@ -6,7 +6,7 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { Slot } from '@/features/plugins/Slot';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
-import { evalVisibleWhen } from '@/features/plugins/slots';
+import { usableContributions } from '@/features/plugins/slots';
 import { keybindingEngine } from '@/features/keyboard/KeybindingEngine';
 import { AssetPanel } from '@/features/assets/AssetPanel';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
@@ -70,11 +70,11 @@ export function EditorLayout() {
   // C4：列数必须与 Slot 用同一集合——visibleWhen=false 或无 layout/bundle 的贡献
   // 不会渲染任何东西，旧实现按原始 length 计数会留下空白列。
   const panelContext = { hasTimeline: true };
-  const usable = (list: typeof leftPanelContribs) =>
-    list.filter((c) => (c.layout || c.payload?.bundle) && evalVisibleWhen(c.visibleWhen, panelContext));
-  const leftItems = usable(leftPanelContribs);
-  const bottomItems = usable(bottomPanelContribs);
-  const rightItems = usable(rightPanelContribs);
+  const withContent = (c: (typeof leftPanelContribs)[number]) =>
+    Boolean(c.layout || c.payload?.bundle);
+  const leftItems = usableContributions(leftPanelContribs, panelContext, withContent);
+  const bottomItems = usableContributions(bottomPanelContribs, panelContext, withContent);
+  const rightItems = usableContributions(rightPanelContribs, panelContext, withContent);
   const setMobilePanel = useWorkspaceStore((s) => s.setMobilePanel);
   const reviewMode = useAgentStore((s) => s.reviewMode);
   const setReviewMode = useAgentStore((s) => s.setReviewMode);

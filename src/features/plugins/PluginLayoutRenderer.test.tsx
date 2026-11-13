@@ -156,6 +156,44 @@ describe('PluginLayoutRenderer M11 控件集', () => {
     expect(mocks.post).not.toHaveBeenCalled();
   });
 
+  it('C4：readOnly 预览禁用按钮与 file 控件，点击不确认也不发请求', () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const layout: UILayout = {
+      widgets: [
+        { type: 'button', label: '预览里点我', action: { endpoint: '/api/tool/execute', method: 'POST', body: { name: 'x' } } },
+        { type: 'file', key: 'f', label: '选文件', placeholder: '选择文件' },
+      ],
+    };
+    render(<PluginLayoutRenderer layout={layout} owner="plug_a" contributionId="p_x" readOnly />);
+    const btn = screen.getByRole('button', { name: '预览里点我' }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    const input = screen.getByLabelText('选择文件') as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+
+    fireEvent.click(btn);
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(mocks.post).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('C4：readOnly 下外链图片不渲染，data:/同源相对路径保留', () => {
+    const layout: UILayout = {
+      widgets: [
+        { type: 'image', key: 'bad', sourceField: 'externalUrl', alt: '外链' },
+        { type: 'image', key: 'good', sourceField: 'localUrl', alt: '本地' },
+      ],
+    };
+    render(
+      <PluginLayoutRenderer
+        layout={layout}
+        owner="plug_a"
+        readOnly
+      />,
+    );
+    // 渲染器 state 初始为空 → sourceField 无值 → 不渲染 img（无外链泄漏路径）
+    expect(screen.queryByRole('img')).toBeNull();
+  });
+
   it('visibleWhen 隐藏条件生效', () => {
     const layout: UILayout = {
       widgets: [
