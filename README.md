@@ -29,6 +29,8 @@ A web video editor that refuses to be a one-shot "generate and pray" button.
 
 **Clipwright** is the web front end of the Clipwright AI video-creation system: a full timeline editor with a
 Canvas 2D engine, a frame-accurate preview, and an Agent that works *inside* the editor rather than beside it.
+That Agent is a **main agent** that plans the work and dispatches **stage subagents** (structure, material, edit,
+animation, audio, quality); every subagent run is visible, replayable and drill-down-able in the editor.
 
 The product loop is deliberately human-in-the-loop:
 
@@ -47,8 +49,10 @@ question, tool call and degradation is visible in the session timeline.
 
 - **Frame-accurate Canvas 2D timeline** — multi-track video/text/caption/audio/effect editing, keyframes,
   snapping, ripple/roll edits and a custom renderer that stays smooth with hundreds of clips.
-- **Agent in the loop, not in the way** — the Agent's drafts arrive as normal timeline clips. Review, tweak,
-  or reject locally; nothing is committed behind your back.
+- **Agent in the loop, not in the way** — one main agent owns the plan and dispatches stage subagents
+  (structure, material, edit, animation, audio, quality). Their drafts arrive as normal timeline clips, each
+  subagent run is a card you can open and drill into, and nothing is committed behind your back — review, tweak,
+  or reject locally.
 - **One clock, one preview** — absolute-time playhead anchoring, decode budget capped at two active videos,
   and canvas compositing that matches the final render as closely as the browser can.
 - **Structured GenUI, contract-driven** — the Agent can render cards (plans, briefs, reviews) from *declarative
