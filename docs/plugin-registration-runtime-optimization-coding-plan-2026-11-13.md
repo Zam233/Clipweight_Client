@@ -32,16 +32,18 @@
 已处理：`tts_feature` 整插件拒载（P0）、代理 `contribution_id` 契约不一致导致全布局按钮 403（P0）、调用链祖先丢失（P1）、`category_id` 无调用方 + strict 400（P1）、单插件加载带依赖必失败（P1）、70KB 帧杀 worker 与 `status` 误判失败（P2）、legacy `ui.json` 未按启用过滤（P2）、Job `list()` 未按 task 隔离（P2）、`resultMap` 读错层（P1）、预览非只读（P2）、删除 tooltip 不一致（P3）。
 
 仍开放（按报价从高到低，需另立任务）：
-1. **可见性统一（剩余消费方）**：`EditorLayout` 三列已按「可见且有 layout/bundle」计数；toolbar/timeline/nav/overlay/export 的 `visibleWhen` 尚未统一求值（这些入口当前无该类数据）。
-2. **写操作确认策略（剩余）**：安装入口已用 `confirmHandled` 去掉二次原生框、取消不再显示失败；bundle 档已接入同一确认。仍需把「取消」与「失败」在 UI 文案上彻底拆开（当前只做到不置 failed）。
-3. **失效先隐藏**：`invalidatePluginSlots` 已先清空挂载态再重取。
-4. **C2 配置接口真实性**：`reload()` 现返回 bool，PUT/DELETE 在回滚时返回 500。
-5. **B2 宿主审核 `extra_read_roots`**：已按插件目录/数据目录白名单过滤，越界写错误通道。
-6. **协议版本校验**：host 每条入站帧 `check_version` 并在坏帧时判死；worker 收到坏帧直接退出（码 3）。
-7. **C1 失活 owner 拦截**：`ToolRegistry.execute` 对 `_plugin_id` 已失活的工具返回 NOT_FOUND。
-8. **B1 解包实际字节计数**：改为分块复制并按实际写出量限额。
-9. **`resolve_name` 404/503 语义**：新增 `resolve_any`，网关仍能对「存在但未配置」报 503。
-10. 测试债（剩余）：`EditorToolbar`/`TimelinePanel`/`PluginPage` 的代理动作红测、`PluginsPanel` 预览只读红测仍未补；`pluginApiGuard`（contribution_id/旧 tool/显式 params）、`usePluginSlots` 代际与先隐藏、`sanitizePluginPreset` 已补。
+1. ~~**可见性统一**~~：已收口（`8e87f93`）。新增 `usableContributions()`（slots.ts）作为宿主侧唯一可见性过滤，Slot / EditorLayout / toolbar / timeline / nav / overlay / page / export 全部接入；入口内容有效性（无 action / 无 layout / to 非法 / payload 非对象）fail-closed。
+2. ~~**写操作确认策略**~~：已收口（`7cfc081`/`8e87f93`）。`confirmHandled` 去掉安装双确认；取消走独立 `cancelled` 结果，安装浮层显示「已取消安装」中性文案（`cancelled` 与 `failed` 状态分离）；bundle iframe 接入同一确认。
+3. ~~**失效先隐藏**~~：已收口（`7cfc081`）。`invalidatePluginSlots` 先清空挂载态再重取，慢后端/断网也不残留旧贡献。
+4. ~~**C2 配置接口真实性**~~：已收口（`a7d7924`）。`reload()` 返回 bool，PUT/DELETE 回滚时返回 500。
+5. ~~**B2 宿主审核 `extra_read_roots`**~~：已收口（`a7d7924`）。
+6. ~~**协议版本校验**~~：已收口（`a7d7924`）。
+7. ~~**C1 失活 owner 拦截**~~：已收口（`a7d7924`）。
+8. ~~**B1 解包实际字节计数**~~：已收口（`a7d7924`）。
+9. ~~**`resolve_name` 404/503 语义**~~：已收口（`a7d7924`）。
+10. ~~**测试债**~~：已收口（`7cfc081`/`8e87f93`）。补齐 pluginApiGuard（contribution_id/旧 tool/显式 params）、usePluginSlots（代际/先隐藏）、EditorToolbar（代理动作 + 可见性）、PluginPage（owner/贡献 id/可见性）、PluginLayoutRenderer（readOnly 预览）、usableContributions（6 例）、sanitizePluginPreset（5 例）红测。
+
+**本计划的工作包已全部实施完毕。** 后续任何改动（新 slot、新贡献类型、协议升级）按 PRD 的条件改造触发条款另立 PRD。
 
 ## 1. 执行总则与门槛
 
