@@ -105,8 +105,23 @@ describe('PL-02 快捷键门禁', () => {
     expect(mocks.get).not.toHaveBeenCalled();
   });
 
-  it('白名单 POST 工具执行需用户确认；取消则不发请求', async () => {
+  it('缺少 owner 的写操作直接拒绝：不弹确认、不发请求', async () => {
     mocks.contribs = [contrib({ endpoint: '/api/tool/execute', method: 'POST' })];
+    mocks.confirm.mockReturnValue(true);
+    render(<Probe />);
+    await waitFor(() => expect(mocks.register).toHaveBeenCalledTimes(1));
+    const handler = (mocks.register.mock.calls[0]?.[0] as { handler?: () => void })?.handler;
+    handler?.();
+    expect(mocks.confirm).not.toHaveBeenCalled();
+    expect(mocks.request).not.toHaveBeenCalled();
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it('有 owner 的写操作需用户确认；取消则不发请求', async () => {
+    mocks.contribs = [{
+      ...contrib({ endpoint: '/api/tool/execute', method: 'POST' }),
+      owner: 'example_full',
+    }];
     mocks.confirm.mockReturnValue(false);
     render(<Probe />);
     await waitFor(() => expect(mocks.register).toHaveBeenCalledTimes(1));
@@ -114,6 +129,6 @@ describe('PL-02 快捷键门禁', () => {
     handler?.();
     expect(mocks.confirm).toHaveBeenCalled();
     expect(mocks.request).not.toHaveBeenCalled();
-    expect(mocks.get).not.toHaveBeenCalledWith('/api/tool/execute');
+    expect(mocks.post).not.toHaveBeenCalled();
   });
 });

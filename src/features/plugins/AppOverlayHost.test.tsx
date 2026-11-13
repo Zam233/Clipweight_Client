@@ -214,7 +214,9 @@ describe('useInstallableDependency（probe → 弹框 → 安装 → 轮询成�
     await act(async () => {
       await result.current.install();
     });
-    expect(mocks.trigger).toHaveBeenCalledWith('/api/render/browser/install', 'POST');
+    expect(mocks.trigger).toHaveBeenCalledWith(
+      '/api/render/browser/install', 'POST', '', 'headless_chrome_install_prompt',
+    );
 
     await waitFor(() => expect(result.current.showSuccess).toBe(true));
     expect(result.current.state.version).toContain('156.0.8078.73');

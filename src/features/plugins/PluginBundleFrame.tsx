@@ -45,7 +45,13 @@ interface BundleMessage {
   api?: { endpoint?: string; method?: string; body?: unknown };
 }
 
-export function PluginBundleFrame({ pluginId, title }: { pluginId: string; title: string }) {
+export function PluginBundleFrame({ pluginId, title, contributionId }: {
+  /** C4：贡献归属 owner（不是贡献 id）——bundle 取档与代理路由都用它。 */
+  pluginId: string;
+  title: string;
+  /** C4：贡献 id，写入 proxy.body.contribution_id 供后端核对归属。 */
+  contributionId?: string;
+}) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [html, setHtml] = useState<string | null>(null);
   const [denied, setDenied] = useState(false);
@@ -100,7 +106,7 @@ export function PluginBundleFrame({ pluginId, title }: { pluginId: string; title
         }
         // W01：改写为受限代理请求——服务端按 pluginId 启停 + 清单最终裁定，
         // 插件调用不再直达普通宿主业务 API。
-        const proxy = toPluginProxyRequest(pluginId, decision.call);
+        const proxy = toPluginProxyRequest(pluginId, decision.call, contributionId);
         const client = getApiClient();
         const req = client.post(proxy.url, proxy.body);
         req
@@ -112,7 +118,7 @@ export function PluginBundleFrame({ pluginId, title }: { pluginId: string; title
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, []);
+  }, [pluginId, contributionId]);
 
   return (
     <iframe

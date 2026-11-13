@@ -134,5 +134,11 @@ function PluginTabView({ pluginId }: { pluginId: string }) {
     );
   }
 
-  return <PluginLayoutRenderer layout={layout} />;
+  // C4：legacy ui.json 面板同样带 owner 走受限代理（pluginId 即已加载插件 id）。
+  return <PluginLayoutRenderer
+    key={`${pluginId}:legacy`}
+    layout={layout}
+    owner={pluginId}
+    stateKey={`${pluginId}:legacy`}
+  />;
 }

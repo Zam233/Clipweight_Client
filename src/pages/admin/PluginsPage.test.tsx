@@ -66,7 +66,7 @@ describe('PluginsPage 贡献可见性（B2/C1）', () => {
     }]);
     render(<PluginsPage />);
     const badge = await screen.findByTestId('declared-only-plug_d');
-    expect(badge.textContent).toContain('1 项未生效');
+    expect(badge.textContent).toContain('1 项未启用');
     expect(badge.getAttribute('title')).toContain('material_source:pexels');
   });
 

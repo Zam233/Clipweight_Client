@@ -181,7 +181,7 @@ export function useInstallableDependency(
 
   const refresh = useCallback(async () => {
     try {
-      const raw = await probeEndpoint(payload.probe.endpoint);
+      const raw = await probeEndpoint(payload.probe.endpoint, contribution.owner ?? '', contribution.id);
       if (!alive.current) return;
       const node = asRecord(pickPath(raw, payload.probe.path));
       const installed = Boolean(node[payload.probe.installedField ?? 'installed']);
@@ -210,7 +210,7 @@ export function useInstallableDependency(
       // 端点不可达（后端未启动 / 老版本没有该能力）：静默，绝不弹框打断
       if (alive.current) setState((prev) => (prev.loaded ? prev : { ...EMPTY, loaded: true }));
     }
-  }, [contribution.id, payload.once, payload.probe, stopPolling]);
+  }, [contribution.id, contribution.owner, payload.once, payload.probe, stopPolling]);
 
   useEffect(() => {
     void refresh();
@@ -248,6 +248,8 @@ export function useInstallableDependency(
       const res = await triggerEndpoint(
         payload.install.endpoint,
         payload.install.method ?? 'POST',
+        contribution.owner ?? '',
+        contribution.id,
       );
       if (res.ok === false) {
         setState((prev) => ({
@@ -268,7 +270,7 @@ export function useInstallableDependency(
       return;
     }
     await refresh();
-  }, [payload.install, refresh]);
+  }, [contribution.id, contribution.owner, payload.install, refresh]);
 
   const snooze = useCallback(() => {
     try {

@@ -68,7 +68,12 @@ export function PluginPage() {
     <StandardLayout title={page.title}>
       <div className="max-w-3xl mx-auto space-y-4">
         {page.layout ? (
-          <PluginLayoutRenderer layout={page.layout as never} />
+          <PluginLayoutRenderer
+            key={`${page.owner ?? ''}:${page.id}`}
+            layout={page.layout as never}
+            owner={page.owner}
+            stateKey={`${page.owner ?? ''}:${page.id}`}
+          />
         ) : (
           <p className="text-body-sm text-on-surface-variant">该插件页面未提供布局内容。</p>
         )}

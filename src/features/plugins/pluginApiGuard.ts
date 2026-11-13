@@ -69,21 +69,53 @@ export const PLUGIN_PROXY_ACTIONS: Readonly<Record<string, string>> = {
   '/api/render/browser/install': 'install',
 };
 
-/** 把授权后的调用改写为受限代理请求（服务端最终裁定）。 */
+/**
+ * C4：旧版 `ui.json` 的按钮 body 用 `{tool: "..."}`，而 `/api/tool/execute`
+ * 契约是 `{name, params}`。只在这里做一次性兼容映射（并告警），不把 `tool`
+ * 写回代理 payload，也不静默接受其它任意字段。
+ */
+let toolDeprecationWarned = false;
+function resolveToolName(body: Record<string, unknown>): unknown {
+  const name = body.name;
+  if (name !== undefined && name !== null && name !== '') return name;
+  const tool = body.tool;
+  if (tool === undefined || tool === null || tool === '') return name ?? '';
+  if (!toolDeprecationWarned) {
+    toolDeprecationWarned = true;
+    // eslint-disable-next-line no-console
+    console.warn('[plugin] 旧版 ui.json 使用 body.tool（已废弃），请改用 body.name；本次已兼容映射为 name。');
+  }
+  return tool;
+}
+
+/** 把授权后的调用改写为受限代理请求（服务端最终裁定）。
+ *  `contributionId`（可选）写入 proxy.body 顶层，供后端核对 (ui_slot,id) 归属。 */
 export function toPluginProxyRequest(
-  pluginId: string, call: AuthorizedPluginCall,
+  pluginId: string, call: AuthorizedPluginCall, contributionId?: string,
 ): { url: string; body: Record<string, unknown> } {
   const action = PLUGIN_PROXY_ACTIONS[call.endpoint] ?? '';
   const methodPart = call.method === 'GET' ? 'get' : 'post';
+  // 工具执行：显式 params 优先；旧 ui.json 把字段平铺在 body 顶层（如 tone/speed），
+  // 除 name 外一律收进 params，保持旧按钮可用且不改变代理契约。
+  let payload: Record<string, unknown> = call.body;
+  if (call.endpoint === '/api/tool/execute') {
+    const raw = (call.body ?? {}) as Record<string, unknown>;
+    const explicit = raw.params;
+    const rest = Object.fromEntries(
+      Object.entries(raw).filter(([k]) => k !== 'name' && k !== 'params' && k !== 'tool'),
+    );
+    payload = {
+      name: resolveToolName(call.body),
+      params: explicit && typeof explicit === 'object' && !Array.isArray(explicit)
+        ? { ...rest, ...(explicit as Record<string, unknown>) }
+        : rest,
+    };
+  }
+  const body: Record<string, unknown> = { action, payload };
+  if (contributionId) body.contribution_id = contributionId;
   return {
     url: `/api/plugin/proxy/${encodeURIComponent(pluginId)}/${methodPart}`,
-    body: {
-      action,
-      // 工具执行：{name, params}；探针：payload 不带路径，服务端自映射
-      payload: call.endpoint === '/api/tool/execute'
-        ? { name: (call.body as { name?: unknown }).name ?? '', params: (call.body as { params?: unknown }).params ?? {} }
-        : call.body,
-    },
+    body,
   };
 }
 

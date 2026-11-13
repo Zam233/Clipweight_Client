@@ -23,7 +23,7 @@ vi.mock('@/services/api', () => ({
 }));
 
 describe('PluginLayoutRenderer M11 控件集', () => {
-  it('渲染 input / select / checkbox / slider 并写入状态', () => {
+  it('渲染 input / select / checkbox / slider 并写入状态', async () => {
     const layout: UILayout = {
       widgets: [
         { type: 'input', key: 'name', label: '名称', defaultValue: '张三' },
@@ -37,8 +37,9 @@ describe('PluginLayoutRenderer M11 控件集', () => {
       ],
     };
 
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     mocks.post.mockResolvedValue({ data: { ok: true } });
-    render(<PluginLayoutRenderer layout={layout} />);
+    render(<PluginLayoutRenderer layout={layout} owner="plug_a" stateKey="plug_a:demo" />);
 
     // input defaultValue
     expect((screen.getByLabelText('名称') as HTMLInputElement).value).toBe('张三');
@@ -49,16 +50,25 @@ describe('PluginLayoutRenderer M11 控件集', () => {
     // slider defaultValue
     expect((screen.getByLabelText(/速度/) as HTMLInputElement).value).toBe('5');
 
-    // 修改控件后按钮提交携带插值状态
+    // 修改控件后按钮提交携带插值状态，且统一走受限代理（不是直连业务端点）
     fireEvent.change(screen.getByLabelText('名称'), { target: { value: '李四' } });
     fireEvent.change(screen.getByLabelText('语气'), { target: { value: '专业' } });
     fireEvent.click(screen.getByLabelText('启用'));
     fireEvent.change(screen.getByLabelText(/速度/), { target: { value: '8' } });
     fireEvent.click(screen.getByRole('button', { name: '提交' }));
 
-    expect(mocks.post).toHaveBeenCalledWith('/api/tool/execute',
-      { name: '李四', tone: '专业', enabled: false, speed: 8 },
-      { headers: { 'Content-Type': 'application/json' } });
+    await vi.waitFor(() => expect(confirmSpy).toHaveBeenCalled());
+    await vi.waitFor(() => expect(mocks.post).toHaveBeenCalled());
+    const [url, body] = mocks.post.mock.calls[0];
+    expect(url).toBe('/api/plugin/proxy/plug_a/post');
+    // 代理契约：tool 只透传 {name, params}；控件插值必须已解析进 params。
+    expect(body).toMatchObject({
+      action: 'tool',
+      payload: { name: '李四' },
+    });
+    expect((body as { payload: { params?: Record<string, unknown> } }).payload.params)
+      .toMatchObject({ tone: '专业', enabled: false, speed: 8 });
+    confirmSpy.mockRestore();
   });
 
   it('PL-01：布局按钮打未登记端点 → 拒绝且不发请求，写入 errorKey', async () => {
@@ -69,7 +79,7 @@ describe('PluginLayoutRenderer M11 控件集', () => {
         { type: 'alert', severity: 'error', textField: 'err' },
       ],
     };
-    render(<PluginLayoutRenderer layout={layout} />);
+    render(<PluginLayoutRenderer layout={layout} owner="plug_a" />);
     fireEvent.click(screen.getByRole('button', { name: '删项目' }));
     await vi.waitFor(() => expect(screen.getByText(/未在宿主白名单中登记/)).toBeTruthy());
     expect(mocks.post).not.toHaveBeenCalled();
@@ -83,7 +93,7 @@ describe('PluginLayoutRenderer M11 控件集', () => {
         { type: 'alert', severity: 'error', textField: 'err' },
       ],
     };
-    render(<PluginLayoutRenderer layout={layout} />);
+    render(<PluginLayoutRenderer layout={layout} owner="plug_a" />);
     fireEvent.click(screen.getByRole('button', { name: '越权' }));
     await vi.waitFor(() => expect(screen.getByText(/插件 API 调用被拒绝/)).toBeTruthy());
     expect(mocks.post).not.toHaveBeenCalled();

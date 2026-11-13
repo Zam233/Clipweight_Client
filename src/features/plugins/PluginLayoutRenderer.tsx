@@ -6,13 +6,12 @@
  * binding, API calls, and conditional rendering.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getApiClient } from '@/services/api';
 import { Button } from '@/components/ui';
 import { Loader2, AlertCircle, CheckCircle2, Info, Upload, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { asText } from '@/lib/render';
 import type { UILayout, UIWidget, UIRenderState } from './types';
-import { authorizePluginCall } from './pluginApiGuard';
+import { executePluginAction } from './executePluginAction';
 
 /**
  * PL-03：插件 layout 来自后端/模型产物，TS 声明为 string 的字段运行时可能是
@@ -42,9 +41,12 @@ function sanitizeLayout(raw: UILayout): UILayout {
     if ('options' in o && Array.isArray(o.options)) {
       o.options = (o.options as unknown[]).filter((s): s is string => typeof s === 'string');
     }
+    // C4：容器 children/widgets 非数组时安全降级为空数组（旧实现直接 .map 会白屏）。
     for (const container of ['children', 'widgets']) {
-      if (container in o && Array.isArray(o[container])) {
-        o[container] = (o[container] as unknown[]).map(walk);
+      if (container in o) {
+        o[container] = Array.isArray(o[container])
+          ? (o[container] as unknown[]).map(walk)
+          : [];
       }
     }
     return o as unknown as UIWidget;
@@ -56,6 +58,27 @@ function sanitizeLayout(raw: UILayout): UILayout {
   };
 }
 
+/** C4：只允许 data:/blob: 或同源相对路径；拒绝外链 http(s)/协议相对/其它协议。 */
+export function safeImageSrc(raw: unknown): string {
+  const src = typeof raw === 'string' ? raw.trim() : '';
+  if (!src) return '';
+  if (src.startsWith('data:') || src.startsWith('blob:')) return src;
+  // 协议相对 //host、任意 scheme（http:/https:/javascript:）与反斜杠一律拒绝
+  if (src.startsWith('//') || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(src) || src.includes('\\')) return '';
+  // 其余为同源相对路径（/foo.png、foo/bar.png、./x.png）
+  return src;
+}
+
+/** C4：alert severity 白名单，非法值回退 info（避免 colors/icons 索引 undefined 崩溃）。 */
+function safeSeverity(raw: unknown): 'error' | 'info' | 'success' {
+  return raw === 'error' || raw === 'success' ? raw : 'info';
+}
+
+/** C4：响应合并 state 时过滤原型污染键与未声明的目标键。 */
+function safeStateKey(key: string): boolean {
+  return key !== '__proto__' && key !== 'constructor' && key !== 'prototype';
+}
+
 export interface PluginOptionSource {
   value: string;
   label: string;
@@ -65,25 +88,37 @@ export function PluginLayoutRenderer({
   layout,
   optionSources,
   onChange,
+  owner,
+  stateKey,
+  readOnly = false,
 }: {
   layout: UILayout;
   /** 宿主提供的动态选项（白名单数据源名 → 选项）。插件不能读任意数据。 */
   optionSources?: Record<string, PluginOptionSource[]>;
   /** 控件值变化回调（宿主据此接入业务流程，如创作页的配音入口）。 */
   onChange?: (values: Record<string, unknown>) => void;
+  /** C4：贡献所属插件 owner——按钮动作的受限代理按它路由，缺失即拒绝。 */
+  owner?: string;
+  /** C4：按贡献身份隔离渲染状态（不同 owner/id 不串用）。 */
+  stateKey?: string;
+  /** C4：管理页 UI 预览只读——button/file 禁用，image 不渲染外链。 */
+  readOnly?: boolean;
 }) {
+  // C4：状态按贡献身份隔离——身份变化时清空残留（渲染期条件重置，React 官方模式），
+  // 配合调用方传入的 React key 可保证不同 owner/id 的渲染器互不串用。
+  const identity = stateKey ?? owner ?? '';
   const [state, setState] = useState<UIRenderState>({});
   // PL-03：先归一化整棵布局树，后续所有渲染点拿到的都是安全字符串。
   const safeLayout = useMemo(() => sanitizeLayout(layout), [layout]);
   const updatingRef = useRef(false);
-  // P2-17: schema（布局）变化时重置渲染状态——旧实现跨插件/跨版本复用 state，
-  // 残留的旧 key 会污染新布局的取值
+  // P2-17 + C4：布局（schema）或贡献身份变化时重置渲染状态——旧实现跨插件/
+  // 跨版本复用 state，残留旧 key 会污染新布局取值，两个同 id 不同 owner 也会串用。
   const layoutSig = JSON.stringify(safeLayout);
-  const prevSigRef = useRef(layoutSig);
-  if (prevSigRef.current !== layoutSig) {
-    // React 官方支持的「渲染期条件重置」模式：布局（schema）变化即清空
-    // 残留状态，避免旧 key 污染新布局取值
-    prevSigRef.current = layoutSig;
+  const sig = `${identity}::${layoutSig}`;
+  const prevSigRef = useRef(sig);
+  if (prevSigRef.current !== sig) {
+    // React 官方支持的「渲染期条件重置」模式
+    prevSigRef.current = sig;
     setState({});
   }
   // 动作序号：丢弃过期响应，避免快速连点导致旧响应覆盖新状态
@@ -121,13 +156,16 @@ export function PluginLayoutRenderer({
   const handleAction = useCallback(
     async (widget: { type: 'button'; label: string; action: import('./types').UIAction; disabledWhen?: string }) => {
       const { action } = widget;
-      // Interpolate "${key}" references in body
+      // C4：只读预览绝不执行动作（管理页 UI 预览不允许发 HTTP / 上传 / 编辑命令）。
+      if (readOnly) return;
+      // Interpolate "${key}" references in body（跳过原型键，防污染 state）。
       const resolveBody = (obj: Record<string, unknown>): Record<string, unknown> => {
         const result: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(obj)) {
+          if (!safeStateKey(k)) continue;
           if (typeof v === 'string' && v.startsWith('${') && v.endsWith('}')) {
             const fieldKey = v.slice(2, -1);
-            result[k] = state[fieldKey] ?? '';
+            result[k] = safeStateKey(fieldKey) ? (state[fieldKey] ?? '') : '';
           } else if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
             result[k] = resolveBody(v as Record<string, unknown>);
           } else {
@@ -138,21 +176,20 @@ export function PluginLayoutRenderer({
       };
 
       const body = action.body ? resolveBody(action.body) : undefined;
-      // PL-01/02 同源风险：声明式布局的 button.action 也是插件提供的 endpoint/method。
-      // 与 iframe call / shortcut 共用同一门禁，默认拒绝未登记端点与破坏性方法。
-      const decision = authorizePluginCall({
-        endpoint: action.endpoint, method: action.method, body,
-      });
-      const seq = ++actionSeqRef.current;
-      if (!decision.ok) {
-        const updates: Record<string, unknown> = {};
-        if (action.loadingKey) updates[action.loadingKey] = false;
-        if (action.errorKey) updates[action.errorKey] = decision.message;
-        setState((s) => ({ ...s, ...updates }));
-        return;
+      // C4：兼容旧版 ui.json 的 body.tool → body.name（仅 /api/tool/execute 且无 name）。
+      // toPluginProxyRequest 里也有兜底映射，这里补一次并显式告警一次，保证升级用户可用。
+      let specBody = body;
+      if (action.endpoint === '/api/tool/execute' && body) {
+        const rec = body as Record<string, unknown>;
+        if ((rec.name === undefined || rec.name === null || rec.name === '') &&
+            rec.tool !== undefined && rec.tool !== null && rec.tool !== '') {
+          specBody = { ...rec, name: rec.tool };
+          // eslint-disable-next-line no-console
+          console.warn('[plugin] 旧版 ui.json 按钮 body 使用 tool 字段，已兼容补 name；请改用 name。');
+        }
       }
-      const { endpoint: safeEndpoint, method: safeMethod, body: safeBody } = decision.call;
 
+      const seq = ++actionSeqRef.current;
       // Set loading state
       if (action.loadingKey) {
         updatingRef.current = true;
@@ -160,53 +197,45 @@ export function PluginLayoutRenderer({
         updatingRef.current = false;
       }
 
-      try {
-        const config =
-          safeMethod === 'GET'
-            ? { params: safeBody }
-            : { headers: { 'Content-Type': 'application/json' } };
-        const res =
-          safeMethod === 'GET'
-            ? await getApiClient().get(safeEndpoint, config)
-            : await getApiClient().post(safeEndpoint, safeBody, config);
+      // C4：统一执行器——门禁、受限代理、owner 归属、写操作确认都收敛到一处。
+      const result = await executePluginAction(
+        owner ?? '',
+        { endpoint: action.endpoint, method: action.method, body: specBody },
+        { contributionId: identity, label: widget.label },
+      );
+      if (seq !== actionSeqRef.current) return; // 过期响应，丢弃
 
-        const data = res.data;
-        const updates: Record<string, unknown> = {};
-
-        if (action.successKey) updates[action.successKey] = true;
-        if (action.loadingKey) updates[action.loadingKey] = false;
-
-        // Map response fields to state
+      const updates: Record<string, unknown> = {};
+      if (action.loadingKey && safeStateKey(action.loadingKey)) {
+        updates[action.loadingKey] = false;
+      }
+      if (!result.ok) {
+        // 取消（用户主动）不写 errorKey，避免预览里出现误报错。
+        if (result.reason !== 'cancelled' && action.errorKey && safeStateKey(action.errorKey)) {
+          updates[action.errorKey] = result.message ?? '插件动作执行失败';
+        }
+      } else {
+        if (action.successKey && safeStateKey(action.successKey)) updates[action.successKey] = true;
+        if (action.errorKey && safeStateKey(action.errorKey)) updates[action.errorKey] = null;
+        // C4：响应合并 state 只允许 resultMap 显式声明的 key（无 resultMap 时
+        // 不再 Object.assign(updates, data) 全量合并），并过滤原型键。
         if (action.resultMap) {
+          const data = result.data;
           for (const [stateKey, dataPath] of Object.entries(action.resultMap)) {
-            const val = dataPath.split('.').reduce((obj: unknown, k: string) => {
+            if (!safeStateKey(stateKey)) continue;
+            const val = String(dataPath).split('.').reduce((obj: unknown, k: string) => {
               if (obj && typeof obj === 'object') return (obj as Record<string, unknown>)[k];
               return undefined;
             }, data);
             if (val !== undefined) updates[stateKey] = val;
           }
-        } else {
-          // Default: merge data into state
-          if (data && typeof data === 'object') Object.assign(updates, data);
         }
-
-        if (action.errorKey) updates[action.errorKey] = null;
-        if (seq !== actionSeqRef.current) return; // 过期响应，丢弃
-        updatingRef.current = true;
-        setState((s) => ({ ...s, ...updates }));
-        updatingRef.current = false;
-      } catch (e: unknown) {
-        if (seq !== actionSeqRef.current) return;
-        const errMsg = e instanceof Error ? e.message : '请求失败';
-        const updates: Record<string, unknown> = {};
-        if (action.loadingKey) updates[action.loadingKey] = false;
-        if (action.errorKey) updates[action.errorKey] = errMsg;
-        updatingRef.current = true;
-        setState((s) => ({ ...s, ...updates }));
-        updatingRef.current = false;
       }
+      updatingRef.current = true;
+      setState((s) => ({ ...s, ...updates }));
+      updatingRef.current = false;
     },
-    [state],
+    [state, owner, identity, readOnly],
   );
 
   const renderWidget = useMemo(
@@ -343,7 +372,7 @@ export function PluginLayoutRenderer({
           }
 
           case 'button': {
-            const disabled = widget.disabledWhen ? !!getValue(widget.disabledWhen) : false;
+            const disabled = readOnly || (widget.disabledWhen ? !!getValue(widget.disabledWhen) : false);
             return (
               <Button
                 key={widget.label}
@@ -358,7 +387,8 @@ export function PluginLayoutRenderer({
           }
 
           case 'image': {
-            const src = (getValue(widget.sourceField) as string) ?? '';
+            // C4：只读预览不渲染任何外链 http(s) src；其余场景也只允许 data:/blob:/同源相对路径。
+            const src = safeImageSrc(getValue(widget.sourceField));
             if (!src) return null;
             return (
               <div key={widget.sourceField} className="rounded-cw-sm overflow-hidden border border-outline-variant/20">
@@ -385,11 +415,13 @@ export function PluginLayoutRenderer({
               success: 'border-track-video/20 bg-track-video/5 text-track-video',
             };
             const icons = { error: AlertCircle, info: Info, success: CheckCircle2 };
-            const Icon = icons[widget.severity];
+            // C4：非法 severity 安全回退 info（不索引 undefined 导致白屏）。
+            const severity = safeSeverity(widget.severity);
+            const Icon = icons[severity];
             return (
               <div
                 key={widget.textField}
-                className={cn('flex items-start gap-2 px-3 py-2 rounded-cw-sm border text-caption', colors[widget.severity])}
+                className={cn('flex items-start gap-2 px-3 py-2 rounded-cw-sm border text-caption', colors[severity])}
               >
                 <Icon className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                 <span>{msg}</span>
@@ -419,7 +451,7 @@ export function PluginLayoutRenderer({
                 className="flex items-center gap-2"
                 style={{ gap: widget.gap != null ? `${widget.gap * 4}px` : undefined }}
               >
-                {widget.children.map((w, i) => renderWidget(w, i))}
+                {(Array.isArray(widget.children) ? widget.children : []).map((w, i) => renderWidget(w, i))}
               </div>
             );
           }
@@ -431,7 +463,7 @@ export function PluginLayoutRenderer({
                 className="flex flex-col"
                 style={{ gap: widget.gap != null ? `${widget.gap * 4}px` : '12px' }}
               >
-                {widget.children.map((w, i) => renderWidget(w, i))}
+                {(Array.isArray(widget.children) ? widget.children : []).map((w, i) => renderWidget(w, i))}
               </div>
             );
           }
@@ -440,7 +472,7 @@ export function PluginLayoutRenderer({
             return (
               <div key={`group-${idx}`} className="rounded-cw-sm border border-outline-variant/20 p-3 space-y-3">
                 {widget.title && <h4 className="text-label font-medium text-on-surface-variant">{widget.title}</h4>}
-                {widget.children.map((w, i) => renderWidget(w, i))}
+                {(Array.isArray(widget.children) ? widget.children : []).map((w, i) => renderWidget(w, i))}
               </div>
             );
           }
@@ -470,6 +502,7 @@ export function PluginLayoutRenderer({
                   <input
                     type="file"
                     accept={widget.accept}
+                    disabled={readOnly}
                     className="sr-only"
                     onChange={(e) => {
                       const f = e.target.files?.[0] ?? null;
@@ -485,7 +518,8 @@ export function PluginLayoutRenderer({
                       type="button"
                       title="清除已选文件"
                       // label 包裹的按钮默认会继续触发文件选择，必须阻止
-                      onClick={(e) => { e.preventDefault(); setUIState(widget.key, null); }}
+                      onClick={(e) => { e.preventDefault(); if (!readOnly) setUIState(widget.key, null); }}
+                      disabled={readOnly}
                       className="p-0.5 rounded-cw-xs text-on-surface-variant hover:text-error cursor-pointer shrink-0"
                     >
                       <X className="w-3 h-3" />
@@ -510,7 +544,7 @@ export function PluginLayoutRenderer({
             );
         }
       },
-    [getValue, handleAction, setUIState],
+    [getValue, handleAction, setUIState, readOnly, optionSources],
   );
 
   return <div className="space-y-3">{safeLayout.widgets.map((w, i) => renderWidget(w, i))}</div>;

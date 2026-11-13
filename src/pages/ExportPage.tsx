@@ -11,7 +11,7 @@ import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge } from '@/components/ui';
 import { uid, formatTimecode } from '@/lib/utils';
 import { asText } from '@/lib/render';
-import { resolveContainerExt, type ExportPresetDef } from './exportPreset';
+import { resolveContainerExt, sanitizePluginPreset, type ExportPresetDef } from './exportPreset';
 import { clampPreroll, prerollPayload } from '@/services/api/preroll';
 import { fingerprintLabel, timelineChanged, timelineFingerprint } from './exportSnapshot';
 import type { ExportSettings, RenderProgress } from '@/types/api';
@@ -222,18 +222,11 @@ export function ExportPage() {
   const presets = useMemo(() => {
     const withPlugins: Record<string, PresetDef> = { ...PRESETS };
     for (const c of pluginPresets) {
-      const payload = (c.payload ?? {}) as Partial<PresetDef>;
-      if (!payload.width || !payload.height) continue;
-      withPlugins[`plugin:${c.id}`] = {
-        name: String(payload.name ?? c.title ?? c.id),
-        icon: c.icon ?? '🧩',
-        width: payload.width,
-        height: payload.height,
-        fps: payload.fps ?? 30,
-        bitrate: payload.bitrate ?? '6M',
-        // B12：插件预设可声明容器（payload.container / payload.ext）
-        ...(payload.container ? { container: String(payload.container) } : {}),
-      };
+      // C4：插件预设 payload 逐字段校验（正整数宽高 / 有限正 fps / 字符串 bitrate /
+      // 容器白名单），非法预设整条忽略，不让任意值混入导出设置。
+      const safe = sanitizePluginPreset(c.payload, { id: c.id, title: c.title, icon: c.icon });
+      if (!safe) continue;
+      withPlugins[`plugin:${c.id}`] = safe;
     }
     if (!apiPresets || Object.keys(apiPresets).length === 0) return withPlugins;
     const merged: Record<string, PresetDef> = { ...withPlugins };

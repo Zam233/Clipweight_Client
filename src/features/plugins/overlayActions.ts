@@ -5,10 +5,15 @@
  * 插件不提供任何前端代码。这里只做两件最普通的事——按端点 GET 探状态、
  * 按端点 POST 触发安装——渲染层据此决定弹不弹框。
  *
+ * C4：不再直连宿主业务 API。probe/trigger 统一走 `executePluginAction`
+ * 的受限代理（服务端按 owner 启停 + 贡献归属 + 工具权限最终裁定），
+ * 但仍保留 `authorizePluginCall` 的前置白名单校验（fail-closed）。
+ * `owner` 由调用方从贡献里给出；缺失即拒绝且零请求。
+ *
  * 单独成模块是为了让测试只 mock 这两个函数，而不是整条 axios 客户端。
  */
-import { getApiClient } from '@/services/api/client';
 import { authorizePluginCall } from './pluginApiGuard';
+import { executePluginAction } from './executePluginAction';
 
 export type Json = Record<string, unknown>;
 
@@ -28,26 +33,40 @@ export function asRecord(value: unknown): Json {
   return value && typeof value === 'object' ? (value as Json) : {};
 }
 
-/** GET probe 端点，返回原始 JSON（失败抛错，由调用方静默处理）。
- *  PL-01：插件声明的 probe 端点同样先过宿主白名单，非法即抛错不发请求。 */
-export async function probeEndpoint(endpoint: string): Promise<Json> {
+/**
+ * GET probe 端点，返回原始 JSON（失败抛错，由调用方静默处理）。
+ * PL-01：插件声明的 probe 端点先过宿主白名单，非法即抛错不发请求。
+ * C4：owner 缺失 / 代理失败均为可读错误，绝不回退到直连。
+ */
+export async function probeEndpoint(endpoint: string, owner = '', contributionId = ''): Promise<Json> {
   const decision = authorizePluginCall({ endpoint, method: 'GET' });
   if (!decision.ok) throw new Error(decision.message);
-  const { data } = await getApiClient().get(decision.call.endpoint);
-  return asRecord(data);
+  const result = await executePluginAction(owner, { endpoint, method: 'GET' }, {
+    contributionId,
+  });
+  if (!result.ok) throw new Error(result.message ?? '探针请求失败');
+  return asRecord(result.data);
 }
 
-/** 触发安装：默认 POST，可声明 PUT/DELETE（破坏性方法一律被门禁拒绝）。 */
+/**
+ * 触发安装：默认 POST（破坏性方法一律被门禁拒绝）。
+ * C4：安装是写操作，由执行器在发请求前逐次 `window.confirm`。
+ */
 export async function triggerEndpoint(
   endpoint: string,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'POST',
+  owner = '',
+  contributionId = '',
 ): Promise<Json> {
   const decision = authorizePluginCall({ endpoint, method });
   if (!decision.ok) throw new Error(decision.message);
-  const safe = decision.call;
-  const client = getApiClient();
-  const { data } = safe.method === 'GET'
-    ? await client.get(safe.endpoint)
-    : await client.post(safe.endpoint, safe.body);
-  return asRecord(data);
+  const result = await executePluginAction(owner, { endpoint, method }, {
+    contributionId,
+    label: '安装依赖',
+  });
+  if (!result.ok) {
+    // 取消同样以 `{ok:false}` 回报，让 hook 如实呈现「未启动」，而不是吞掉。
+    return { ok: false, message: result.message ?? '安装请求失败' };
+  }
+  return asRecord(result.data);
 }

@@ -24,19 +24,23 @@ import type { TimelineVersionEntry } from '@/services/api/project';
 import { mediaManager } from '@/services/media/mediaManager';
 import { toast } from '@/stores/toastStore';
 import { usePluginSlots } from '@/features/plugins/usePluginSlots';
-import { getApiClient } from '@/services/api';
+import { executePluginAction } from '@/features/plugins/executePluginAction';
 
 /**
  * TimelinePanel — hosts the Canvas timeline engine plus transport/track controls.
  */
-/** D-3：插件槽位动作执行器（受控 API 调用，无任意 JS；失败 toast）。 */
-function runSlotAction(label: string, action: { endpoint: string; method?: string; body?: Record<string, unknown> }) {
-  const method = String(action.method ?? 'POST').toUpperCase();
-  const client = getApiClient();
-  const req = method === 'GET'
-    ? client.get(action.endpoint)
-    : client.request({ url: action.endpoint, method, data: action.body ?? {} });
-  req.catch(() => toast(`插件操作失败：${label}`, 'error'));
+/** D-3/C4：插件槽位动作执行器（统一受限代理 + owner 归属 + 失败 toast）。 */
+function runSlotAction(
+  owner: string,
+  contributionId: string,
+  label: string,
+  action: { endpoint: string; method?: string; body?: Record<string, unknown> },
+) {
+  void executePluginAction(owner, action, { contributionId, label }).then((result) => {
+    if (!result.ok && result.reason !== 'cancelled') {
+      toast(`插件操作失败：${label} — ${result.message ?? ''}`, 'error');
+    }
+  });
 }
 
 export function TimelinePanel() {
@@ -321,7 +325,11 @@ export function TimelinePanel() {
         shortcut,
         danger: Boolean((c.payload as { danger?: boolean } | undefined)?.danger),
         disabled: !action?.endpoint,
-        onSelect: () => { if (action?.endpoint) runSlotAction(c.title, { ...action, endpoint: action.endpoint }); },
+        onSelect: () => {
+          if (action?.endpoint) {
+            runSlotAction(c.owner ?? '', c.id, c.title, { ...action, endpoint: action.endpoint });
+          }
+        },
       } as TimelineContextMenuItem;
     }),
     {
@@ -388,7 +396,7 @@ export function TimelinePanel() {
             return (
               <Tooltip key={c.id} content={c.title}>
                 <button
-                  onClick={() => runSlotAction(c.title, { ...action, endpoint: action.endpoint! })}
+                  onClick={() => runSlotAction(c.owner ?? '', c.id, c.title, { ...action, endpoint: action.endpoint! })}
                   className="p-1.5 rounded-cw-xs text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
                 >
                   <Zap className="w-3.5 h-3.5" />
