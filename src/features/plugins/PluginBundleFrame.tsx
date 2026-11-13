@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getApiClient } from '@/services/api';
 import { apiBase } from '@/services/api/sse';
-import { authorizePluginCall, toPluginProxyRequest } from './pluginApiGuard';
+import { authorizePluginCall, pluginCallNeedsConfirm, toPluginProxyRequest } from './pluginApiGuard';
 
 /** B16：sandbox iframe 的 origin 恒为字符串 'null'（无 same-origin）。 */
 const SANDBOX_ORIGIN = 'null';
@@ -103,6 +103,17 @@ export function PluginBundleFrame({ pluginId, title, contributionId }: {
         if (!decision.ok) {
           reply({ type: 'result', ok: false, error: decision.message, reason: decision.reason });
           return;
+        }
+        // C4：沙箱脚本发起的写操作与声明式按钮同一口径——发请求前逐次确认。
+        // 取消时如实回 cancelled，不当作失败。
+        if (pluginCallNeedsConfirm(decision.call.endpoint) || decision.call.method !== 'GET') {
+          const confirmed = typeof window !== 'undefined' && typeof window.confirm === 'function'
+            ? window.confirm(`插件「${title}」请求执行操作：${decision.call.endpoint}\n是否继续？`)
+            : false;
+          if (!confirmed) {
+            reply({ type: 'result', ok: false, error: '用户取消，未发起请求', reason: 'cancelled' });
+            return;
+          }
         }
         // W01：改写为受限代理请求——服务端按 pluginId 启停 + 清单最终裁定，
         // 插件调用不再直达普通宿主业务 API。

@@ -31,6 +31,8 @@ export interface ExecutePluginActionOptions {
   contributionId?: string;
   /** 强制要求用户确认（用于宿主判定的安装等动作；不会关闭写操作的默认确认）。 */
   requireConfirm?: boolean;
+  /** 调用方刚刚已经向用户确认过（例如用户点击“立即安装”）；不再弹第二次原生框。 */
+  confirmHandled?: boolean;
   /** 确认框里展示的可读动作名（缺省用端点）。 */
   label?: string;
 }
@@ -91,10 +93,11 @@ export async function executePluginAction(
   const { endpoint, method } = decision.call;
 
   // 写操作在真正发请求前逐次确认；`requireConfirm` 只可加强，不可关闭默认确认。
+  // `confirmHandled` 用于“宿主刚刚自己弹过确认”的入口（例如安装依赖：用户点的
+  // “立即安装”本身就是确认），避免同一动作弹两次原生框。
   const mustConfirm =
     options.requireConfirm === true ||
-    pluginCallNeedsConfirm(endpoint) ||
-    method !== 'GET';
+    (!options.confirmHandled && (pluginCallNeedsConfirm(endpoint) || method !== 'GET'));
   if (mustConfirm) {
     const label = options.label || endpoint;
     const confirmed =

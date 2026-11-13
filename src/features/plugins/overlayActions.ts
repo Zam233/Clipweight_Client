@@ -50,7 +50,8 @@ export async function probeEndpoint(endpoint: string, owner = '', contributionId
 
 /**
  * 触发安装：默认 POST（破坏性方法一律被门禁拒绝）。
- * C4：安装是写操作，由执行器在发请求前逐次 `window.confirm`。
+ * C4：安装是写操作；用户点“立即安装”本身已是确认，`confirmHandled` 避免二次原生框。
+ * 取消返回 `cancelled` 结果，调用方据此显示“已取消”而不是“安装失败”。
  */
 export async function triggerEndpoint(
   endpoint: string,
@@ -63,10 +64,14 @@ export async function triggerEndpoint(
   const result = await executePluginAction(owner, { endpoint, method }, {
     contributionId,
     label: '安装依赖',
+    confirmHandled: true,
   });
   if (!result.ok) {
-    // 取消同样以 `{ok:false}` 回报，让 hook 如实呈现「未启动」，而不是吞掉。
-    return { ok: false, message: result.message ?? '安装请求失败' };
+    return {
+      ok: false,
+      cancelled: result.reason === 'cancelled',
+      message: result.message ?? '安装请求失败',
+    };
   }
   return asRecord(result.data);
 }

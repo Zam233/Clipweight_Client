@@ -208,6 +208,9 @@ function useResyncOnInvalidate(
     let alive = true;
     const off = onPluginSlotsInvalidated(() => {
       const gen = generation;
+      // C4：失效先隐藏旧贡献，再重取——插件被禁用后不应继续显示它的按钮，
+      // 即使下次请求很慢或失败（旧实现只在响应回来后才 setItems）。
+      setItems([]);
       const refresh = kind !== undefined
         ? fetchContributions({ kind }, (c) => c.kind === kind, cacheKey)
         : fetchSlotContributions(cacheKey.replace(/^slot:/, '') as SlotName);

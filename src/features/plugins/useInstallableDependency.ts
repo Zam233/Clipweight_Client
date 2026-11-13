@@ -252,6 +252,11 @@ export function useInstallableDependency(
         contribution.id,
       );
       if (res.ok === false) {
+        // 用户取消不是失败：回到未安装状态即可，别显示“安装没成功”。
+        if (res.cancelled === true) {
+          setState((prev) => ({ ...prev, installing: false, failed: false, message: '' }));
+          return;
+        }
         setState((prev) => ({
           ...prev,
           installing: false,
