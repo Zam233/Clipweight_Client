@@ -13,15 +13,7 @@
 <br/>
 
 ![Version](https://img.shields.io/badge/version-0.1.0-4F6BED)
-![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?logo=typescript&logoColor=white)
-![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)
-![Zustand](https://img.shields.io/badge/Zustand-5-2D3748)
-![Canvas 2D](https://img.shields.io/badge/timeline-Canvas_2D-F59E0B)
-![Tests](https://img.shields.io/badge/tests-1225_passed-2EA043)
 ![License](https://img.shields.io/badge/license-MPL--2.0-8B5CF6)
-![PRs Welcome](https://img.shields.io/badge/PRs-welcome-2EA043)
 
 </div>
 
@@ -60,7 +52,6 @@
 - **工作区是唯一真相**：上传写入项目工作区的 `materials/`，素材树、预览与导出读同一份文件。
 - **双语界面 + 控制台级管理面**：模型提供商、插件、类型制作器、管线监控、模型测试等，
   表单由引擎下发的 schema 驱动，而不是手写死字段。
-- **在真正会疼的地方测试**：1200+ 单测、覆盖编辑器与 Agent 路径的 Playwright E2E，CI 里跑 `tsc --noEmit`。
 
 ## 快速开始
 

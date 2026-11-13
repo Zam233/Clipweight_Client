@@ -13,15 +13,7 @@ A web video editor that refuses to be a one-shot "generate and pray" button.
 <br/>
 
 ![Version](https://img.shields.io/badge/version-0.1.0-4F6BED)
-![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?logo=typescript&logoColor=white)
-![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)
-![Zustand](https://img.shields.io/badge/Zustand-5-2D3748)
-![Canvas 2D](https://img.shields.io/badge/timeline-Canvas_2D-F59E0B)
-![Tests](https://img.shields.io/badge/tests-1225_passed-2EA043)
 ![License](https://img.shields.io/badge/license-MPL--2.0-8B5CF6)
-![PRs Welcome](https://img.shields.io/badge/PRs-welcome-2EA043)
 
 </div>
 
@@ -63,8 +55,6 @@ question, tool call and degradation is visible in the session timeline.
   the media tree, preview and export all read the same files.
 - **Bilingual UI with a console-grade admin surface** — providers, plugins, type maker, pipeline inspector,
   model tests, and more, all driven by the engine's contracts instead of hard-coded forms.
-- **Tested where it hurts** — 1.2k+ unit tests, Playwright E2E for the editor and the Agent paths, and
-  `tsc --noEmit` in CI.
 
 ## Quick Start
 
