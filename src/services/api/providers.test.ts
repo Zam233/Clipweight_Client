@@ -22,7 +22,7 @@ const AVAILABLE: AvailableProviders = {
   rerank_provider: ['http'],
   role_kinds: {
     main: 'llm', flash: 'llm', vision: 'llm',
-    embed: 'embedding', rerank: 'rerank', tts: 'tts',
+    embed: 'embedding', rerank: 'rerank', tts: 'tts', image: 'image',
   },
   tts_aliases: { qwen_tts: 'qwen-tts' },
 };
