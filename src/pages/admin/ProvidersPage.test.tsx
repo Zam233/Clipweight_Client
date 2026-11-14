@@ -44,7 +44,8 @@ const AVAILABLE = {
   tts_provider: ['qwen-tts'],
   embedding_provider: ['openai', 'local'],
   rerank_provider: ['http'],
-  role_kinds: { main: 'llm', flash: 'llm', vision: 'llm', embed: 'embedding', rerank: 'rerank', tts: 'tts' },
+  image_provider: ['openai_compatible'],
+  role_kinds: { main: 'llm', flash: 'llm', vision: 'llm', embed: 'embedding', rerank: 'rerank', tts: 'tts', image: 'image' },
   tts_aliases: { qwen_tts: 'qwen-tts' },
 };
 
@@ -74,14 +75,25 @@ describe('ProvidersPage（模型提供商）', () => {
     mockApi({ main: { source_id: 'src_a', model: 'deepseek-chat' } });
   });
 
-  it('渲染四个 tab，默认 LLM 且只显示该类型的源', async () => {
+  it('渲染五个 tab（含 AI 生图），默认 LLM 且只显示该类型的源', async () => {
     render(<ProvidersPage />);
     await screen.findByTestId('source-src_a');
-    for (const label of ['LLM', '嵌入 Embedding', '重排序 Rerank', '语音 TTS']) {
+    for (const label of ['LLM', '嵌入 Embedding', '重排序 Rerank', '语音 TTS', 'AI 生图']) {
       expect(screen.getByRole('button', { name: label })).toBeTruthy();
     }
     expect(screen.queryByText('阿里云 Embed')).toBeNull(); // embedding 源不在 LLM tab
     expect(screen.getByTestId('role-main')).toBeTruthy();
+  });
+
+  it('切到 AI 生图 tab：只有图像角色，下拉来自 image_provider', async () => {
+    render(<ProvidersPage />);
+    await screen.findByTestId('source-src_a');
+    fireEvent.click(screen.getByRole('button', { name: 'AI 生图' }));
+    expect(await screen.findByTestId('role-image')).toBeTruthy();
+    expect(screen.queryByTestId('role-main')).toBeNull();
+    // 切 tab 会自动进入「新建源」表单，provider 下拉来自 image_provider
+    const select = await screen.findByTestId('f-provider') as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toContain('openai_compatible');
   });
 
   it('LLM tab 同时提供主/Flash/视觉三个角色，且提示角色在工程文件分配', async () => {

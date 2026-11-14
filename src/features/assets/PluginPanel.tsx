@@ -6,7 +6,6 @@ import { Image, Video, Music, Loader2, Puzzle } from 'lucide-react';
 
 /** Plugin icon map — maps plugin_id to icon component */
 const PLUGIN_ICONS: Record<string, typeof Image> = {
-  ai_image_gen: Image,
   ai_video_gen: Video,
   ai_music_gen: Music,
 };
