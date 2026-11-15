@@ -278,6 +278,24 @@ export interface MgDrawBox {
  * 坐标系：spec 的 width/height 是设计分辨率，这里按 box 等比缩放——
  * 与后端渲染的 `width/height` 语义一致，避免"预览里偏左上角"这种错位。
  */
+/** 复刻后端 mg_renderer 的锚点语义：center/left/right/top/bottom + offset。 */
+function resolveAnchor(
+  x: unknown, y: unknown, xOff: number, yOff: number,
+  ew: number, eh: number, designW: number, designH: number,
+): { x: number; y: number } {
+  let px: number;
+  if (x === 'center') px = designW / 2 + xOff - ew / 2;
+  else if (x === 'left') px = 20 + xOff;
+  else if (x === 'right') px = designW - 20 - xOff - ew;
+  else px = num(x, 0);
+  let py: number;
+  if (y === 'center') py = designH / 2 + yOff - eh / 2;
+  else if (y === 'top') py = 20 + yOff;
+  else if (y === 'bottom') py = designH - 60 - yOff - eh;
+  else py = num(y, 0);
+  return { x: px, y: py };
+}
+
 export function drawMgFrame(
   ctx: CanvasRenderingContext2D,
   spec: MgSpec,
@@ -329,8 +347,12 @@ export function drawMgFrame(
     const ty = num(p.translate_y, 0);
     const w = num(p.width, num(el.width, designW));
     const h = num(p.height, num(el.height, designH));
-    const ex = num(el.x, 0) + tx;
-    const ey = num(el.y, 0) + ty;
+    // 后端坐标是锚点语义（center/left/right + offset），不是裸像素左上角；
+    // 旧实现 num('center') → 0，所有元素被画到 (0,0)，预览全挤在左上角。
+    const anchorPos = resolveAnchor(el.x, el.y, num(el.x_offset, 0), num(el.y_offset, 0),
+      w, h, designW, designH);
+    let ex = (type === 'text' ? 0 : anchorPos.x) + tx;
+    let ey = (type === 'text' ? 0 : anchorPos.y) + ty;
 
     ctx.save();
     ctx.globalAlpha = opacity;
@@ -355,14 +377,22 @@ export function drawMgFrame(
         const align = str(el.align, 'left');
         ctx.fillStyle = color;
         ctx.font = `${Math.round(weight)} ${Math.round(fontSize)}px ${fontFamily}`;
-        ctx.textBaseline = 'top';
         const lines = content.split('\n');
         const lineHeight = num(p.line_height, num(el.line_height, 1.25)) * fontSize;
+        // 文本宽度后端由浏览器布局决定；这里用 canvas 测量来还原 center 锚点。
+        const measured = Math.max(...lines.map((ln) => ctx.measureText(ln).width), 1);
+        const textW = Math.max(w, measured);
+        const textH = Math.max(h, lineHeight * lines.length);
+        const textAnchor = resolveAnchor(el.x, el.y, num(el.x_offset, 0), num(el.y_offset, 0),
+          textW, textH, designW, designH);
+        ex = textAnchor.x + tx;
+        ey = textAnchor.y + ty;
         const maxWidth = w > 0 ? w : undefined;
+        ctx.textBaseline = 'top';
         lines.forEach((line, i) => {
           let textX = ex;
-          if (align === 'center' && maxWidth) textX = ex + maxWidth / 2;
-          else if (align === 'right' && maxWidth) textX = ex + maxWidth;
+          if (align === 'center') textX = ex + textW / 2;
+          else if (align === 'right') textX = ex + textW;
           ctx.textAlign = align === 'center' ? 'center' : (align === 'right' ? 'right' : 'left');
           ctx.fillText(line, textX, ey + i * lineHeight, maxWidth);
         });
