@@ -430,6 +430,34 @@ export function EditorPage() {
     }
   }, []);
 
+  // 动画逐段落盘：任务运行期轮询项目时间线，让「完成一个动画」立刻出现在动画轴。
+  // 后端 AnimationAgent 每完成一段就 ProjectManager.save 一次；这里只在轨道/片段数
+  // 变化时覆盖 store（运行期编辑器内容来自 Agent，用户此时不可编辑）。
+  useEffect(() => {
+    if (!projectId) return;
+    let stopped = false;
+    const sigOf = (tl: { tracks?: Array<{ clips?: unknown[] }> } | null | undefined) =>
+      (tl?.tracks || []).map((t) => (t.clips || []).length).join(',');
+    const tick = async () => {
+      const status = useAgentStore.getState().requirementsStatus;
+      if (status !== 'pipeline_running' && status !== 'planning') return;
+      try {
+        const remote = await projectApi.load(projectId) as {
+          timeline?: { tracks?: Array<{ clips?: unknown[] }> } | null;
+        };
+        if (stopped || !remote?.timeline) return;
+        const nextSig = sigOf(remote.timeline);
+        const curSig = sigOf(useTimelineStore.getState().timeline);
+        if (nextSig && nextSig !== curSig) {
+          useTimelineStore.getState().setTimeline(remote.timeline as never);
+        }
+      } catch { /* 轮询失败静默：任务结束后还有最终时间线落盘 */ }
+    };
+    const timer = window.setInterval(tick, 4000);
+    void tick();
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [projectId]);
+
   // Server-side auto-save (debounced) + O5 本地草稿（立即写，不等网络）
   const serverSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
