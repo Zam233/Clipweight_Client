@@ -1,10 +1,10 @@
 import { getApiClient } from './client';
 
 /** 源类型（对应「模型提供商」页顶部 tab） */
-export type ProviderKind = 'llm' | 'embedding' | 'rerank' | 'tts';
+export type ProviderKind = 'llm' | 'embedding' | 'rerank' | 'tts' | 'image';
 
 /** 角色（工程文件按角色分配：主/Flash/视觉 LLM、嵌入、重排序、语音） */
-export type ProviderRole = 'main' | 'flash' | 'vision' | 'embed' | 'rerank' | 'tts';
+export type ProviderRole = 'main' | 'flash' | 'vision' | 'embed' | 'rerank' | 'tts' | 'image';
 
 /**
  * 逐模型生成参数（2026-10-28 PRD B4）。
@@ -123,6 +123,8 @@ export interface AvailableProviders {
   tts_provider: string[];
   embedding_provider: string[];
   rerank_provider: string[];
+  /** AI 生图 provider（第 20 类贡献，2026-11-14 image-provider-plugin PRD） */
+  image_provider?: string[];
   role_kinds: Record<ProviderRole, ProviderKind>;
   tts_aliases: Record<string, string>;
   /** kind -> provider id -> 展示元数据（B7/B8 后 provider 归插件，label 由能力方声明） */
@@ -203,6 +205,7 @@ export const KIND_PROVIDER_KEY: Record<ProviderKind, keyof AvailableProviders> =
   embedding: 'embedding_provider',
   rerank: 'rerank_provider',
   tts: 'tts_provider',
+  image: 'image_provider',
 };
 
 /** 源类型 → 该 tab 下可分配的角色 */
@@ -211,6 +214,7 @@ export const KIND_ROLES: Record<ProviderKind, ProviderRole[]> = {
   embedding: ['embed'],
   rerank: ['rerank'],
   tts: ['tts'],
+  image: ['image'],
 };
 
 export const ROLE_LABELS: Record<ProviderRole, string> = {
@@ -220,6 +224,7 @@ export const ROLE_LABELS: Record<ProviderRole, string> = {
   embed: '嵌入模型',
   rerank: '重排序模型',
   tts: '语音 TTS',
+  image: '图像模型',
 };
 
 export function providersForKind(

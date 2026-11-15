@@ -19,6 +19,7 @@ const TABS: { kind: ProviderKind; label: string; hint: string }[] = [
   { kind: 'embedding', label: '嵌入 Embedding', hint: '知识库向量化（RAG 检索）' },
   { kind: 'rerank', label: '重排序 Rerank', hint: '检索结果精排' },
   { kind: 'tts', label: '语音 TTS', hint: '音色克隆与语音合成' },
+  { kind: 'image', label: 'AI 生图', hint: '文生图 / 图生图；模型与网关在此配置（生成工具第二期接入）' },
 ];
 
 interface HeaderRow { key: string; value: string }
