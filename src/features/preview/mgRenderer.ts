@@ -356,7 +356,7 @@ export function drawMgFrame(
 
     ctx.save();
     ctx.globalAlpha = opacity;
-    if (scale !== 1 || rot !== 0) {
+    if (type !== 'text' && (scale !== 1 || rot !== 0)) {
       // 变换原点：默认元素左上（与渲染器 transform-origin 缺省一致）
       ctx.translate(ex + w / 2, ey + h / 2);
       ctx.rotate((rot * Math.PI) / 180);
@@ -381,14 +381,29 @@ export function drawMgFrame(
         const lineHeight = num(p.line_height, num(el.line_height, 1.25)) * fontSize;
         // 文本宽度后端由浏览器布局决定；这里用 canvas 测量来还原 center 锚点。
         const measured = Math.max(...lines.map((ln) => ctx.measureText(ln).width), 1);
-        const textW = Math.max(w, measured);
-        const textH = Math.max(h, lineHeight * lines.length);
+        // 文本元素通常没有显式 width/height：不能沿用 w/h 的 designW/designH 默认值，
+        // 否则 center 锚点会按整幅画布居中，文字被顶到画面左上/顶部。
+        const hasWidth = p.width != null || el.width != null;
+        const hasHeight = p.height != null || el.height != null;
+        const textW = hasWidth ? Math.max(w, measured) : measured;
+        const textH = hasHeight ? Math.max(h, lineHeight * lines.length) : lineHeight * lines.length;
         const textAnchor = resolveAnchor(el.x, el.y, num(el.x_offset, 0), num(el.y_offset, 0),
           textW, textH, designW, designH);
         ex = textAnchor.x + tx;
         ey = textAnchor.y + ty;
         const maxWidth = w > 0 ? w : undefined;
         ctx.textBaseline = 'top';
+        // 文本的缩放/旋转必须绕它自己的测量框中心；上面的全局变换用的是
+        // 尚未测量的 ex/ey（0,0），会让文字绕画布原点飞出去。
+        const textCx = ex + textW / 2;
+        const textCy = ey + textH / 2;
+        if (scale !== 1 || rot !== 0) {
+          ctx.save();
+          ctx.translate(textCx, textCy);
+          ctx.rotate((rot * Math.PI) / 180);
+          ctx.scale(scale, scale);
+          ctx.translate(-textCx, -textCy);
+        }
         lines.forEach((line, i) => {
           let textX = ex;
           if (align === 'center') textX = ex + textW / 2;
@@ -396,6 +411,7 @@ export function drawMgFrame(
           ctx.textAlign = align === 'center' ? 'center' : (align === 'right' ? 'right' : 'left');
           ctx.fillText(line, textX, ey + i * lineHeight, maxWidth);
         });
+        if (scale !== 1 || rot !== 0) ctx.restore();
         break;
       }
       case 'shape': {
