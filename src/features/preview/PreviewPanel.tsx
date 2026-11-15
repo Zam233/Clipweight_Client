@@ -1367,14 +1367,67 @@ function paintClipContent(
       });
       ctx.textAlign = layout.align;
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = clip.font_color || '#FFFFFF';
+      const _style = (clip.metadata?.style as Record<string, unknown> | undefined) || {};
+      const _motion = (clip.metadata?.motion as Record<string, unknown> | undefined)
+        || (((clip.metadata?.text_animation as Record<string, unknown> | undefined)?.motion) as Record<string, unknown> | undefined)
+        || {};
+      const _fill = String(_style.fill || clip.font_color || '#FFFFFF');
+      ctx.fillStyle = _fill;
       const baseY = fy + layout.y;
       const baseX = fx + layout.x;
       const maxWidth = fw * 0.9;
+      // 文字动画的逐字/淡入淡出（预览与 ASS 共用同一套 reveal 语义）
+      const _local = Math.max(0, (t - clip.start_sec) * speed);
+      const _motionType = String(_motion.type || '');
+      const _sceneDur = Math.max(0.01, clip.duration_sec || 1);
+      let _visible = text;
+      let _alpha = 1;
+      if (_motionType === 'typewriter' || _motionType === 'word_by_word') {
+        const _reveal = Math.max(0.1, Number(_motion.reveal_sec) || Math.min(2, Math.max(0.6, text.length * 0.08)));
+        const _n = Math.max(1, Array.from(text).length);
+        const _shown = Math.max(1, Math.min(_n, Math.ceil((_local / _reveal) * _n)));
+        _visible = Array.from(text).slice(0, _shown).join('');
+      }
+      if (_motionType === 'fade_in' || _motionType === 'fade_out') {
+        _alpha = Math.max(0, Math.min(1, _local / 0.3));
+      }
+      if (_motionType === 'fade_out') {
+        _alpha = Math.max(0, Math.min(1, (_sceneDur - _local) / 0.3));
+      }
       // Apply position offset + rotation about the text anchor
       ctx.save();
       ctx.translate(baseX + tf.x * fw, baseY + tf.y * fh);
       if (tf.rotation !== 0) ctx.rotate((tf.rotation * Math.PI) / 180);
+      ctx.globalAlpha *= _alpha;
+
+      const _fullWidth = ctx.measureText(text).width;
+      const _drawX = (_motionType === 'typewriter' || _motionType === 'word_by_word')
+        ? -_fullWidth / 2
+        : 0;
+      if ((_motionType === 'typewriter' || _motionType === 'word_by_word')) {
+        ctx.textAlign = 'left';
+      }
+      // 纯色底板（文字动画 style.box）：预览与 ASS BorderStyle=3 语义对齐
+      if (Boolean(_style.box)) {
+        const padX = Number(_style.box_padding_x) || 18;
+        const padY = Number(_style.box_padding_y) || 8;
+        const radius = Number(_style.box_radius) || 6;
+        ctx.save();
+        ctx.fillStyle = String(_style.box_color || 'rgba(0,0,0,0.55)');
+        const bx = _drawX - padX;
+        const by = -fontSize / 2 - padY;
+        const bw = _fullWidth + padX * 2;
+        const bh = fontSize + padY * 2;
+        ctx.beginPath();
+        if (typeof (ctx as CanvasRenderingContext2D & { roundRect?: unknown }).roundRect === 'function') {
+          (ctx as CanvasRenderingContext2D & { roundRect: (x: number, y: number, w: number, h: number, r: number) => void })
+            .roundRect(bx, by, bw, bh, radius);
+        } else {
+          ctx.rect(bx, by, bw, bh);
+        }
+        ctx.fill();
+        ctx.restore();
+      }
 
       // Drop shadow (from style fields)
       const shadowColor = clip.shadow_color || '';
@@ -1397,7 +1450,7 @@ function paintClipContent(
         ctx.shadowOffsetX = 0;
         ctx.shadowOffsetY = 0;
         ctx.shadowBlur = glowWidth;
-        ctx.fillText(text, 0, 0, maxWidth);
+        ctx.fillText(_visible, _drawX, 0, maxWidth);
         ctx.restore();
       }
 
@@ -1410,9 +1463,9 @@ function paintClipContent(
         ctx.lineWidth = strokeWidth * 2;
         ctx.lineJoin = 'round';
         ctx.strokeStyle = strokeColor;
-        ctx.strokeText(text, 0, 0, maxWidth);
+        ctx.strokeText(_visible, _drawX, 0, maxWidth);
       }
-      ctx.fillText(text, 0, 0, maxWidth);
+      ctx.fillText(_visible, _drawX, 0, maxWidth);
       ctx.restore();
 
       if (hasLetterSpacing && letterSpacingPx !== 0) {
