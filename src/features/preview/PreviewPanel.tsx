@@ -9,7 +9,7 @@ import type { Clip, Timeline, Track } from '@/types/timeline';
 import { captionFontSize, textLayout } from './captionLayout';
 import { orderTracksForComposite } from './compositeOrder';
 import { publishPlaybackStats, resetPlaybackStats } from './playbackStats';
-import { clearMgImageCache, drawMgFrame, emptyFidelity, mgSpecOf } from './mgRenderer';
+import { clearMgImageCache, drawMgFrame, emptyFidelity, mgParamsOf, mgSpecOf } from './mgRenderer';
 import { reportMgFidelity, resetMgFidelity, useMgFidelityStore } from './mgFidelity';
 
 /**
@@ -1335,6 +1335,19 @@ function paintClipContent(
     case 'text':
     case 'caption': {
       const text = clip.text || '文字';
+      // 用户裁定：文字动画统一 MG HTML；有 mg_def 就画 MG，不再画旧 ASS 文字层
+      const _textMg = mgSpecOf(clip.metadata);
+      if (_textMg) {
+        const _mgFid = emptyFidelity();
+        const _mgLocal = Math.max(0, (t - clip.start_sec) * speed + clip.source_offset_sec);
+        ctx.save();
+        ctx.globalAlpha = clamp(env.opacity, 0, 1);
+        drawMgFrame(ctx, _textMg, _mgLocal, { x: fx, y: fy, w: fw, h: fh }, _mgFid,
+          mgParamsOf(clip.metadata));
+        ctx.restore();
+        reportMgFidelity(clip.asset_id, _mgFid);
+        return false;
+      }
       // Min-dimension scaling keeps caption text fitting portrait frames too
       // (height-only scaling overflows 1080x1920 exports).
       const fontSize = captionFontSize(clip.font_size ?? 48, fw, fh, tf.scale);
@@ -1367,14 +1380,79 @@ function paintClipContent(
       });
       ctx.textAlign = layout.align;
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = clip.font_color || '#FFFFFF';
+      const _style = (clip.metadata?.style as Record<string, unknown> | undefined) || {};
+      const _motion = (clip.metadata?.motion as Record<string, unknown> | undefined)
+        || (((clip.metadata?.text_animation as Record<string, unknown> | undefined)?.motion) as Record<string, unknown> | undefined)
+        || {};
+      const _fill = String(_style.fill || clip.font_color || '#FFFFFF');
+      ctx.fillStyle = _fill;
       const baseY = fy + layout.y;
-      const baseX = fx + layout.x;
+      const baseX = fx + layout.x + Number(_style.offset_x || 0);
       const maxWidth = fw * 0.9;
+      // 文字动画的逐字/淡入淡出（预览与 ASS 共用同一套 reveal 语义）
+      const _local = Math.max(0, (t - clip.start_sec) * speed);
+      const _motionType = String(_motion.type || '');
+      const _sceneDur = Math.max(0.01, clip.duration_sec || 1);
+      let _visible = text;
+      let _alpha = 1;
+      if (_motionType === 'typewriter' || _motionType === 'word_by_word') {
+        const _reveal = Math.max(0.1, Number(_motion.reveal_sec) || Math.min(2, Math.max(0.6, text.length * 0.08)));
+        const _n = Math.max(1, Array.from(text).length);
+        const _shown = Math.max(1, Math.min(_n, Math.ceil((_local / _reveal) * _n)));
+        _visible = Array.from(text).slice(0, _shown).join('');
+      }
+      if (_motionType === 'fade_in' || _motionType === 'fade_out') {
+        _alpha = Math.max(0, Math.min(1, _local / 0.3));
+      }
+      if (_motionType === 'fade_out') {
+        _alpha = Math.max(0, Math.min(1, (_sceneDur - _local) / 0.3));
+      }
       // Apply position offset + rotation about the text anchor
       ctx.save();
       ctx.translate(baseX + tf.x * fw, baseY + tf.y * fh);
       if (tf.rotation !== 0) ctx.rotate((tf.rotation * Math.PI) / 180);
+      ctx.globalAlpha *= _alpha;
+
+      const _fullWidth = ctx.measureText(text).width;
+      const _revealSec = Math.max(0.1, Number(_motion.reveal_sec) || 0.4);
+      const _p = Math.max(0, Math.min(1, _local / _revealSec));
+      let _motionDX = 0;
+      let _motionDY = 0;
+      let _motionScale = 1;
+      if (_motionType === 'slide_in') {
+        _motionDY = (1 - _p) * 80;
+      } else if (_motionType === 'scale_in') {
+        _motionScale = 0.7 + 0.3 * _p;
+      }
+      ctx.translate(_motionDX, _motionDY);
+      if (_motionScale !== 1) ctx.scale(_motionScale, _motionScale);
+      const _drawX = (_motionType === 'typewriter' || _motionType === 'word_by_word')
+        ? -_fullWidth / 2
+        : 0;
+      if ((_motionType === 'typewriter' || _motionType === 'word_by_word')) {
+        ctx.textAlign = 'left';
+      }
+      // 纯色底板（文字动画 style.box）：预览与 ASS BorderStyle=3 语义对齐
+      if (Boolean(_style.box)) {
+        const padX = Number(_style.box_padding_x) || 18;
+        const padY = Number(_style.box_padding_y) || 8;
+        const radius = Number(_style.box_radius) || 6;
+        ctx.save();
+        ctx.fillStyle = String(_style.box_color || 'rgba(0,0,0,0.55)');
+        const bx = _drawX - padX;
+        const by = -fontSize / 2 - padY;
+        const bw = _fullWidth + padX * 2;
+        const bh = fontSize + padY * 2;
+        ctx.beginPath();
+        if (typeof (ctx as CanvasRenderingContext2D & { roundRect?: unknown }).roundRect === 'function') {
+          (ctx as CanvasRenderingContext2D & { roundRect: (x: number, y: number, w: number, h: number, r: number) => void })
+            .roundRect(bx, by, bw, bh, radius);
+        } else {
+          ctx.rect(bx, by, bw, bh);
+        }
+        ctx.fill();
+        ctx.restore();
+      }
 
       // Drop shadow (from style fields)
       const shadowColor = clip.shadow_color || '';
@@ -1397,7 +1475,7 @@ function paintClipContent(
         ctx.shadowOffsetX = 0;
         ctx.shadowOffsetY = 0;
         ctx.shadowBlur = glowWidth;
-        ctx.fillText(text, 0, 0, maxWidth);
+        ctx.fillText(_visible, _drawX, 0, maxWidth);
         ctx.restore();
       }
 
@@ -1410,9 +1488,9 @@ function paintClipContent(
         ctx.lineWidth = strokeWidth * 2;
         ctx.lineJoin = 'round';
         ctx.strokeStyle = strokeColor;
-        ctx.strokeText(text, 0, 0, maxWidth);
+        ctx.strokeText(_visible, _drawX, 0, maxWidth);
       }
-      ctx.fillText(text, 0, 0, maxWidth);
+      ctx.fillText(_visible, _drawX, 0, maxWidth);
       ctx.restore();
 
       if (hasLetterSpacing && letterSpacingPx !== 0) {
@@ -1438,7 +1516,7 @@ function paintClipContent(
           ctx.rotate((tf.rotation * Math.PI) / 180);
           ctx.translate(-(fx + fw / 2), -(fy + fh / 2));
         }
-        drawMgFrame(ctx, spec, specLocal, { x: fx, y: fy, w: fw, h: fh }, mgFidelity);
+        drawMgFrame(ctx, spec, specLocal, { x: fx, y: fy, w: fw, h: fh }, mgFidelity, mgParamsOf(clip.metadata));
         ctx.restore();
         reportMgFidelity(clip.asset_id, mgFidelity);
         return false; // 时间相关 → 不入层缓存

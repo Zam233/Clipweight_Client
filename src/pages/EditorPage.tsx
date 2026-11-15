@@ -230,6 +230,37 @@ export function EditorPage() {
         // 一步卡住（IndexedDB 被别的标签页旧版本事务挡住、/api/requirements/{sid} 迟迟
         // 不返回），用户就永远看不到编辑器，而且界面无从判断卡在哪。
         // 所以：先放行渲染，增强逻辑挪到后面的后台续跑里，卡住也只影响它自己。
+        // 从首页启动时，必须先同步恢复 requirementsTopic 等参数，再放行 loading。
+        // 旧实现把这些恢复放在 setLoading(false) 之后的后台续跑里：auto-start 的
+        // effect 依赖 [ready, projectId]，ready 一变 true 就用空 topic 跑完并返回，
+        // 之后再 setRequirementsTopic 也不会重跑 → 用户看到「创建项目后 Agent 没启动」。
+        if (pendingTopic) {
+          const pending = pendingReqRef.current!;
+          useProjectStore.getState().setRequirementsTopic(pending.topic);
+          useProjectStore.getState().setRequirementsScript(pending.script);
+          useProjectStore.getState().setRequirementsAudioDuration(pending.audioDur);
+          useProjectStore.getState().setMaterialSourceIds(pending.materialSourceIds);
+          useProjectStore.getState().setScriptText(pending.scriptText);
+          useProjectStore.getState().setVideoMode(pending.videoMode);
+          useProjectStore.getState().setSplitMode(pending.splitMode);
+          useProjectStore.getState().setAudioPath(pending.audioPath);
+          useProjectStore.getState().setAudioDurationSec(pending.audioDurationSec);
+          useProjectStore.getState().setVoiceId(pending.voiceId);
+          useProjectStore.getState().setAutoDub(pending.autoDub);
+          useProjectStore.getState().setPersonaId(pending.personaId);
+          useProjectStore.getState().setPluginId(pending.pluginId);
+          useProjectStore.getState().setDryRun(pending.dryRun);
+          useProjectStore.getState().setWorkspaceAutoIndex(pending.workspaceAutoIndex);
+          useProjectStore.getState().setWorkspaceVisionIndex(pending.workspaceVisionIndex);
+          useProjectStore.getState().setWorkspaceRoot(pending.workspaceRoot);
+          useProjectStore.getState().setCreativePrompt(pending.creativePrompt);
+          useProjectStore.getState().setCreativeAvoid(pending.creativeAvoid);
+          useProjectStore.getState().setCutOnBeat(pending.cutOnBeat);
+          useProjectStore.getState().setBeatBpm(pending.beatBpm);
+          useProjectStore.getState().setShotFloorPolicy(pending.shotFloorPolicy);
+          useProjectStore.getState().setShotCapPolicy(pending.shotCapPolicy);
+        }
+
         if (alive) setLoading(false);
         loadTraceRef.current.push(`project:${project.id}:${project.timeline ? 'with' : 'empty'}tl`);
 
@@ -258,35 +289,7 @@ export function EditorPage() {
             loadTraceRef.current.push(`draft:sank:${(e as Error)?.message || 'err'}`);
           }
         if (!alive) return;
-        // Restore requirements data so AgentPanel auto-start can consume it
-        if (pendingTopic) {
-          const pending = pendingReqRef.current!;
-          useProjectStore.getState().setRequirementsTopic(pending.topic);
-          useProjectStore.getState().setRequirementsScript(pending.script);
-          useProjectStore.getState().setRequirementsAudioDuration(pending.audioDur);
-          useProjectStore.getState().setMaterialSourceIds(pending.materialSourceIds);
-          // B16: 恢复全部启动参数（resetProject 清空后重写），保证管线收到文稿/音色/配音/模式
-          useProjectStore.getState().setScriptText(pending.scriptText);
-          useProjectStore.getState().setVideoMode(pending.videoMode);
-          useProjectStore.getState().setSplitMode(pending.splitMode);
-          useProjectStore.getState().setAudioPath(pending.audioPath);
-          useProjectStore.getState().setAudioDurationSec(pending.audioDurationSec);
-          useProjectStore.getState().setVoiceId(pending.voiceId);
-          useProjectStore.getState().setAutoDub(pending.autoDub);
-          useProjectStore.getState().setPersonaId(pending.personaId);
-          useProjectStore.getState().setPluginId(pending.pluginId);
-          // E-02：恢复首页勾选的开关与创作参数（此前 resetProject 后这些全部回默认）
-          useProjectStore.getState().setDryRun(pending.dryRun);
-          useProjectStore.getState().setWorkspaceAutoIndex(pending.workspaceAutoIndex);
-          useProjectStore.getState().setWorkspaceVisionIndex(pending.workspaceVisionIndex);
-          useProjectStore.getState().setWorkspaceRoot(pending.workspaceRoot);
-          useProjectStore.getState().setCreativePrompt(pending.creativePrompt);
-          useProjectStore.getState().setCreativeAvoid(pending.creativeAvoid);
-          useProjectStore.getState().setCutOnBeat(pending.cutOnBeat);
-          useProjectStore.getState().setBeatBpm(pending.beatBpm);
-          useProjectStore.getState().setShotFloorPolicy(pending.shotFloorPolicy);
-          useProjectStore.getState().setShotCapPolicy(pending.shotCapPolicy);
-        } else {
+        if (!pendingTopic) {
           // 非首页新启动 → 恢复项目保存的 Agent 状态（需求对话/简报/规划书/执行日志）
           if (project.agent_state) useAgentStore.getState().restoreAgentState(project.agent_state);
           // 服务端快照可能早于需求会话（旧实现只在时间线变化时才落盘 agent_state）
@@ -426,6 +429,34 @@ export function EditorPage() {
       st.setSaveError(true);
     }
   }, []);
+
+  // 动画逐段落盘：任务运行期轮询项目时间线，让「完成一个动画」立刻出现在动画轴。
+  // 后端 AnimationAgent 每完成一段就 ProjectManager.save 一次；这里只在轨道/片段数
+  // 变化时覆盖 store（运行期编辑器内容来自 Agent，用户此时不可编辑）。
+  useEffect(() => {
+    if (!projectId) return;
+    let stopped = false;
+    const sigOf = (tl: { tracks?: Array<{ clips?: unknown[] }> } | null | undefined) =>
+      (tl?.tracks || []).map((t) => (t.clips || []).length).join(',');
+    const tick = async () => {
+      const status = useAgentStore.getState().requirementsStatus;
+      if (status !== 'pipeline_running' && status !== 'planning') return;
+      try {
+        const remote = await projectApi.load(projectId) as {
+          timeline?: { tracks?: Array<{ clips?: unknown[] }> } | null;
+        };
+        if (stopped || !remote?.timeline) return;
+        const nextSig = sigOf(remote.timeline);
+        const curSig = sigOf(useTimelineStore.getState().timeline);
+        if (nextSig && nextSig !== curSig) {
+          useTimelineStore.getState().setTimeline(remote.timeline as never);
+        }
+      } catch { /* 轮询失败静默：任务结束后还有最终时间线落盘 */ }
+    };
+    const timer = window.setInterval(tick, 4000);
+    void tick();
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [projectId]);
 
   // Server-side auto-save (debounced) + O5 本地草稿（立即写，不等网络）
   const serverSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

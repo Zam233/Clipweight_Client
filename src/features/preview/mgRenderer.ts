@@ -101,6 +101,22 @@ export function fidelityHasIssue(f: MgFidelity): boolean {
 }
 
 /** 从 clip.metadata 里取 spec（后端写入 `mg_def`；也接受直接挂在 metadata 上的旧格式）。 */
+/** 取后端写入的 mg_params（占位符实际值）。 */
+export function mgParamsOf(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
+  const raw = metadata?.mg_params;
+  return raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+}
+
+/** 替换 `{key}` 占位符：预览此前直接画 `{title}`，看起来像模板占位符。 */
+function withParams(value: string, params: Record<string, unknown>): string {
+  if (!value || value.indexOf('{') < 0) return value;
+  return value.replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (whole, key: string) => {
+    if (!(key in params)) return whole;
+    const v = params[key];
+    return v === null || v === undefined ? '' : String(v);
+  });
+}
+
 export function mgSpecOf(metadata: Record<string, unknown> | undefined): MgSpec | null {
   if (!metadata) return null;
   const raw = metadata.mg_def ?? metadata.mg_spec;
@@ -262,12 +278,31 @@ export interface MgDrawBox {
  * 坐标系：spec 的 width/height 是设计分辨率，这里按 box 等比缩放——
  * 与后端渲染的 `width/height` 语义一致，避免"预览里偏左上角"这种错位。
  */
+/** 复刻后端 mg_renderer 的锚点语义：center/left/right/top/bottom + offset。 */
+function resolveAnchor(
+  x: unknown, y: unknown, xOff: number, yOff: number,
+  ew: number, eh: number, designW: number, designH: number,
+): { x: number; y: number } {
+  let px: number;
+  if (x === 'center') px = designW / 2 + xOff - ew / 2;
+  else if (x === 'left') px = 20 + xOff;
+  else if (x === 'right') px = designW - 20 - xOff - ew;
+  else px = num(x, 0);
+  let py: number;
+  if (y === 'center') py = designH / 2 + yOff - eh / 2;
+  else if (y === 'top') py = 20 + yOff;
+  else if (y === 'bottom') py = designH - 60 - yOff - eh;
+  else py = num(y, 0);
+  return { x: px, y: py };
+}
+
 export function drawMgFrame(
   ctx: CanvasRenderingContext2D,
   spec: MgSpec,
   localSec: number,
   box: MgDrawBox,
   fidelity: MgFidelity = emptyFidelity(),
+  params: Record<string, unknown> = {},
 ): void {
   const elements = Array.isArray(spec.elements) ? spec.elements : [];
   if (elements.length === 0) {
@@ -312,12 +347,16 @@ export function drawMgFrame(
     const ty = num(p.translate_y, 0);
     const w = num(p.width, num(el.width, designW));
     const h = num(p.height, num(el.height, designH));
-    const ex = num(el.x, 0) + tx;
-    const ey = num(el.y, 0) + ty;
+    // 后端坐标是锚点语义（center/left/right + offset），不是裸像素左上角；
+    // 旧实现 num('center') → 0，所有元素被画到 (0,0)，预览全挤在左上角。
+    const anchorPos = resolveAnchor(el.x, el.y, num(el.x_offset, 0), num(el.y_offset, 0),
+      w, h, designW, designH);
+    let ex = (type === 'text' ? 0 : anchorPos.x) + tx;
+    let ey = (type === 'text' ? 0 : anchorPos.y) + ty;
 
     ctx.save();
     ctx.globalAlpha = opacity;
-    if (scale !== 1 || rot !== 0) {
+    if (type !== 'text' && (scale !== 1 || rot !== 0)) {
       // 变换原点：默认元素左上（与渲染器 transform-origin 缺省一致）
       ctx.translate(ex + w / 2, ey + h / 2);
       ctx.rotate((rot * Math.PI) / 180);
@@ -325,30 +364,95 @@ export function drawMgFrame(
       ctx.translate(-(ex + w / 2), -(ey + h / 2));
     }
 
-    const color = str(p.color, str(el.color, '#FFFFFF'));
-    const background = str(p.background, str(el.background, ''));
+    // 颜色/背景/描边中的 {accent} 等占位符也要从 mg_params 替换；否则
+    // parseColor('{accent}') 返回 null，线条/描边直接画不出来。
+    const color = withParams(str(p.color, str(el.color, str(el.font_color, '#FFFFFF'))), params);
+    const background = withParams(str(p.background, str(el.background, '')), params);
     const radius = num(p.border_radius, num(el.border_radius, 0));
 
     switch (type) {
       case 'text': {
-        const content = str(el.content, '');
+        const content = withParams(str(el.content, ''), params);
         if (!content) break;
         const fontSize = num(p.font_size, num(el.font_size, Math.max(24, h * 0.5)));
         const weight = num(p.font_weight, num(el.font_weight, 600));
-        const align = str(el.align, 'left');
-        ctx.fillStyle = color;
-        ctx.font = `${Math.round(weight)} ${Math.round(fontSize)}px ${fontFamily}`;
-        ctx.textBaseline = 'top';
+        const align = str(el.text_align, str(el.align, 'left'));
+        const italic = Boolean(el.font_italic);
+        ctx.font = `${italic ? 'italic ' : ''}${Math.round(weight)} ${Math.round(fontSize)}px ${fontFamily}`;
         const lines = content.split('\n');
         const lineHeight = num(p.line_height, num(el.line_height, 1.25)) * fontSize;
+        // 渐变文字（后端 MGRenderer 用 background-clip:text 输出）
+        const gradientBg = withParams(str(el.background, ''), params);
+        if (Boolean(el.text_gradient) && gradientBg.startsWith('linear-gradient')) {
+          const colors = [...gradientBg.matchAll(/#[0-9a-fA-F]{6,8}|rgba?\([^)]*\)/g)].map((m) => m[0]);
+          if (colors.length >= 2) {
+            const g = ctx.createLinearGradient(ex, ey, ex + Math.max(1, w), ey);
+            colors.forEach((c, i) => g.addColorStop(i / (colors.length - 1), c));
+            ctx.fillStyle = g;
+          } else {
+            ctx.fillStyle = color;
+          }
+        } else {
+          ctx.fillStyle = color;
+        }
+        // 投影/霓虹/glitch：后端把多层 text-shadow 存在 text_shadow；canvas 只取第一层做主投影。
+        const shadowRaw = str(el.text_shadow, '');
+        if (shadowRaw) {
+          const m = shadowRaw.match(/(-?\d+(?:\.\d+)?)px\s+(-?\d+(?:\.\d+)?)px\s+(\d+(?:\.\d+)?)px\s+(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\))/);
+          if (m) {
+            ctx.shadowColor = m[4];
+            ctx.shadowOffsetX = Number(m[1]);
+            ctx.shadowOffsetY = Number(m[2]);
+            ctx.shadowBlur = Number(m[3]);
+          }
+        }
+        // 文本宽度后端由浏览器布局决定；这里用 canvas 测量来还原 center 锚点。
+        const measured = Math.max(...lines.map((ln) => ctx.measureText(ln).width), 1);
+        // 文本元素通常没有显式 width/height：不能沿用 w/h 的 designW/designH 默认值，
+        // 否则 center 锚点会按整幅画布居中，文字被顶到画面左上/顶部。
+        const hasWidth = p.width != null || el.width != null;
+        const hasHeight = p.height != null || el.height != null;
+        const textW = hasWidth ? Math.max(w, measured) : measured;
+        const textH = hasHeight ? Math.max(h, lineHeight * lines.length) : lineHeight * lines.length;
+        const textAnchor = resolveAnchor(el.x, el.y, num(el.x_offset, 0), num(el.y_offset, 0),
+          textW, textH, designW, designH);
+        ex = textAnchor.x + tx;
+        ey = textAnchor.y + ty;
         const maxWidth = w > 0 ? w : undefined;
+        ctx.textBaseline = 'top';
+        // 文本的缩放/旋转必须绕它自己的测量框中心；上面的全局变换用的是
+        // 尚未测量的 ex/ey（0,0），会让文字绕画布原点飞出去。
+        const textCx = ex + textW / 2;
+        const textCy = ey + textH / 2;
+        if (scale !== 1 || rot !== 0) {
+          ctx.save();
+          ctx.translate(textCx, textCy);
+          ctx.rotate((rot * Math.PI) / 180);
+          ctx.scale(scale, scale);
+          ctx.translate(-textCx, -textCy);
+        }
+        const strokeRaw = str(el.text_stroke, '');
+        const strokeMatch = strokeRaw.match(/(\d+(?:\.\d+)?)px\s+(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\))/);
         lines.forEach((line, i) => {
           let textX = ex;
-          if (align === 'center' && maxWidth) textX = ex + maxWidth / 2;
-          else if (align === 'right' && maxWidth) textX = ex + maxWidth;
+          if (align === 'center') textX = ex + textW / 2;
+          else if (align === 'right') textX = ex + textW;
           ctx.textAlign = align === 'center' ? 'center' : (align === 'right' ? 'right' : 'left');
+          if (strokeMatch) {
+            ctx.lineWidth = Number(strokeMatch[1]) * 2;
+            ctx.strokeStyle = strokeMatch[2];
+            ctx.lineJoin = 'round';
+            ctx.strokeText(line, textX, ey + i * lineHeight, maxWidth);
+          }
           ctx.fillText(line, textX, ey + i * lineHeight, maxWidth);
         });
+        if (shadowRaw) {
+          ctx.shadowColor = 'transparent';
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+        }
+        if (scale !== 1 || rot !== 0) ctx.restore();
         break;
       }
       case 'shape': {
@@ -373,7 +477,7 @@ export function drawMgFrame(
         }
         const bw = num(p.border_width, num(el.border_width, 0));
         if (bw > 0) {
-          ctx.strokeStyle = str(p.border_color, str(el.border_color, color));
+          ctx.strokeStyle = withParams(str(p.border_color, str(el.border_color, color)), params);
           ctx.lineWidth = bw;
           ctx.strokeRect(ex, ey, w, h);
         }
@@ -422,7 +526,7 @@ export function drawMgFrame(
         break;
       }
       case 'image': {
-        const src = str(el.src, '');
+        const src = withParams(str(el.src, ''), params);
         if (!src || !isAllowedImageSrc(src)) {
           if (src && !fidelity.blockedResources.includes(src)) fidelity.blockedResources.push(src);
           break;
