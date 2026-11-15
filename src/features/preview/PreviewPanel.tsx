@@ -9,7 +9,7 @@ import type { Clip, Timeline, Track } from '@/types/timeline';
 import { captionFontSize, textLayout } from './captionLayout';
 import { orderTracksForComposite } from './compositeOrder';
 import { publishPlaybackStats, resetPlaybackStats } from './playbackStats';
-import { clearMgImageCache, drawMgFrame, emptyFidelity, mgSpecOf } from './mgRenderer';
+import { clearMgImageCache, drawMgFrame, emptyFidelity, mgParamsOf, mgSpecOf } from './mgRenderer';
 import { reportMgFidelity, resetMgFidelity, useMgFidelityStore } from './mgFidelity';
 
 /**
@@ -1438,7 +1438,7 @@ function paintClipContent(
           ctx.rotate((tf.rotation * Math.PI) / 180);
           ctx.translate(-(fx + fw / 2), -(fy + fh / 2));
         }
-        drawMgFrame(ctx, spec, specLocal, { x: fx, y: fy, w: fw, h: fh }, mgFidelity);
+        drawMgFrame(ctx, spec, specLocal, { x: fx, y: fy, w: fw, h: fh }, mgFidelity, mgParamsOf(clip.metadata));
         ctx.restore();
         reportMgFidelity(clip.asset_id, mgFidelity);
         return false; // 时间相关 → 不入层缓存

@@ -101,6 +101,22 @@ export function fidelityHasIssue(f: MgFidelity): boolean {
 }
 
 /** 从 clip.metadata 里取 spec（后端写入 `mg_def`；也接受直接挂在 metadata 上的旧格式）。 */
+/** 取后端写入的 mg_params（占位符实际值）。 */
+export function mgParamsOf(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
+  const raw = metadata?.mg_params;
+  return raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+}
+
+/** 替换 `{key}` 占位符：预览此前直接画 `{title}`，看起来像模板占位符。 */
+function withParams(value: string, params: Record<string, unknown>): string {
+  if (!value || value.indexOf('{') < 0) return value;
+  return value.replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (whole, key: string) => {
+    if (!(key in params)) return whole;
+    const v = params[key];
+    return v === null || v === undefined ? '' : String(v);
+  });
+}
+
 export function mgSpecOf(metadata: Record<string, unknown> | undefined): MgSpec | null {
   if (!metadata) return null;
   const raw = metadata.mg_def ?? metadata.mg_spec;
@@ -268,6 +284,7 @@ export function drawMgFrame(
   localSec: number,
   box: MgDrawBox,
   fidelity: MgFidelity = emptyFidelity(),
+  params: Record<string, unknown> = {},
 ): void {
   const elements = Array.isArray(spec.elements) ? spec.elements : [];
   if (elements.length === 0) {
@@ -331,7 +348,7 @@ export function drawMgFrame(
 
     switch (type) {
       case 'text': {
-        const content = str(el.content, '');
+        const content = withParams(str(el.content, ''), params);
         if (!content) break;
         const fontSize = num(p.font_size, num(el.font_size, Math.max(24, h * 0.5)));
         const weight = num(p.font_weight, num(el.font_weight, 600));
