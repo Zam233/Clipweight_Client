@@ -364,8 +364,10 @@ export function drawMgFrame(
       ctx.translate(-(ex + w / 2), -(ey + h / 2));
     }
 
-    const color = str(p.color, str(el.color, '#FFFFFF'));
-    const background = str(p.background, str(el.background, ''));
+    // 颜色/背景/描边中的 {accent} 等占位符也要从 mg_params 替换；否则
+    // parseColor('{accent}') 返回 null，线条/描边直接画不出来。
+    const color = withParams(str(p.color, str(el.color, str(el.font_color, '#FFFFFF'))), params);
+    const background = withParams(str(p.background, str(el.background, '')), params);
     const radius = num(p.border_radius, num(el.border_radius, 0));
 
     switch (type) {
@@ -436,7 +438,7 @@ export function drawMgFrame(
         }
         const bw = num(p.border_width, num(el.border_width, 0));
         if (bw > 0) {
-          ctx.strokeStyle = str(p.border_color, str(el.border_color, color));
+          ctx.strokeStyle = withParams(str(p.border_color, str(el.border_color, color)), params);
           ctx.lineWidth = bw;
           ctx.strokeRect(ex, ey, w, h);
         }
@@ -485,7 +487,7 @@ export function drawMgFrame(
         break;
       }
       case 'image': {
-        const src = str(el.src, '');
+        const src = withParams(str(el.src, ''), params);
         if (!src || !isAllowedImageSrc(src)) {
           if (src && !fidelity.blockedResources.includes(src)) fidelity.blockedResources.push(src);
           break;
