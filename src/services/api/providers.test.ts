@@ -52,6 +52,14 @@ describe('providersApi', () => {
     expect(out.tts_aliases).toEqual({});
   });
 
+  it('available 保留 image_provider（AI 生图下拉不能为空）', async () => {
+    mocks.get.mockResolvedValue({
+      data: { image_provider: ['openai_compatible', 'openai_gpt_image'] },
+    });
+    const out = await providersApi.available();
+    expect(out.image_provider).toEqual(['openai_compatible', 'openai_gpt_image']);
+  });
+
   it('setRole 发送 role/source_id/model', async () => {
     mocks.put.mockResolvedValue({ data: { ok: true } });
     await providersApi.setRole('vision', 's2', 'gpt-4o');

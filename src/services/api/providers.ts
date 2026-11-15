@@ -257,6 +257,7 @@ export const providersApi = {
       tts_provider: data?.tts_provider ?? [],
       embedding_provider: data?.embedding_provider ?? [],
       rerank_provider: data?.rerank_provider ?? [],
+      image_provider: data?.image_provider ?? [],
       role_kinds: data?.role_kinds ?? ({} as Record<ProviderRole, ProviderKind>),
       tts_aliases: data?.tts_aliases ?? {},
       provider_meta: data?.provider_meta ?? {},

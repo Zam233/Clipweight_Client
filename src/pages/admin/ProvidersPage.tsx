@@ -155,6 +155,10 @@ export function ProvidersPage() {
 
   const save = async () => {
     if (!form.name.trim()) { setError('请填写源 ID / 名称'); return; }
+    if (!form.provider.trim()) {
+      setError(`请选择 provider（${kind} 类型没有可用实现：先确认对应插件已安装并启用）`);
+      return;
+    }
     setBusy('save');
     setError('');
     try {
