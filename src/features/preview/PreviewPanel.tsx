@@ -1374,7 +1374,7 @@ function paintClipContent(
       const _fill = String(_style.fill || clip.font_color || '#FFFFFF');
       ctx.fillStyle = _fill;
       const baseY = fy + layout.y;
-      const baseX = fx + layout.x;
+      const baseX = fx + layout.x + Number(_style.offset_x || 0);
       const maxWidth = fw * 0.9;
       // 文字动画的逐字/淡入淡出（预览与 ASS 共用同一套 reveal 语义）
       const _local = Math.max(0, (t - clip.start_sec) * speed);
@@ -1401,6 +1401,18 @@ function paintClipContent(
       ctx.globalAlpha *= _alpha;
 
       const _fullWidth = ctx.measureText(text).width;
+      const _revealSec = Math.max(0.1, Number(_motion.reveal_sec) || 0.4);
+      const _p = Math.max(0, Math.min(1, _local / _revealSec));
+      let _motionDX = 0;
+      let _motionDY = 0;
+      let _motionScale = 1;
+      if (_motionType === 'slide_in') {
+        _motionDY = (1 - _p) * 80;
+      } else if (_motionType === 'scale_in') {
+        _motionScale = 0.7 + 0.3 * _p;
+      }
+      ctx.translate(_motionDX, _motionDY);
+      if (_motionScale !== 1) ctx.scale(_motionScale, _motionScale);
       const _drawX = (_motionType === 'typewriter' || _motionType === 'word_by_word')
         ? -_fullWidth / 2
         : 0;
