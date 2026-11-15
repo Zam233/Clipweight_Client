@@ -75,6 +75,8 @@ export interface ToolDetail {
   remaining_turns?: number;
   /** `tool` / `skill`：Skill 必须与普通工具分开显示 */
   kind?: string;
+  /** 干净技能名（后端 kind=skill 时给出，不含 `skill:` 前缀） */
+  skill?: string;
   /** 子 agent 名（subagent_tool 才有） */
   agent?: string;
   stage?: string;

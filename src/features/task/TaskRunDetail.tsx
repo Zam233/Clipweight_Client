@@ -113,6 +113,7 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
   const needs = (run?.needs || []) as Array<Record<string, unknown>>;
   const failure = (run?.failure || null) as Record<string, unknown> | null;
   const degradations = (run?.degradations || []) as TaskRunDegradation[];
+  const toolCalls = (run?.tool_calls || []) as Array<Record<string, unknown>>;
   const callsPath = String(run?.tool_calls_path || '');
 
   return (
@@ -197,6 +198,50 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
 
           <Section title={`降级与处置（${degradations.length}）`} empty="这次没有降级">
             {degradations.length > 0 ? <DegradationList items={degradations} /> : undefined}
+          </Section>
+
+          <Section title={`本次调用（${toolCalls.length}）`} empty="这次运行没有逐条轨迹">
+            {toolCalls.length > 0 ? (
+              <ul className="space-y-0.5" data-testid="run-detail-tool-calls">
+                {toolCalls.map((c, i) => {
+                  const kind = String(c.kind || 'tool');
+                  const rawName = String(c.skill || c.tool || '?');
+                  const name = rawName.startsWith('skill:') ? rawName.slice(6) : rawName;
+                  const status = String(c.status || '');
+                  const ms = typeof c.duration_ms === 'number' ? c.duration_ms : undefined;
+                  const seq = typeof c.seq_in_run === 'number' ? c.seq_in_run : undefined;
+                  return (
+                    <li
+                      key={i}
+                      className="flex items-baseline gap-1.5 truncate"
+                      data-call-kind={kind}
+                    >
+                      <span
+                        className={cn(
+                          'shrink-0 rounded-cw-xs px-1',
+                          kind === 'skill'
+                            ? 'bg-primary/15 text-primary'
+                            : 'bg-surface-container-high text-on-surface-variant/70',
+                        )}
+                      >
+                        {kind === 'skill' ? '技能' : '工具'}
+                      </span>
+                      <span className="w-40 shrink-0 truncate font-mono">{name}</span>
+                      <span className="shrink-0 text-on-surface-variant/70">{status}</span>
+                      {typeof ms === 'number' && (
+                        <span className="shrink-0 text-on-surface-variant/60">{ms}ms</span>
+                      )}
+                      {typeof seq === 'number' && (
+                        <span className="shrink-0 text-on-surface-variant/40">#{seq}</span>
+                      )}
+                      {c.error ? (
+                        <span className="min-w-0 truncate text-error/80">{_str(c.error)}</span>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : undefined}
           </Section>
 
           <Section title="完整轨迹文件" empty="这次运行没有落盘轨迹">

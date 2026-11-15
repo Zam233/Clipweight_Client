@@ -111,6 +111,33 @@ describe('CopilotTaskRunTab：工具调用全部可见', () => {
     expect(rows.querySelector('[data-origin="skill"]')).toBeTruthy();
   });
 
+  it('主 agent 的技能调用也标「技能」并显示干净名', () => {
+    store.events = [
+      {
+        seq: 700, type: 'tool_call', ts: '', message: 'skill:analyze_video_structure',
+        detail: {
+          tool: 'skill:analyze_video_structure', args: {},
+          kind: 'skill', skill: 'analyze_video_structure',
+        },
+      },
+      {
+        seq: 701, type: 'tool_result', ts: '', message: 'ok',
+        causation_id: 'seq:700',
+        detail: {
+          tool: 'skill:analyze_video_structure', status: 'ok', duration_ms: 12,
+          kind: 'skill', skill: 'analyze_video_structure',
+        },
+      },
+    ];
+    render(<CopilotTaskRunTab taskId="task_x" />);
+    const rows = screen.getByTestId('tool-call-rows');
+    const skillRow = rows.querySelector('[data-origin="skill"]') as HTMLElement;
+    expect(skillRow).toBeTruthy();
+    expect(skillRow.textContent).toContain('技能');
+    expect(skillRow.textContent).toContain('analyze_video_structure');
+    expect(skillRow.textContent).not.toContain('skill:');
+  });
+
   it('筛选按钮按来源过滤（技能 / 子 agent / 主 agent）', () => {
     store.events = subagentAndSkill;
     render(<CopilotTaskRunTab taskId="task_x" />);

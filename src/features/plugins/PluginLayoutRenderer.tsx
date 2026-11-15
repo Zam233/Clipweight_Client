@@ -191,7 +191,6 @@ export function PluginLayoutRenderer({
         if ((rec.name === undefined || rec.name === null || rec.name === '') &&
             rec.tool !== undefined && rec.tool !== null && rec.tool !== '') {
           specBody = { ...rec, name: rec.tool };
-          // eslint-disable-next-line no-console
           console.warn('[plugin] 旧版 ui.json 按钮 body 使用 tool 字段，已兼容补 name；请改用 name。');
         }
       }

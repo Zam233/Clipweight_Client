@@ -95,7 +95,9 @@ function levelOf(event: TaskEvent): string {
   if (stage) return `阶段 ${stage}`;
   if (event.span === 'stage' || kind === 'stage') return '阶段';
   if (event.span === 'tool' || event.type === 'tool_call' || event.type === 'tool_result') {
-    return d.tool ? `工具 ${String(d.tool)}` : '工具';
+    const name = d.skill ? String(d.skill) : d.tool ? String(d.tool).replace(/^skill:/, '') : '';
+    if (kind === 'skill') return name ? `技能 ${name}` : '技能';
+    return name ? `工具 ${name}` : '工具';
   }
   if (event.type.startsWith('agent_run') || event.type === 'subagent_tool') return '子 agent';
   if (event.span === 'kernel') return '主 agent';
