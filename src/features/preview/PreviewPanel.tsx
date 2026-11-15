@@ -1335,6 +1335,19 @@ function paintClipContent(
     case 'text':
     case 'caption': {
       const text = clip.text || '文字';
+      // 用户裁定：文字动画统一 MG HTML；有 mg_def 就画 MG，不再画旧 ASS 文字层
+      const _textMg = mgSpecOf(clip.metadata);
+      if (_textMg) {
+        const _mgFid = emptyFidelity();
+        const _mgLocal = Math.max(0, (t - clip.start_sec) * speed + clip.source_offset_sec);
+        ctx.save();
+        ctx.globalAlpha = clamp(env.opacity, 0, 1);
+        drawMgFrame(ctx, _textMg, _mgLocal, { x: fx, y: fy, w: fw, h: fh }, _mgFid,
+          mgParamsOf(clip.metadata));
+        ctx.restore();
+        reportMgFidelity(clip.asset_id, _mgFid);
+        return false;
+      }
       // Min-dimension scaling keeps caption text fitting portrait frames too
       // (height-only scaling overflows 1080x1920 exports).
       const fontSize = captionFontSize(clip.font_size ?? 48, fw, fh, tf.scale);
