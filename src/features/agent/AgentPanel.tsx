@@ -9,7 +9,7 @@ import { Markdown } from '@/components/shared/Markdown';
 import { TimelineDiffView } from './TimelineDiffView';
 import { IntentCard, type IntentPreview } from './IntentCard';
 import { resolveMessageAttachments } from './requirementsAttachments';
-import { pipelineApi, requirementsApi, personaApi } from '@/services/api';
+import { pipelineApi, requirementsApi, personaApi, taskApi } from '@/services/api';
 import { fetchSseToken, withSseToken } from '@/services/api/sse';
 import { loadPipelineId, clearPipelineId } from '@/services/storage/pipelineSession';
 import { useBackendHealth } from '@/pages/useBackendHealth';
@@ -475,11 +475,30 @@ function RequirementsView() {
   ) => {
     const sid = useAgentStore.getState().requirementsSessionId;
     if (!sid) throw new Error('会话不存在，请重新开始对话');
-    const res = await requirementsApi.answer(sid, {
-      question_id: ans.questionId,
-      option_id: ans.optionId ?? null,
-      text: ans.text ?? null,
-    }) as { reply?: unknown; status?: unknown };
+    // 问题可能属于「需求会话」也可能属于「任务」（阶段子代理提问，如质检
+    // replan_closure）。需求侧 answer 只接受 requirements-owned 问题，任务问题
+    // 会 404（question_not_found）——实测 E2E 点选项直接“提交失败 404”。
+    // 先按需求会话答；404 且有活动任务时回退到任务作答接口。
+    let res: { reply?: unknown; status?: unknown };
+    try {
+      res = await requirementsApi.answer(sid, {
+        question_id: ans.questionId,
+        option_id: ans.optionId ?? null,
+        text: ans.text ?? null,
+      }) as { reply?: unknown; status?: unknown };
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      const taskId = useTaskStore.getState().task?.id ?? '';
+      if (status === 404 && taskId) {
+        await taskApi.answer(taskId, {
+          questionId: ans.questionId,
+          optionId: ans.optionId ?? null,
+          text: ans.text ?? null,
+        });
+        return;
+      }
+      throw err;
+    }
     if (typeof res?.reply === 'string' && res.reply) {
       addMessage({
         id: uid('m'), role: 'assistant', content: res.reply,
