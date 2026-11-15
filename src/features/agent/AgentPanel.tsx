@@ -94,6 +94,27 @@ const LOG_COLORS: Record<LogEventType, string> = {
   mg_start: 'text-track-text', mg_end: 'text-track-animation',
 };
 
+
+/** 会话时间线的兜底补拉：SSE 增量丢失时按 since_seq 拉一次并合并（规划书/简报）。 */
+async function pullTimelineOnce(sessionId: string, sinceSeq?: number): Promise<void> {
+  try {
+    const store = useSessionTimelineStore.getState();
+    const page = await requirementsApi.timeline(sessionId, {
+      // 规划书/简报这类大条目，SSE 只发 begin/finish（不带 content），必须从
+      // REST 重新取一次同 seq 的**已解析正文**；传 0 = 整页回填并合并。
+      sinceSeq: sinceSeq ?? store.latestSeq[sessionId] ?? 0,
+      limit: 500,
+    });
+    useSessionTimelineStore.getState().hydrate(sessionId, page.items ?? [], {
+      latestSeq: page.latest_seq ?? 0,
+      hasMore: page.has_more ?? false,
+      archivedUntil: page.archived_until_seq ?? 0,
+    });
+  } catch {
+    /* 后端忙/抖动：下次轮询再来，不影响状态机 */
+  }
+}
+
 function errText(e: unknown): string {
   const anyE = e as {
     code?: string;
@@ -345,11 +366,22 @@ function RequirementsView() {
     const timer = window.setInterval(() => {
       void (async () => {
         try {
-          const s = await requirementsApi.getSession(sid) as { status?: string };
+          const s = await requirementsApi.getSession(sid) as {
+            status?: string; creative_brief?: CreativeBrief; production_plan?: ProductionPlan;
+          };
           const next = String(s?.status || '');
-          if (!alive || !next || next === status) return;
-          setStatus(next as Parameters<typeof setStatus>[0]);
-          useAgentStore.getState().setRequirementsBusy(false);
+          if (!alive || !next) return;
+          const changed = next !== status;
+          // 规划书可能已在后端回填，但 SSE 增量没到（断线/重连窗口）——会话里
+          // 已经有产物就同步过来，并让时间线补拉一次，避免"必须刷新才显示"。
+          if (!changed && !s?.production_plan) return;
+          if (s?.creative_brief) setBrief(s.creative_brief);
+          if (s?.production_plan) setPlan(s.production_plan);
+          if (changed) {
+            setStatus(next as Parameters<typeof setStatus>[0]);
+            useAgentStore.getState().setRequirementsBusy(false);
+          }
+          void pullTimelineOnce(sid, 0);
           void refreshQuestions(sid);
         } catch {
           /* 后端忙/抖动：下一轮再来 */
@@ -996,14 +1028,22 @@ function RequirementsView() {
             if (!stillCurrent()) return;
             let st = '';
             try {
-              const s = await requirementsApi.getSession(sid) as { status?: string };
+              const s = await requirementsApi.getSession(sid) as {
+                status?: string; creative_brief?: CreativeBrief; production_plan?: ProductionPlan;
+              };
               st = String(s?.status || '');
+              if (!stillCurrent()) return;
+              if (s?.production_plan) setPlan(s.production_plan);
+              if (s?.creative_brief) setBrief(s.creative_brief);
             } catch { /* 后端暂时不可用：继续等，不谎报状态 */ }
             if (!stillCurrent()) return;
             if (st && st !== 'planning') {
               useAgentStore.getState().setRequirementsStatus(
                 st as Parameters<typeof setStatus>[0],
               );
+              // plan 条目由后端写进会话时间线；若 SSE 增量丢失，这里按
+              // since_seq 直接补拉，规划书无需刷新即可出现。
+              void pullTimelineOnce(sid, 0);
               void refreshQuestions(sid);
               break;
             }
