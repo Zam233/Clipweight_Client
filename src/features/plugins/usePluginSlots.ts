@@ -83,6 +83,7 @@ async function fetchAllContributions(): Promise<SlotContribution[]> {
   if (pending) return pending;
 
   const gen = generation; // 发起代
+  // eslint-disable-next-line prefer-const
   let self: Promise<SlotContribution[]> | undefined;
   const task: Promise<SlotContribution[]> = (async () => {
     try {
@@ -134,6 +135,7 @@ export async function fetchContributions(
   if (pending) return pending;
 
   const gen = generation; // 发起代
+  // eslint-disable-next-line prefer-const
   let self: Promise<SlotContribution[]> | undefined;
   const task: Promise<SlotContribution[]> = (async () => {
     try {

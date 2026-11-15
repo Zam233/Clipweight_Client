@@ -275,6 +275,11 @@ export interface CallRow {
   paired: 'causation' | 'name';
   /** `main` = 主 agent；`subagent` = 派出去的子 agent；`skill` = 走 SkillRegistry 的技能 */
   origin: 'main' | 'subagent' | 'skill';
+  /** 后端事件里的 kind（tool|skill）：主 agent 的技能调用靠它区分 */
+  kind?: string;
+  /** 干净技能名（不含 `skill:` 前缀） */
+  skill?: string;
+  capability?: string;
   agent?: string;
   stage?: string;
   run_id?: string;
@@ -319,6 +324,9 @@ export function mergeCallRows(events: Ev): CallRow[] {
       ...r,
       key: `m${r.seq}`,
       origin: d.kind === 'skill' ? ('skill' as const) : ('main' as const),
+      kind: d.kind as string | undefined,
+      skill: d.skill as string | undefined,
+      capability: d.capability as string | undefined,
       source: d.source as string | undefined,
       deduped: d.deduped as boolean | undefined,
       remaining_turns: d.remaining_turns as number | undefined,
@@ -339,6 +347,9 @@ export function mergeCallRows(events: Ev): CallRow[] {
       error: d.error,
       paired: 'causation',
       origin: d.kind === 'skill' ? 'skill' : 'subagent',
+      kind: d.kind,
+      skill: d.skill,
+      capability: d.capability,
       agent: d.agent,
       stage: d.stage,
       run_id: d.run_id,
@@ -414,18 +425,27 @@ function ToolCallRows({ events }: { events: Ev }) {
         </div>
       </div>
       <ul className="space-y-1">
-        {shown.map((r) => (
+        {shown.map((r) => {
+          // 技能调用：优先显示干净名（capability / 去 `skill:` 前缀），并加图标，
+          // 否则用户看到的是 `skill:analyze_video_structure` 这种怪串。
+          const displayName = asText(r.skill)
+            || (r.tool.startsWith('skill:') ? r.tool.slice('skill:'.length) : r.tool);
+          return (
           <li
             key={r.key}
             className="flex items-baseline gap-2 text-caption"
             data-paired={r.paired}
             data-origin={r.origin}
+            data-kind={r.kind || ''}
             data-source={r.source}
           >
             <span className="w-10 shrink-0 text-on-surface-variant/60" data-origin-tag={r.origin}>
               {r.origin === 'skill' ? '技能' : r.origin === 'subagent' ? '子' : '主'}
             </span>
-            <span className="w-32 shrink-0 truncate font-mono text-on-surface-variant">{r.tool}</span>
+            <span className="w-32 shrink-0 truncate font-mono text-on-surface-variant">
+              {r.origin === 'skill' && <span aria-hidden className="mr-1">🧠</span>}
+              {displayName}
+            </span>
             {r.agent && (
               <span className="shrink-0 truncate text-on-surface-variant/60">
                 @{r.agent}
@@ -457,7 +477,8 @@ function ToolCallRows({ events }: { events: Ev }) {
               <span className="shrink-0 text-on-surface-variant/40">按名配对</span>
             )}
           </li>
-        ))}
+          );
+        })}
       </ul>
       {rest > 0 && (
         <button

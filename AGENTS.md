@@ -32,7 +32,7 @@ scripts\stop.ps1         # 停止全部
 ```
 J:\Clipwright
 ├── clipwright/       # 后端（Python FastAPI）
-│   ├── agents/       # 7 个 Agent（需求→结构→素材→剪辑→动画→音频→质检）
+│   ├── agents/       # 阶段子 Agent（结构/素材/剪辑/动画/音频/质检）+ requirements 规划，由主 Agent 派发
 │   ├── api/          # 33 个 API 路由文件
 │   ├── services/     # 30+ 后端服务
 │   ├── tool/         # 44+ 原子能力工具
@@ -50,7 +50,10 @@ J:\Clipwright
 
 ## 核心不变量
 
-1. **7 个 Agent**：RequirementsAgent → StructureAgent → MaterialAgent → EditAgent → AnimationAgent → AudioAgent → QualityAgent
+1. **1 个主 Agent + 7 个阶段子 Agent**：主 Agent 持有规划、工具调用与收尾，用
+   `delegate_agent(stage=…)` 把结构 / 素材 / 剪辑 / 动画 / 音频 / 质检派给阶段子 Agent
+   （requirements 只用于规划/改写）；阶段有结构化输入输出、自己的 run 与黑板写回，失败回主 Agent 决策，
+   **不是**固定串行管线。
 2. **44+ 个 Tool**：原子能力层，通过 ToolRegistry 注册
 3. **4 个 Skill**：可组合的高级能力，通过 SkillRegistry 注册
 4. **33 个 API 路由组**：每个路由文件对应一组端点（225 条路由）
@@ -345,7 +348,7 @@ npm run build
 | 文档 | 覆盖的代码模块 |
 |------|---------------|
 | [架构总览](docs/structure.md) | 全部五层架构 |
-| [Agent 工作流](docs/workflow.md) | agents/, services/pipeline*.py, services/agent_bus.py |
+| [Agent 工作流](docs/workflow.md) | agents/, services/agent_kernel.py, services/stage_subagent.py, services/subagent.py, services/agent_bus.py |
 | [API 参考](docs/api_reference.md) | api/ 全部 33 个路由文件 |
 | [开发指南](docs/development.md) | tool/, skill/, plugins/, 开发规范 |
 | [Persona 系统](docs/Persona.md) | persona/ 模块 |

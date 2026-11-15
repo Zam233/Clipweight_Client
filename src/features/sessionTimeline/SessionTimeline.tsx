@@ -292,11 +292,13 @@ function Row({
     case 'skill':
     case 'subagent': {
       const originRaw = asText(item.meta?.event_type);
-      const origin = item.type === 'skill' ? 'skill'
+      const isSkill = item.type === 'skill' || asText(item.meta?.kind) === 'skill';
+      const origin = isSkill ? 'skill'
         : item.type === 'subagent' ? 'subagent'
           : originRaw === 'subagent_tool' ? 'subagent' : 'main';
-      const label = asText(item.meta?.tool ?? item.meta?.skill ?? item.meta?.agent)
-        || itemText(item);
+      const label = (asText(item.meta?.skill)
+        || asText(item.meta?.tool ?? item.meta?.agent)
+        || itemText(item)).replace(/^skill:/, '');
       const status = enumLabel(item.meta?.status ?? item.state, STATUS_CN);
       const ms = typeof item.meta?.duration_ms === 'number' ? item.meta.duration_ms : undefined;
       const errText = asText(item.meta?.error);
@@ -304,6 +306,7 @@ function Row({
         <div className="flex items-baseline gap-2 px-2 py-0.5 text-caption"
           data-testid="session-item-tool" data-seq={item.seq} data-origin={origin}>
           <Wrench className="h-3 w-3 shrink-0 text-on-surface-variant/60" />
+          {isSkill && <span className="shrink-0 rounded-cw-xs bg-primary/15 px-1 text-primary">技能</span>}
           <span className="w-14 shrink-0 text-on-surface-variant/60">
             {ORIGIN_CN[origin] ?? origin}
           </span>

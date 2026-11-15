@@ -22,7 +22,7 @@ const AVAILABLE: AvailableProviders = {
   rerank_provider: ['http'],
   role_kinds: {
     main: 'llm', flash: 'llm', vision: 'llm',
-    embed: 'embedding', rerank: 'rerank', tts: 'tts',
+    embed: 'embedding', rerank: 'rerank', tts: 'tts', image: 'image',
   },
   tts_aliases: { qwen_tts: 'qwen-tts' },
 };
@@ -50,6 +50,14 @@ describe('providersApi', () => {
     expect(out.llm_provider).toEqual(['openai']);
     expect(out.tts_provider).toEqual([]);
     expect(out.tts_aliases).toEqual({});
+  });
+
+  it('available 保留 image_provider（AI 生图下拉不能为空）', async () => {
+    mocks.get.mockResolvedValue({
+      data: { image_provider: ['openai_compatible', 'openai_gpt_image'] },
+    });
+    const out = await providersApi.available();
+    expect(out.image_provider).toEqual(['openai_compatible', 'openai_gpt_image']);
   });
 
   it('setRole 发送 role/source_id/model', async () => {
