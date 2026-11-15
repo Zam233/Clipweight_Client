@@ -14,8 +14,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        // 后端实际端口：J:\Clipwright\.env 中 CLIPWRIGHT_PORT=8080
-        target: 'http://localhost:8080',
+        // 后端实际端口：J:\Clipwright\.env 中 CLIPWRIGHT_PORT=8080。
+        // 必须用 127.0.0.1：Windows 上 localhost 先解析到 ::1，而后端只监听
+        // 127.0.0.1，Node 代理会先踩 IPv6 超时再回落（实测每个请求多 2s+）。
+        target: 'http://127.0.0.1:8080',
         changeOrigin: true,
       },
       // P3-3B: 账号/市场服务（ClipWright Server，K:\Clipwright Server :8090）
