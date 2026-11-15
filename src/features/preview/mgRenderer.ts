@@ -376,11 +376,36 @@ export function drawMgFrame(
         if (!content) break;
         const fontSize = num(p.font_size, num(el.font_size, Math.max(24, h * 0.5)));
         const weight = num(p.font_weight, num(el.font_weight, 600));
-        const align = str(el.align, 'left');
-        ctx.fillStyle = color;
-        ctx.font = `${Math.round(weight)} ${Math.round(fontSize)}px ${fontFamily}`;
+        const align = str(el.text_align, str(el.align, 'left'));
+        const italic = Boolean(el.font_italic);
+        ctx.font = `${italic ? 'italic ' : ''}${Math.round(weight)} ${Math.round(fontSize)}px ${fontFamily}`;
         const lines = content.split('\n');
         const lineHeight = num(p.line_height, num(el.line_height, 1.25)) * fontSize;
+        // 渐变文字（后端 MGRenderer 用 background-clip:text 输出）
+        const gradientBg = withParams(str(el.background, ''), params);
+        if (Boolean(el.text_gradient) && gradientBg.startsWith('linear-gradient')) {
+          const colors = [...gradientBg.matchAll(/#[0-9a-fA-F]{6,8}|rgba?\([^)]*\)/g)].map((m) => m[0]);
+          if (colors.length >= 2) {
+            const g = ctx.createLinearGradient(ex, ey, ex + Math.max(1, w), ey);
+            colors.forEach((c, i) => g.addColorStop(i / (colors.length - 1), c));
+            ctx.fillStyle = g;
+          } else {
+            ctx.fillStyle = color;
+          }
+        } else {
+          ctx.fillStyle = color;
+        }
+        // 投影/霓虹/glitch：后端把多层 text-shadow 存在 text_shadow；canvas 只取第一层做主投影。
+        const shadowRaw = str(el.text_shadow, '');
+        if (shadowRaw) {
+          const m = shadowRaw.match(/(-?\d+(?:\.\d+)?)px\s+(-?\d+(?:\.\d+)?)px\s+(\d+(?:\.\d+)?)px\s+(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\))/);
+          if (m) {
+            ctx.shadowColor = m[4];
+            ctx.shadowOffsetX = Number(m[1]);
+            ctx.shadowOffsetY = Number(m[2]);
+            ctx.shadowBlur = Number(m[3]);
+          }
+        }
         // 文本宽度后端由浏览器布局决定；这里用 canvas 测量来还原 center 锚点。
         const measured = Math.max(...lines.map((ln) => ctx.measureText(ln).width), 1);
         // 文本元素通常没有显式 width/height：不能沿用 w/h 的 designW/designH 默认值，
@@ -406,13 +431,27 @@ export function drawMgFrame(
           ctx.scale(scale, scale);
           ctx.translate(-textCx, -textCy);
         }
+        const strokeRaw = str(el.text_stroke, '');
+        const strokeMatch = strokeRaw.match(/(\d+(?:\.\d+)?)px\s+(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\))/);
         lines.forEach((line, i) => {
           let textX = ex;
           if (align === 'center') textX = ex + textW / 2;
           else if (align === 'right') textX = ex + textW;
           ctx.textAlign = align === 'center' ? 'center' : (align === 'right' ? 'right' : 'left');
+          if (strokeMatch) {
+            ctx.lineWidth = Number(strokeMatch[1]) * 2;
+            ctx.strokeStyle = strokeMatch[2];
+            ctx.lineJoin = 'round';
+            ctx.strokeText(line, textX, ey + i * lineHeight, maxWidth);
+          }
           ctx.fillText(line, textX, ey + i * lineHeight, maxWidth);
         });
+        if (shadowRaw) {
+          ctx.shadowColor = 'transparent';
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+        }
         if (scale !== 1 || rot !== 0) ctx.restore();
         break;
       }
