@@ -297,3 +297,11 @@
 - 新增 `migration.test.ts` 覆盖版本只读与双向映射；
 - 提交 `d313825`。
 - 编辑 UI 仍需后端 validate/compile/author/条件提交接口，当前只读。
+
+
+### CP-6/8 追加（2026-11-18）
+
+- 新增 `draft.ts` 纯函数：keyframe 时间/数值增删改，只操作本地 draft，不写 store/hash；
+- PropertiesPanel asset pack 增加加载失败错误态；
+- 验证：textMotion/preview/store 228 passed，tsc 通过；提交 `1960919`。
+- 编辑 UI 仍受后端 validate/compile/author/提交 API 阻断。
