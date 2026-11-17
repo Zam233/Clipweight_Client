@@ -122,6 +122,9 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
   const [saved, setSaved] = useState('');
   const [authorState, setAuthorState] = useState(initialAuthorState);
   const authorCancel = useRef(false);
+  const [jsonMode, setJsonMode] = useState(false);
+  const [jsonText, setJsonText] = useState('');
+  const [jsonError, setJsonError] = useState('');
   useEffect(() => {
     setDraft(spec ? JSON.parse(JSON.stringify(spec)) as MotionSpec : null);
     setSaveError('');
@@ -212,6 +215,25 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
       setBusy(false);
     }
   };
+  const openJson = () => {
+    setJsonText(JSON.stringify(effective, null, 2));
+    setJsonError('');
+    setJsonMode(true);
+  };
+  const applyJson = () => {
+    try {
+      const parsed = JSON.parse(jsonText) as MotionSpec;
+      if (!parsed || parsed.schema !== 'motion_spec/1' || !Array.isArray(parsed.layers)) {
+        throw new Error('不是有效的 motion_spec/1');
+      }
+      setDraft(parsed);
+      setJsonError('');
+      setJsonMode(false);
+    } catch (e) {
+      setJsonError(e instanceof Error ? e.message : 'JSON 解析失败');
+    }
+  };
+
   return (
     <Section title="文字动效" icon={<Sparkles className="w-3 h-3" />}>
       <Row label="Spec">
@@ -331,6 +353,26 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
         </span>
       </div>
       {saveError && <p className="mt-1 text-caption text-error">{saveError}</p>}
+      <button
+        type="button"
+        onClick={openJson}
+        className="mt-2 text-caption text-primary"
+      >高级 JSON 编辑</button>
+      {jsonMode && (
+        <div className="mt-2">
+          <textarea
+            value={jsonText}
+            onChange={(e) => setJsonText(e.target.value)}
+            rows={10}
+            className="w-full bg-surface-container rounded-cw-xs p-2 font-mono text-[10px] text-on-surface"
+          />
+          {jsonError && <p className="text-caption text-error">{jsonError}</p>}
+          <div className="mt-1 flex gap-2">
+            <button type="button" onClick={applyJson} className="text-caption text-primary">应用草稿</button>
+            <button type="button" onClick={() => setJsonMode(false)} className="text-caption text-on-surface-variant">取消</button>
+          </div>
+        </div>
+      )}
       <details className="mt-2">
         <summary className="text-caption text-on-surface-variant cursor-pointer">查看 MotionSpec JSON</summary>
         <pre className="mt-2 max-h-48 overflow-auto rounded-cw-xs bg-surface-container p-2 text-[10px] leading-4 text-on-surface-variant">
