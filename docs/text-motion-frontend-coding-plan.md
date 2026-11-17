@@ -472,3 +472,10 @@
 - 修复：不可缓存层仍 `drawImage` 到主画布，再清理离屏层。
 - 新增/更新测试：不可缓存层 `painted === true` 且主画布收到 drawImage。
 - 237 tests 通过；提交 `8e49097`、`2a67ea5`。
+
+
+### 预览 MG 复验通过（2026-11-19）
+
+- 修复后打开 `/editor/proj_f4727a36c443?clip=tc_e9831d60&t=62.65`；
+- 预览在 clip local 1s 显示黄色「并非回应」+ 字幕；
+- 截图：`docs/e2e/motion-spec-preview.jpg`。
