@@ -383,3 +383,11 @@
 - 前端共享 `connectSseStream` 由 EventSource 自动续传；
 - author UI 已走 SSE，取消仍走 cancel endpoint；
 - 前端 232 tests/build 通过。
+
+
+### path 编辑（2026-11-18）
+
+- MotionSpec 面板支持 path type 下拉与前两个点的 x/y 编辑；
+- 修改进入本地 draft，保存仍走 validate/compile/commit；
+- 233 tests、build 通过；提交 `2b71ce0`。
+- tracks/effects 仍通过高级 JSON 编辑。
