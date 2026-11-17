@@ -367,3 +367,11 @@
 - 前端 PR #17 已创建，后端 PR #20 已更新；
 - 验证：231 tests、tsc/build 通过；提交 `a580e55`。
 - 仍缺：tracks/path/camera 结构化控件、marker 拖动、视觉 E2E。
+
+
+### camera / marker 交互（2026-11-18）
+
+- camera 结构化控件：scale/x/y/rotate 编辑；
+- MotionSpec marker 点击：选中 clip 并 seek 到 keyframe；
+- 验证：232 passed、build 通过；提交 `e2a4536`/`3314682`。
+- 仍缺：tracks/path 专用控件、marker 拖动、完整视觉 E2E。
