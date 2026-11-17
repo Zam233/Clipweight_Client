@@ -28,7 +28,7 @@ import { textMotionApi } from '@/services/api/textMotion';
 import { textMotionFlags } from '@/features/textMotion/flags';
 import type { AssetPackSummary } from '@/services/api/textMotion';
 import { validateDraftSpec } from '@/features/textMotion/schema';
-import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue, updatePathPoint, updatePathType, updateTrackSegment } from '@/features/textMotion/draft';
+import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue, updatePathPoint, updatePathType, updateTrackSegment, removeEffect } from '@/features/textMotion/draft';
 import type { MotionSpec } from '@/features/textMotion/types';
 import { initialAuthorState, isAuthorTerminal, reduceAuthorState } from '@/features/textMotion/authorTask';
 import {
@@ -331,6 +331,17 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
           {effective.layers.filter((l) => l.motion_path || (l.tracks?.length ?? 0) > 0).map((l) => (
             <div key={`adv-${l.id}`} className="space-y-1">
               <div>{l.id}{l.effects?.length ? ` · effects=${l.effects.length}` : ''}</div>
+              {(l.effects ?? []).map((fx, fi) => (
+                <div key={`${l.id}-fx-${fi}`} className="flex items-center gap-1">
+                  <span>{String((fx as Record<string, unknown>).type ?? 'effect')}</span>
+                  <button
+                    type="button" disabled={!canEdit}
+                    onClick={() => setDraft(removeEffect(effective, l.id, fi))}
+                    className="text-error disabled:opacity-30"
+                    title="删除 effect"
+                  >×</button>
+                </div>
+              ))}
               {(l.tracks ?? []).map((tr, ti) => (
                 <div key={`${l.id}-tr-${ti}`} className="flex flex-wrap items-center gap-1">
                   <span>{tr.property}</span>

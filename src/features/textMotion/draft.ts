@@ -94,3 +94,12 @@ export function updateTrackSegment(
   seg[key] = value;
   return next;
 }
+
+
+export function removeEffect(spec: MotionSpec, layerId: string, index: number): MotionSpec {
+  const next = cloneSpec(spec);
+  const layer = next.layers.find((l) => l.id === layerId);
+  if (!layer?.effects?.[index]) return next;
+  layer.effects.splice(index, 1);
+  return next;
+}

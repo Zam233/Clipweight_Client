@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue, updatePathPoint, updatePathType, updateTrackSegment } from './draft';
+import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue, updatePathPoint, updatePathType, updateTrackSegment, removeEffect } from './draft';
 import type { MotionSpec } from './types';
 
 const spec = (): MotionSpec => ({
@@ -66,5 +66,16 @@ describe('track draft', () => {
     const next = updateTrackSegment(base, 't', 0, 0, 'end', 1.5);
     expect(next.layers[0].tracks?.[0].segments[0].end).toBe(1.5);
     expect(base.layers[0].tracks?.[0].segments[0].end).toBe(1);
+  });
+});
+
+
+describe('effects draft', () => {
+  it('removes effect immutably', () => {
+    const base = spec();
+    base.layers[0].effects = [{ type: 'glow' }];
+    const next = removeEffect(base, 't', 0);
+    expect(next.layers[0].effects).toEqual([]);
+    expect(base.layers[0].effects).toHaveLength(1);
   });
 });
