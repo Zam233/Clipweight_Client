@@ -20,6 +20,7 @@
 
 - **阶段门禁**：CP-0 审计/契约冻结 → CP-1 类型/schema/adapter → CP-2 预览原语与 fidelity → CP-3 PreviewPanel 安全分支 → CP-4 API/任务交互 → CP-5 原子事务/history/持久化 → CP-6 属性编辑器 → CP-7 通用编辑器适配 → CP-8 packs → CP-9 timeline markers、flags、整体验收。
 - 即使章节描述最终 UI，第一阶段也只上线只读摘要、状态、错误定位和真实成片对照。能力不在服务端能力快照中、schema 未对账、compiler/MG validator/Canvas 抽帧未通过时，控件隐藏或禁用并展示原因。
+- 明确首发可交付切片：CP-0/1 的读取 schema 与摘要、CP-3 的只读状态分支、错误呈现和 legacy 识别；不依赖 author/compile 编辑 API。可信预览必须待 CP-2 原语验证及有效编译产物绑定通过后单独开关。任何 CP 若依赖未实现的后端端点，只能以 mock 契约测试开发，不可计入集成验收/发布完成。
 - 前端轻量校验仅用于输入反馈。提交与导出必须由后端复验；无能力快照、版本不匹配、未知字段/资源、校验失败、409、超时或取消均 fail-closed，保留 last-known-good。
 - 不得把 MotionSpec 写入 `clip.keyframes`；不允许固定 `exact`；不允许缺失 MGDef 时显示白字、默认 fade、旧模板或其他 legacy 兜底。只有明确来源标识的旧 clip 才走只读 legacy 路径。
 - 所有阶段状态与错误须可追踪到 clip、spec hash、schema/compiler/capability 版本；模型/接口文本进入 React 节点前按项目约定做安全文本化。
@@ -33,6 +34,8 @@
 - 记录初始验证基线：`npx tsc --noEmit`、`npm run test`、`npm run build`；本计划不预设测试已通过。补充现有 `src/stores/timelineStore.test.ts`、PreviewPanel/PropertiesPanel 测试文件的实际位置探测，缺失时新增专用测试。
 - 与后端共同冻结只允许候选原语清单。依据后端 PRD §25–26，初始候选仅在逐项验证后考虑：单 text layer、显式静态 style/layout、2D 数值 transform/opacity、严格命名 easing、至少两帧线性插值。不能因为此列表写入计划就启用它。
 - 产出：契约版本决议、端点草案、前端能力矩阵和测试夹具。任何一项未达成，后续只读，不进入编辑器开放。
+- 出口条件：前后端负责人确认一份机器可读契约来源（版本化 JSON Schema 或等价生成物）、API 请求/响应样例、capability 快照样例与错误码表；CI 有 schema/字段/能力/错误码对账检查。只写文档或以 TS 手写类型代替契约冻结不算通过。
+- 同步确认接口现状：PRD 声明 capabilities/style-packs/asset-packs 列表已存在，但需运行时核验其真实路由、响应形状、鉴权与版本字段；只有不存在/不符的端点列入后端新增项，不重复造列表 API。
 
 ## 4. CP-1：类型、Schema 与 adapter
 
@@ -41,6 +44,7 @@
 新增：
 
 - `src/features/textMotion/types.ts`：版本化 `MotionSpec`、`MotionLayer`、`MotionKeyframe`、`Easing`、`MotionTrack`、`MotionPath`、`MotionEffect`、Camera、能力快照、错误定位、编译产物与任务状态类型。字段以双方冻结 schema 为准，明确 `spec_id`、`requires`、Layer `mask` 等后端必填/合法字段，不照搬旧 PRD 草案中不完整的 TS 片段。
+- `motion_spec_hash` 只由服务端对规范化 spec 计算并返回；前端不得自算后冒充权威 hash。前端可计算 draft fingerprint 用于本地缓存/乱序防护，但不能写入权威 hash 字段。产物绑定需核对 spec hash、schema/compiler/capability 版本；缺任一绑定信息即按失效处理。
 - `src/features/textMotion/schema.ts`：编辑期轻量校验，拒绝 NaN/Infinity、越界时间、非法 easing 参数、超限路径点/层/帧、未知字段和未声明能力；错误包含 `layer_id/field/time`。前端校验规则由契约生成或 CI 对账，权威仍为后端 validator。
 - `src/features/textMotion/adapter.ts`：metadata 提取、版本化读写、能力差异、预览状态派生、`specSeconds <-> normalizedUI` 转换。转换处理零时长、精度量化、clip duration 不符和不可映射值；不得修改 legacy `clip.keyframes`。
 - 对 `clip.text`、MotionSpec text layer `content`、clip duration 与 `spec.duration_sec`、样式包默认值与显式 `layer.style` 定义同步策略。未实现原子同步时，相关编辑必须拒绝并提示，不能静默覆盖；时长变更不允许简单截断关键帧。
@@ -81,11 +85,13 @@
   - `GET /api/text-animation/capabilities`：能力、schema/compiler 版本、支持字段、Canvas fidelity 原语、feature ID；已有 PRD 声明该列表接口，但上线前仍需核对真实响应与版本。
   - `GET /api/text-animation/style-packs`、`GET /api/text-animation/asset-packs`：PRD 声明已有列表接口；UI 仍需校验响应契约、权限和 pack/version/hash。
   - `POST /api/text-animation/validate-spec`：待新增；提交 clip、base revision/hash、schema/capability version、draft spec；只校验不落盘，返回定位 errors/warnings、版本及可提交状态。
-  - `POST /api/text-animation/compile`：待新增；验证后编译、不落盘、不调用 LLM，返回 spec hash、compiler version、mg_def、mg_html（只作为后端产物，不在浏览器执行）、preview_ops、fidelity inputs 与错误。
+  - `POST /api/text-animation/compile`：待新增；验证后编译、不落盘、不调用 LLM，返回 spec hash、compiler version、mg_def、mg_html（只作为后端产物，不在浏览器执行）、preview_ops、fidelity inputs 与错误。编译响应必须明确它是 draft 产物、绑定的 draft/spec fingerprint 和版本；绝不能直接改 `timelineStore` 或服务端 clip。
   - `POST /api/text-animation/author`：待新增 Agent 任务入口，不是浏览器直接调模型/插件。启动回执至少含 task_id、clip_id、revision/幂等键；任务状态查询/SSE 订阅和取消 endpoint 均待后端定义实现，鉴权、归属、超时、终态、进度、成本/重试也须冻结。
   - 条件提交/保存事务 endpoint：待新增并定稿；使用 `If-Match` 或 base revision/hash 原子替换 spec/hash/版本/编译产物/provenance。版本冲突返回 409，错误响应保留 draft。
 - 客户端统一处理网络错误、结构化错误码、任务终态、可重试标记；409 保留当前草稿并提供“重新载入/比较”路径，不自动覆盖。取消 author 必须等后端取消回执；本地 AbortController 仅断开请求，不宣称任务已取消。
-- author UI 显示 pending/等待/进度/task id/成功/失败/取消回执和重试成本。后端 PRD 预算上限和 Agent 重试策略未落实前，不提供无约束重试按钮；刷新后以服务端任务查询恢复状态。
+- author UI 显示 pending/等待/进度/task id/成功/失败/取消回执和重试成本。后端 PRD 单次 author 最长 300 秒是服务端目标契约，前端不得把 60 秒通用 Axios timeout 当 author 业务超时；任务启动/查询走短请求，长执行只订阅 SSE/轮询状态。服务端必须给出 started_at、deadline/timeout 终态、attempt 与总预算；刷新后按服务端状态恢复。外层至多三轮、author 内 JSON repair 至多一次及 `text_generation` + author 的总调用成本需在契约中显式呈现；预算/幂等未落实前不提供无约束重试按钮。
+- 固定客户端状态机：`idle → validating → compiling → ready_to_commit → committing → committed`；author 为独立的 `authoring → succeeded|failed|cancel_requested → cancelled|timed_out` 子流程。任一失败回到可编辑 draft，不能改变 committed bundle。仅 `ready_to_commit` 可发条件提交；提交响应须回传最终 revision/hash/产物版本。SSE 事件至少带 `task_id, seq, status, timestamp`，重复/乱序按 seq 丢弃，重连用服务端确认的 cursor/since 参数补事件；终态主动关闭流，补状态快照后再重连。当前 `connectSseStream` 不支持 last-event cursor/主动 abort signal，若 author 契约要求断点续传须先扩展并回归现有 SSE 使用方，不能默认它已经提供该能力。
+- `validate`/`compile` 结果与 draft fingerprint 一致且版本未变才可进入 `ready_to_commit`；用户继续编辑、换 clip、切项目、能力快照更新时清空旧结果并取消/忽略请求。`commit` 只能提交与验证/编译同一 draft 的结果。
 
 测试：`src/services/api/textMotion.test.ts` mock API 覆盖 schema 错误、409、超时、Abort、任务归属/状态、SSE 重连与终态、幂等键；不得调用真实 LLM。
 
@@ -93,8 +99,10 @@
 
 **状态：待实现；禁止以多次 `updateClip` 拼成伪原子提交。**
 
-- 在 `src/stores/timelineStore.ts` 增加明确事务入口，例如 `commitMotionSpecTransaction(clipId, expectedRevision, committedBundle)`：先验证当前 clip revision/hash，再单次状态替换 spec、hash、schema/compiler/capability 版本、mg_def、preview_ops、fidelity、author provenance；检查失败不修改 state。接口名称最终遵守 store 现有设计。
+- 在 `src/stores/timelineStore.ts` 增加明确事务入口，例如 `commitMotionSpecTransaction(clipId, expectedRevision, committedBundle)`：先验证当前 clip revision/hash，再单次状态替换 spec、hash、schema/compiler/capability 版本、mg_def、preview_ops、fidelity、author provenance；检查失败不修改 state。接口名称最终遵守 store 现有设计。服务器条件提交成功是持久化线性化点；本地 store 的单次 set 只保证 UI 原子切换，不等同服务器事务。提交服务端成功但本地更新失败时必须重新 hydrate 服务端 clip，禁止回滚服务端已提交版本或继续显示旧版为当前权威。
 - history 快照需在调用事务前由统一命令/事务层生成一次，提交后一次 undo 可还原整个 bundle。拖动过程只改局部 draft；pointerup/blur 才验证、编译、提交一个 undo。取消、409、编译失败不建 history、不污染 last-known-good。`updateClip` 本身不自动建 history 的现状必须保留为已知边界，避免误以为已经解决。
+- 定义服务器与本地 undo 的边界：本地 undo 只能恢复编辑器当前历史快照；若服务端提交已成功，undo 也是新的带 `If-Match`/base revision 的服务端提交，失败或 409 时保留当前权威版本并显示冲突，不能只本地回滚而让刷新后复活。服务端版本恢复只在后端提供明确历史版本 API 时开放；不能将本地撤销描述成服务端版本回滚。
+- 项目刷新/切换期间取消 draft 请求并禁止旧项目响应写入新项目；若保存中切换项目，保留任务归属并等服务端终态或主动取消，不能仅依赖组件卸载中止 HTTP。
 - 统一处理保存、刷新、项目导入/导出、history restore：序列化不丢未知但受 schema 拒绝的字段；旧版本只读提示，不自动迁移/改写 spec；新字段版本迁移需显式、可重复、可回滚。缓存失效按 spec hash/compiler/capability 版本触发。
 - 文本/时长/样式更改作为同一事务的输入。若后端无同步编译与原子提交契约，则禁用会破坏 spec 一致性的相应字段或拒绝提交。
 
@@ -138,9 +146,9 @@
 
 **状态：待实现。**
 
-- 在现有 Timeline marker 基础上为 MotionSpec keyframe 添加独立可视标记/轨道层：不将 spec keyframe 写到 `clip.keyframes`。多个 layer 有稳定区分色/图例；缩放时密度聚合，选中标记将对应 layer/property/time 定位到 PropertiesPanel。拖动只更新草稿并由 CP-5 单事务提交。
+- 在现有 Timeline marker 基础上为 MotionSpec keyframe 添加独立可视标记/轨道层：不将 spec keyframe 写到 `clip.keyframes`。第一阶段标记只读、可选择/定位；拖动 keyframe 属后续能力，只有 CP-5 原子事务及编辑能力 gate 通过后才开放。多个 layer 有稳定区分色/图例；缩放时密度聚合，选中标记将对应 layer/property/time 定位到 PropertiesPanel。开放拖动后只更新草稿并由 CP-5 单事务提交。
 - 复用并扩展三个前端 flags：`VITE_TEXT_MOTION_SPEC_UI`（只读摘要/状态）、`VITE_TEXT_MOTION_SPEC_PREVIEW`（安全消费已验证产物）、`VITE_TEXT_MOTION_SPEC_EDITOR`（事务闭环后编辑）；缺省关闭。Flag 之间设依赖，editor 不可绕过 preview/transaction gate。关闭 editor 时可显示只读 JSON；关闭 preview 时仍不能对 spec clip 走白字 fallback。
-- 阶段发布：A 只读；B 可信预览；C 冻结 v1 子集编辑；D 按证据逐项扩展。默认开启须另经真实成片、长任务、成本/延迟和刷新恢复门禁，不由计划自动触发。
+- 阶段发布：A 只读；B 可信预览；C 冻结 v1 子集编辑；D 按证据逐项扩展。每阶段使用独立 flag、灰度比例和回滚责任人；发布记录保存前后端版本、capability snapshot、样例 clip、告警阈值及回滚演练结果。默认开启须另经真实成片、长任务、成本/延迟和刷新恢复门禁，不由计划自动触发。
 - 最终 E2E：选中 text clip → 只读概要 → 在开放能力内编辑 → validate → compile → 原子保存 → 预览 → 刷新重载 → undo/redo → author cancel/409/失败恢复。多时点抽帧与后端成片对照，记录环境、版本、容差及 provider 实际成本。702 秒任务验收作为后端/端到端阶段门禁，不以短片单测替代。
 
 测试：新增 `src/features/timeline/` MotionSpec marker 单元/组件测试及端到端用例（沿用仓库 E2E 框架真实位置）；对 flags 做组合矩阵和刷新验证。现有 `src/features/timeline/engine/TimelineEngine.markers.test.ts` 是时间线普通标记测试，不代表 MotionSpec marker 已覆盖。
@@ -159,6 +167,8 @@
 | Packs | `src/features/textMotion/packs.test.tsx` | style 显式覆盖、asset_id 受控解析、卸载和缺失错误、非法路径拒绝 |
 | Timeline | `src/features/timeline/` MotionSpec marker tests | 多 layer、缩放聚合、marker 与 `clip.keyframes` 隔离、拖动单事务 |
 | 集成/E2E | 仓库实际 E2E 目录（CP-0 定位） | 编辑→validate/compile→原子保存→刷新→undo/redo；409/取消/失败；旧 clip 兼容；多时间点与最终成片比对 |
+| 性能/资源 | `mgRenderer.motionSpec.test.ts`、Playwright/E2E 性能用例（目录由 CP-0 定位） | compile 不在播放帧循环；拖动期间仅本地 draft，pointerup 后 debounce；缓存按 hash/版本命中；测量 1080p 与最大允许 spec 的帧耗时、内存/缓存增长和取消收敛，超过预算关闭对应能力 |
+| 可访问性/可恢复性 | MotionSpec 属性面板组件测试 + E2E | 键盘可访问只读状态、错误/任务进度有可读标签；切换/刷新/重连后不丢已提交版本、不把 pending 误报成功 |
 | 回归 | `npx tsc --noEmit`、`npm run test`、`npm run build` | 前端类型、全测试与生产构建通过；基线与新增结果分别记录 |
 
 ## 14. 依赖顺序与并行边界
@@ -184,6 +194,8 @@
 - [ ] pack 引用仅 asset_id，解析受控；style 显式值优先；未知或卸载资源明示错误。
 - [ ] feature flags 默认关闭且可独立回滚；关 editor/preview 不造成旧内容损坏或误导回退。
 - [ ] 自动化单测、组件测试、服务契约测试、E2E、前端类型检查和 build 通过；真实成片多时点抽帧、成本/延迟/长任务记录归档。
+- [ ] 性能门槛经双方实测冻结并写入测试配置：播放期间零后端 compile 请求；拖动过程中不提交持久 store；pointerup 后请求 debounce；标准 1080p 预览帧预算以 30fps 的 33.3ms 为上限，记录 p50/p95/p99，超预算能力降为 approx/unsupported 或关闭，不以平均耗时掩盖长尾。最大 spec/层帧/路径采样上限必须由 capability snapshot 给出并做内存与取消压力测试。
+- [ ] author 任务 UI 对长任务不依赖页面存活；SSE 中断可按 cursor 恢复或通过任务快照重同步；五次重连耗尽后的降级、手动重连及终态关闭均有自动化证据。
 
 ## 16. 风险、回滚与发布
 
