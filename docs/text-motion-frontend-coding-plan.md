@@ -433,3 +433,10 @@
 - 支持删除 effect；
 - 其他参数仍 JSON 编辑；
 - 236 tests、build 通过；提交 `dd4dcd0`。
+
+
+### marker 拖动（2026-11-18）
+
+- MotionSpec marker 支持拖动：拖动结束写回 `motion_spec` 的 keyframe time；
+- 写入带 `motion_spec_draft=true`，不改 `motion_spec_hash`，必须保存/compile/commit 后才权威；
+- 236 tests、build 通过；提交 `85735f1`。
