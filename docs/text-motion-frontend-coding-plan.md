@@ -305,3 +305,11 @@
 - PropertiesPanel asset pack 增加加载失败错误态；
 - 验证：textMotion/preview/store 228 passed，tsc 通过；提交 `1960919`。
 - 编辑 UI 仍受后端 validate/compile/author/提交 API 阻断。
+
+
+### CP-4/9 追加（2026-11-18）
+
+- 新增 `authorTask.ts` 纯状态机：idle/authoring/succeeded/failed/cancel_requested/cancelled/timed_out、seq 乱序过滤；
+- MotionSpecSection 受 `VITE_TEXT_MOTION_SPEC_UI` flag 门禁，默认不显示；
+- 验证：textMotion/preview/store 230 passed，tsc/build 通过；提交 `5bf9877`。
+- 真实 author API 仍不存在，状态机只做前端契约。
