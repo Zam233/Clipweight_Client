@@ -63,6 +63,15 @@ export interface CommitSpecResponse {
   revision?: string;
 }
 
+export interface AuthorStartRequest {
+  clip_id: string;
+  project_id?: string;
+  text?: string;
+  duration_sec?: number;
+  style?: Record<string, unknown>;
+  idempotency_key?: string;
+}
+
 export interface AuthorTaskResponse {
   task_id: string;
   clip_id: string;
@@ -77,6 +86,8 @@ export interface AuthorTaskStatus {
   progress?: number;
   error?: string;
   cancelable?: boolean;
+  spec?: Record<string, unknown>;
+  spec_hash?: string;
 }
 
 /**
@@ -109,7 +120,7 @@ export const textMotionApi = {
       '/api/text-animation/compile', payload);
     return data;
   },
-  startAuthor: async (payload: { clip_id: string; idempotency_key?: string }) => {
+  startAuthor: async (payload: AuthorStartRequest) => {
     const { data } = await getApiClient().post<AuthorTaskResponse>(
       '/api/text-animation/author', payload);
     return data;

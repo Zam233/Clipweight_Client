@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useHistoryStore } from '@/stores/historyStore';
@@ -30,6 +30,7 @@ import type { AssetPackSummary } from '@/services/api/textMotion';
 import { validateDraftSpec } from '@/features/textMotion/schema';
 import { updateKeyframeTime, updateKeyframeValue } from '@/features/textMotion/draft';
 import type { MotionSpec } from '@/features/textMotion/types';
+import { initialAuthorState, isAuthorTerminal, reduceAuthorState } from '@/features/textMotion/authorTask';
 import {
   extractCopyableAttributes, filterFieldsForKind,
   useClipAttributeClipboard,
@@ -119,6 +120,8 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saved, setSaved] = useState('');
+  const [authorState, setAuthorState] = useState(initialAuthorState);
+  const authorCancel = useRef(false);
   useEffect(() => {
     setDraft(spec ? JSON.parse(JSON.stringify(spec)) as MotionSpec : null);
     setSaveError('');
@@ -129,6 +132,48 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
   const meta = motionSpecMetaOf(clip.metadata);
   const errors = validateDraftSpec(effective);
   const canEdit = !busy && Boolean(projectId);
+  const runAuthor = async () => {
+    if (!projectId || busy) return;
+    authorCancel.current = false;
+    setAuthorState(reduceAuthorState(initialAuthorState, { type: 'start', taskId: '' }));
+    setSaveError('');
+    try {
+      const start = await textMotionApi.startAuthor({
+        clip_id: clip.id, project_id: projectId,
+        text: clip.text ?? '', duration_sec: clip.duration_sec,
+        style: (clip.metadata?.style as Record<string, unknown>) ?? {},
+      });
+      setAuthorState((s) => reduceAuthorState(s, { type: 'start', taskId: start.task_id }));
+      for (let i = 0; i < 300; i += 1) {
+        if (authorCancel.current) {
+          await textMotionApi.cancelAuthor(start.task_id).catch(() => null);
+          setAuthorState((s) => reduceAuthorState(s, { type: 'cancelled' }));
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+        const st = await textMotionApi.getAuthorTask(start.task_id);
+        setAuthorState((s) => reduceAuthorState(s, {
+          type: 'progress', seq: st.seq, progress: st.progress,
+        }));
+        if (st.status === 'succeeded' && st.spec) {
+          setDraft(st.spec as unknown as MotionSpec);
+          setAuthorState((s) => reduceAuthorState(s, { type: 'succeed' }));
+          return;
+        }
+        if (st.status === 'failed' || st.status === 'timed_out' || st.status === 'cancelled') {
+          setAuthorState((s) => reduceAuthorState(s, {
+            type: st.status === 'timed_out' ? 'timeout' : st.status === 'cancelled' ? 'cancelled' : 'fail',
+            error: st.error,
+          }));
+          return;
+        }
+      }
+      setAuthorState((s) => reduceAuthorState(s, { type: 'timeout' }));
+    } catch (e) {
+      setAuthorState((s) => reduceAuthorState(s, { type: 'fail', error: e instanceof Error ? e.message : 'author 失败' }));
+    }
+  };
+
   const save = async () => {
     if (!projectId || busy) return;
     setBusy(true); setSaveError(''); setSaved('');
@@ -218,7 +263,27 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
           </div>
         ))}
       </div>
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button" disabled={!canEdit || authorState.status === 'authoring'}
+          onClick={() => void runAuthor()}
+          className="px-2 py-1 rounded-cw-xs text-caption bg-surface-container text-on-surface disabled:opacity-40"
+          title="启动后端 Agent author 任务，不在浏览器调用 LLM"
+        >
+          {authorState.status === 'authoring' ? `生成中 ${authorState.progress ?? 0}%` : '重新生成 MotionSpec'}
+        </button>
+        {authorState.status === 'authoring' && (
+          <button
+            type="button"
+            onClick={() => { authorCancel.current = true; }}
+            className="px-2 py-1 rounded-cw-xs text-caption bg-error/10 text-error"
+          >取消</button>
+        )}
+        {isAuthorTerminal(authorState.status) && (
+          <span className="text-caption text-on-surface-variant">
+            {authorState.status}{authorState.error ? `: ${authorState.error}` : ''}
+          </span>
+        )}
         <button
           type="button" disabled={!canEdit}
           onClick={() => void save()}
