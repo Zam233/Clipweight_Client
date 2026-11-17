@@ -103,7 +103,18 @@ function warnUndeclaredPropKinds(id: string): void {
   );
 }
 
+type TextStylePack = { id: string; name: string; style: Record<string, unknown> };
+
 export function PropertiesPanel() {
+  const [textStylePacks, setTextStylePacks] = useState<TextStylePack[]>([]);
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/text-animation/style-packs')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (alive && Array.isArray(data?.style_packs)) setTextStylePacks(data.style_packs); })
+      .catch(() => { /* 后端未启动时不阻塞属性面板 */ });
+    return () => { alive = false; };
+  }, []);
   const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
   const timeline = useTimelineStore((s) => s.timeline);
   const updateClip = useTimelineStore((s) => s.updateClip);
@@ -497,6 +508,38 @@ export function PropertiesPanel() {
             {/* Caption / text style — on caption tracks every control cascades to the whole layer */}
             {sections.includes('captionStyle') && (
               <Section title="字幕样式" icon={<Type className="w-3 h-3" />}>
+                {trackKind === 'text' && textStylePacks.length > 0 && (
+                  <Row label="样式包">
+                    <select
+                      value={String((clip.metadata as Record<string, unknown> | undefined)?.style_pack_id ?? '')}
+                      onChange={(e) => {
+                        const pack = textStylePacks.find((p) => p.id === e.target.value);
+                        if (!pack) return;
+                        const st = pack.style;
+                        const updates: Partial<Clip> = {};
+                        if (typeof st.font_size === 'number') updates.font_size = st.font_size;
+                        if (typeof st.fill === 'string') updates.font_color = st.fill;
+                        if (typeof st.stroke_width === 'number') updates.stroke_width = st.stroke_width;
+                        if (typeof st.stroke_color === 'string') updates.stroke_color = st.stroke_color;
+                        if (typeof st.shadow_blur === 'number') updates.shadow_blur = st.shadow_blur;
+                        if (typeof st.shadow_y === 'number') updates.shadow_y = st.shadow_y;
+                        applyStyle(updates);
+                        const nextMeta = {
+                          ...(clip.metadata ?? {}),
+                          style_pack_id: pack.id,
+                        };
+                        useTimelineStore.getState().updateClip(clip.id, { metadata: nextMeta });
+                      }}
+                      className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
+                        outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                    >
+                      <option value="">（不使用样式包）</option>
+                      {textStylePacks.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </Row>
+                )}
                 <Row label="字体族">
                   <select
                     value={clip.font ?? 'Inter'}
