@@ -121,7 +121,7 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
   const [saveError, setSaveError] = useState('');
   const [saved, setSaved] = useState('');
   const [authorState, setAuthorState] = useState(initialAuthorState);
-  const authorCancel = useRef(false);
+  const authorStream = useRef<ReturnType<typeof textMotionApi.watchAuthor> | null>(null);
   const [jsonMode, setJsonMode] = useState(false);
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState('');
@@ -130,6 +130,7 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
     setSaveError('');
     setSaved('');
   }, [clip.id, motionSpecMetaOf(clip.metadata).hash]);
+  useEffect(() => () => { authorStream.current?.close(); }, []);
   if (!spec) return null;
   const effective = draft ?? spec;
   const meta = motionSpecMetaOf(clip.metadata);
@@ -137,7 +138,6 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
   const canEdit = !busy && Boolean(projectId);
   const runAuthor = async () => {
     if (!projectId || busy) return;
-    authorCancel.current = false;
     setAuthorState(reduceAuthorState(initialAuthorState, { type: 'start', taskId: '' }));
     setSaveError('');
     try {
@@ -147,31 +147,30 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
         style: (clip.metadata?.style as Record<string, unknown>) ?? {},
       });
       setAuthorState((s) => reduceAuthorState(s, { type: 'start', taskId: start.task_id }));
-      for (let i = 0; i < 300; i += 1) {
-        if (authorCancel.current) {
-          await textMotionApi.cancelAuthor(start.task_id).catch(() => null);
-          setAuthorState((s) => reduceAuthorState(s, { type: 'cancelled' }));
-          return;
-        }
-        await new Promise((r) => setTimeout(r, 1000));
-        const st = await textMotionApi.getAuthorTask(start.task_id);
-        setAuthorState((s) => reduceAuthorState(s, {
-          type: 'progress', seq: st.seq, progress: st.progress,
-        }));
-        if (st.status === 'succeeded' && st.spec) {
-          setDraft(st.spec as unknown as MotionSpec);
-          setAuthorState((s) => reduceAuthorState(s, { type: 'succeed' }));
-          return;
-        }
-        if (st.status === 'failed' || st.status === 'timed_out' || st.status === 'cancelled') {
+      authorStream.current?.close();
+      authorStream.current = textMotionApi.watchAuthor(
+        start.task_id,
+        (st) => {
           setAuthorState((s) => reduceAuthorState(s, {
-            type: st.status === 'timed_out' ? 'timeout' : st.status === 'cancelled' ? 'cancelled' : 'fail',
-            error: st.error,
+            type: 'progress', seq: st.seq, progress: st.progress,
           }));
-          return;
-        }
-      }
-      setAuthorState((s) => reduceAuthorState(s, { type: 'timeout' }));
+          if (st.status === 'succeeded') {
+            if (st.spec) setDraft(st.spec as unknown as MotionSpec);
+            setAuthorState((s) => reduceAuthorState(s, { type: 'succeed' }));
+            authorStream.current?.close();
+          } else if (st.status === 'failed' || st.status === 'timed_out' || st.status === 'cancelled') {
+            setAuthorState((s) => reduceAuthorState(s, {
+              type: st.status === 'timed_out' ? 'timeout' : st.status === 'cancelled' ? 'cancelled' : 'fail',
+              error: st.error,
+            }));
+            authorStream.current?.close();
+          }
+        },
+        () => { /* 重连中由共享 sseStream 退避 */ },
+        () => {
+          setAuthorState((s) => reduceAuthorState(s, { type: 'fail', error: 'SSE 重连失败' }));
+        },
+      );
     } catch (e) {
       setAuthorState((s) => reduceAuthorState(s, { type: 'fail', error: e instanceof Error ? e.message : 'author 失败' }));
     }
@@ -332,7 +331,13 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
         {authorState.status === 'authoring' && (
           <button
             type="button"
-            onClick={() => { authorCancel.current = true; }}
+            onClick={() => {
+              if (authorState.taskId) {
+                void textMotionApi.cancelAuthor(authorState.taskId).catch(() => null);
+              }
+              authorStream.current?.close();
+              setAuthorState((s) => reduceAuthorState(s, { type: 'cancelled' }));
+            }}
             className="px-2 py-1 rounded-cw-xs text-caption bg-error/10 text-error"
           >取消</button>
         )}

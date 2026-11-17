@@ -1,4 +1,5 @@
 import { getApiClient } from './client';
+import { connectSseStream, type SseStreamHandle } from './sseStream';
 import type { MotionSpec, MotionValidationError } from '@/features/textMotion/types';
 
 export interface TextMotionCapabilities {
@@ -140,4 +141,21 @@ export const textMotionApi = {
       '/api/text-animation/commit', payload);
     return data;
   },
+  /**
+   * author SSE 状态流。终态后由服务端关闭；重连由共享工具负责。
+   * 注意：现有 sseStream 以事件消息为健康信号，不携带 last-event-id。
+   */
+  watchAuthor: (
+    taskId: string,
+    onStatus: (status: AuthorTaskStatus) => void,
+    onRetry?: (attempt: number) => void,
+    onGiveUp?: () => void,
+  ): SseStreamHandle => connectSseStream({
+    url: `/api/text-animation/author/${encodeURIComponent(taskId)}/events`,
+    onMessage: (data) => {
+      if (data && typeof data === 'object') onStatus(data as AuthorTaskStatus);
+    },
+    onRetry,
+    onGiveUp,
+  }),
 };
