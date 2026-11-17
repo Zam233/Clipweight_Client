@@ -65,6 +65,13 @@ export function EditorPage() {
   const dirtyRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const trackCount = useTimelineStore((s) => s.timeline.tracks.length);
+  // 仅开发环境：暴露 store 供浏览器 E2E/排障读取，不进入生产构建分支
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    (globalThis as Record<string, unknown>).__cwStores = {
+      timeline: useTimelineStore, selection: useSelectionStore,
+    };
+  }, []);
   // 深链接选片：/editor/:id?clip=cl_xxx，便于刷新/外部跳转直达属性面板
   useEffect(() => {
     if (loading) return;
