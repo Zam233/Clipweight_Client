@@ -358,3 +358,12 @@
 - 前端 PR #17 已创建；
 - 验证：231 passed、build 通过；提交 `300dc19`。
 - 仍缺：tracks/path/camera 结构化控件、marker 拖动、SSE、视觉 E2E。
+
+
+### author SSE / PR（2026-11-18）
+
+- 后端新增 `GET /author/{task_id}/events`；前端 `watchAuthor` 使用共享 sseStream；
+- MotionSpecSection 从轮询改为 SSE，并支持取消；
+- 前端 PR #17 已创建，后端 PR #20 已更新；
+- 验证：231 tests、tsc/build 通过；提交 `a580e55`。
+- 仍缺：tracks/path/camera 结构化控件、marker 拖动、视觉 E2E。
