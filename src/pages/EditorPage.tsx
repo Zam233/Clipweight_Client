@@ -64,6 +64,19 @@ export function EditorPage() {
   }, [cheatSheetOpen]);
   const dirtyRef = useRef(false);
   const [loading, setLoading] = useState(true);
+  // 深链接选片：/editor/:id?clip=cl_xxx，便于刷新/外部跳转直达属性面板
+  useEffect(() => {
+    if (loading) return;
+    const clipId = new URLSearchParams(window.location.search).get('clip');
+    if (!clipId) return;
+    const timer = window.setTimeout(() => {
+      const exists = useTimelineStore.getState().timeline.tracks.some(
+        (t) => t.clips.some((c) => c.id === clipId),
+      );
+      if (exists) useSelectionStore.getState().selectClip(clipId);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [loading, projectId]);
   const [loadError, setLoadError] = useState<string | null>(null);
   // 加载慢的时候要给出可操作提示，不能只转圈（后端没起 / 刚重启时最常见）
   const [slowLoad, setSlowLoad] = useState(false);
