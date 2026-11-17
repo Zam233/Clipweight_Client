@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motionSpecOf } from '@/features/textMotion/adapter';
 import { motionSpecMarkers } from '@/features/textMotion/markers';
+import { updateKeyframeTime } from '@/features/textMotion/draft';
 import { TimelineEngine } from '../engine/TimelineEngine';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
@@ -158,6 +159,20 @@ export function TimelinePanel() {
     engine.onMotionSpecMarkerClick = (marker) => {
       useSelectionStore.getState().selectClip(marker.clipId);
       usePreviewStore.getState().setCurrentTime(marker.time);
+    };
+    engine.onMotionSpecMarkerDrag = (marker, time) => {
+      const tl = useTimelineStore.getState().timeline;
+      const clip = tl.tracks.flatMap((t) => t.clips).find((c) => c.id === marker.clipId);
+      const spec = motionSpecOf(clip?.metadata);
+      const layer = spec?.layers.find((l) => l.id === marker.layerId);
+      if (!clip || !spec || !layer) return;
+      const idx = (layer.keyframes ?? []).findIndex((k) => Math.abs(k.time - marker.time) < 0.001);
+      if (idx < 0) return;
+      useHistoryStore.getState().pushState(tl, 'motion keyframe');
+      const next = updateKeyframeTime(spec, layer.id, idx, Math.min(time, spec.duration_sec));
+      useTimelineStore.getState().updateClip(marker.clipId, {
+        metadata: { ...(clip.metadata ?? {}), motion_spec: next, motion_spec_draft: true },
+      });
     };
     engine.onMarkerRename = (time) => {
       const existing = useTimelineStore.getState().timeline.markers?.find((x) => Math.abs(x.time - time) < 0.01);

@@ -54,6 +54,8 @@ export class TimelineEngine {
   /** M8: 双击已有标记触发重命名（面板接线弹出命名输入框） */
   onMarkerRename: ((time: number) => void) | null = null;
   onMotionSpecMarkerClick: ((marker: MotionSpecMarker) => void) | null = null;
+  onMotionSpecMarkerDrag: ((marker: MotionSpecMarker, time: number) => void) | null = null;
+  private motionDrag: MotionSpecMarker | null = null;
   /** Drop feedback animation: green=placed before/after, red=reject (middle) */
   dropFeedback: { type: 'before' | 'after' | 'reject'; clipId: string; trackId: string; time: number } | null = null;
   private feedbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -334,7 +336,12 @@ export class TimelineEngine {
       const nearMotion = this.motionSpecMarkers.find(
         (m) => Math.abs(timeToX(m.time, L) - x) < 6,
       );
-      if (nearMotion) this.onMotionSpecMarkerClick?.(nearMotion);
+      if (nearMotion) {
+        this.motionDrag = nearMotion;
+        this.drag.mode = 'motion-marker';
+        this.onMotionSpecMarkerClick?.(nearMotion);
+        return;
+      }
       if (now - this.lastClickTime < 400 && Math.abs(x - this.lastClickX) < 10) {
         // 命中已有标记（6px 内）→ 触发重命名；否则新增
         const near = this.markers.find((m) => Math.abs(timeToX(m.time, L) - x) < 6);
@@ -512,6 +519,12 @@ export class TimelineEngine {
         }
         break;
       }
+      case 'motion-marker': {
+        const t = Math.max(0, xToTime(x, L));
+        usePreviewStore.getState().setCurrentTime(t);
+        this.requestRender();
+        break;
+      }
       case 'pan': {
         const dx = x - this.drag.startMouse.x;
         const dy = y - this.drag.startMouse.y;
@@ -593,6 +606,13 @@ export class TimelineEngine {
     const store = useTimelineStore.getState();
 
     switch (this.drag.mode) {
+      case 'motion-marker': {
+        if (this.motionDrag) {
+          this.onMotionSpecMarkerDrag?.(this.motionDrag, Math.max(0, xToTime(this.localPos(e).x, L)));
+          this.motionDrag = null;
+        }
+        break;
+      }
       case 'move-clip': {
         const dt = this.drag.deltaTime;
         const dtr = this.drag.deltaTrack;
