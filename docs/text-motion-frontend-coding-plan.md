@@ -282,3 +282,10 @@
 - CP-9：新增 `src/features/textMotion/markers.ts` 只读 marker 数据与测试，不写入 `clip.keyframes`，尚未接 timeline 画布。
 - 验证：tsc、build 通过；textMotion/api 9 passed；提交 `4c0a2e9`。
 - 仍未完成：CP-2 逐原语抽帧、CP-4 真实联调、CP-5 服务端条件提交、CP-6 可编辑面板、CP-7 编辑器 UI、CP-9 timeline 渲染与 E2E。
+
+
+### CP-6 只读 layer/keyframe 追加（2026-11-18）
+
+- PropertiesPanel MotionSpecSection 增加 layer 列表、keyframe 时间摘要、层类型/数量；
+- 仍为只读；编辑按钮/动作受 API/事务门禁禁用；
+- 验证：textMotion/preview/store 224 passed，tsc/build 通过；提交 `740ad7d`。
