@@ -103,3 +103,12 @@ export function removeEffect(spec: MotionSpec, layerId: string, index: number): 
   layer.effects.splice(index, 1);
   return next;
 }
+
+
+export function addEffect(spec: MotionSpec, layerId: string, effect: Record<string, unknown>): MotionSpec {
+  const next = cloneSpec(spec);
+  const layer = next.layers.find((l) => l.id === layerId);
+  if (!layer) return next;
+  layer.effects = [...(layer.effects ?? []), effect];
+  return next;
+}

@@ -28,7 +28,7 @@ import { textMotionApi } from '@/services/api/textMotion';
 import { textMotionFlags } from '@/features/textMotion/flags';
 import type { AssetPackSummary } from '@/services/api/textMotion';
 import { validateDraftSpec } from '@/features/textMotion/schema';
-import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue, updatePathPoint, updatePathType, updateTrackSegment, removeEffect } from '@/features/textMotion/draft';
+import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue, updatePathPoint, updatePathType, updateTrackSegment, removeEffect, addEffect } from '@/features/textMotion/draft';
 import type { MotionSpec } from '@/features/textMotion/types';
 import { initialAuthorState, isAuthorTerminal, reduceAuthorState } from '@/features/textMotion/authorTask';
 import {
@@ -331,6 +331,14 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
           {effective.layers.filter((l) => l.motion_path || (l.tracks?.length ?? 0) > 0).map((l) => (
             <div key={`adv-${l.id}`} className="space-y-1">
               <div>{l.id}{l.effects?.length ? ` · effects=${l.effects.length}` : ''}</div>
+              <div className="flex gap-1">
+                <button type="button" disabled={!canEdit}
+                  onClick={() => setDraft(addEffect(effective, l.id, { type: 'glow', color: '#ffffff', blur: 14 }))}
+                  className="text-[10px] text-primary disabled:opacity-30">+ glow</button>
+                <button type="button" disabled={!canEdit}
+                  onClick={() => setDraft(addEffect(effective, l.id, { type: 'blur', radius: 8 }))}
+                  className="text-[10px] text-primary disabled:opacity-30">+ blur</button>
+              </div>
               {(l.effects ?? []).map((fx, fi) => (
                 <div key={`${l.id}-fx-${fi}`} className="flex items-center gap-1">
                   <span>{String((fx as Record<string, unknown>).type ?? 'effect')}</span>
