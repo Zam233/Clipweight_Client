@@ -313,3 +313,12 @@
 - MotionSpecSection 受 `VITE_TEXT_MOTION_SPEC_UI` flag 门禁，默认不显示；
 - 验证：textMotion/preview/store 230 passed，tsc/build 通过；提交 `5bf9877`。
 - 真实 author API 仍不存在，状态机只做前端契约。
+
+
+### 后端 API 接通（2026-11-18）
+
+- 后端已实现 validate-spec/compile/author/commit；前端 `textMotionApi` 已有对应方法；
+- PropertiesPanel 的 MotionSpecSection 支持本地 keyframe time/opacity 编辑，保存时依次 validate → compile → commit，再本地原子写 bundle；
+- 409 显示冲突并保留草稿；
+- 验证：前端 230 passed、tsc 通过；后端 4 passed。
+- 仍缺：author UI 接线、tracks/path/camera 编辑、timeline markers、真实视觉 E2E。
