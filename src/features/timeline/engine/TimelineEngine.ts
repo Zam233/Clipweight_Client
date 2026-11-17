@@ -4,6 +4,7 @@
  * (scrub, select, marquee, move, trim, snap, pan).
  */
 import type { Track, Clip } from '@/types/timeline';
+import type { MotionSpecMarker } from '@/features/textMotion/markers';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { usePreviewStore } from '@/stores/previewStore';
@@ -17,7 +18,7 @@ import {
 } from './types';
 import {
   drawBackground, drawTrackLanes, drawRuler, drawTrackHeaders,
-  drawClip, drawPlayhead, drawMarkers, drawSnapGuide, drawMarquee, drawEmptyState,
+  drawClip, drawPlayhead, drawMarkers, drawMotionSpecMarkers, drawSnapGuide, drawMarquee, drawEmptyState,
   drawHorizontalScrollbar,
 } from './renderers';
 import { collectSnapTargets, applySnap } from './snap';
@@ -45,6 +46,7 @@ export class TimelineEngine {
   private lastClickTime = 0;
   private lastClickX = 0;
   markers: Marker[] = [];
+  motionSpecMarkers: MotionSpecMarker[] = [];
   /** M14: 范围工具点击回调（面板接线：两击设置 In/Out 区间） */
   onRangePoint: ((t: number) => void) | null = null;
   /** M8: 标记变更回调（增/删/改名后触发；面板接线写回 timelineStore 持久化） */
@@ -260,6 +262,7 @@ export class TimelineEngine {
     }
 
     drawMarkers(ctx, L, this.markers);
+    drawMotionSpecMarkers(ctx, L, this.motionSpecMarkers);
     if (this.drag.snapX !== null) drawSnapGuide(ctx, L, this.drag.snapX);
     if (this.drag.marquee) drawMarquee(ctx, this.drag.marquee);
     drawTrackHeaders(ctx, L, tracks, selection.selectedTrackId, this.hoveredTrackId);
@@ -1013,6 +1016,11 @@ export class TimelineEngine {
       .sort((a, b) => a.time - b.time);
     this.requestRender();
   }
+  setMotionSpecMarkers(markers: MotionSpecMarker[]) {
+    this.motionSpecMarkers = markers;
+    this.requestRender();
+  }
+
 
   /** M8: 重命名标记（按 time 定位，不改变时间点）。 */
   renameMarker(time: number, name: string) {

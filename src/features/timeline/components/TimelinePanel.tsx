@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { motionSpecOf } from '@/features/textMotion/adapter';
+import { motionSpecMarkers } from '@/features/textMotion/markers';
 import { TimelineEngine } from '../engine/TimelineEngine';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
@@ -191,6 +193,16 @@ export function TimelinePanel() {
   useEffect(() => {
     engineRef.current?.setMarkers(timeline.markers ?? []);
   }, [timeline.markers]);
+
+  // MotionSpec keyframes：只读标记，不写入 timeline.markers。
+  useEffect(() => {
+    const markers = timeline.tracks
+      .filter((t) => t.kind === 'text')
+      .flatMap((t) => t.clips.flatMap((c) => (
+        motionSpecMarkers(c.id, motionSpecOf(c.metadata))
+      )));
+    engineRef.current?.setMotionSpecMarkers(markers);
+  }, [timeline]);
 
   const handleRenameCommit = (name: string) => {
     if (renamingMarker && engineRef.current) {
