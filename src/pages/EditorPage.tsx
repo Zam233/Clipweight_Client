@@ -64,6 +64,7 @@ export function EditorPage() {
   }, [cheatSheetOpen]);
   const dirtyRef = useRef(false);
   const [loading, setLoading] = useState(true);
+  const trackCount = useTimelineStore((s) => s.timeline.tracks.length);
   // 深链接选片：/editor/:id?clip=cl_xxx，便于刷新/外部跳转直达属性面板
   useEffect(() => {
     if (loading) return;
@@ -76,7 +77,7 @@ export function EditorPage() {
       if (exists) useSelectionStore.getState().selectClip(clipId);
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [loading, projectId]);
+  }, [loading, projectId, trackCount]);
   const [loadError, setLoadError] = useState<string | null>(null);
   // 加载慢的时候要给出可操作提示，不能只转圈（后端没起 / 刚重启时最常见）
   const [slowLoad, setSlowLoad] = useState(false);
