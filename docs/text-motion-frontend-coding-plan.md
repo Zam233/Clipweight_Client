@@ -322,3 +322,12 @@
 - 409 显示冲突并保留草稿；
 - 验证：前端 230 passed、tsc 通过；后端 4 passed。
 - 仍缺：author UI 接线、tracks/path/camera 编辑、timeline markers、真实视觉 E2E。
+
+
+### CP-4 author UI 接通（2026-11-18）
+
+- MotionSpecSection 增加“重新生成 MotionSpec”、取消、状态/进度/错误显示；
+- 仅调用后端 author 任务，不在浏览器调用 LLM；
+- 成功后回填本地 draft，仍需 validate/compile/commit 才保存；
+- 验证：230 passed、tsc、build 通过；提交 `18e69ea`。
+- 仍缺：SSE 续传、tracks/path/camera 编辑、timeline markers、视觉 E2E。
