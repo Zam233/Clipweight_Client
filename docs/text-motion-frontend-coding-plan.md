@@ -289,3 +289,11 @@
 - PropertiesPanel MotionSpecSection 增加 layer 列表、keyframe 时间摘要、层类型/数量；
 - 仍为只读；编辑按钮/动作受 API/事务门禁禁用；
 - 验证：textMotion/preview/store 224 passed，tsc/build 通过；提交 `740ad7d`。
+
+
+### CP-5/7 追加（2026-11-18）
+
+- 新增 `migration.ts`：旧 MotionSpec 版本只读识别（不改写）、秒/归一化 keyframe 纯适配；
+- 新增 `migration.test.ts` 覆盖版本只读与双向映射；
+- 提交 `d313825`。
+- 编辑 UI 仍需后端 validate/compile/author/条件提交接口，当前只读。
