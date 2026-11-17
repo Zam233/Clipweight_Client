@@ -28,7 +28,7 @@ import { textMotionApi } from '@/services/api/textMotion';
 import { textMotionFlags } from '@/features/textMotion/flags';
 import type { AssetPackSummary } from '@/services/api/textMotion';
 import { validateDraftSpec } from '@/features/textMotion/schema';
-import { addKeyframe, removeKeyframe, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue } from '@/features/textMotion/draft';
+import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue } from '@/features/textMotion/draft';
 import type { MotionSpec } from '@/features/textMotion/types';
 import { initialAuthorState, isAuthorTerminal, reduceAuthorState } from '@/features/textMotion/authorTask';
 import {
@@ -309,7 +309,24 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
       {(effective.camera || effective.layers.some((l) => l.motion_path || (l.tracks?.length ?? 0) > 0)) && (
         <div className="mt-2 space-y-1 rounded-cw-xs bg-surface-container/40 px-2 py-1 text-[10px] text-on-surface-variant">
           {effective.camera && (
-            <div>Camera: {effective.camera.keyframes?.length ?? 0} keyframes（只读摘要）</div>
+            <div className="space-y-1">
+              <div>Camera（{effective.camera.keyframes?.length ?? 0} keyframes）</div>
+              {(effective.camera.keyframes ?? []).slice(0, 6).map((kf, i) => (
+                <div key={`cam-${i}`} className="flex gap-1">
+                  {(['scale', 'x', 'y', 'rotate'] as const).map((key) => (
+                    <label key={key} className="flex items-center gap-0.5">
+                      <span>{key}</span>
+                      <input
+                        type="number" step="0.02" value={Number(kf[key] ?? (key === 'scale' ? 1 : 0))}
+                        disabled={!canEdit}
+                        onChange={(e) => setDraft(updateCameraValue(effective, i, key, Number(e.target.value)))}
+                        className="w-14 bg-surface-container rounded px-1 py-0.5 text-on-surface"
+                      />
+                    </label>
+                  ))}
+                </div>
+              ))}
+            </div>
           )}
           {effective.layers.filter((l) => l.motion_path || (l.tracks?.length ?? 0) > 0).map((l) => (
             <div key={`adv-${l.id}`}>

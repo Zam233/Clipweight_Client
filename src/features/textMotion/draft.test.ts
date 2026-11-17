@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addKeyframe, removeKeyframe, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue } from './draft';
+import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue } from './draft';
 import type { MotionSpec } from './types';
 
 const spec = (): MotionSpec => ({
@@ -32,5 +32,15 @@ describe('easing draft', () => {
     const next = updateKeyframeEasing(src, 't', 0, { type: 'steps', count: 4 });
     expect((next.layers[0].keyframes[0].easing as unknown as Record<string, unknown>).type).toBe('steps');
     expect(src.layers[0].keyframes[0].easing).toBeUndefined();
+  });
+});
+
+
+describe('camera draft', () => {
+  it('updates camera keyframe values immutably', () => {
+    const src = { ...spec(), camera: { keyframes: [{ time: 0, scale: 1 }] } } as ReturnType<typeof spec>;
+    const next = updateCameraValue(src, 0, 'scale', 1.1);
+    expect(next.camera?.keyframes[0].scale).toBe(1.1);
+    expect(src.camera?.keyframes[0].scale).toBe(1);
   });
 });

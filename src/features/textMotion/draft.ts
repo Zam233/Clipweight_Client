@@ -52,3 +52,14 @@ export function updateKeyframeEasing(
   kf.easing = easing as never;
   return next;
 }
+
+
+export function updateCameraValue(
+  spec: MotionSpec, index: number, key: string, value: number,
+): MotionSpec {
+  const next = cloneSpec(spec);
+  const kf = next.camera?.keyframes?.[index];
+  if (!kf || !Number.isFinite(value)) return next;
+  (kf as Record<string, unknown>)[key] = value;
+  return next;
+}
