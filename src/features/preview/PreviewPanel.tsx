@@ -1791,7 +1791,10 @@ function drawClipToPreview(
   let opacity = clip.opacity;
   const tf: Transform2D = { ...getClipTransform(clip) };
   let speed = clip.speed;
-  if (clip.keyframes.length > 0) {
+  // MotionSpec 是权威动画：旧 clip.keyframes 只做兼容，不能在 MotionSpec clip 上
+  // 再次把 opacity/transform 覆盖为旧值（否则 keyframe 末尾 0 会把整段文字隐掉）。
+  const _hasMotionSpec = !!clip.metadata?.motion_spec;
+  if (!_hasMotionSpec && clip.keyframes.length > 0) {
     const props = interpolateProperties(clip.keyframes, localT);
     opacity = props.opacity ?? opacity;
     tf.scale = props.scale ?? tf.scale;
