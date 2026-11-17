@@ -134,6 +134,23 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
       <Row label="能力">
         <span className="text-caption text-on-surface-variant">{spec.requires?.join(' / ') || '未声明'}</span>
       </Row>
+      <div className="mt-2 space-y-1">
+        {spec.layers.map((layer) => (
+          <div key={layer.id} className="rounded-cw-xs bg-surface-container/60 px-2 py-1">
+            <div className="flex items-center justify-between text-caption">
+              <span className="font-mono text-on-surface">{layer.id}</span>
+              <span className="text-on-surface-variant">{layer.type} · {layer.keyframes?.length ?? 0} kf</span>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {(layer.keyframes ?? []).slice(0, 8).map((kf, i) => (
+                <span key={`${kf.time}-${i}`} className="rounded bg-surface-container-high px-1 text-[10px] text-on-surface-variant">
+                  {Number(kf.time).toFixed(2)}s
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
       {errors.length > 0 && (
         <div className="mt-2 rounded-cw-xs border border-error/30 bg-error/10 p-2 text-caption text-error">
           {errors.slice(0, 5).map((e) => (
