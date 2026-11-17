@@ -375,3 +375,11 @@
 - MotionSpec marker 点击：选中 clip 并 seek 到 keyframe；
 - 验证：232 passed、build 通过；提交 `e2a4536`/`3314682`。
 - 仍缺：tracks/path 专用控件、marker 拖动、完整视觉 E2E。
+
+
+### SSE 续传（2026-11-18）
+
+- 后端 SSE 增加 `id: seq` 与 `Last-Event-ID`；
+- 前端共享 `connectSseStream` 由 EventSource 自动续传；
+- author UI 已走 SSE，取消仍走 cancel endpoint；
+- 前端 232 tests/build 通过。
