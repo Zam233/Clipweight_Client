@@ -391,3 +391,11 @@
 - 修改进入本地 draft，保存仍走 validate/compile/commit；
 - 233 tests、build 通过；提交 `2b71ce0`。
 - tracks/effects 仍通过高级 JSON 编辑。
+
+
+### tracks 编辑（2026-11-18）
+
+- MotionSpec 面板支持 track 段 start/end 结构化编辑；
+- effects 仍 JSON 编辑，仅显示数量；
+- 234 tests、build 通过；提交 `57a4f46`。
+- 仍缺 marker 拖动与视觉 E2E。
