@@ -85,15 +85,23 @@ export interface MgFidelity {
   unknownEasings: string[];
   /** 缺 spec：只能画占位 */
   missingSpec: boolean;
+  /** Canvas 无等价语义的属性（3D 等） */
+  unsupportedProps: string[];
+  /** Canvas 只能近似的属性（blur 等） */
+  approxProps: string[];
 }
 
 export function emptyFidelity(): MgFidelity {
-  return { unsupportedTypes: [], blockedResources: [], unknownEasings: [], missingSpec: false };
+  return {
+    unsupportedTypes: [], blockedResources: [], unknownEasings: [], missingSpec: false,
+    unsupportedProps: [], approxProps: [],
+  };
 }
 
 function hasFidelityIssue(f: MgFidelity): boolean {
   return f.missingSpec || f.unsupportedTypes.length > 0
-    || f.blockedResources.length > 0 || f.unknownEasings.length > 0;
+    || f.blockedResources.length > 0 || f.unknownEasings.length > 0
+    || (f.unsupportedProps?.length ?? 0) > 0 || (f.approxProps?.length ?? 0) > 0;
 }
 
 export function fidelityHasIssue(f: MgFidelity): boolean {
@@ -219,8 +227,17 @@ export function resolveElementProps(
   const next = kfs[Math.min(lo + 1, kfs.length - 1)];
   const span = next.time - prev.time;
   const raw = span > 0 ? (t - prev.time) / span : 0;
-  const easingName = String(next.easing || prev.easing || 'linear');
-  const handles = normalizeBezier((next as { bezier?: unknown }).bezier);
+  // MotionSpec 契约：easing 属于起始帧→下一帧；旧 MG 兼容读取结束帧。
+  const easingName = String(prev.easing || next.easing || 'linear');
+  let handles = normalizeBezier((prev as { bezier?: unknown }).bezier)
+    ?? normalizeBezier((next as { bezier?: unknown }).bezier);
+  const cubic = /^cubic-bezier\(([^)]+)\)$/.exec(easingName.trim());
+  if (!handles && cubic) {
+    const parts = cubic[1].split(',').map((v) => Number(v.trim()));
+    if (parts.length === 4 && parts.every((v) => Number.isFinite(v))) {
+      handles = { x1: parts[0], y1: parts[1], x2: parts[2], y2: parts[3] };
+    }
+  }
   let eased: number;
   if (handles) {
     eased = cubicBezierEase(raw, handles);
@@ -338,6 +355,16 @@ export function drawMgFrame(
     }
     const local = duration > 0 ? Math.max(0, Math.min(localSec, duration)) : Math.max(0, localSec);
     const p = resolveElementProps(el, local, fidelity);
+    for (const key of ['translate_z', 'rotate_x', 'rotate_y', 'perspective']) {
+      if (key in p || key in el) {
+        if (!fidelity.unsupportedProps.includes(key)) fidelity.unsupportedProps.push(key);
+      }
+    }
+    for (const key of ['blur', 'clip_inset', 'mask']) {
+      if (key in p || key in el) {
+        if (!fidelity.approxProps.includes(key)) fidelity.approxProps.push(key);
+      }
+    }
     const opacity = Math.max(0, Math.min(1, num(p.opacity, num(el.opacity, 1))));
     if (opacity <= 0.001) continue;
 
@@ -356,6 +383,26 @@ export function drawMgFrame(
 
     ctx.save();
     ctx.globalAlpha = opacity;
+    // 近似原语：blur 用 Canvas filter；clip/mask 用矩形裁剪；3D 已记 unsupported。
+    if (typeof p.blur === 'number' || typeof el.blur === 'number') {
+      ctx.filter = `blur(${num(p.blur, num(el.blur, 0))}px)`;
+    }
+    const _clip = p.clip_inset ?? el.clip_inset;
+    if (Array.isArray(_clip) && _clip.length === 4) {
+      const [ct, cr, cb, cl] = _clip.map((v) => num(v, 0));
+      ctx.beginPath();
+      ctx.rect(cl, ct, Math.max(0, w - cl - cr), Math.max(0, h - ct - cb));
+      ctx.clip();
+    }
+    const _maskRaw = p.mask ?? el.mask;
+    if (_maskRaw && typeof _maskRaw === 'object') {
+      const _mask = _maskRaw as Record<string, unknown>;
+      const mx = num(_mask.x, 0); const my = num(_mask.y, 0);
+      const mw = num(_mask.w, 1); const mh = num(_mask.h, 1);
+      ctx.beginPath();
+      ctx.rect(ex + mx * w, ey + my * h, mw * w, mh * h);
+      ctx.clip();
+    }
     if (type !== 'text' && (scale !== 1 || rot !== 0)) {
       // 变换原点：默认元素左上（与渲染器 transform-origin 缺省一致）
       ctx.translate(ex + w / 2, ey + h / 2);
