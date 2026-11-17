@@ -75,13 +75,16 @@ export function EditorPage() {
   // 深链接选片：/editor/:id?clip=cl_xxx，便于刷新/外部跳转直达属性面板
   useEffect(() => {
     if (loading) return;
-    const clipId = new URLSearchParams(window.location.search).get('clip');
+    const params = new URLSearchParams(window.location.search);
+    const clipId = params.get('clip');
     if (!clipId) return;
+    const seek = Number(params.get('t'));
     const timer = window.setTimeout(() => {
       const exists = useTimelineStore.getState().timeline.tracks.some(
         (t) => t.clips.some((c) => c.id === clipId),
       );
       if (exists) useSelectionStore.getState().selectClip(clipId);
+      if (Number.isFinite(seek) && seek >= 0) usePreviewStore.getState().setCurrentTime(seek);
     }, 300);
     return () => window.clearTimeout(timer);
   }, [loading, projectId, trackCount]);
