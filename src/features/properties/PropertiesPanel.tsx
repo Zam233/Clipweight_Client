@@ -285,6 +285,19 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
           </div>
         ))}
       </div>
+      {(effective.camera || effective.layers.some((l) => l.motion_path || (l.tracks?.length ?? 0) > 0)) && (
+        <div className="mt-2 space-y-1 rounded-cw-xs bg-surface-container/40 px-2 py-1 text-[10px] text-on-surface-variant">
+          {effective.camera && (
+            <div>Camera: {effective.camera.keyframes?.length ?? 0} keyframes（只读摘要）</div>
+          )}
+          {effective.layers.filter((l) => l.motion_path || (l.tracks?.length ?? 0) > 0).map((l) => (
+            <div key={`adv-${l.id}`}>
+              {l.id}: {l.motion_path ? `path=${l.motion_path.type}` : ''}
+              {l.tracks?.length ? ` tracks=${l.tracks.map((t) => t.property).join('/')}` : ''}
+            </div>
+          ))}
+        </div>
+      )}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
           type="button" disabled={!canEdit || authorState.status === 'authoring'}
