@@ -63,3 +63,22 @@ export function updateCameraValue(
   (kf as Record<string, unknown>)[key] = value;
   return next;
 }
+
+
+export function updatePathType(spec: MotionSpec, layerId: string, type: string): MotionSpec {
+  const next = cloneSpec(spec);
+  const layer = next.layers.find((l) => l.id === layerId);
+  if (!layer?.motion_path) return next;
+  layer.motion_path.type = type as never;
+  return next;
+}
+
+export function updatePathPoint(
+  spec: MotionSpec, layerId: string, index: number, axis: 'x' | 'y', value: number,
+): MotionSpec {
+  const next = cloneSpec(spec);
+  const point = next.layers.find((l) => l.id === layerId)?.motion_path?.points?.[index];
+  if (!point || !Number.isFinite(value)) return next;
+  point[axis] = value;
+  return next;
+}

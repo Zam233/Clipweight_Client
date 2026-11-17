@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue } from './draft';
+import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue, updatePathPoint, updatePathType } from './draft';
 import type { MotionSpec } from './types';
 
 const spec = (): MotionSpec => ({
@@ -42,5 +42,18 @@ describe('camera draft', () => {
     const next = updateCameraValue(src, 0, 'scale', 1.1);
     expect(next.camera?.keyframes[0].scale).toBe(1.1);
     expect(src.camera?.keyframes[0].scale).toBe(1);
+  });
+});
+
+
+describe('path draft', () => {
+  it('updates path type/point immutably', () => {
+    const base = spec();
+    base.layers[0].motion_path = { type: 'line', points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] };
+    const nextType = updatePathType(base, 't', 'arc');
+    const nextPoint = updatePathPoint(nextType, 't', 1, 'x', 2);
+    expect(nextType.layers[0].motion_path?.type).toBe('arc');
+    expect(nextPoint.layers[0].motion_path?.points[1].x).toBe(2);
+    expect(base.layers[0].motion_path?.type).toBe('line');
   });
 });

@@ -28,7 +28,7 @@ import { textMotionApi } from '@/services/api/textMotion';
 import { textMotionFlags } from '@/features/textMotion/flags';
 import type { AssetPackSummary } from '@/services/api/textMotion';
 import { validateDraftSpec } from '@/features/textMotion/schema';
-import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue } from '@/features/textMotion/draft';
+import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue, updatePathPoint, updatePathType } from '@/features/textMotion/draft';
 import type { MotionSpec } from '@/features/textMotion/types';
 import { initialAuthorState, isAuthorTerminal, reduceAuthorState } from '@/features/textMotion/authorTask';
 import {
@@ -329,9 +329,35 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
             </div>
           )}
           {effective.layers.filter((l) => l.motion_path || (l.tracks?.length ?? 0) > 0).map((l) => (
-            <div key={`adv-${l.id}`}>
-              {l.id}: {l.motion_path ? `path=${l.motion_path.type}` : ''}
-              {l.tracks?.length ? ` tracks=${l.tracks.map((t) => t.property).join('/')}` : ''}
+            <div key={`adv-${l.id}`} className="space-y-1">
+              <div>{l.id}{l.tracks?.length ? ` · tracks=${l.tracks.map((t) => t.property).join('/')}` : ''}</div>
+              {l.motion_path && (
+                <div className="flex items-center gap-1">
+                  <span>path</span>
+                  <select
+                    value={l.motion_path.type} disabled={!canEdit}
+                    onChange={(e) => setDraft(updatePathType(effective, l.id, e.target.value))}
+                    className="bg-surface-container rounded px-1 py-0.5 text-on-surface"
+                  >
+                    {['line', 'polyline', 'cubic-bezier', 'arc', 'circle'].map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  {(l.motion_path.points ?? []).slice(0, 2).map((pt, i) => (
+                    <span key={`p-${i}`} className="flex gap-0.5">
+                      {(['x', 'y'] as const).map((axis) => (
+                        <input
+                          key={axis} type="number" step="0.01" value={Number(pt[axis] ?? 0)}
+                          disabled={!canEdit}
+                          onChange={(e) => setDraft(updatePathPoint(effective, l.id, i, axis, Number(e.target.value)))}
+                          className="w-12 bg-surface-container rounded px-1 py-0.5 text-on-surface"
+                          title={`point ${i} ${axis}`}
+                        />
+                      ))}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
