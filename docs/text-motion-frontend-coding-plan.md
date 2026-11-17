@@ -261,3 +261,15 @@
 - 本轮验证：tsc 通过，textMotion + preview **159 passed**；
 - 尚未完成：CP-3 预览 props 按钮、CP-4 API、CP-5 事务、编辑器。
 - 提交：`0b0f9db`。
+
+
+### CP-4/5/6/7/9 首轮执行（2026-11-18）
+
+- CP-4：新增 `src/services/api/textMotion.ts` typed 契约（capabilities/style/asset/validate/compile/author/task/cancel），从 `src/services/api/index.ts` 导出；路由仍标为待后端实现，不在 UI 调用。
+- CP-5：`timelineStore.commitMotionSpecBundle` 实现 hash 校验 + 单次 metadata 原子替换；新增两条测试。
+- CP-6：PropertiesPanel 新增只读 `MotionSpecSection`：spec/provider/hash/compiler/fidelity/能力/校验错误/JSON；重新生成按钮禁用并标注 API 待接入。
+- CP-7：adapter 已提供秒/归一化与起始帧 easing 映射；编辑器 UI 未开放。
+- CP-9：新增 `src/features/textMotion/flags.ts`，默认关闭。
+- 验证：`tsc --noEmit` 通过；textMotion/preview/store **223 passed**。
+- 提交：`559a2d5`。
+- 仍未完成：CP-2 原语矩阵抽帧、CP-4 真实后端联调、CP-5 服务端条件提交、CP-6 实际编辑/事务 UI、CP-7 编辑器、CP-8 asset pack、CP-9 timeline markers、E2E。
