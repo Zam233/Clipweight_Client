@@ -248,3 +248,16 @@
 - 测试：`src/features/textMotion/*.test.ts` 6 passed，相关 preview 测试 16 passed；`tsc --noEmit`、`npm run build` 通过；
 - 尚未开始：CP-2 Canvas 原语补齐、CP-4 typed API/author 任务、CP-5 原子事务、CP-6–9 编辑器和 timeline markers；
 - 提交：`f6f4794`。
+
+
+### CP-2 首轮执行（2026-11-18）
+
+- `mgRenderer` 已：
+  - MotionSpec 起始帧 easing（含 `cubic-bezier(...)` 字符串）；
+  - blur / clip_inset / mask 的 Canvas 近似；
+  - 3D `translate_z/rotate_x/y/perspective` 记入 `unsupportedProps`，不静默声称支持；
+  - `MgFidelity` 增加 `unsupportedProps/approxProps` 并参与 `fidelityHasIssue`。
+- 新增 `mgRenderer.motionSpec.test.ts`；
+- 本轮验证：tsc 通过，textMotion + preview **159 passed**；
+- 尚未完成：CP-3 预览 props 按钮、CP-4 API、CP-5 事务、编辑器。
+- 提交：`0b0f9db`。
