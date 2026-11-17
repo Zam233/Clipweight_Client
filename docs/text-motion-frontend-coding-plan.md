@@ -440,3 +440,11 @@
 - MotionSpec marker 支持拖动：拖动结束写回 `motion_spec` 的 keyframe time；
 - 写入带 `motion_spec_draft=true`，不改 `motion_spec_hash`，必须保存/compile/commit 后才权威；
 - 236 tests、build 通过；提交 `85735f1`。
+
+
+### 预览/成片差异观察（2026-11-18）
+
+- 在 62.65s（clip local 1s）预览截图里，视频底层与字幕可见，但 MotionSpec 黄色文字未出现；
+- 同 clip 的 Hyperframes 成片 1s 抽帧显示黄色「并非回应」；
+- 说明预览的 MG 绘制仍有差异/门禁问题，不能把“近似预览”当作已对齐；
+- 已把 preview store 暴露到 DEV 调试入口，便于继续定位。
