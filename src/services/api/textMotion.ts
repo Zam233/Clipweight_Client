@@ -1,0 +1,111 @@
+import { getApiClient } from './client';
+import type { MotionSpec, MotionValidationError } from '@/features/textMotion/types';
+
+export interface TextMotionCapabilities {
+  schema_version?: string;
+  compiler_version?: string;
+  capability_version?: string;
+  motions?: Array<Record<string, unknown>>;
+  fields?: Record<string, unknown>;
+  primitives?: string[];
+}
+
+export interface StylePackSummary {
+  id: string;
+  name: string;
+  style: Record<string, unknown>;
+}
+
+export interface AssetPackSummary {
+  id: string;
+  name: string;
+  assets: Array<Record<string, unknown>>;
+}
+
+export interface ValidateSpecRequest {
+  clip_id: string;
+  base_revision?: string;
+  base_hash: string;
+  schema_version: string;
+  capability_version: string;
+  draft_spec: MotionSpec;
+}
+
+export interface ValidateSpecResponse {
+  ok: boolean;
+  errors: MotionValidationError[];
+  warnings: MotionValidationError[];
+  capability_version?: string;
+}
+
+export interface CompileSpecResponse {
+  spec_hash: string;
+  compiler_version: string;
+  mg_def: Record<string, unknown>;
+  preview_ops: Array<Record<string, unknown>>;
+  fidelity: 'exact' | 'approx' | 'unsupported';
+  errors?: MotionValidationError[];
+}
+
+export interface AuthorTaskResponse {
+  task_id: string;
+  clip_id: string;
+  revision?: string;
+  status: string;
+}
+
+export interface AuthorTaskStatus {
+  task_id: string;
+  status: string;
+  seq?: number;
+  progress?: number;
+  error?: string;
+  cancelable?: boolean;
+}
+
+/**
+ * 这些路由由后端 PRD 定义为待新增；在真实实现/联调前不得在 UI 中调用。
+ * 本模块只冻结请求/响应类型，避免组件继续裸写不存在的 endpoint。
+ */
+export const textMotionApi = {
+  capabilities: async () => {
+    const { data } = await getApiClient().get<TextMotionCapabilities>(
+      '/api/text-animation/capabilities');
+    return data;
+  },
+  stylePacks: async () => {
+    const { data } = await getApiClient().get<{ style_packs: StylePackSummary[] }>(
+      '/api/text-animation/style-packs');
+    return data.style_packs ?? [];
+  },
+  assetPacks: async () => {
+    const { data } = await getApiClient().get<{ asset_packs: AssetPackSummary[] }>(
+      '/api/text-animation/asset-packs');
+    return data.asset_packs ?? [];
+  },
+  validateSpec: async (payload: ValidateSpecRequest) => {
+    const { data } = await getApiClient().post<ValidateSpecResponse>(
+      '/api/text-animation/validate-spec', payload);
+    return data;
+  },
+  compile: async (payload: ValidateSpecRequest) => {
+    const { data } = await getApiClient().post<CompileSpecResponse>(
+      '/api/text-animation/compile', payload);
+    return data;
+  },
+  startAuthor: async (payload: { clip_id: string; idempotency_key?: string }) => {
+    const { data } = await getApiClient().post<AuthorTaskResponse>(
+      '/api/text-animation/author', payload);
+    return data;
+  },
+  getAuthorTask: async (taskId: string) => {
+    const { data } = await getApiClient().get<AuthorTaskStatus>(
+      `/api/text-animation/author/${encodeURIComponent(taskId)}`);
+    return data;
+  },
+  cancelAuthor: async (taskId: string) => {
+    const { data } = await getApiClient().post<AuthorTaskStatus>(
+      `/api/text-animation/author/${encodeURIComponent(taskId)}/cancel`);
+    return data;
+  },
+};

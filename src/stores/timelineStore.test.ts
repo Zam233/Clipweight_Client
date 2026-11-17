@@ -865,3 +865,34 @@ describe('W07: setTimeline 来源 / 落盘基线 / isDirty (TL-01/TL-03)', () =>
     expect(useTimelineStore.getState().isDirty).toBe(false);
   });
 });
+
+
+describe('MotionSpec bundle transaction', () => {
+  beforeEach(() => {
+    useTimelineStore.getState().setTimeline(createEmptyTimeline());
+  });
+
+  it('commits metadata only when hash matches', () => {
+    const tid = useTimelineStore.getState().addTrack('text');
+    const cid = useTimelineStore.getState().addClip(tid, {
+      kind: 'text', duration_sec: 2, metadata: { motion_spec_hash: 'old' },
+    });
+    const ok = useTimelineStore.getState().commitMotionSpecBundle(cid, 'old', {
+      motion_spec: { schema: 'motion_spec/1' }, motion_spec_hash: 'new',
+    });
+    expect(ok).toBe(true);
+    const clip = useTimelineStore.getState().timeline.tracks[0].clips[0];
+    expect((clip.metadata as Record<string, unknown>).motion_spec_hash).toBe('new');
+  });
+
+  it('does not write on hash mismatch or missing clip', () => {
+    const tid = useTimelineStore.getState().addTrack('text');
+    const cid = useTimelineStore.getState().addClip(tid, {
+      kind: 'text', duration_sec: 2, metadata: { motion_spec_hash: 'old' },
+    });
+    expect(useTimelineStore.getState().commitMotionSpecBundle(cid, 'wrong', { x: 1 })).toBe(false);
+    expect(useTimelineStore.getState().commitMotionSpecBundle('missing', 'old', { x: 1 })).toBe(false);
+    const clip = useTimelineStore.getState().timeline.tracks[0].clips[0];
+    expect((clip.metadata as Record<string, unknown>).x).toBeUndefined();
+  });
+});

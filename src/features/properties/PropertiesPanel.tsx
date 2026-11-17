@@ -23,6 +23,8 @@ import { useProjectStore } from '@/stores/projectStore';
 import { asText } from '@/lib/render';
 // MG spec 的解析与类型以预览渲染器为唯一来源（不另造一套 TypeScript 类型）
 import { mgSpecOf } from '@/features/preview/mgRenderer';
+import { motionSpecOf, motionSpecMetaOf } from '@/features/textMotion/adapter';
+import { validateDraftSpec } from '@/features/textMotion/schema';
 import {
   extractCopyableAttributes, filterFieldsForKind,
   useClipAttributeClipboard,
@@ -104,6 +106,61 @@ function warnUndeclaredPropKinds(id: string): void {
 }
 
 type TextStylePack = { id: string; name: string; style: Record<string, unknown> };
+
+function MotionSpecSection({ clip }: { clip: Clip }) {
+  const spec = motionSpecOf(clip.metadata);
+  if (!spec) return null;
+  const meta = motionSpecMetaOf(clip.metadata);
+  const errors = validateDraftSpec(spec);
+  return (
+    <Section title="文字动效" icon={<Sparkles className="w-3 h-3" />}>
+      <Row label="Spec">
+        <span className="text-body-sm font-mono text-on-surface truncate">{spec.spec_id || '—'}</span>
+      </Row>
+      <Row label="Provider">
+        <span className="text-body-sm text-on-surface-variant">{meta.provider || '—'}</span>
+      </Row>
+      <Row label="Hash">
+        <span className="text-body-sm font-mono text-on-surface-variant">{meta.hash ? `${meta.hash.slice(0, 8)}…` : '待服务端生成'}</span>
+      </Row>
+      <Row label="编译器">
+        <span className="text-body-sm text-on-surface-variant">{meta.version || '待后端提供'}</span>
+      </Row>
+      <Row label="Fidelity">
+        <span className="text-body-sm text-on-surface-variant">{String(clip.metadata?.fidelity ?? 'unsupported')}</span>
+      </Row>
+      <Row label="能力">
+        <span className="text-caption text-on-surface-variant">{spec.requires?.join(' / ') || '未声明'}</span>
+      </Row>
+      {errors.length > 0 && (
+        <div className="mt-2 rounded-cw-xs border border-error/30 bg-error/10 p-2 text-caption text-error">
+          {errors.slice(0, 5).map((e) => (
+            <div key={`${e.layerId}:${e.field}:${e.time ?? ''}`}>
+              {e.layerId ? `${e.layerId}.` : ''}{e.field}: {e.message}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          disabled
+          title="后端 /api/text-animation/author 与任务契约尚未实现"
+          className="px-2 py-1 rounded-cw-xs text-caption bg-surface-container text-on-surface-variant/60 cursor-not-allowed"
+        >
+          重新生成（API 待接入）
+        </button>
+        <span className="text-caption text-on-surface-variant">只读：编辑器待事务/API 闭环</span>
+      </div>
+      <details className="mt-2">
+        <summary className="text-caption text-on-surface-variant cursor-pointer">查看 MotionSpec JSON</summary>
+        <pre className="mt-2 max-h-48 overflow-auto rounded-cw-xs bg-surface-container p-2 text-[10px] leading-4 text-on-surface-variant">
+          {JSON.stringify(spec, null, 2)}
+        </pre>
+      </details>
+    </Section>
+  );
+}
 
 export function PropertiesPanel() {
   const [textStylePacks, setTextStylePacks] = useState<TextStylePack[]>([]);
@@ -503,6 +560,10 @@ export function PropertiesPanel() {
                   />
                 </Row>
               </Section>
+            )}
+
+            {sections.includes('text') && (
+              <MotionSpecSection clip={clip} />
             )}
 
             {/* Caption / text style — on caption tracks every control cascades to the whole layer */}
