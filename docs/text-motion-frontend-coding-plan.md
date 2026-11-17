@@ -399,3 +399,14 @@
 - effects 仍 JSON 编辑，仅显示数量；
 - 234 tests、build 通过；提交 `57a4f46`。
 - 仍缺 marker 拖动与视觉 E2E。
+
+
+### 真实浏览器 E2E（2026-11-18）
+
+- 打开 `http://127.0.0.1:5173/editor/proj_f4727a36c443`；
+- 选中 `tc_e9831d60`（MotionSpec hash `e92586c2...`）；
+- 在属性面板把首 keyframe time 从 `0.00` 改为 `0.10`；
+- 点击“保存 MotionSpec”，完成 validate → compile → commit；
+- 服务端 hash 变为 `70162e28...`，keyframe time 持久化为 `0.1`；
+- 刷新页面后重新选中，hash 和 `0.10` 仍在；
+- 截图：`docs/e2e/motion-spec-editor.jpg`。
