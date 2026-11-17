@@ -331,3 +331,13 @@
 - 成功后回填本地 draft，仍需 validate/compile/commit 才保存；
 - 验证：230 passed、tsc、build 通过；提交 `18e69ea`。
 - 仍缺：SSE 续传、tracks/path/camera 编辑、timeline markers、视觉 E2E。
+
+
+### CP-6/7 编辑器追加（2026-11-18）
+
+- keyframe 支持时间/opacity/起始帧 easing 下拉；
+- 支持添加/删除 keyframe；
+- 最后帧 easing 禁用；
+- 仍走 validate/compile/commit 保存；
+- 验证：textMotion/preview/store 231 passed，build 通过；提交 `27468d1`。
+- 仍缺：tracks/path/camera、timeline marker 画布、SSE 续传/视觉 E2E。
