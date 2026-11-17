@@ -350,3 +350,11 @@
 - 不写入 `timeline.markers`，不参与拖动/持久化；
 - 验证：textMotion/preview/store 231 passed，build 通过；提交 `e2fb617`。
 - 仍缺：可交互 marker、tracks/path/camera、视觉 E2E。
+
+
+### 高级 JSON 编辑 / PR（2026-11-18）
+
+- MotionSpecSection 增加高级 JSON 编辑入口：解析 motion_spec/1 后进入本地 draft，保存仍走 validate/compile/commit；
+- 前端 PR #17 已创建；
+- 验证：231 passed、build 通过；提交 `300dc19`。
+- 仍缺：tracks/path/camera 结构化控件、marker 拖动、SSE、视觉 E2E。
