@@ -79,13 +79,16 @@ export function EditorPage() {
     const clipId = params.get('clip');
     if (!clipId) return;
     const seek = Number(params.get('t'));
-    const timer = window.setTimeout(() => {
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      tries += 1;
       const exists = useTimelineStore.getState().timeline.tracks.some(
         (t) => t.clips.some((c) => c.id === clipId),
       );
       if (exists) useSelectionStore.getState().selectClip(clipId);
       if (Number.isFinite(seek) && seek >= 0) usePreviewStore.getState().setCurrentTime(seek);
-    }, 300);
+      if (exists || tries >= 40) window.clearInterval(timer);
+    }, 250);
     return () => window.clearTimeout(timer);
   }, [loading, projectId, trackCount]);
   const [loadError, setLoadError] = useState<string | null>(null);
