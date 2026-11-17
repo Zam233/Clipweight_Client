@@ -410,3 +410,10 @@
 - 服务端 hash 变为 `70162e28...`，keyframe time 持久化为 `0.1`；
 - 刷新页面后重新选中，hash 和 `0.10` 仍在；
 - 截图：`docs/e2e/motion-spec-editor.jpg`。
+
+
+### effects 编辑（2026-11-18）
+
+- MotionSpec 面板显示 effects 类型并支持删除；
+- 新增 effect 仍通过高级 JSON；
+- 235 tests、build 通过；提交 `806d069`。
