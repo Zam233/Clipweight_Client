@@ -1337,7 +1337,10 @@ function paintClipContent(
       const text = clip.text || '文字';
       // 用户裁定：文字动画统一 MG HTML；有 mg_def 就画 MG，不再画旧 ASS 文字层
       const _textMg = mgSpecOf(clip.metadata);
-      if (_textMg) {
+      const _ops = clip.metadata?.preview_ops;
+      const _hasMgOp = !Array.isArray(_ops) || _ops.length === 0
+        || _ops.some((op) => op && typeof op === 'object' && op.kind === 'mg_def');
+      if (_textMg && _hasMgOp) {
         const _mgFid = emptyFidelity();
         const _mgLocal = Math.max(0, (t - clip.start_sec) * speed + clip.source_offset_sec);
         ctx.save();
