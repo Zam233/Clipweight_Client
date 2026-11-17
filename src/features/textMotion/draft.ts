@@ -82,3 +82,15 @@ export function updatePathPoint(
   point[axis] = value;
   return next;
 }
+
+
+export function updateTrackSegment(
+  spec: MotionSpec, layerId: string, trackIndex: number, segmentIndex: number,
+  key: 'start' | 'end', value: number,
+): MotionSpec {
+  const next = cloneSpec(spec);
+  const seg = next.layers.find((l) => l.id === layerId)?.tracks?.[trackIndex]?.segments?.[segmentIndex];
+  if (!seg || !Number.isFinite(value)) return next;
+  seg[key] = value;
+  return next;
+}

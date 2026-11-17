@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue, updatePathPoint, updatePathType } from './draft';
+import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue, updatePathPoint, updatePathType, updateTrackSegment } from './draft';
 import type { MotionSpec } from './types';
 
 const spec = (): MotionSpec => ({
@@ -55,5 +55,16 @@ describe('path draft', () => {
     expect(nextType.layers[0].motion_path?.type).toBe('arc');
     expect(nextPoint.layers[0].motion_path?.points[1].x).toBe(2);
     expect(base.layers[0].motion_path?.type).toBe('line');
+  });
+});
+
+
+describe('track draft', () => {
+  it('updates track segment bounds immutably', () => {
+    const base = spec();
+    base.layers[0].tracks = [{ property: 'opacity', segments: [{ start: 0, end: 1, from: 0, to: 1 }] }];
+    const next = updateTrackSegment(base, 't', 0, 0, 'end', 1.5);
+    expect(next.layers[0].tracks?.[0].segments[0].end).toBe(1.5);
+    expect(base.layers[0].tracks?.[0].segments[0].end).toBe(1);
   });
 });

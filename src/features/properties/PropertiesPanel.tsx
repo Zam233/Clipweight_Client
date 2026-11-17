@@ -28,7 +28,7 @@ import { textMotionApi } from '@/services/api/textMotion';
 import { textMotionFlags } from '@/features/textMotion/flags';
 import type { AssetPackSummary } from '@/services/api/textMotion';
 import { validateDraftSpec } from '@/features/textMotion/schema';
-import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue, updatePathPoint, updatePathType } from '@/features/textMotion/draft';
+import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue, updatePathPoint, updatePathType, updateTrackSegment } from '@/features/textMotion/draft';
 import type { MotionSpec } from '@/features/textMotion/types';
 import { initialAuthorState, isAuthorTerminal, reduceAuthorState } from '@/features/textMotion/authorTask';
 import {
@@ -330,7 +330,29 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
           )}
           {effective.layers.filter((l) => l.motion_path || (l.tracks?.length ?? 0) > 0).map((l) => (
             <div key={`adv-${l.id}`} className="space-y-1">
-              <div>{l.id}{l.tracks?.length ? ` · tracks=${l.tracks.map((t) => t.property).join('/')}` : ''}</div>
+              <div>{l.id}{l.effects?.length ? ` · effects=${l.effects.length}` : ''}</div>
+              {(l.tracks ?? []).map((tr, ti) => (
+                <div key={`${l.id}-tr-${ti}`} className="flex flex-wrap items-center gap-1">
+                  <span>{tr.property}</span>
+                  {(tr.segments ?? []).slice(0, 3).map((seg, si) => (
+                    <span key={si} className="flex items-center gap-0.5">
+                      <input
+                        type="number" step="0.05" value={Number(seg.start)} disabled={!canEdit}
+                        onChange={(e) => setDraft(updateTrackSegment(effective, l.id, ti, si, 'start', Number(e.target.value)))}
+                        className="w-12 bg-surface-container rounded px-1 py-0.5 text-on-surface"
+                        title="segment start"
+                      />
+                      <span>→</span>
+                      <input
+                        type="number" step="0.05" value={Number(seg.end)} disabled={!canEdit}
+                        onChange={(e) => setDraft(updateTrackSegment(effective, l.id, ti, si, 'end', Number(e.target.value)))}
+                        className="w-12 bg-surface-container rounded px-1 py-0.5 text-on-surface"
+                        title="segment end"
+                      />
+                    </span>
+                  ))}
+                </div>
+              ))}
               {l.motion_path && (
                 <div className="flex items-center gap-1">
                   <span>path</span>
