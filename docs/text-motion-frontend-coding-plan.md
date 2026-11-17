@@ -237,3 +237,14 @@
 - 测试命令及结果：逐项记录，不引用历史基线冒充本次结果
 - 未开放能力及原因：列出 capability/原语和待补证据
 - 回滚 flag / 操作：明确到 flag
+
+
+## 19. 执行记录（2026-11-18，feat/zam_text_motion_frontend）
+
+- CP-0：契约/现状审计完成；真实 API 目录确认为 `src/services/api/`，三个 MotionSpec 路由仍不存在；
+- CP-1：已新增 `src/features/textMotion/types.ts`、`schema.ts`、`adapter.ts`，覆盖 schema/时间/easing 适配与 metadata 提取；
+- CP-3：`PreviewPanel` 对 `motion_spec` clip 的缺产物/非法 spec 已 fail-closed，不再落普通文字；
+- `previewFidelity` 增加 approx / MotionSpec 待编译提示；
+- 测试：`src/features/textMotion/*.test.ts` 6 passed，相关 preview 测试 16 passed；`tsc --noEmit`、`npm run build` 通过；
+- 尚未开始：CP-2 Canvas 原语补齐、CP-4 typed API/author 任务、CP-5 原子事务、CP-6–9 编辑器和 timeline markers；
+- 提交：`f6f4794`。
