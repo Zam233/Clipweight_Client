@@ -456,3 +456,11 @@
 - PreviewPanel 现在对含 `motion_spec` 的 clip 跳过旧 keyframes 的 opacity/transform 覆盖；
 - 236 tests、build 通过；提交 `f627e87`。
 - 仍观察到 62.65s 预览未出现 MG 文字，说明还有第二个预览差异，未关闭。
+
+
+### 预览 MG 坐标修复（2026-11-18）
+
+- 将 MG 绘制显式归一到设备像素坐标，避免继承上一层的 transform；
+- 独立 canvas 调 `drawMgFrame` 能画出 2661 个黄色像素；
+- PreviewPanel 合成 canvas 仍为 0，预览问题未关闭；
+- 提交 `4af8c92`。
