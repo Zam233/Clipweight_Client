@@ -37,6 +37,12 @@ export function unpreviewableFeatures(clip: Clip): string[] {
   if (meta.fidelity === 'unsupported' || meta.preview_supported === false) {
     out.push('文字动效 provider 不支持预览');
   }
+  const ops = meta.preview_ops;
+  if (Array.isArray(ops) && ops.some((op) => (
+    op && typeof op === 'object' && (op as Record<string, unknown>).fidelity === 'unsupported'
+  ))) {
+    out.push('文字动效预览指令不可用');
+  }
   return out;
 }
 
