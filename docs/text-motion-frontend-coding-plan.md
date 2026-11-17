@@ -464,3 +464,11 @@
 - 独立 canvas 调 `drawMgFrame` 能画出 2661 个黄色像素；
 - PreviewPanel 合成 canvas 仍为 0，预览问题未关闭；
 - 提交 `4af8c92`。
+
+
+### 预览 MG 根因修复（2026-11-19）
+
+- 根因：`LayerCache.draw` 对 `paint() === false` 的层直接 clear 并返回，**不贴主画布**；MG 是时间相关层，正好命中该分支，所以预览永远不显示。
+- 修复：不可缓存层仍 `drawImage` 到主画布，再清理离屏层。
+- 新增/更新测试：不可缓存层 `painted === true` 且主画布收到 drawImage。
+- 237 tests 通过；提交 `8e49097`、`2a67ea5`。
