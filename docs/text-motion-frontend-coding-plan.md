@@ -341,3 +341,12 @@
 - 仍走 validate/compile/commit 保存；
 - 验证：textMotion/preview/store 231 passed，build 通过；提交 `27468d1`。
 - 仍缺：tracks/path/camera、timeline marker 画布、SSE 续传/视觉 E2E。
+
+
+### CP-9 timeline markers 接通（2026-11-18）
+
+- `drawMotionSpecMarkers` 增加蓝色只读 keyframe 标记；
+- `TimelineEngine.setMotionSpecMarkers` 与 TimelinePanel 接线；
+- 不写入 `timeline.markers`，不参与拖动/持久化；
+- 验证：textMotion/preview/store 231 passed，build 通过；提交 `e2fb617`。
+- 仍缺：可交互 marker、tracks/path/camera、视觉 E2E。
