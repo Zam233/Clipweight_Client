@@ -10,6 +10,7 @@ import { captionFontSize, textLayout } from './captionLayout';
 import { orderTracksForComposite } from './compositeOrder';
 import { publishPlaybackStats, resetPlaybackStats } from './playbackStats';
 import { clearMgImageCache, drawMgFrame, emptyFidelity, mgParamsOf, mgSpecOf } from './mgRenderer';
+import { motionPreviewState } from '@/features/textMotion/adapter';
 import { reportMgFidelity, resetMgFidelity, useMgFidelityStore } from './mgFidelity';
 
 /**
@@ -1335,6 +1336,22 @@ function paintClipContent(
     case 'text':
     case 'caption': {
       const text = clip.text || '文字';
+      // MotionSpec clip：缺有效编译产物时必须 fail-closed，不能落回普通文字。
+      const _motionState = motionPreviewState(clip);
+      if (_motionState === 'spec_without_artifact' || _motionState === 'invalid_spec') {
+        ctx.save();
+        ctx.globalAlpha = clamp(env.opacity, 0, 1);
+        ctx.fillStyle = 'rgba(255,90,90,0.95)';
+        ctx.font = "600 16px 'Inter','Noto Sans SC',sans-serif";
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(
+          _motionState === 'invalid_spec' ? 'MotionSpec 无效，预览已阻止' : 'MotionSpec 待编译',
+          fx + fw / 2, fy + fh / 2,
+        );
+        ctx.restore();
+        return false;
+      }
       // 用户裁定：文字动画统一 MG HTML；有 mg_def 就画 MG，不再画旧 ASS 文字层
       const _textMg = mgSpecOf(clip.metadata);
       const _ops = clip.metadata?.preview_ops;

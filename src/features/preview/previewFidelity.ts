@@ -37,6 +37,8 @@ export function unpreviewableFeatures(clip: Clip): string[] {
   if (meta.fidelity === 'unsupported' || meta.preview_supported === false) {
     out.push('文字动效 provider 不支持预览');
   }
+  if (meta.fidelity === 'approx') out.push('文字动效仅近似预览');
+  if (meta.motion_spec && !meta.mg_def) out.push('MotionSpec 待编译');
   const ops = meta.preview_ops;
   if (Array.isArray(ops) && ops.some((op) => (
     op && typeof op === 'object' && (op as Record<string, unknown>).fidelity === 'unsupported'
