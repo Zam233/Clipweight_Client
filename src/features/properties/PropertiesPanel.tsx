@@ -25,6 +25,7 @@ import { asText } from '@/lib/render';
 import { mgSpecOf } from '@/features/preview/mgRenderer';
 import { motionSpecOf, motionSpecMetaOf } from '@/features/textMotion/adapter';
 import { textMotionApi } from '@/services/api/textMotion';
+import { textMotionFlags } from '@/features/textMotion/flags';
 import type { AssetPackSummary } from '@/services/api/textMotion';
 import { validateDraftSpec } from '@/features/textMotion/schema';
 import {
@@ -591,7 +592,7 @@ export function PropertiesPanel() {
               </Section>
             )}
 
-            {sections.includes('text') && (
+            {textMotionFlags.ui && sections.includes('text') && (
               <MotionSpecSection clip={clip} />
             )}
 
