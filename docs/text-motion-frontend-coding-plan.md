@@ -417,3 +417,11 @@
 - MotionSpec 面板显示 effects 类型并支持删除；
 - 新增 effect 仍通过高级 JSON；
 - 235 tests、build 通过；提交 `806d069`。
+
+
+### 成片渲染抽帧（2026-11-18）
+
+- 从已 commit 的 `mg_def` 生成 Hyperframes HTML；
+- 在浏览器 seek 到 1s，截图：`docs/e2e/motion-spec-render.jpg`；
+- 画面显示黄色「并非回应」，证明 commit 产物可独立渲染，不依赖 author/LLM；
+- 预览端仍为近似预览。
