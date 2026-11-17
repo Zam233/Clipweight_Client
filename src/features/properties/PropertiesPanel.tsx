@@ -184,6 +184,7 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
 export function PropertiesPanel() {
   const [textStylePacks, setTextStylePacks] = useState<TextStylePack[]>([]);
   const [assetPacks, setAssetPacks] = useState<AssetPackSummary[]>([]);
+  const [assetPackError, setAssetPackError] = useState('');
   useEffect(() => {
     let alive = true;
     fetch('/api/text-animation/style-packs')
@@ -196,8 +197,8 @@ export function PropertiesPanel() {
   useEffect(() => {
     let alive = true;
     textMotionApi.assetPacks()
-      .then((packs) => { if (alive) setAssetPacks(packs); })
-      .catch(() => { /* 后端未实现/未启动：不阻塞面板 */ });
+      .then((packs) => { if (alive) { setAssetPacks(packs); setAssetPackError(''); } })
+      .catch(() => { if (alive) setAssetPackError('asset pack 加载失败（后端未实现或不可用）'); });
     return () => { alive = false; };
   }, []);
   const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
@@ -628,6 +629,9 @@ export function PropertiesPanel() {
                       ))}
                     </select>
                   </Row>
+                )}
+                {trackKind === 'text' && assetPackError && (
+                  <p className="mt-1 text-caption text-error">{assetPackError}</p>
                 )}
                 {trackKind === 'text' && assetPacks.length > 0 && (
                   <Row label="Asset pack">
