@@ -69,7 +69,7 @@ export function EditorPage() {
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     (globalThis as Record<string, unknown>).__cwStores = {
-      timeline: useTimelineStore, selection: useSelectionStore,
+      timeline: useTimelineStore, selection: useSelectionStore, preview: usePreviewStore,
     };
   }, []);
   // 深链接选片：/editor/:id?clip=cl_xxx，便于刷新/外部跳转直达属性面板
