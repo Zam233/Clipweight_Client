@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addKeyframe, removeKeyframe, updateKeyframeTime, updateKeyframeValue } from './draft';
+import { addKeyframe, removeKeyframe, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue } from './draft';
 import type { MotionSpec } from './types';
 
 const spec = (): MotionSpec => ({
@@ -22,5 +22,15 @@ describe('MotionSpec draft editor', () => {
     expect(next.layers[0].keyframes[0].opacity).toBe(0.3);
     next = removeKeyframe(next, 't', 0);
     expect(next.layers[0].keyframes).toHaveLength(2);
+  });
+});
+
+
+describe('easing draft', () => {
+  it('updates keyframe easing immutably', () => {
+    const src = spec();
+    const next = updateKeyframeEasing(src, 't', 0, { type: 'steps', count: 4 });
+    expect((next.layers[0].keyframes[0].easing as unknown as Record<string, unknown>).type).toBe('steps');
+    expect(src.layers[0].keyframes[0].easing).toBeUndefined();
   });
 });

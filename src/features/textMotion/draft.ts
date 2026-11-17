@@ -40,3 +40,15 @@ export function updateKeyframeValue(
   (kf as Record<string, unknown>)[key] = value;
   return next;
 }
+
+
+export function updateKeyframeEasing(
+  spec: MotionSpec, layerId: string, index: number, easing: Record<string, unknown>,
+): MotionSpec {
+  const next = cloneSpec(spec);
+  const layer = next.layers.find((l) => l.id === layerId);
+  const kf = layer?.keyframes?.[index];
+  if (!kf) return next;
+  kf.easing = easing as never;
+  return next;
+}

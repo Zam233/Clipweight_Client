@@ -28,7 +28,7 @@ import { textMotionApi } from '@/services/api/textMotion';
 import { textMotionFlags } from '@/features/textMotion/flags';
 import type { AssetPackSummary } from '@/services/api/textMotion';
 import { validateDraftSpec } from '@/features/textMotion/schema';
-import { updateKeyframeTime, updateKeyframeValue } from '@/features/textMotion/draft';
+import { addKeyframe, removeKeyframe, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue } from '@/features/textMotion/draft';
 import type { MotionSpec } from '@/features/textMotion/types';
 import { initialAuthorState, isAuthorTerminal, reduceAuthorState } from '@/features/textMotion/authorTask';
 import {
@@ -258,8 +258,30 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
                   onChange={(e) => setDraft(updateKeyframeValue(effective, layer.id, i, 'opacity', Number(e.target.value)))}
                   className="w-14 bg-surface-container rounded px-1 py-0.5 text-on-surface"
                 />
+                <select
+                  value={typeof kf.easing === 'string' ? kf.easing : (kf.easing?.type ?? 'linear')}
+                  disabled={!canEdit || i >= (layer.keyframes?.length ?? 0) - 1}
+                  onChange={(e) => setDraft(updateKeyframeEasing(effective, layer.id, i, { type: e.target.value }))}
+                  title="easing 作用于当前帧到下一帧；最后帧不可编辑"
+                  className="bg-surface-container rounded px-1 py-0.5 text-on-surface disabled:opacity-40"
+                >
+                  {['linear', 'named', 'cubic-bezier', 'steps', 'hold', 'spring'].map((e) => (
+                    <option key={e} value={e}>{e}</option>
+                  ))}
+                </select>
+                <button
+                  type="button" disabled={!canEdit}
+                  onClick={() => setDraft(removeKeyframe(effective, layer.id, i))}
+                  className="text-error disabled:opacity-30"
+                  title="删除 keyframe"
+                >×</button>
               </div>
             ))}
+            <button
+              type="button" disabled={!canEdit}
+              onClick={() => setDraft(addKeyframe(effective, layer.id, effective.duration_sec / 2))}
+              className="mt-1 text-[10px] text-primary disabled:opacity-30"
+            >+ 添加 keyframe</button>
           </div>
         ))}
       </div>
