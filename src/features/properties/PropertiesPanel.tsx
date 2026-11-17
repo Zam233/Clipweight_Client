@@ -28,6 +28,8 @@ import { textMotionApi } from '@/services/api/textMotion';
 import { textMotionFlags } from '@/features/textMotion/flags';
 import type { AssetPackSummary } from '@/services/api/textMotion';
 import { validateDraftSpec } from '@/features/textMotion/schema';
+import { updateKeyframeTime, updateKeyframeValue } from '@/features/textMotion/draft';
+import type { MotionSpec } from '@/features/textMotion/types';
 import {
   extractCopyableAttributes, filterFieldsForKind,
   useClipAttributeClipboard,
@@ -112,13 +114,63 @@ type TextStylePack = { id: string; name: string; style: Record<string, unknown> 
 
 function MotionSpecSection({ clip }: { clip: Clip }) {
   const spec = motionSpecOf(clip.metadata);
+  const projectId = useProjectStore((s) => s.projectId);
+  const [draft, setDraft] = useState<MotionSpec | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saved, setSaved] = useState('');
+  useEffect(() => {
+    setDraft(spec ? JSON.parse(JSON.stringify(spec)) as MotionSpec : null);
+    setSaveError('');
+    setSaved('');
+  }, [clip.id, motionSpecMetaOf(clip.metadata).hash]);
   if (!spec) return null;
+  const effective = draft ?? spec;
   const meta = motionSpecMetaOf(clip.metadata);
-  const errors = validateDraftSpec(spec);
+  const errors = validateDraftSpec(effective);
+  const canEdit = !busy && Boolean(projectId);
+  const save = async () => {
+    if (!projectId || busy) return;
+    setBusy(true); setSaveError(''); setSaved('');
+    try {
+      const base = {
+        clip_id: clip.id, base_hash: meta.hash,
+        schema_version: 'motion_spec/1', capability_version: '1',
+        draft_spec: effective,
+      };
+      const v = await textMotionApi.validateSpec(base);
+      if (!v.ok) throw new Error(v.errors?.[0]?.message || 'MotionSpec 校验失败');
+      const compiled = await textMotionApi.compile(base);
+      if (!compiled.spec_hash) throw new Error('编译未返回 spec hash');
+      const committed = await textMotionApi.commit({
+        project_id: projectId, clip_id: clip.id, base_hash: meta.hash,
+        spec: effective, spec_hash: compiled.spec_hash,
+        compiler_version: compiled.compiler_version, fidelity: compiled.fidelity,
+      });
+      const ok = useTimelineStore.getState().commitMotionSpecBundle(clip.id, meta.hash, {
+        motion_spec: effective,
+        motion_spec_hash: committed.spec_hash,
+        motion_spec_version: 'motion_spec/1',
+        motion_spec_compiler_version: compiled.compiler_version,
+        mg_def: compiled.mg_def,
+        preview_ops: compiled.preview_ops,
+        fidelity: compiled.fidelity,
+        text_provider_id: 'motion_spec',
+      });
+      if (!ok) throw new Error('本地版本冲突：MotionSpec 已被其他修改');
+      setSaved('已保存');
+    } catch (e) {
+      const err = e as { response?: { status?: number; data?: { detail?: unknown } } };
+      if (err.response?.status === 409) setSaveError('版本冲突：已保留你的草稿，请刷新后比较');
+      else setSaveError(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <Section title="文字动效" icon={<Sparkles className="w-3 h-3" />}>
       <Row label="Spec">
-        <span className="text-body-sm font-mono text-on-surface truncate">{spec.spec_id || '—'}</span>
+        <span className="text-body-sm font-mono text-on-surface truncate">{effective.spec_id || '—'}</span>
       </Row>
       <Row label="Provider">
         <span className="text-body-sm text-on-surface-variant">{meta.provider || '—'}</span>
@@ -126,32 +178,9 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
       <Row label="Hash">
         <span className="text-body-sm font-mono text-on-surface-variant">{meta.hash ? `${meta.hash.slice(0, 8)}…` : '待服务端生成'}</span>
       </Row>
-      <Row label="编译器">
-        <span className="text-body-sm text-on-surface-variant">{meta.version || '待后端提供'}</span>
-      </Row>
       <Row label="Fidelity">
         <span className="text-body-sm text-on-surface-variant">{String(clip.metadata?.fidelity ?? 'unsupported')}</span>
       </Row>
-      <Row label="能力">
-        <span className="text-caption text-on-surface-variant">{spec.requires?.join(' / ') || '未声明'}</span>
-      </Row>
-      <div className="mt-2 space-y-1">
-        {spec.layers.map((layer) => (
-          <div key={layer.id} className="rounded-cw-xs bg-surface-container/60 px-2 py-1">
-            <div className="flex items-center justify-between text-caption">
-              <span className="font-mono text-on-surface">{layer.id}</span>
-              <span className="text-on-surface-variant">{layer.type} · {layer.keyframes?.length ?? 0} kf</span>
-            </div>
-            <div className="mt-1 flex flex-wrap gap-1">
-              {(layer.keyframes ?? []).slice(0, 8).map((kf, i) => (
-                <span key={`${kf.time}-${i}`} className="rounded bg-surface-container-high px-1 text-[10px] text-on-surface-variant">
-                  {Number(kf.time).toFixed(2)}s
-                </span>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
       {errors.length > 0 && (
         <div className="mt-2 rounded-cw-xs border border-error/30 bg-error/10 p-2 text-caption text-error">
           {errors.slice(0, 5).map((e) => (
@@ -161,21 +190,51 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
           ))}
         </div>
       )}
+      <div className="mt-2 space-y-1">
+        {effective.layers.map((layer) => (
+          <div key={layer.id} className="rounded-cw-xs bg-surface-container/60 px-2 py-1">
+            <div className="flex items-center justify-between text-caption">
+              <span className="font-mono text-on-surface">{layer.id}</span>
+              <span className="text-on-surface-variant">{layer.type} · {layer.keyframes?.length ?? 0} kf</span>
+            </div>
+            {(layer.keyframes ?? []).slice(0, 8).map((kf, i) => (
+              <div key={`${layer.id}-${i}`} className="mt-1 flex items-center gap-1 text-[10px]">
+                <input
+                  type="number" step="0.05" value={Number(kf.time).toFixed(2)}
+                  disabled={!canEdit}
+                  onChange={(e) => setDraft(updateKeyframeTime(effective, layer.id, i, Number(e.target.value)))}
+                  className="w-16 bg-surface-container rounded px-1 py-0.5 text-on-surface"
+                  title="keyframe 时间（秒）"
+                />
+                <span className="text-on-surface-variant">s · opacity</span>
+                <input
+                  type="number" step="0.05" min={0} max={1} value={Number(kf.opacity ?? 1)}
+                  disabled={!canEdit}
+                  onChange={(e) => setDraft(updateKeyframeValue(effective, layer.id, i, 'opacity', Number(e.target.value)))}
+                  className="w-14 bg-surface-container rounded px-1 py-0.5 text-on-surface"
+                />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
       <div className="mt-2 flex items-center gap-2">
         <button
-          type="button"
-          disabled
-          title="后端 /api/text-animation/author 与任务契约尚未实现"
-          className="px-2 py-1 rounded-cw-xs text-caption bg-surface-container text-on-surface-variant/60 cursor-not-allowed"
+          type="button" disabled={!canEdit}
+          onClick={() => void save()}
+          className="px-2 py-1 rounded-cw-xs text-caption bg-primary/15 text-primary disabled:opacity-40"
         >
-          重新生成（API 待接入）
+          {busy ? '校验/编译/保存中…' : '保存 MotionSpec'}
         </button>
-        <span className="text-caption text-on-surface-variant">只读：编辑器待事务/API 闭环</span>
+        <span className="text-caption text-on-surface-variant">
+          {!projectId ? '需在项目中打开' : saved || '草稿仅本地，保存后服务端重编译'}
+        </span>
       </div>
+      {saveError && <p className="mt-1 text-caption text-error">{saveError}</p>}
       <details className="mt-2">
         <summary className="text-caption text-on-surface-variant cursor-pointer">查看 MotionSpec JSON</summary>
         <pre className="mt-2 max-h-48 overflow-auto rounded-cw-xs bg-surface-container p-2 text-[10px] leading-4 text-on-surface-variant">
-          {JSON.stringify(spec, null, 2)}
+          {JSON.stringify(effective, null, 2)}
         </pre>
       </details>
     </Section>

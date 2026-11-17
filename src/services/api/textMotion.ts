@@ -47,6 +47,22 @@ export interface CompileSpecResponse {
   errors?: MotionValidationError[];
 }
 
+export interface CommitSpecRequest {
+  project_id: string;
+  clip_id: string;
+  base_hash: string;
+  spec: MotionSpec;
+  spec_hash?: string;
+  compiler_version?: string;
+  fidelity?: string;
+}
+
+export interface CommitSpecResponse {
+  ok: boolean;
+  spec_hash: string;
+  revision?: string;
+}
+
 export interface AuthorTaskResponse {
   task_id: string;
   clip_id: string;
@@ -106,6 +122,11 @@ export const textMotionApi = {
   cancelAuthor: async (taskId: string) => {
     const { data } = await getApiClient().post<AuthorTaskStatus>(
       `/api/text-animation/author/${encodeURIComponent(taskId)}/cancel`);
+    return data;
+  },
+  commit: async (payload: CommitSpecRequest) => {
+    const { data } = await getApiClient().post<CommitSpecResponse>(
+      '/api/text-animation/commit', payload);
     return data;
   },
 };
