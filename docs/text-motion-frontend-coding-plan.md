@@ -273,3 +273,12 @@
 - 验证：`tsc --noEmit` 通过；textMotion/preview/store **223 passed**。
 - 提交：`559a2d5`。
 - 仍未完成：CP-2 原语矩阵抽帧、CP-4 真实后端联调、CP-5 服务端条件提交、CP-6 实际编辑/事务 UI、CP-7 编辑器、CP-8 asset pack、CP-9 timeline markers、E2E。
+
+
+### CP-4/8/9 追加（2026-11-18）
+
+- CP-4：新增 `src/services/api/textMotion.test.ts`，只 mock client，验证 typed 契约与不存在的 endpoint 走 contract，不接真实 UI/LLM。
+- CP-8：PropertiesPanel 增加 asset pack 只读选择，写入 `asset_pack_id/asset_id`；style pack 仍走现有逻辑；尚缺服务端 resolver/错误 UI。
+- CP-9：新增 `src/features/textMotion/markers.ts` 只读 marker 数据与测试，不写入 `clip.keyframes`，尚未接 timeline 画布。
+- 验证：tsc、build 通过；textMotion/api 9 passed；提交 `4c0a2e9`。
+- 仍未完成：CP-2 逐原语抽帧、CP-4 真实联调、CP-5 服务端条件提交、CP-6 可编辑面板、CP-7 编辑器 UI、CP-9 timeline 渲染与 E2E。
