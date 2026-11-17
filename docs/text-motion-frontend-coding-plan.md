@@ -425,3 +425,11 @@
 - 在浏览器 seek 到 1s，截图：`docs/e2e/motion-spec-render.jpg`；
 - 画面显示黄色「并非回应」，证明 commit 产物可独立渲染，不依赖 author/LLM；
 - 预览端仍为近似预览。
+
+
+### effects 新增（2026-11-18）
+
+- 支持添加 glow / blur effect；
+- 支持删除 effect；
+- 其他参数仍 JSON 编辑；
+- 236 tests、build 通过；提交 `dd4dcd0`。
