@@ -1362,6 +1362,13 @@ function paintClipContent(
         const _mgLocal = Math.max(0, (t - clip.start_sec) * speed + clip.source_offset_sec);
         ctx.save();
         ctx.globalAlpha = clamp(env.opacity, 0, 1);
+        // 预览 canvas 可能带有上一层的 CSS/dpr 变换；MG 的 box 是 CSS 坐标，
+        // 必须显式归一到设备像素，否则文字会被画到画布外（实测黄色像素为 0）。
+        const _cw = ctx.canvas.clientWidth || ctx.canvas.width;
+        const _ch = ctx.canvas.clientHeight || ctx.canvas.height;
+        const _dx = ctx.canvas.width / _cw;
+        const _dy = ctx.canvas.height / _ch;
+        ctx.setTransform(_dx, 0, 0, _dy, 0, 0);
         drawMgFrame(ctx, _textMg, _mgLocal, { x: fx, y: fy, w: fw, h: fh }, _mgFid,
           mgParamsOf(clip.metadata));
         ctx.restore();
