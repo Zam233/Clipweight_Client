@@ -24,6 +24,8 @@ import { asText } from '@/lib/render';
 // MG spec 的解析与类型以预览渲染器为唯一来源（不另造一套 TypeScript 类型）
 import { mgSpecOf } from '@/features/preview/mgRenderer';
 import { motionSpecOf, motionSpecMetaOf } from '@/features/textMotion/adapter';
+import { textMotionApi } from '@/services/api/textMotion';
+import type { AssetPackSummary } from '@/services/api/textMotion';
 import { validateDraftSpec } from '@/features/textMotion/schema';
 import {
   extractCopyableAttributes, filterFieldsForKind,
@@ -164,12 +166,21 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
 
 export function PropertiesPanel() {
   const [textStylePacks, setTextStylePacks] = useState<TextStylePack[]>([]);
+  const [assetPacks, setAssetPacks] = useState<AssetPackSummary[]>([]);
   useEffect(() => {
     let alive = true;
     fetch('/api/text-animation/style-packs')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => { if (alive && Array.isArray(data?.style_packs)) setTextStylePacks(data.style_packs); })
       .catch(() => { /* 后端未启动时不阻塞属性面板 */ });
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    textMotionApi.assetPacks()
+      .then((packs) => { if (alive) setAssetPacks(packs); })
+      .catch(() => { /* 后端未实现/未启动：不阻塞面板 */ });
     return () => { alive = false; };
   }, []);
   const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
@@ -596,6 +607,31 @@ export function PropertiesPanel() {
                     >
                       <option value="">（不使用样式包）</option>
                       {textStylePacks.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </Row>
+                )}
+                {trackKind === 'text' && assetPacks.length > 0 && (
+                  <Row label="Asset pack">
+                    <select
+                      value={String((clip.metadata as Record<string, unknown> | undefined)?.asset_pack_id ?? '')}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        pushHistory();
+                        useTimelineStore.getState().updateClip(clip.id, {
+                          metadata: {
+                            ...(clip.metadata ?? {}),
+                            asset_pack_id: next,
+                            asset_id: next ? String(assetPacks.find((p) => p.id === next)?.assets?.[0]?.id ?? '') : '',
+                          },
+                        });
+                      }}
+                      className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
+                        outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                    >
+                      <option value="">（不使用 asset pack）</option>
+                      {assetPacks.map((p) => (
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </select>
