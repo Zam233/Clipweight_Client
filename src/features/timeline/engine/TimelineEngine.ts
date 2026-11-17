@@ -53,6 +53,7 @@ export class TimelineEngine {
   onMarkersChange: ((markers: Marker[]) => void) | null = null;
   /** M8: 双击已有标记触发重命名（面板接线弹出命名输入框） */
   onMarkerRename: ((time: number) => void) | null = null;
+  onMotionSpecMarkerClick: ((marker: MotionSpecMarker) => void) | null = null;
   /** Drop feedback animation: green=placed before/after, red=reject (middle) */
   dropFeedback: { type: 'before' | 'after' | 'reject'; clipId: string; trackId: string; time: number } | null = null;
   private feedbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -330,6 +331,10 @@ export class TimelineEngine {
     if (y < L.rulerH) {
       const now = performance.now();
       const clickTime = xToTime(x, L);
+      const nearMotion = this.motionSpecMarkers.find(
+        (m) => Math.abs(timeToX(m.time, L) - x) < 6,
+      );
+      if (nearMotion) this.onMotionSpecMarkerClick?.(nearMotion);
       if (now - this.lastClickTime < 400 && Math.abs(x - this.lastClickX) < 10) {
         // 命中已有标记（6px 内）→ 触发重命名；否则新增
         const near = this.markers.find((m) => Math.abs(timeToX(m.time, L) - x) < 6);

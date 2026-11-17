@@ -155,6 +155,10 @@ export function TimelinePanel() {
     // M8: 引擎标记变更 → 写回 store（随项目 autosave 持久化）
     engine.onMarkersChange = (m) => useTimelineStore.getState().setTimelineMarkers(m);
     // M8: 双击已有标记 → 打开命名输入框
+    engine.onMotionSpecMarkerClick = (marker) => {
+      useSelectionStore.getState().selectClip(marker.clipId);
+      usePreviewStore.getState().setCurrentTime(marker.time);
+    };
     engine.onMarkerRename = (time) => {
       const existing = useTimelineStore.getState().timeline.markers?.find((x) => Math.abs(x.time - time) < 0.01);
       setRenamingMarker({ time, name: existing?.name ?? '' });
