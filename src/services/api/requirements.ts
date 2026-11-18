@@ -67,6 +67,7 @@ export const requirementsApi = {
     const decoder = new TextDecoder();
     let buffer = '';
     let result: Record<string, unknown> = {};
+    let gotResult = false;
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -82,9 +83,11 @@ export const requirementsApi = {
         try {
           const chunk = JSON.parse(payload) as { type: string; data: unknown };
           onChunk?.(chunk);
-          if (chunk.type === 'result') result = (chunk.data as Record<string, unknown>) ?? result;
+          if (chunk.type === 'result') { result = (chunk.data as Record<string, unknown>) ?? result; gotResult = true; }
         } catch { /* 忽略坏块 */ }
       }
+      // Playwright route.fulfill 的 SSE 不保证触发 reader done；拿到权威 result 即收口。
+      if (gotResult) break;
     }
     return result;
   },

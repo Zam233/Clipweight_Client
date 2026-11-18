@@ -264,6 +264,7 @@ export async function mockBackendApi(page: Page): Promise<void> {
     if (url.includes('/api/requirements/chat/stream/')) {
       const frames = [
         { type: 'status', data: 'gathering' },
+        { type: 'delta', data: '（E2E mock）已收到你的需求。' },
         { type: 'result', data: { reply: '（E2E mock）已收到你的需求。', status: 'gathering' } },
       ];
       return route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache' }, body: frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join('') });
