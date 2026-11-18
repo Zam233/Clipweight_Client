@@ -1,4 +1,5 @@
 import { RefreshCw, Shapes, Film } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import { Button, Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { useTypeCatalog } from './useTypeCatalog';
@@ -14,6 +15,7 @@ import { useTypeCatalog } from './useTypeCatalog';
  */
 export function TypeCatalogPanel() {
   const { types, loading, error, reload } = useTypeCatalog();
+  const navigate = useNavigate();
 
   const builtinCount = types.filter((t) => t.builtin).length;
   const customCount = types.length - builtinCount;
@@ -60,9 +62,10 @@ export function TypeCatalogPanel() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {types.map((t) => (
-            <div key={t.id}
-              className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-4
-                hover:border-primary/40 transition-all duration-short3">
+            <button key={t.id} type="button"
+              onClick={() => navigate({ to: '/settings/type-maker/$typeId', params: { typeId: t.id } })}
+              className="text-left bg-surface-container border border-outline-variant/30 rounded-cw-md p-4
+                hover:border-primary/40 hover:-translate-y-0.5 transition-all duration-short3 cursor-pointer">
               <div className="flex items-start gap-3 mb-2.5">
                 <span className="w-9 h-9 rounded-cw-sm bg-primary-container flex items-center justify-center shrink-0">
                   <Film className="w-4 h-4 text-on-primary-container" />
@@ -88,7 +91,7 @@ export function TypeCatalogPanel() {
                   ))}
                 </div>
               )}
-            </div>
+            </button>
           ))}
         </div>
       )}
