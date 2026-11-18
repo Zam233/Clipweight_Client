@@ -21,7 +21,10 @@ export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivEleme
   const playing = usePreviewStore((s) => s.isPlaying);
   const zoom = usePreviewStore((s) => s.zoomLevel);
   const [frame, setFrame] = useState<FrameRect | null>(null);
-  const setActive = useOverlayStore((s) => s.setActiveClipIds);
+  const requestOverlay = useOverlayStore((s) => s.requestOverlay);
+  const releaseOverlay = useOverlayStore((s) => s.releaseOverlay);
+  const generation = useOverlayStore((s) => s.generation);
+  const canvasGeneration = useOverlayStore((s) => s.canvasGeneration);
   const stageKey = useRef('');
   useEffect(() => {
     if (!textMotionFlags.overlay3d || !wrapRef.current) return;
@@ -52,9 +55,11 @@ export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivEleme
 
   const clipIds = active.map((c) => c.id).join('|');
   useEffect(() => {
-    setActive(active.map((c) => c.id));
-    return () => setActive([]);
-  }, [clipIds, setActive]);
+    if (!clipIds) { releaseOverlay(); return () => {}; }
+    requestOverlay(clipIds.split('|'));
+    return () => releaseOverlay();
+  }, [clipIds, requestOverlay, releaseOverlay]);
+  const visible = generation > 0 && canvasGeneration >= generation;
 
   if (!frame || active.length === 0) return null;
   const u = frame.fw / timeline.width;
@@ -64,6 +69,7 @@ export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivEleme
       style={{
         position: 'absolute', left: frame.fx, top: frame.fy, width: frame.fw, height: frame.fh,
         overflow: 'hidden', pointerEvents: 'none', zIndex: 15, isolation: 'isolate',
+        visibility: visible ? 'visible' : 'hidden',
       }}
     >
       <div style={{ position: 'absolute', left: 0, top: 0, width: timeline.width, height: timeline.height, transformOrigin: '0 0', transform: `scale(${u})` }}>

@@ -657,6 +657,7 @@ export function PreviewPanel() {
         // 每帧 seek 路径——这是 devplan M1 的回滚开关。
         useSettingsStore.getState().previewContinuousPlayback
           && usePreviewStore.getState().isPlaying);
+      useOverlayStore.getState().markCanvasDrawn(useOverlayStore.getState().generation);
 
       // Empty frame hint
       if (tl.tracks.length === 0) {
