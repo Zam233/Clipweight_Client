@@ -20,7 +20,7 @@ export function AnimationContextPanel({ sessionId, taskId }: { sessionId: string
     .filter((e) => (e.detail as Record<string, unknown> | undefined)?.agent === 'animation')
     .map((e) => ({
       call_id: `evt_${e.seq}`,
-      kind: 'tool' as const,
+      kind: ((e.detail as Record<string, unknown>).kind === 'skill' ? 'skill' : 'tool') as 'tool' | 'skill',
       name: String((e.detail as Record<string, unknown>).tool ?? 'generate_mg'),
       status: String((e.detail as Record<string, unknown>).status ?? 'success'),
       output_summary: e.message,
