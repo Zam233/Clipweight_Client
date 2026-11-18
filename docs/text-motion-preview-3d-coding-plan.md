@@ -1550,3 +1550,12 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 当前 3D overlay/server：IoU 0.4516，SSIM 0.4133；
 - 结论：位置接近但文字形状/抗锯齿/尺度仍有差异，不能标 exact；
 - 脚本与截图可复现。
+
+
+### CP-1 可靠矩形标定（2026-11-18）
+
+- 新增 `scripts/calibrate-blur-rect.mjs`：同背景/同 bbox 的矩形，覆盖 3 scale × 2 dpr × 4 半径 × 3 k = 72 例；
+- 所有 bucket 拟合 a=1，maxSsimError ≤ 0.006；
+- 生成表覆盖 scale 0.25/0.5/1、dpr 1/2；
+- 测试更新；提交 `f7fab54`；
+- 仍不是计划中的 288 例（缺文字/细线/圆环）。
