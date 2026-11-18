@@ -4,6 +4,7 @@
  * (scrub, select, marquee, move, trim, snap, pan).
  */
 import type { Track, Clip } from '@/types/timeline';
+import type { MotionSpecMarker } from '@/features/textMotion/markers';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { usePreviewStore } from '@/stores/previewStore';
@@ -17,7 +18,7 @@ import {
 } from './types';
 import {
   drawBackground, drawTrackLanes, drawRuler, drawTrackHeaders,
-  drawClip, drawPlayhead, drawMarkers, drawSnapGuide, drawMarquee, drawEmptyState,
+  drawClip, drawPlayhead, drawMarkers, drawMotionSpecMarkers, drawSnapGuide, drawMarquee, drawEmptyState,
   drawHorizontalScrollbar,
 } from './renderers';
 import { collectSnapTargets, applySnap } from './snap';
@@ -45,12 +46,16 @@ export class TimelineEngine {
   private lastClickTime = 0;
   private lastClickX = 0;
   markers: Marker[] = [];
+  motionSpecMarkers: MotionSpecMarker[] = [];
   /** M14: 范围工具点击回调（面板接线：两击设置 In/Out 区间） */
   onRangePoint: ((t: number) => void) | null = null;
   /** M8: 标记变更回调（增/删/改名后触发；面板接线写回 timelineStore 持久化） */
   onMarkersChange: ((markers: Marker[]) => void) | null = null;
   /** M8: 双击已有标记触发重命名（面板接线弹出命名输入框） */
   onMarkerRename: ((time: number) => void) | null = null;
+  onMotionSpecMarkerClick: ((marker: MotionSpecMarker) => void) | null = null;
+  onMotionSpecMarkerDrag: ((marker: MotionSpecMarker, time: number) => void) | null = null;
+  private motionDrag: MotionSpecMarker | null = null;
   /** Drop feedback animation: green=placed before/after, red=reject (middle) */
   dropFeedback: { type: 'before' | 'after' | 'reject'; clipId: string; trackId: string; time: number } | null = null;
   private feedbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -260,6 +265,7 @@ export class TimelineEngine {
     }
 
     drawMarkers(ctx, L, this.markers);
+    drawMotionSpecMarkers(ctx, L, this.motionSpecMarkers);
     if (this.drag.snapX !== null) drawSnapGuide(ctx, L, this.drag.snapX);
     if (this.drag.marquee) drawMarquee(ctx, this.drag.marquee);
     drawTrackHeaders(ctx, L, tracks, selection.selectedTrackId, this.hoveredTrackId);
@@ -327,6 +333,15 @@ export class TimelineEngine {
     if (y < L.rulerH) {
       const now = performance.now();
       const clickTime = xToTime(x, L);
+      const nearMotion = this.motionSpecMarkers.find(
+        (m) => Math.abs(timeToX(m.time, L) - x) < 6,
+      );
+      if (nearMotion) {
+        this.motionDrag = nearMotion;
+        this.drag.mode = 'motion-marker';
+        this.onMotionSpecMarkerClick?.(nearMotion);
+        return;
+      }
       if (now - this.lastClickTime < 400 && Math.abs(x - this.lastClickX) < 10) {
         // 命中已有标记（6px 内）→ 触发重命名；否则新增
         const near = this.markers.find((m) => Math.abs(timeToX(m.time, L) - x) < 6);
@@ -504,6 +519,12 @@ export class TimelineEngine {
         }
         break;
       }
+      case 'motion-marker': {
+        const t = Math.max(0, xToTime(x, L));
+        usePreviewStore.getState().setCurrentTime(t);
+        this.requestRender();
+        break;
+      }
       case 'pan': {
         const dx = x - this.drag.startMouse.x;
         const dy = y - this.drag.startMouse.y;
@@ -585,6 +606,13 @@ export class TimelineEngine {
     const store = useTimelineStore.getState();
 
     switch (this.drag.mode) {
+      case 'motion-marker': {
+        if (this.motionDrag) {
+          this.onMotionSpecMarkerDrag?.(this.motionDrag, Math.max(0, xToTime(this.localPos(e).x, L)));
+          this.motionDrag = null;
+        }
+        break;
+      }
       case 'move-clip': {
         const dt = this.drag.deltaTime;
         const dtr = this.drag.deltaTrack;
@@ -1013,6 +1041,11 @@ export class TimelineEngine {
       .sort((a, b) => a.time - b.time);
     this.requestRender();
   }
+  setMotionSpecMarkers(markers: MotionSpecMarker[]) {
+    this.motionSpecMarkers = markers;
+    this.requestRender();
+  }
+
 
   /** M8: 重命名标记（按 time 定位，不改变时间点）。 */
   renameMarker(time: number, name: string) {

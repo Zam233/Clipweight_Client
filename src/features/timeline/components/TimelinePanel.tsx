@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { motionSpecOf } from '@/features/textMotion/adapter';
+import { motionSpecMarkers } from '@/features/textMotion/markers';
+import { updateKeyframeTime } from '@/features/textMotion/draft';
 import { TimelineEngine } from '../engine/TimelineEngine';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useSelectionStore } from '@/stores/selectionStore';
@@ -153,6 +156,31 @@ export function TimelinePanel() {
     // M8: 引擎标记变更 → 写回 store（随项目 autosave 持久化）
     engine.onMarkersChange = (m) => useTimelineStore.getState().setTimelineMarkers(m);
     // M8: 双击已有标记 → 打开命名输入框
+    engine.onMotionSpecMarkerClick = (marker) => {
+      useSelectionStore.getState().selectClip(marker.clipId);
+      const c = useTimelineStore.getState().timeline.tracks
+        .flatMap((t) => t.clips).find((x) => x.id === marker.clipId);
+      const spec = motionSpecOf(c?.metadata);
+      const layer = spec?.layers.find((l) => l.id === marker.layerId);
+      const index = layer?.keyframes?.findIndex((k) => Math.abs(k.time - marker.time) < 0.001) ?? -1;
+      useSelectionStore.getState().selectKeyframe(index >= 0
+        ? { clipId: marker.clipId, layerId: marker.layerId, index } : null);
+      usePreviewStore.getState().setCurrentTime(marker.time);
+    };
+    engine.onMotionSpecMarkerDrag = (marker, time) => {
+      const tl = useTimelineStore.getState().timeline;
+      const clip = tl.tracks.flatMap((t) => t.clips).find((c) => c.id === marker.clipId);
+      const spec = motionSpecOf(clip?.metadata);
+      const layer = spec?.layers.find((l) => l.id === marker.layerId);
+      if (!clip || !spec || !layer) return;
+      const idx = (layer.keyframes ?? []).findIndex((k) => Math.abs(k.time - marker.time) < 0.001);
+      if (idx < 0) return;
+      useHistoryStore.getState().pushState(tl, 'motion keyframe');
+      const next = updateKeyframeTime(spec, layer.id, idx, Math.min(time, spec.duration_sec));
+      useTimelineStore.getState().updateClip(marker.clipId, {
+        metadata: { ...(clip.metadata ?? {}), motion_spec: next, motion_spec_draft: true },
+      });
+    };
     engine.onMarkerRename = (time) => {
       const existing = useTimelineStore.getState().timeline.markers?.find((x) => Math.abs(x.time - time) < 0.01);
       setRenamingMarker({ time, name: existing?.name ?? '' });
@@ -191,6 +219,16 @@ export function TimelinePanel() {
   useEffect(() => {
     engineRef.current?.setMarkers(timeline.markers ?? []);
   }, [timeline.markers]);
+
+  // MotionSpec keyframes：只读标记，不写入 timeline.markers。
+  useEffect(() => {
+    const markers = timeline.tracks
+      .filter((t) => t.kind === 'text')
+      .flatMap((t) => t.clips.flatMap((c) => (
+        motionSpecMarkers(c.id, motionSpecOf(c.metadata))
+      )));
+    engineRef.current?.setMotionSpecMarkers(markers);
+  }, [timeline]);
 
   const handleRenameCommit = (name: string) => {
     if (renamingMarker && engineRef.current) {

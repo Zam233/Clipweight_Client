@@ -117,11 +117,11 @@ describe('LayerCache', () => {
     expect(cache.getStats().misses).toBe(3);
   });
 
-  it('paint 返回 false（占位/降级内容）不入缓存', () => {
+  it('paint 返回 false（占位/降级内容）不入缓存但仍贴主画布', () => {
     const ctx = fakeCtx();
     const miss = cache.draw(ctx, 'media:placeholder', GEOM, 1, () => false);
     expect(miss.hit).toBe(false);
-    expect(miss.painted).toBe(false);
+    expect(miss.painted).toBe(true);
     expect(cache.getStats().entries).toBe(0);
     expect(cache.draw(ctx, 'media:placeholder', GEOM, 1, () => false).hit).toBe(false);
   });

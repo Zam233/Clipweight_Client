@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useHistoryStore } from '@/stores/historyStore';
@@ -23,6 +23,15 @@ import { useProjectStore } from '@/stores/projectStore';
 import { asText } from '@/lib/render';
 // MG spec 的解析与类型以预览渲染器为唯一来源（不另造一套 TypeScript 类型）
 import { mgSpecOf } from '@/features/preview/mgRenderer';
+import { motionSpecOf, motionSpecMetaOf } from '@/features/textMotion/adapter';
+import { textMotionApi } from '@/services/api/textMotion';
+import { textMotionFlags } from '@/features/textMotion/flags';
+import { isServerFrameEnabled } from '@/features/textMotion/rollout';
+import type { AssetPackSummary } from '@/services/api/textMotion';
+import { validateDraftSpec } from '@/features/textMotion/schema';
+import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue, updatePathPoint, updatePathType, updateTrackSegment, removeEffect, addEffect } from '@/features/textMotion/draft';
+import type { MotionSpec } from '@/features/textMotion/types';
+import { initialAuthorState, isAuthorTerminal, reduceAuthorState } from '@/features/textMotion/authorTask';
 import {
   extractCopyableAttributes, filterFieldsForKind,
   useClipAttributeClipboard,
@@ -105,14 +114,420 @@ function warnUndeclaredPropKinds(id: string): void {
 
 type TextStylePack = { id: string; name: string; style: Record<string, unknown> };
 
+function MotionSpecSection({ clip }: { clip: Clip }) {
+  const spec = motionSpecOf(clip.metadata);
+  const projectId = useProjectStore((s) => s.projectId);
+  const [draft, setDraft] = useState<MotionSpec | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saved, setSaved] = useState('');
+  const [authorState, setAuthorState] = useState(initialAuthorState);
+  const authorStream = useRef<ReturnType<typeof textMotionApi.watchAuthor> | null>(null);
+  const [jsonMode, setJsonMode] = useState(false);
+  const [jsonText, setJsonText] = useState('');
+  const [jsonError, setJsonError] = useState('');
+  const [frameUrl, setFrameUrl] = useState('');
+  const [frameBusy, setFrameBusy] = useState(false);
+  const [frameError, setFrameError] = useState('');
+  useEffect(() => {
+    setDraft(spec ? JSON.parse(JSON.stringify(spec)) as MotionSpec : null);
+    setSaveError('');
+    setSaved('');
+  }, [clip.id, motionSpecMetaOf(clip.metadata).hash]);
+  useEffect(() => () => { authorStream.current?.close(); }, []);
+  useEffect(() => () => { if (frameUrl) URL.revokeObjectURL(frameUrl); }, [frameUrl]);
+  if (!spec) return null;
+  const effective = draft ?? spec;
+  const meta = motionSpecMetaOf(clip.metadata);
+  const errors = validateDraftSpec(effective);
+  const canEdit = !busy && Boolean(projectId);
+  const frameEnabled = isServerFrameEnabled(projectId);
+  const runAuthor = async () => {
+    if (!projectId || busy) return;
+    setAuthorState(reduceAuthorState(initialAuthorState, { type: 'start', taskId: '' }));
+    setSaveError('');
+    try {
+      const start = await textMotionApi.startAuthor({
+        clip_id: clip.id, project_id: projectId,
+        text: clip.text ?? '', duration_sec: clip.duration_sec,
+        style: (clip.metadata?.style as Record<string, unknown>) ?? {},
+      });
+      setAuthorState((s) => reduceAuthorState(s, { type: 'start', taskId: start.task_id }));
+      authorStream.current?.close();
+      authorStream.current = textMotionApi.watchAuthor(
+        start.task_id,
+        (st) => {
+          setAuthorState((s) => reduceAuthorState(s, {
+            type: 'progress', seq: st.seq, progress: st.progress,
+          }));
+          if (st.status === 'succeeded') {
+            if (st.spec) setDraft(st.spec as unknown as MotionSpec);
+            setAuthorState((s) => reduceAuthorState(s, { type: 'succeed' }));
+            authorStream.current?.close();
+          } else if (st.status === 'failed' || st.status === 'timed_out' || st.status === 'cancelled') {
+            setAuthorState((s) => reduceAuthorState(s, {
+              type: st.status === 'timed_out' ? 'timeout' : st.status === 'cancelled' ? 'cancelled' : 'fail',
+              error: st.error,
+            }));
+            authorStream.current?.close();
+          }
+        },
+        () => { /* 重连中由共享 sseStream 退避 */ },
+        () => {
+          setAuthorState((s) => reduceAuthorState(s, { type: 'fail', error: 'SSE 重连失败' }));
+        },
+      );
+    } catch (e) {
+      setAuthorState((s) => reduceAuthorState(s, { type: 'fail', error: e instanceof Error ? e.message : 'author 失败' }));
+    }
+  };
+
+  const save = async () => {
+    if (!projectId || busy) return;
+    setBusy(true); setSaveError(''); setSaved('');
+    try {
+      const base = {
+        clip_id: clip.id, base_hash: meta.hash,
+        schema_version: 'motion_spec/1', capability_version: '1',
+        draft_spec: effective,
+      };
+      const v = await textMotionApi.validateSpec(base);
+      if (!v.ok) throw new Error(v.errors?.[0]?.message || 'MotionSpec 校验失败');
+      const compiled = await textMotionApi.compile(base);
+      if (!compiled.spec_hash) throw new Error('编译未返回 spec hash');
+      const committed = await textMotionApi.commit({
+        project_id: projectId, clip_id: clip.id, base_hash: meta.hash,
+        spec: effective, spec_hash: compiled.spec_hash,
+        compiler_version: compiled.compiler_version, fidelity: compiled.fidelity,
+      });
+      const ok = useTimelineStore.getState().commitMotionSpecBundle(clip.id, meta.hash, {
+        motion_spec: effective,
+        motion_spec_hash: committed.spec_hash,
+        motion_spec_version: 'motion_spec/1',
+        motion_spec_compiler_version: compiled.compiler_version,
+        mg_def: compiled.mg_def,
+        preview_ops: compiled.preview_ops,
+        fidelity: compiled.fidelity,
+        text_provider_id: 'motion_spec',
+      });
+      if (!ok) throw new Error('本地版本冲突：MotionSpec 已被其他修改');
+      setSaved('已保存');
+    } catch (e) {
+      const err = e as { response?: { status?: number; data?: { detail?: unknown } } };
+      if (err.response?.status === 409) setSaveError('版本冲突：已保留你的草稿，请刷新后比较');
+      else setSaveError(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const grabFrame = async () => {
+    if (!projectId || frameBusy) return;
+    setFrameBusy(true); setFrameError('');
+    try {
+      const t = usePreviewStore.getState().currentTimeSec;
+      const blob = await textMotionApi.previewFrame({
+        project_id: projectId, clip_id: clip.id,
+        time_sec: Math.min(clip.start_sec + clip.duration_sec, Math.max(clip.start_sec, t)),
+        spec_hash: meta.hash,
+      });
+      if (frameUrl) URL.revokeObjectURL(frameUrl);
+      setFrameUrl(URL.createObjectURL(blob));
+    } catch (e) {
+      setFrameError(e instanceof Error ? e.message : '精确抽帧失败');
+    } finally { setFrameBusy(false); }
+  };
+
+  const openJson = () => {
+    setJsonText(JSON.stringify(effective, null, 2));
+    setJsonError('');
+    setJsonMode(true);
+  };
+  const applyJson = () => {
+    try {
+      const parsed = JSON.parse(jsonText) as MotionSpec;
+      if (!parsed || parsed.schema !== 'motion_spec/1' || !Array.isArray(parsed.layers)) {
+        throw new Error('不是有效的 motion_spec/1');
+      }
+      setDraft(parsed);
+      setJsonError('');
+      setJsonMode(false);
+    } catch (e) {
+      setJsonError(e instanceof Error ? e.message : 'JSON 解析失败');
+    }
+  };
+
+  return (
+    <Section title="文字动效" icon={<Sparkles className="w-3 h-3" />}>
+      <Row label="Spec">
+        <span className="text-body-sm font-mono text-on-surface truncate">{effective.spec_id || '—'}</span>
+      </Row>
+      <Row label="Provider">
+        <span className="text-body-sm text-on-surface-variant">{meta.provider || '—'}</span>
+      </Row>
+      <Row label="Hash">
+        <span className="text-body-sm font-mono text-on-surface-variant">{meta.hash ? `${meta.hash.slice(0, 8)}…` : '待服务端生成'}</span>
+      </Row>
+      <Row label="Fidelity">
+        <span className="text-body-sm text-on-surface-variant">{String(clip.metadata?.fidelity ?? 'unsupported')}</span>
+      </Row>
+      {errors.length > 0 && (
+        <div className="mt-2 rounded-cw-xs border border-error/30 bg-error/10 p-2 text-caption text-error">
+          {errors.slice(0, 5).map((e) => (
+            <div key={`${e.layerId}:${e.field}:${e.time ?? ''}`}>
+              {e.layerId ? `${e.layerId}.` : ''}{e.field}: {e.message}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mt-2 space-y-1">
+        {effective.layers.map((layer) => (
+          <div key={layer.id} className="rounded-cw-xs bg-surface-container/60 px-2 py-1">
+            <div className="flex items-center justify-between text-caption">
+              <span className="font-mono text-on-surface">{layer.id}</span>
+              <span className="text-on-surface-variant">{layer.type} · {layer.keyframes?.length ?? 0} kf</span>
+            </div>
+            {(layer.keyframes ?? []).map((kf, i) => (
+              <div key={`${layer.id}-${i}`} className="mt-1 flex items-center gap-1 text-[10px]">
+                <input
+                  type="number" step="0.05" value={Number(kf.time).toFixed(2)}
+                  disabled={!canEdit}
+                  onChange={(e) => setDraft(updateKeyframeTime(effective, layer.id, i, Number(e.target.value)))}
+                  className="w-16 bg-surface-container rounded px-1 py-0.5 text-on-surface"
+                  title="keyframe 时间（秒）"
+                />
+                <span className="text-on-surface-variant">s · opacity</span>
+                <input
+                  type="number" step="0.05" min={0} max={1} value={Number(kf.opacity ?? 1)}
+                  disabled={!canEdit}
+                  onChange={(e) => setDraft(updateKeyframeValue(effective, layer.id, i, 'opacity', Number(e.target.value)))}
+                  className="w-14 bg-surface-container rounded px-1 py-0.5 text-on-surface"
+                />
+                <select
+                  value={typeof kf.easing === 'string' ? kf.easing : (kf.easing?.type ?? 'linear')}
+                  disabled={!canEdit || i >= (layer.keyframes?.length ?? 0) - 1}
+                  onChange={(e) => setDraft(updateKeyframeEasing(effective, layer.id, i, { type: e.target.value }))}
+                  title="easing 作用于当前帧到下一帧；最后帧不可编辑"
+                  className="bg-surface-container rounded px-1 py-0.5 text-on-surface disabled:opacity-40"
+                >
+                  {['linear', 'named', 'cubic-bezier', 'steps', 'hold', 'spring'].map((e) => (
+                    <option key={e} value={e}>{e}</option>
+                  ))}
+                </select>
+                <button
+                  type="button" disabled={!canEdit}
+                  onClick={() => setDraft(removeKeyframe(effective, layer.id, i))}
+                  className="text-error disabled:opacity-30"
+                  title="删除 keyframe"
+                >×</button>
+              </div>
+            ))}
+            <button
+              type="button" disabled={!canEdit}
+              onClick={() => setDraft(addKeyframe(effective, layer.id, effective.duration_sec / 2))}
+              className="mt-1 text-[10px] text-primary disabled:opacity-30"
+            >+ 添加 keyframe</button>
+          </div>
+        ))}
+      </div>
+      {(effective.camera || effective.layers.some((l) => l.motion_path || (l.tracks?.length ?? 0) > 0)) && (
+        <div className="mt-2 space-y-1 rounded-cw-xs bg-surface-container/40 px-2 py-1 text-[10px] text-on-surface-variant">
+          {effective.camera && (
+            <div className="space-y-1">
+              <div>Camera（{effective.camera.keyframes?.length ?? 0} keyframes）</div>
+              {(effective.camera.keyframes ?? []).map((kf, i) => (
+                <div key={`cam-${i}`} className="flex gap-1">
+                  {(['scale', 'x', 'y', 'rotate'] as const).map((key) => (
+                    <label key={key} className="flex items-center gap-0.5">
+                      <span>{key}</span>
+                      <input
+                        type="number" step="0.02" value={Number(kf[key] ?? (key === 'scale' ? 1 : 0))}
+                        disabled={!canEdit}
+                        onChange={(e) => setDraft(updateCameraValue(effective, i, key, Number(e.target.value)))}
+                        className="w-14 bg-surface-container rounded px-1 py-0.5 text-on-surface"
+                      />
+                    </label>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+          {effective.layers.filter((l) => l.motion_path || (l.tracks?.length ?? 0) > 0).map((l) => (
+            <div key={`adv-${l.id}`} className="space-y-1">
+              <div>{l.id}{l.effects?.length ? ` · effects=${l.effects.length}` : ''}</div>
+              <div className="flex gap-1">
+                <button type="button" disabled={!canEdit}
+                  onClick={() => setDraft(addEffect(effective, l.id, { type: 'glow', color: '#ffffff', blur: 14 }))}
+                  className="text-[10px] text-primary disabled:opacity-30">+ glow</button>
+                <button type="button" disabled={!canEdit}
+                  onClick={() => setDraft(addEffect(effective, l.id, { type: 'blur', radius: 8 }))}
+                  className="text-[10px] text-primary disabled:opacity-30">+ blur</button>
+              </div>
+              {(l.effects ?? []).map((fx, fi) => (
+                <div key={`${l.id}-fx-${fi}`} className="flex items-center gap-1">
+                  <span>{String((fx as Record<string, unknown>).type ?? 'effect')}</span>
+                  <button
+                    type="button" disabled={!canEdit}
+                    onClick={() => setDraft(removeEffect(effective, l.id, fi))}
+                    className="text-error disabled:opacity-30"
+                    title="删除 effect"
+                  >×</button>
+                </div>
+              ))}
+              {(l.tracks ?? []).map((tr, ti) => (
+                <div key={`${l.id}-tr-${ti}`} className="flex flex-wrap items-center gap-1">
+                  <span>{tr.property}</span>
+                  {(tr.segments ?? []).map((seg, si) => (
+                    <span key={si} className="flex items-center gap-0.5">
+                      <input
+                        type="number" step="0.05" value={Number(seg.start)} disabled={!canEdit}
+                        onChange={(e) => setDraft(updateTrackSegment(effective, l.id, ti, si, 'start', Number(e.target.value)))}
+                        className="w-12 bg-surface-container rounded px-1 py-0.5 text-on-surface"
+                        title="segment start"
+                      />
+                      <span>→</span>
+                      <input
+                        type="number" step="0.05" value={Number(seg.end)} disabled={!canEdit}
+                        onChange={(e) => setDraft(updateTrackSegment(effective, l.id, ti, si, 'end', Number(e.target.value)))}
+                        className="w-12 bg-surface-container rounded px-1 py-0.5 text-on-surface"
+                        title="segment end"
+                      />
+                    </span>
+                  ))}
+                </div>
+              ))}
+              {l.motion_path && (
+                <div className="flex items-center gap-1">
+                  <span>path</span>
+                  <select
+                    value={l.motion_path.type} disabled={!canEdit}
+                    onChange={(e) => setDraft(updatePathType(effective, l.id, e.target.value))}
+                    className="bg-surface-container rounded px-1 py-0.5 text-on-surface"
+                  >
+                    {['line', 'polyline', 'cubic-bezier', 'arc', 'circle'].map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  {(l.motion_path.points ?? []).map((pt, i) => (
+                    <span key={`p-${i}`} className="flex gap-0.5">
+                      {(['x', 'y'] as const).map((axis) => (
+                        <input
+                          key={axis} type="number" step="0.01" value={Number(pt[axis] ?? 0)}
+                          disabled={!canEdit}
+                          onChange={(e) => setDraft(updatePathPoint(effective, l.id, i, axis, Number(e.target.value)))}
+                          className="w-12 bg-surface-container rounded px-1 py-0.5 text-on-surface"
+                          title={`point ${i} ${axis}`}
+                        />
+                      ))}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button" disabled={!canEdit || authorState.status === 'authoring'}
+          onClick={() => void runAuthor()}
+          className="px-2 py-1 rounded-cw-xs text-caption bg-surface-container text-on-surface disabled:opacity-40"
+          title="启动后端 Agent author 任务，不在浏览器调用 LLM"
+        >
+          {authorState.status === 'authoring' ? `生成中 ${authorState.progress ?? 0}%` : '重新生成 MotionSpec'}
+        </button>
+        {authorState.status === 'authoring' && (
+          <button
+            type="button"
+            onClick={() => {
+              if (authorState.taskId) {
+                void textMotionApi.cancelAuthor(authorState.taskId).catch(() => null);
+              }
+              authorStream.current?.close();
+              setAuthorState((s) => reduceAuthorState(s, { type: 'cancelled' }));
+            }}
+            className="px-2 py-1 rounded-cw-xs text-caption bg-error/10 text-error"
+          >取消</button>
+        )}
+        {isAuthorTerminal(authorState.status) && (
+          <span className="text-caption text-on-surface-variant">
+            {authorState.status}{authorState.error ? `: ${authorState.error}` : ''}
+          </span>
+        )}
+        <button
+          type="button" disabled={!canEdit || frameBusy || !frameEnabled}
+          onClick={() => void grabFrame()}
+          className="px-2 py-1 rounded-cw-xs text-caption bg-surface-container text-on-surface disabled:opacity-40"
+          title="服务端 Hyperframes 精确帧（不在浏览器执行 mg_html）"
+        >
+          {frameBusy ? '抽帧中…' : '精确抽帧'}
+        </button>
+        <button
+          type="button" disabled={!canEdit}
+          onClick={() => void save()}
+          className="px-2 py-1 rounded-cw-xs text-caption bg-primary/15 text-primary disabled:opacity-40"
+        >
+          {busy ? '校验/编译/保存中…' : '保存 MotionSpec'}
+        </button>
+        <span className="text-caption text-on-surface-variant">
+          {!projectId ? '需在项目中打开' : saved || '草稿仅本地，保存后服务端重编译'}
+        </span>
+      </div>
+      {saveError && <p className="mt-1 text-caption text-error">{saveError}</p>}
+      {frameError && <p className="mt-1 text-caption text-error">{frameError}</p>}
+      {frameUrl && (
+        <div className="mt-2 rounded-cw-xs overflow-hidden border border-outline-variant/30 bg-black">
+          <img src={frameUrl} alt="服务端精确帧" className="w-full" />
+          <p className="px-2 py-1 text-caption text-on-surface-variant">服务端 Hyperframes 精确帧</p>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={openJson}
+        className="mt-2 text-caption text-primary"
+      >高级 JSON 编辑</button>
+      {jsonMode && (
+        <div className="mt-2">
+          <textarea
+            value={jsonText}
+            onChange={(e) => setJsonText(e.target.value)}
+            rows={10}
+            className="w-full bg-surface-container rounded-cw-xs p-2 font-mono text-[10px] text-on-surface"
+          />
+          {jsonError && <p className="text-caption text-error">{jsonError}</p>}
+          <div className="mt-1 flex gap-2">
+            <button type="button" onClick={applyJson} className="text-caption text-primary">应用草稿</button>
+            <button type="button" onClick={() => setJsonMode(false)} className="text-caption text-on-surface-variant">取消</button>
+          </div>
+        </div>
+      )}
+      <details className="mt-2">
+        <summary className="text-caption text-on-surface-variant cursor-pointer">查看 MotionSpec JSON</summary>
+        <pre className="mt-2 max-h-48 overflow-auto rounded-cw-xs bg-surface-container p-2 text-[10px] leading-4 text-on-surface-variant">
+          {JSON.stringify(effective, null, 2)}
+        </pre>
+      </details>
+    </Section>
+  );
+}
+
 export function PropertiesPanel() {
   const [textStylePacks, setTextStylePacks] = useState<TextStylePack[]>([]);
+  const [assetPacks, setAssetPacks] = useState<AssetPackSummary[]>([]);
+  const [assetPackError, setAssetPackError] = useState('');
   useEffect(() => {
     let alive = true;
     fetch('/api/text-animation/style-packs')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => { if (alive && Array.isArray(data?.style_packs)) setTextStylePacks(data.style_packs); })
       .catch(() => { /* 后端未启动时不阻塞属性面板 */ });
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    textMotionApi.assetPacks()
+      .then((packs) => { if (alive) { setAssetPacks(packs); setAssetPackError(''); } })
+      .catch(() => { if (alive) setAssetPackError('asset pack 加载失败（后端未实现或不可用）'); });
     return () => { alive = false; };
   }, []);
   const selectedClipIds = useSelectionStore((s) => s.selectedClipIds);
@@ -298,7 +713,7 @@ export function PropertiesPanel() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div data-app-undo className="flex-1 overflow-y-auto min-h-0">
         {selectedClipIds.length === 0 && <NoSelection />}
         {selectedClipIds.length > 1 && (
           <BatchEditSection count={selectedClipIds.length} set={set} pushHistory={pushHistory}
@@ -505,6 +920,10 @@ export function PropertiesPanel() {
               </Section>
             )}
 
+            {textMotionFlags.ui && sections.includes('text') && (
+              <MotionSpecSection clip={clip} />
+            )}
+
             {/* Caption / text style — on caption tracks every control cascades to the whole layer */}
             {sections.includes('captionStyle') && (
               <Section title="字幕样式" icon={<Type className="w-3 h-3" />}>
@@ -535,6 +954,34 @@ export function PropertiesPanel() {
                     >
                       <option value="">（不使用样式包）</option>
                       {textStylePacks.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </Row>
+                )}
+                {trackKind === 'text' && assetPackError && (
+                  <p className="mt-1 text-caption text-error">{assetPackError}</p>
+                )}
+                {trackKind === 'text' && assetPacks.length > 0 && (
+                  <Row label="Asset pack">
+                    <select
+                      value={String((clip.metadata as Record<string, unknown> | undefined)?.asset_pack_id ?? '')}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        pushHistory();
+                        useTimelineStore.getState().updateClip(clip.id, {
+                          metadata: {
+                            ...(clip.metadata ?? {}),
+                            asset_pack_id: next,
+                            asset_id: next ? String(assetPacks.find((p) => p.id === next)?.assets?.[0]?.id ?? '') : '',
+                          },
+                        });
+                      }}
+                      className="flex-1 bg-surface-container rounded-cw-xs px-2 py-1 text-body-sm text-on-surface
+                        outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
+                    >
+                      <option value="">（不使用 asset pack）</option>
+                      {assetPacks.map((p) => (
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </select>
@@ -1418,7 +1865,7 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
               )}
               <button
                 onClick={() => removeAt(kf.time)}
-                className="p-1 rounded-cw-xs text-on-surface-variant hover:text-error opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                className="p-1 rounded-cw-xs text-on-surface-variant hover:text-error opacity-100 transition-all cursor-pointer"
                 title="删除关键帧"
               >
                 <Trash2 className="w-3 h-3" />

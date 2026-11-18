@@ -5,6 +5,7 @@
 import type { Track, Clip, ClipKind } from '@/types/timeline';
 import { TRACK_COLORS } from '@/types/timeline';
 import type { TimelineLayout, Marker } from './types';
+import type { MotionSpecMarker } from '@/features/textMotion/markers';
 import { timeToX, trackToY, scrollbarGeom } from './types';
 import { mediaManager } from '@/services/media/mediaManager';
 import { secondsToFrame } from '@/lib/mediaTime';
@@ -801,4 +802,25 @@ export function drawHorizontalScrollbar(
   ctx.fillStyle = grad;
   roundRect(ctx, g.thumbX, ty, tw, th, th / 2);
   ctx.fill();
+}
+
+
+/** MotionSpec keyframes：只读标记，不参与 Marker 持久化/拖动。 */
+export function drawMotionSpecMarkers(
+  ctx: CanvasRenderingContext2D, L: TimelineLayout, markers: MotionSpecMarker[],
+) {
+  for (const m of markers) {
+    const x = Math.round(timeToX(m.time, L)) + 0.5;
+    if (x < L.headerW || x > L.width) continue;
+    ctx.fillStyle = '#4F8CFF';
+    ctx.beginPath();
+    ctx.arc(x, L.rulerH - 5, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(79,140,255,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, L.rulerH);
+    ctx.lineTo(x, L.height);
+    ctx.stroke();
+  }
 }

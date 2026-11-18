@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { keybindingEngine } from './KeybindingEngine';
 import { useTimelineStore } from '@/stores/timelineStore';
 import { useHistoryStore } from '@/stores/historyStore';
+import { motionSpecOf } from '@/features/textMotion/adapter';
+import { removeKeyframe as removeSpecKeyframe } from '@/features/textMotion/draft';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useSelectionStore } from '@/stores/selectionStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -51,6 +53,26 @@ export function useGlobalKeybindings() {
     const toggleLoop = () => usePreviewStore.getState().toggleLoop();
 
     const deleteSelected = () => {
+      // 先删除选中的 MotionSpec keyframe；只有没有 keyframe 选中时才删除片段。
+      const kf = useSelectionStore.getState().selectedKeyframe;
+      if (kf) {
+        const tl = useTimelineStore.getState().timeline;
+        const clip = tl.tracks.flatMap((t) => t.clips).find((c) => c.id === kf.clipId);
+        const spec = motionSpecOf(clip?.metadata);
+        if (spec) {
+          const next = removeSpecKeyframe(spec, kf.layerId, kf.index);
+          const layer = spec.layers.find((l) => l.id === kf.layerId);
+          if ((next.layers.find((l) => l.id === kf.layerId)?.keyframes?.length ?? 0)
+            < (layer?.keyframes?.length ?? 0)) {
+            useHistoryStore.getState().pushState(tl, 'delete keyframe');
+            useTimelineStore.getState().updateClip(kf.clipId, {
+              metadata: { ...(clip?.metadata ?? {}), motion_spec: next, motion_spec_draft: true },
+            });
+            useSelectionStore.getState().selectKeyframe(null);
+            return;
+          }
+        }
+      }
       const sel = useSelectionStore.getState().selectedClipIds;
       if (sel.length === 0) return;
       useHistoryStore.getState().pushState(useTimelineStore.getState().timeline, 'delete');

@@ -279,3 +279,16 @@ describe('O6 预览层缓存：拖动播放头的收益（操作次数口径）'
     expect(result.mainOps).toBeGreaterThan(0);
   });
 });
+
+
+describe('LayerCache non-cacheable paint', () => {
+  it('still blits time-dependent content instead of dropping it', () => {
+    counters = newCounters();
+    const cache = new LayerCache({ createCanvas: (w, h) => fakeLayerCanvas(w, h) });
+    const main = fakeMainCtx();
+    const r = cache.draw(main, 'mg', { x: 0, y: 0, w: 100, h: 50 }, 1, () => false);
+    expect(r.hit).toBe(false);
+    expect(r.painted).toBe(true);
+    expect(counters.drawImage).toBeGreaterThan(0);
+  });
+});

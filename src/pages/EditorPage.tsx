@@ -64,6 +64,34 @@ export function EditorPage() {
   }, [cheatSheetOpen]);
   const dirtyRef = useRef(false);
   const [loading, setLoading] = useState(true);
+  const trackCount = useTimelineStore((s) => s.timeline.tracks.length);
+  // 仅开发环境：暴露 store 供浏览器 E2E/排障读取，不进入生产构建分支
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    (globalThis as Record<string, unknown>).__cwStores = {
+      timeline: useTimelineStore, selection: useSelectionStore, preview: usePreviewStore,
+    };
+  }, []);
+  // 深链接选片：/editor/:id?clip=cl_xxx，便于刷新/外部跳转直达属性面板
+  useEffect(() => {
+    if (loading) return;
+    const params = new URLSearchParams(window.location.search);
+    const clipId = params.get('clip');
+    if (!clipId) return;
+    const seek = Number(params.get('t'));
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      tries += 1;
+      const exists = useTimelineStore.getState().timeline.tracks.some(
+        (t) => t.clips.some((c) => c.id === clipId),
+      );
+      if (exists) useSelectionStore.getState().selectClip(clipId);
+      if (Number.isFinite(seek) && seek >= 0) usePreviewStore.getState().setCurrentTime(seek);
+      // 项目加载后仍可能被草稿恢复/水合再次清空选择；持续 3s 重试，之后交还用户。
+      if (tries >= 12) window.clearInterval(timer);
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [loading, projectId, trackCount]);
   const [loadError, setLoadError] = useState<string | null>(null);
   // 加载慢的时候要给出可操作提示，不能只转圈（后端没起 / 刚重启时最常见）
   const [slowLoad, setSlowLoad] = useState(false);

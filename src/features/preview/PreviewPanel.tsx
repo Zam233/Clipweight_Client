@@ -10,7 +10,10 @@ import { captionFontSize, textLayout } from './captionLayout';
 import { orderTracksForComposite } from './compositeOrder';
 import { publishPlaybackStats, resetPlaybackStats } from './playbackStats';
 import { clearMgImageCache, drawMgFrame, emptyFidelity, mgParamsOf, mgSpecOf } from './mgRenderer';
+import { motionPreviewState } from '@/features/textMotion/adapter';
 import { reportMgFidelity, resetMgFidelity, useMgFidelityStore } from './mgFidelity';
+import { MotionSpecOverlay } from './motionSpecOverlay/MotionSpecOverlay';
+import { useOverlayStore } from './motionSpecOverlay/overlayStore';
 
 /**
  * 同时连续解码的视频路数上限（devplan T1.2）。
@@ -593,7 +596,7 @@ export function PreviewPanel() {
     let raf = 0;
     let lastW = 0;
     let lastH = 0;
-    const last = { t: -1, tl: null as unknown, safe: false, zoom: -1, mv: -1, guides: -1 };
+    const last = { t: -1, tl: null as unknown, safe: false, zoom: -1, mv: -1, guides: -1, overlayGen: -1 };
 
     // Re-render when media state changes (e.g. an asset errors while loading) —
     // otherwise the failed clip would stay a silent black frame until the playhead moves.
@@ -654,6 +657,7 @@ export function PreviewPanel() {
         // 每帧 seek 路径——这是 devplan M1 的回滚开关。
         useSettingsStore.getState().previewContinuousPlayback
           && usePreviewStore.getState().isPlaying);
+      useOverlayStore.getState().markCanvasDrawn(useOverlayStore.getState().generation);
 
       // Empty frame hint
       if (tl.tracks.length === 0) {
@@ -731,14 +735,17 @@ export function PreviewPanel() {
       const safe = pst.showSafeArea;
       const zoom = pst.zoomLevel;
       const guidesEpoch = guidesEpochRef.current;
+      const overlayGen = useOverlayStore.getState().generation;
       if (t !== last.t || tl !== last.tl || safe !== last.safe || zoom !== last.zoom
-          || mediaVersion !== last.mv || guidesEpoch !== last.guides) {
+          || mediaVersion !== last.mv || guidesEpoch !== last.guides
+          || overlayGen !== last.overlayGen) {
         last.t = t;
         last.tl = tl;
         last.safe = safe;
         last.zoom = zoom;
         last.mv = mediaVersion;
         last.guides = guidesEpoch;
+        last.overlayGen = overlayGen;
         // devplan T1.2：按当前播放头维护解码池（只在播放时连续解码）。
         // 活跃集合 = 当前时刻可见的 video clip，按轨道 z 序从上往下取前 2 个；
         // 其余 pause 保留最后一帧，超出预算的会进 frozen 列表（浮层与徽标用）。
@@ -937,6 +944,7 @@ export function PreviewPanel() {
           onPointerCancel={handlePointerCancel}
           onDoubleClick={handleDoubleClick}
         />
+        <MotionSpecOverlay wrapRef={wrapRef} />
         {/* C1: 画布内联文字编辑 */}
         {editingText && (
           <div className="absolute z-20" style={{ left: editingText.x, top: editingText.y, transform: 'translate(-50%, -50%)' }}>
@@ -1210,6 +1218,8 @@ export function compositeTimelineClips(
     for (const clip of track.clips) {
       if (t < clip.start_sec || t >= clip.start_sec + clip.duration_sec) continue;
       if (clip.enabled === false) continue;
+      // CSS3D 覆盖层接管时，Canvas 不再画同一 MG clip，避免双 alpha。
+      if (useOverlayStore.getState().activeClipIds.includes(clip.id)) continue;
       // C3: 嵌套序列 — 递归合成子时间线（深度上限 4，防循环）
       if (clip.nested_timeline) {
         drawNestedTimeline(ctx, clip, track, fx, fy, fw, fh, t, 0, dpr, perf);
@@ -1335,6 +1345,22 @@ function paintClipContent(
     case 'text':
     case 'caption': {
       const text = clip.text || '文字';
+      // MotionSpec clip：缺有效编译产物时必须 fail-closed，不能落回普通文字。
+      const _motionState = motionPreviewState(clip);
+      if (_motionState === 'spec_without_artifact' || _motionState === 'invalid_spec') {
+        ctx.save();
+        ctx.globalAlpha = clamp(env.opacity, 0, 1);
+        ctx.fillStyle = 'rgba(255,90,90,0.95)';
+        ctx.font = "600 16px 'Inter','Noto Sans SC',sans-serif";
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(
+          _motionState === 'invalid_spec' ? 'MotionSpec 无效，预览已阻止' : 'MotionSpec 待编译',
+          fx + fw / 2, fy + fh / 2,
+        );
+        ctx.restore();
+        return false;
+      }
       // 用户裁定：文字动画统一 MG HTML；有 mg_def 就画 MG，不再画旧 ASS 文字层
       const _textMg = mgSpecOf(clip.metadata);
       const _ops = clip.metadata?.preview_ops;
@@ -1345,6 +1371,13 @@ function paintClipContent(
         const _mgLocal = Math.max(0, (t - clip.start_sec) * speed + clip.source_offset_sec);
         ctx.save();
         ctx.globalAlpha = clamp(env.opacity, 0, 1);
+        // 预览 canvas 可能带有上一层的 CSS/dpr 变换；MG 的 box 是 CSS 坐标，
+        // 必须显式归一到设备像素，否则文字会被画到画布外（实测黄色像素为 0）。
+        const _cw = ctx.canvas.clientWidth || ctx.canvas.width;
+        const _ch = ctx.canvas.clientHeight || ctx.canvas.height;
+        const _dx = ctx.canvas.width / _cw;
+        const _dy = ctx.canvas.height / _ch;
+        ctx.setTransform(_dx, 0, 0, _dy, 0, 0);
         drawMgFrame(ctx, _textMg, _mgLocal, { x: fx, y: fy, w: fw, h: fh }, _mgFid,
           mgParamsOf(clip.metadata));
         ctx.restore();
@@ -1419,7 +1452,7 @@ function paintClipContent(
       const _fullWidth = ctx.measureText(text).width;
       const _revealSec = Math.max(0.1, Number(_motion.reveal_sec) || 0.4);
       const _p = Math.max(0, Math.min(1, _local / _revealSec));
-      let _motionDX = 0;
+      const _motionDX = 0;
       let _motionDY = 0;
       let _motionScale = 1;
       if (_motionType === 'slide_in') {
@@ -1436,7 +1469,7 @@ function paintClipContent(
         ctx.textAlign = 'left';
       }
       // 纯色底板（文字动画 style.box）：预览与 ASS BorderStyle=3 语义对齐
-      if (Boolean(_style.box)) {
+      if (_style.box) {
         const padX = Number(_style.box_padding_x) || 18;
         const padY = Number(_style.box_padding_y) || 8;
         const radius = Number(_style.box_radius) || 6;
@@ -1774,7 +1807,10 @@ function drawClipToPreview(
   let opacity = clip.opacity;
   const tf: Transform2D = { ...getClipTransform(clip) };
   let speed = clip.speed;
-  if (clip.keyframes.length > 0) {
+  // MotionSpec 是权威动画：旧 clip.keyframes 只做兼容，不能在 MotionSpec clip 上
+  // 再次把 opacity/transform 覆盖为旧值（否则 keyframe 末尾 0 会把整段文字隐掉）。
+  const _hasMotionSpec = !!clip.metadata?.motion_spec;
+  if (!_hasMotionSpec && clip.keyframes.length > 0) {
     const props = interpolateProperties(clip.keyframes, localT);
     opacity = props.opacity ?? opacity;
     tf.scale = props.scale ?? tf.scale;

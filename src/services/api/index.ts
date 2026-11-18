@@ -1,4 +1,6 @@
 export { getApiClient, resetApiClient } from './client';
+export { textMotionApi } from './textMotion';
+export type { TextMotionCapabilities, StylePackSummary, AssetPackSummary } from './textMotion';
 export { pipelineApi } from './pipeline';
 export { supervisorApi } from './supervisor';
 export { personaApi } from './persona';

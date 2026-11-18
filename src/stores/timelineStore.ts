@@ -38,6 +38,12 @@ interface TimelineState {
   addClip: (trackId: string, clip: Partial<Clip> & { kind: ClipKind }) => string;
   removeClip: (clipId: string) => void;
   updateClip: (clipId: string, updates: Partial<Clip>) => void;
+  /** MotionSpec 原子 metadata bundle；hash 不匹配时不写。返回是否写入。 */
+  commitMotionSpecBundle: (
+    clipId: string,
+    expectedHash: string,
+    bundle: Record<string, unknown>,
+  ) => boolean;
   /** Apply updates to every clip on a track (caption style cascade). */
   updateTrackClips: (trackId: string, updates: Partial<Clip>) => void;
   moveClip: (clipId: string, targetTrackId: string, newStartSec: number) => void;
@@ -374,6 +380,37 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         isDirty: true,
       };
     });
+  },
+
+  commitMotionSpecBundle: (clipId, expectedHash, bundle) => {
+    if (get().isClipOnLockedTrack(clipId)) return false;
+    let found = false;
+    let currentHash = '';
+    for (const t of get().timeline.tracks) {
+      for (const c of t.clips) {
+        if (c.id === clipId) {
+          found = true;
+          currentHash = String((c.metadata as Record<string, unknown> | undefined)?.motion_spec_hash ?? '');
+        }
+      }
+    }
+    if (!found) return false;
+    if (expectedHash && currentHash && currentHash !== expectedHash) return false;
+    set((state) => ({
+      timeline: {
+        ...state.timeline,
+        tracks: state.timeline.tracks.map((t) => ({
+          ...t,
+          clips: t.clips.map((c) => (
+            c.id === clipId
+              ? { ...c, metadata: { ...(c.metadata ?? {}), ...bundle } }
+              : c
+          )),
+        })),
+      },
+      isDirty: true,
+    }));
+    return true;
   },
 
   updateTrackClips: (trackId, updates) =>

@@ -75,3 +75,11 @@ describe('previewFidelity / fidelityBadges', () => {
     expect(previewFidelity(null)).toEqual({ noPreview: [], noExport: [] });
   });
 });
+
+
+describe('approx badge', () => {
+  it('approx 只提示近似，不冒充仅渲染后可见', () => {
+    expect(fidelityBadges(clip({ kind: 'text', metadata: { fidelity: 'approx' } })))
+      .toEqual(['文字动效为近似预览']);
+  });
+});

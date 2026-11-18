@@ -68,6 +68,7 @@ export type DragMode =
   | 'trim-end'
   | 'pan'
   | 'scrollbar'
+  | 'motion-marker'
   /** C2: Alt+拖拽音频片段调整增益 */
   | 'gain';
 

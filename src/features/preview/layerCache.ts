@@ -190,11 +190,13 @@ export class LayerCache {
     const cacheable = paint(layerCtx) !== false;
     if (!cacheable) {
       this.misses += 1;
-      // 丢弃可能残留的占位像素
+      // 不可缓存的层（时间相关的 MG/占位降级）仍然必须贴到主画布；
+      // 旧实现直接 clear 后 return，导致 MG 文字永远不显示。
+      ctx.drawImage(canvas as CanvasImageSource, x, y, w, h);
       layerCtx.setTransform(1, 0, 0, 1, 0, 0);
       layerCtx.clearRect(0, 0, pxW, pxH);
       this.entries.delete(key);
-      return { hit: false, painted: false };
+      return { hit: false, painted: true };
     }
 
     this.misses += 1;
