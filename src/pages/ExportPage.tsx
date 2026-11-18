@@ -271,7 +271,8 @@ export function ExportPage() {
     try {
       const gate = await checkAnimationExportGate(timeline);
       if (gate && !gate.allowed) {
-        toast(`动画 QA 未通过：${gate.reason}${gate.retry_action ? `（建议 ${gate.retry_action}）` : ''}`, 'error');
+        const n = gate.failures?.length ?? 1;
+        toast(`动画 QA 未通过：${n} 个镜头有问题（${gate.reason}${gate.retry_action ? `，建议 ${gate.retry_action}` : ''}）`, 'error');
         setSubmitting(false);
         return;
       }
