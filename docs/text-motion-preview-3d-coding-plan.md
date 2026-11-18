@@ -1518,3 +1518,11 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 服务端 Hyperframes 抽帧 `docs/e2e/motion-spec-3d-server.png`；
 - 两者文字均倾斜、黄色，覆盖层叠加视频背景；服务端为透明/白底；
 - 仍为人工目视对比，未做 SSIM/bbox/Δedge 数值。
+
+
+### CP-6 数值对比（2026-11-18）
+
+- 新增 `scripts/compare-mg-frame.py`：黄色文字 bbox 归一化对比；
+- overlay/server bbox：left Δ0.0005、top Δ0.0081、right Δ0.0015、bottom Δ0.0247；
+- 说明位置/宽度基本一致，底部差异来自覆盖层截图裁切/背景；
+- 仍不是 SSIM/Δedge 全图指标。
