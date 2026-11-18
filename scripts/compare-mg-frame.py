@@ -35,6 +35,24 @@ def yellow_mask_box(path):
         return None, None
     return mask.crop((min(xs), min(ys), max(xs) + 1, max(ys) + 1)), (min(xs), min(ys), max(xs), max(ys))
 
+def mask_ssim(a_path, b_path):
+    ma, _ = yellow_mask_box(a_path); mb, _ = yellow_mask_box(b_path)
+    if ma is None or mb is None:
+        return None
+    size = (512, 256)
+    ma = ma.resize(size).convert("L"); mb = mb.resize(size).convert("L")
+    pa, pb = ma.load(), mb.load()
+    n = size[0] * size[1]
+    sa = sb = saa = sbb = sab = 0.0
+    for y in range(size[1]):
+        for x in range(size[0]):
+            a = pa[x, y]; b = pb[x, y]
+            sa += a; sb += b; saa += a*a; sbb += b*b; sab += a*b
+    ma_ = sa/n; mb_ = sb/n
+    va = saa/n - ma_*ma_; vb = sbb/n - mb_*mb_; cov = sab/n - ma_*mb_
+    c1 = (0.01*255)**2; c2 = (0.03*255)**2
+    return ((2*ma_*mb_ + c1)*(2*cov + c2)) / ((ma_*ma_ + mb_*mb_ + c1)*(va + vb + c2))
+
 def mask_iou(a_path, b_path):
     ma, _ = yellow_mask_box(a_path); mb, _ = yellow_mask_box(b_path)
     if ma is None or mb is None:
@@ -59,3 +77,4 @@ if __name__ == "__main__":
     for k in ("left", "top", "right", "bottom"):
         print(k, "delta", round(abs(a[k] - b[k]), 4))
     print("yellow_mask_iou", round(mask_iou(sys.argv[1], sys.argv[2]) or 0, 4))
+    print("yellow_mask_ssim", round(mask_ssim(sys.argv[1], sys.argv[2]) or 0, 4))

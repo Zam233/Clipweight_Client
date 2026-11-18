@@ -1542,3 +1542,11 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 页面选中 `tc_e9831d60`，属性面板显示 MotionSpec；
 - 暂停态 `mg-overlay` 可见，黄色 3D 文字与视频/字幕合成；
 - 截图 `docs/e2e/motion-spec-3d-deeplink.jpg`。
+
+
+### CP-6 mask SSIM（2026-11-18）
+
+- `compare-mg-frame.py` 增加 yellow mask SSIM；
+- 当前 3D overlay/server：IoU 0.4516，SSIM 0.4133；
+- 结论：位置接近但文字形状/抗锯齿/尺度仍有差异，不能标 exact；
+- 脚本与截图可复现。
