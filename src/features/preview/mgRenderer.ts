@@ -15,6 +15,7 @@
  * 3. **图片只认同源或 blob**：spec 里的 `src` 若指向外部域名直接跳过并记 fidelity，
  *    避免「LLM 写个 URL 就把预览变成任意请求器」，也避免 canvas 被污染。
  */
+import { canvasBlurRadius } from './motionSpecOverlay/blurModel';
 import {
   EasingFunctions,
   normalizeBezier,
@@ -385,7 +386,11 @@ export function drawMgFrame(
     ctx.globalAlpha = opacity;
     // 近似原语：blur 用 Canvas filter；clip/mask 用矩形裁剪；3D 已记 unsupported。
     if (typeof p.blur === 'number' || typeof el.blur === 'number') {
-      ctx.filter = `blur(${num(p.blur, num(el.blur, 0))}px)`;
+      const _designBlur = num(p.blur, num(el.blur, 0));
+      const _scale = designW > 0 ? box.w / designW : 1;
+      const _dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+      const _cal = canvasBlurRadius(_designBlur, _scale, _dpr >= 2 ? 2 : 1);
+      ctx.filter = `blur(${_cal ?? _designBlur}px)`;
     }
     const _clip = p.clip_inset ?? el.clip_inset;
     if (Array.isArray(_clip) && _clip.length === 4) {
