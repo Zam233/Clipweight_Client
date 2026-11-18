@@ -1609,3 +1609,13 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 6 桶全部 mean SSIM > 0.999，min > 0.983；拟合 `a = scale*dpr`，b=0，偏差 0.00%；
 - 生成表更新；报告 `docs/blur-calibration-288-report.md`；
 - 测试 165 passed、tsc/build 通过。
+
+
+### CP-6 Δedge 阈值 + 生产灰度（2026-11-18）
+
+- 新增 `docs/motion-spec-3d-fidelity-report.md`；
+- 阈值：mask IoU ≥0.40、mask SSIM ≥0.40、geometry edge Δ ≤8px@512；
+- 当前 IoU 0.4516、SSIM 0.4133、Δedge 6.34px，pass；
+- 明确该 Δedge 是几何边缘位移，不是强度 10%–90% 边缘扩散；
+- 生产灰度：`rollout.ts` 支持 off/canary/on + 百分比稳定分桶，覆盖 3D 覆盖层与精确抽帧；
+- 提交 `92ac9e6`（灰度）与本报告。
