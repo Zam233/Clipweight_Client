@@ -245,6 +245,27 @@ export const personaApi = {
 
   // ── Chat Forge 历史欠账补齐：会话列表 / 知识库 CRUD（O5 后一轮） ──
 
+  /** 会话详情：真实消息 + 草稿 + 两类 Prompt 草稿（GET /sessions/{id}） */
+  async chatForgeDetail(sessionId: string) {
+    const { data } = await getApiClient().get(`/api/persona/forge/chat/sessions/${sessionId}`);
+    return data as {
+      session_id: string;
+      messages: Array<{
+        role: 'user' | 'assistant';
+        content: string;
+        attachments?: Array<{ type: 'image' | 'file'; name?: string; mime?: string; data_url: string }>;
+      }>;
+      persona_draft?: Record<string, unknown>;
+      prompt_draft?: string;
+      vision_prompt_draft?: string;
+      progress?: Record<string, number>;
+      missing_dimensions?: string[];
+      knowledge_base_count?: number;
+      created_at?: string;
+      updated_at?: string;
+    };
+  },
+
   /** 列出会话（scope=mine 只看自己的；off 鉴权下两者等价） */
   async chatForgeSessions(scope: 'mine' | 'all' = 'mine') {
     const { data } = await getApiClient().get('/api/persona/forge/chat/sessions', { params: { scope } });

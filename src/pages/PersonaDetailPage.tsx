@@ -32,6 +32,8 @@ export function PersonaDetailPage() {
   const [persona, setPersona] = useState<Persona | null>(null);
   const [tab, setTab] = useState<Tab>('params');
   const [prompt, setPrompt] = useState('');
+  const [editing, setEditing] = useState(false);
+  const editSnapshotRef = useRef<{ persona: Persona; prompt: string; visionPrompt: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -123,6 +125,21 @@ export function PersonaDetailPage() {
     } finally {
       setRagBusy(false);
     }
+  };
+
+  const startEdit = () => {
+    if (!persona) return;
+    editSnapshotRef.current = { persona, prompt, visionPrompt };
+    setEditing(true);
+  };
+  const cancelEdit = () => {
+    const snap = editSnapshotRef.current;
+    if (snap) {
+      setPersona(snap.persona);
+      setPrompt(snap.prompt);
+      setVisionPrompt(snap.visionPrompt);
+    }
+    setEditing(false);
   };
 
   const save = async () => {
@@ -241,10 +258,22 @@ export function PersonaDetailPage() {
 
   return (
     <StandardLayout title={persona.persona_name}>
-      <button onClick={() => navigate({ to: '/persona' })}
-        className="flex items-center gap-1.5 text-label-sm text-on-surface-variant hover:text-primary transition-colors mb-5 cursor-pointer">
-        <ArrowLeft className="w-3.5 h-3.5" /> 返回人格库
-      </button>
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={() => navigate({ to: '/persona' })}
+          className="flex items-center gap-1.5 text-label-sm text-on-surface-variant hover:text-primary transition-colors cursor-pointer">
+          <ArrowLeft className="w-3.5 h-3.5" /> 返回人格库
+        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {!editing ? (
+            <Button size="sm" onClick={startEdit}><Pencil className="w-3.5 h-3.5" /> 编辑</Button>
+          ) : (
+            <>
+              <Button size="sm" variant="outline" onClick={cancelEdit}>取消</Button>
+              <Button size="sm" onClick={save} disabled={saving}><Save className="w-3.5 h-3.5" /> {saving ? '保存中…' : '保存'}</Button>
+            </>
+          )}
+        </div>
+      </div>
 
       {/* P10: 派生入口 */}
       <div className="flex items-center gap-2 mb-5 max-w-[900px]">
@@ -289,7 +318,7 @@ export function PersonaDetailPage() {
         ))}
       </div>
 
-      <div className="max-w-[900px]">
+      <fieldset disabled={!editing} className="max-w-[900px] min-w-0">
         {tab === 'params' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <Section icon={<Fingerprint className="w-4 h-4" />} title="身份 Identity">
@@ -511,13 +540,15 @@ export function PersonaDetailPage() {
           </div>
         )}
 
-        <div className="mt-7 flex items-center justify-end gap-3">
-          {saveError && <span className="text-caption text-error">{saveError}</span>}
-          <Button onClick={save} disabled={saving}>
-            <Save className="w-4 h-4" /> {saving ? '保存中…' : '保存人格'}
-          </Button>
-        </div>
-      </div>
+        {editing && (
+          <div className="mt-7 flex items-center justify-end gap-3">
+            {saveError && <span className="text-caption text-error">{saveError}</span>}
+            <Button onClick={save} disabled={saving}>
+              <Save className="w-4 h-4" /> {saving ? '保存中…' : '保存人格'}
+            </Button>
+          </div>
+        )}
+      </fieldset>
     </StandardLayout>
   );
 }

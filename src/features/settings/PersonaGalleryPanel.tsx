@@ -6,7 +6,7 @@ import type { Persona } from '@/types/persona';
 import { asText, textList } from '@/lib/render';
 import {
   Plus, Sparkles, MessageSquare, Layers, BookOpen,
-  Timer, ChevronRight, Dna, Copy, Download, Upload,
+  Timer, ChevronRight, Dna, Copy, Download, Upload, SlidersHorizontal,
 } from 'lucide-react';
 
 /** Demo personas (offline fallback) — rich parameter data for visualization. */
@@ -149,6 +149,9 @@ export function PersonaGalleryPanel({ onPick }: { onPick?: (personaId: string) =
           <Button variant="outline" onClick={() => navigate({ to: '/persona/forge' })}>
             <MessageSquare className="w-4 h-4" /> 对话创建
           </Button>
+          <Button variant="outline" onClick={() => navigate({ to: '/persona/new' })}>
+            <SlidersHorizontal className="w-4 h-4" /> 手动创建
+          </Button>
           <Button onClick={() => navigate({ to: '/persona/forge' })}>
             <Sparkles className="w-4 h-4" /> 新建人格
           </Button>
@@ -217,7 +220,7 @@ export function PersonaGalleryPanel({ onPick }: { onPick?: (personaId: string) =
                 <Plus className="w-5 h-5" />
               </span>
               <span className="text-body-sm font-medium">创建新人格</span>
-              <span className="text-caption opacity-70">描述风格 → 对话问答 → 生成</span>
+              <span className="text-caption opacity-70">对话生成，或手动填写参数</span>
             </button>
           </div>
         </>

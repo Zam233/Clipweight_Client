@@ -86,6 +86,8 @@ export function PersonaForgePage() {
     identity: 0, language: 0, rhythm: 0, visual: 0, audio: 0, constraints: 0,
   });
   const [draft, setDraft] = useState<Partial<ParameterLayer> | null>(null);
+  const [promptDraft, setPromptDraft] = useState('');
+  const [visionPromptDraft, setVisionPromptDraft] = useState('');
   const [personaName, setPersonaName] = useState('');
   const [kbBusy, setKbBusy] = useState(false);
   const [kbFile, setKbFile] = useState<{ name: string; total: number; current: number } | null>(null);
@@ -150,23 +152,10 @@ export function PersonaForgePage() {
     (async () => {
       setRestoreBusy(true);
       try {
-        const state = (await personaApi.chatForgeState(sid)) as ChatForgeStateResp;
+        const detail = await personaApi.chatForgeDetail(sid);
         if (!alive) return;
-        const realId = state.session_id || sid;
-        setSessionId(realId);
-        if (state.persona_draft) {
-          setDraft(state.persona_draft as Partial<ParameterLayer>);
-          setProgress(estimateProgressFromDraft(state.persona_draft));
-        }
-        setMessages((m) => [
-          ...m,
-          {
-            id: uid('m'),
-            role: 'assistant',
-            content: `已恢复会话 ${realId.slice(0, 12)}：${state.message_count ?? 0} 条对话、${state.knowledge_base_count ?? 0} 个知识块。继续描述即可完善。`,
-          },
-        ]);
-        setRestoreMsg(`会话 ${realId} 已恢复`);
+        applySessionDetail(detail, true);
+        setRestoreMsg(`会话 ${detail.session_id} 已恢复`);
       } catch {
         if (alive) setRestoreMsg('恢复失败：会话不存在或后端不可达');
       } finally {
@@ -187,21 +176,37 @@ export function PersonaForgePage() {
   const addMsg = (role: ChatMsg['role'], content: string, attachments?: ChatAttachment[]) =>
     setMessages((m) => [...m, { id: uid('m'), role, content, ...(attachments?.length ? { attachments } : {}) }]);
 
+  /** 用详情接口恢复真实消息/草稿/Prompt；replace=true 时重建消息列表。 */
+  const applySessionDetail = (
+    detail: Awaited<ReturnType<typeof personaApi.chatForgeDetail>>,
+    replace: boolean,
+  ) => {
+    setSessionId(detail.session_id);
+    if (detail.persona_draft) {
+      setDraft(detail.persona_draft as Partial<ParameterLayer>);
+      setProgress(estimateProgressFromDraft(detail.persona_draft));
+    }
+    setPromptDraft(detail.prompt_draft ?? '');
+    setVisionPromptDraft(detail.vision_prompt_draft ?? '');
+    if (replace) {
+      setMessages((detail.messages ?? []).map((m) => ({
+        id: uid('m'),
+        role: m.role,
+        content: m.content,
+        ...(m.attachments?.length ? { attachments: m.attachments.map((a) => ({ ...a, name: a.name ?? '', mime: a.mime ?? '' })) } : {}),
+      })));
+    }
+  };
+
   const handleRestore = async () => {
     const sid = restoreId.trim();
     if (!sid || restoreBusy) return;
     setRestoreBusy(true);
     setRestoreMsg('');
     try {
-      const state = (await personaApi.chatForgeState(sid)) as ChatForgeStateResp;
-      const realId = state.session_id || sid;
-      setSessionId(realId);
-      if (state.persona_draft) {
-        setDraft(state.persona_draft as Partial<ParameterLayer>);
-        setProgress(estimateProgressFromDraft(state.persona_draft));
-      }
-      addMsg('assistant', `已恢复会话 ${realId.slice(0, 12)}：${state.message_count ?? 0} 条对话、${state.knowledge_base_count ?? 0} 个知识块。继续描述即可完善。`);
-      setRestoreMsg(`会话 ${realId} 已恢复`);
+      const detail = await personaApi.chatForgeDetail(sid);
+      applySessionDetail(detail, true);
+      setRestoreMsg(`会话 ${detail.session_id} 已恢复`);
     } catch {
       setRestoreMsg('恢复失败：会话不存在或后端不可达');
     } finally {
@@ -219,7 +224,8 @@ export function PersonaForgePage() {
       const prog = res.progress;
       if (prog) setProgress((p) => ({ ...p, ...normalizeProgress(prog) }));
     } catch {
-      setSessionId(uid('forge')); // offline session
+      setMessages([]);
+      toast('会话启动失败：后端未连接或请求被拒绝', 'error');
     } finally {
       setBusy(false);
     }
@@ -258,6 +264,10 @@ export function PersonaForgePage() {
             const scaled = normalizeProgress(prog);
             setProgress((p) => ({ ...p, ...scaled }));
           }
+          void personaApi.chatForgeDetail(sessionId).then((d) => {
+            setPromptDraft(d.prompt_draft ?? '');
+            setVisionPromptDraft(d.vision_prompt_draft ?? '');
+          }).catch(() => {});
         },
         onError: (detail, partial) => {
           // 中断时保留已产出的文本，并说明原因（不让用户白等）
@@ -278,15 +288,17 @@ export function PersonaForgePage() {
         if (res?.persona_draft) setDraft(res.persona_draft);
         const prog = res?.progress;
         if (prog) setProgress((p) => ({ ...p, ...normalizeProgress(prog) }));
+        void personaApi.chatForgeDetail(sessionId ?? '').then((d) => {
+          setPromptDraft(d.prompt_draft ?? '');
+          setVisionPromptDraft(d.vision_prompt_draft ?? '');
+        }).catch(() => {});
         const reply = res?.reply ?? '收到，让我想想…';
         setMessages((m) => m.map((msg) => (msg.id === streamMsgId ? { ...msg, content: reply } : msg)));
       } catch {
-        // Offline: simulate progressive persona building
-        await new Promise((r) => setTimeout(r, 500));
-        const filled = simulateProgress(progress, text);
-        setProgress(filled.progress);
-        setDraft(filled.draft);
-        setMessages((m) => m.map((msg) => (msg.id === streamMsgId ? { ...msg, content: filled.reply } : msg)));
+        setMessages((m) => m.map((msg) => (msg.id === streamMsgId
+          ? { ...msg, content: '发送失败：后端未连接或请求被拒绝。内容已保留，请重试。' }
+          : msg)));
+        toast('发送失败：后端未连接或请求被拒绝', 'error');
       }
     } finally {
       setBusy(false);
@@ -370,15 +382,9 @@ export function PersonaForgePage() {
     setRestoreId(sid);
     setRestoreBusy(true);
     try {
-      const state = (await personaApi.chatForgeState(sid)) as ChatForgeStateResp;
-      setSessionId(state.session_id || sid);
-      if (state.persona_draft) {
-        setDraft(state.persona_draft as Partial<ParameterLayer>);
-        setProgress(estimateProgressFromDraft(state.persona_draft));
-      }
-      setMessages([]);
-      addMsg('assistant', `已切到会话 ${sid.slice(0, 12)}：${state.message_count ?? 0} 条对话、${state.knowledge_base_count ?? 0} 个知识块。`);
-      void refreshKnowledge(state.session_id || sid);
+      const detail = await personaApi.chatForgeDetail(sid);
+      applySessionDetail(detail, true);
+      void refreshKnowledge(detail.session_id);
     } catch {
       toast('该会话不存在或后端不可达', 'error');
     } finally {
@@ -801,6 +807,27 @@ export function PersonaForgePage() {
               </div>
             </div>
 
+            {/* Prompt 草稿：对话过程中可见，保存后写入 persona prompt/vision_prompt */}
+            {(promptDraft || visionPromptDraft) && (
+              <div>
+                <h2 className="text-label font-medium text-on-surface-variant uppercase tracking-wide mb-2.5">Prompt 草稿</h2>
+                <div className="space-y-2" data-testid="forge-prompt-draft">
+                  {promptDraft && (
+                    <details className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-3">
+                      <summary className="text-label-sm text-on-surface cursor-pointer">系统 Prompt（{promptDraft.length} 字）</summary>
+                      <pre className="mt-2 whitespace-pre-wrap text-caption text-on-surface-variant max-h-40 overflow-y-auto">{promptDraft}</pre>
+                    </details>
+                  )}
+                  {visionPromptDraft && (
+                    <details className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-3">
+                      <summary className="text-label-sm text-on-surface cursor-pointer">视觉 Prompt（{visionPromptDraft.length} 字）</summary>
+                      <pre className="mt-2 whitespace-pre-wrap text-caption text-on-surface-variant max-h-40 overflow-y-auto">{visionPromptDraft}</pre>
+                    </details>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* commit */}
             <div className="mt-auto pt-3 border-t border-outline-variant/25 space-y-2.5">
               <input
@@ -810,12 +837,9 @@ export function PersonaForgePage() {
                 className="w-full bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm text-on-surface
                   outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50"
               />
-              <Button className="w-full" onClick={commit} disabled={overall < 40 || !personaName.trim() || busy}>
+              <Button className="w-full" onClick={commit} disabled={!personaName.trim() || busy}>
                 <Check className="w-4 h-4" /> 保存人格
               </Button>
-              {overall < 40 && (
-                <p className="text-caption text-on-surface-variant/60 text-center">完成度达 40% 后可保存</p>
-              )}
             </div>
           </div>
         </div>

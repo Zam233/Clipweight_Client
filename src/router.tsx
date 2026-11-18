@@ -23,6 +23,7 @@ const ExportPage = lazyPage(() => import('./pages/ExportPage'), 'ExportPage');
 const PersonaPage = lazyPage(() => import('./pages/PersonaPage'), 'PersonaPage');
 const PersonaDetailPage = lazyPage(() => import('./pages/PersonaDetailPage'), 'PersonaDetailPage');
 const PersonaForgePage = lazyPage(() => import('./pages/PersonaForgePage'), 'PersonaForgePage');
+const PersonaManualCreatePage = lazyPage(() => import('./pages/PersonaManualCreatePage'), 'PersonaManualCreatePage');
 const HelpPage = lazyPage(() => import('./pages/HelpPage'), 'HelpPage');
 const PluginPage = lazyPage(() => import('./pages/PluginPage'), 'PluginPage');
 const ModelsPage = lazyPage(() => import('./pages/admin/ModelsPage'), 'ModelsPage');
@@ -141,6 +142,13 @@ const personaForgeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/persona/forge',
   component: PersonaForgePage,
+  errorComponent: RouteErrorFallback,
+});
+
+const personaManualRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/persona/new',
+  component: PersonaManualCreatePage,
   errorComponent: RouteErrorFallback,
 });
 
@@ -320,6 +328,7 @@ const routeTree = rootRoute.addChildren([
   personaRoute,
   personaDetailRoute,
   personaForgeRoute,
+  personaManualRoute,
   helpRoute,
   pluginPageRoute,
   modelsRoute,
