@@ -95,3 +95,11 @@
 - commit 冲突：409，不覆盖；
 - 内置类型：UI + 后端双保护；
 - 回滚：删除新路由/入口即可恢复旧 TypeMaker。
+
+
+## 实施记录
+
+- M1：完成 `TypeDetailPage`、路由 `/settings/type-maker/$typeId`、类型卡片跳转、内置类型 Prompt 详情；
+- M2：完成 `TypeForge` 服务/API/前端会话页、草稿、文稿上传、LLM 标题、commit；
+- M3：完成详情只读/编辑/保存/取消、删除确认、内置禁用；
+- M4：定向/全量测试与真实浏览器创建→详情→编辑→删除验证；截图 `docs/e2e/video-type-forge/`。
