@@ -22,3 +22,14 @@
 7. 结构化 UI 仍有上限（path 前两个点、tracks 前 3 段、camera 前 6 帧、effects 只增删 glow/blur）。
 8. PR #17、#20 均 open，未合并；没有 CI 结论记录。
 9. 前端 `__cwStores` 调试入口仅 DEV，但需要确认生产构建不暴露。
+
+
+## 2026-11-18 追加修复
+
+- keyframe 删除按钮不再依赖 hover 才显示；
+- 时间线 keyframe 支持选中 + Delete/Backspace 删除，且不会先删 clip；
+- 属性面板 Ctrl+Z 在 `data-app-undo` 范围内交给应用历史；
+- approx fidelity 角标改为“文字动效为近似预览”，不再说“仅渲染后可见”；
+- author 任务保存 request，重启后状态 queued，首次查询/SSE 可恢复；
+- path/tracks/camera/keyframe 的 UI 截断已移除；
+- 最新提交仍在本地待 push（GitHub 连接失败）。
