@@ -90,6 +90,7 @@ export function PersonaForgePage() {
   });
   const [draft, setDraft] = useState<Partial<ParameterLayer> | null>(null);
   const [promptDraft, setPromptDraft] = useState('');
+  const [sessionRevision, setSessionRevision] = useState(0);
   const [visionPromptDraft, setVisionPromptDraft] = useState('');
   const [personaName, setPersonaName] = useState('');
   const [kbBusy, setKbBusy] = useState(false);
@@ -185,6 +186,7 @@ export function PersonaForgePage() {
     replace: boolean,
   ) => {
     setSessionId(detail.session_id);
+    setSessionRevision(Number((detail as { revision?: number }).revision ?? 0));
     if (detail.persona_draft) {
       setDraft(detail.persona_draft as Partial<ParameterLayer>);
       setProgress(estimateProgressFromDraft(detail.persona_draft));
@@ -424,12 +426,16 @@ export function PersonaForgePage() {
     if (!personaName.trim()) return;
     setBusy(true);
     try {
-      if (sessionId) await personaApi.chatForgeCommit(sessionId, personaName);
+      if (sessionId) await personaApi.chatForgeCommit(sessionId, personaName, {
+        expectedRevision: sessionRevision,
+        idempotencyKey: `forge-${sessionId}`,
+      });
       toast('人格已保存', 'success');
       navigate({ to: '/persona' });
-    } catch {
-      // Stay on the page so the user's work isn't silently lost
-      toast('保存失败 — 后端未连接或请求被拒绝', 'error');
+    } catch (e) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (status === 409) toast('保存冲突：草稿已被修改，请刷新会话后重试', 'error');
+      else toast('保存失败 — 后端未连接或请求被拒绝', 'error');
     } finally {
       setBusy(false);
     }

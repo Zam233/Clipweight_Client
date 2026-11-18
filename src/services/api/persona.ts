@@ -342,12 +342,29 @@ export const personaApi = {
   },
 
   /** Commit/finalize the persona from chat forge */
-  async chatForgeCommit(sessionId: string, personaName: string) {
+  async chatForgeCommit(
+    sessionId: string,
+    personaName: string,
+    opts: { expectedRevision?: number; idempotencyKey?: string } = {},
+  ) {
     const { data } = await getApiClient().post('/api/persona/forge/chat/commit', {
       session_id: sessionId,
       persona_name: personaName,
+      ...(opts.expectedRevision != null ? { expected_revision: opts.expectedRevision } : {}),
+      ...(opts.idempotencyKey ? { idempotency_key: opts.idempotencyKey } : {}),
     });
     return data;
+  },
+
+  /** 人工修订六维草稿；expectedRevision 不符返回 409。 */
+  async chatForgePatch(
+    sessionId: string, parameterPatch: Record<string, unknown>, expectedRevision?: number,
+  ) {
+    const { data } = await getApiClient().patch(
+      `/api/persona/forge/chat/sessions/${sessionId}/draft`,
+      { ...(expectedRevision != null ? { expected_revision: expectedRevision } : {}), parameter_patch: parameterPatch },
+    );
+    return data as { revision?: number; persona_draft?: Record<string, unknown> };
   },
 
   /** Get a chat forge session's current state */

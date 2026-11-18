@@ -30,6 +30,7 @@ export function PersonaDetailPage() {
   const { personaId } = useParams({ from: '/persona/$personaId' });
   const navigate = useNavigate();
   const [persona, setPersona] = useState<Persona | null>(null);
+  const [loadError, setLoadError] = useState('');
   const [tab, setTab] = useState<Tab>('params');
   const [prompt, setPrompt] = useState('');
   const [editing, setEditing] = useState(false);
@@ -67,7 +68,7 @@ export function PersonaDetailPage() {
         const p = await personaApi.get(personaId);
         if (alive) { setPersona(p); setPrompt(p.prompt ?? ''); }
       } catch {
-        if (alive) setPersona(makeShell(personaId));
+        if (alive) setLoadError('人格读取失败：不存在、无权限或后端不可达');
       }
       // Prompt 与知识库走独立路由（GET /prompt、GET /knowledge）
       personaApi.getPrompt(personaId)
@@ -153,7 +154,9 @@ export function PersonaDetailPage() {
       try {
         raw = await personaApi.getRaw(persona.persona_id);
       } catch {
-        // 取不到原始 manifest（后端异常等）——退化为仅回传 UI 字段
+        setSaveError('读取原始人格失败，已阻止保存（避免覆盖未知字段）');
+        setSaving(false);
+        return;
       }
       await personaApi.update(
         persona.persona_id,
@@ -251,7 +254,18 @@ export function PersonaDetailPage() {
   };
 
   if (!persona) {
-    return <StandardLayout title="人格详情"><p className="text-on-surface-variant">加载中…</p></StandardLayout>;
+    return (
+      <StandardLayout title="人格详情">
+        <div className="max-w-[900px]">
+          {loadError ? (
+            <div className="bg-error/10 border border-error/30 rounded-cw-md p-4 text-error text-body-sm">
+              {loadError}
+              <button onClick={() => window.location.reload()} className="ml-3 underline cursor-pointer">重试</button>
+            </div>
+          ) : <p className="text-on-surface-variant">加载中…</p>}
+        </div>
+      </StandardLayout>
+    );
   }
 
   const P = persona.parameter;
@@ -585,19 +599,6 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
   );
 }
 
-function makeShell(personaId: string): Persona {
-  return {
-    persona_id: personaId, persona_name: personaId, version: '1.0.0',
-    parameter: {
-      identity: { persona_id: personaId, persona_name: personaId, version: '1.0.0', tone: 'warm_storyteller', positioning: '', knowledge_domains: [] },
-      language: { max_sentence_length: 25, academic_density: 0.5, slang_ratio: 0.3 },
-      rhythm: { cut_density_tier: 'medium', base_shot_duration_sec: 6 },
-      visual: { color_palette: { primary: '#1a1a2e', accent: '#e94560' }, animation_style: '' },
-      audio: { loudness_target_lufs: -16 },
-      constraints: { max_duration_sec: 900 },
-    },
-  };
-}
 
 function RagSearch({ personaId }: { personaId: string }) {
   const [query, setQuery] = useState('');
