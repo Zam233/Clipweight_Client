@@ -1592,3 +1592,11 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 暂停/seek 只改 `currentTime`，不播放；
 - 不支持 WAAPI 的浏览器回退 inline style；
 - 提交 `d3e5c23`（push 网络失败，本地 ahead 1）。
+
+
+### CP-3 WAAPI 浏览器复验（2026-11-18）
+
+- 打开 `?clip=tc_e9831d60&t=61.85`；
+- `mg-overlay` 存在，文字 `CSS3D · 近似 (3d:css3d)并非回应`；
+- WAAPI seek 生效；覆盖层激活即可见（generation 仍记录但不阻塞显示）；
+- 截图 `docs/e2e/motion-spec-waapi.jpg`。
