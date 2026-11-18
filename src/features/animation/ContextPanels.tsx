@@ -36,3 +36,23 @@ export function CallDetailDrawer({ call, onClose }: { call: AnimationCall | null
     </div>
   );
 }
+
+export function QAReportPanel({ ctx }: { ctx: AnimationContext | null }) {
+  const shots = Array.isArray((ctx?.blackboard as { shots?: unknown[] } | undefined)?.shots)
+    ? ((ctx?.blackboard as { shots: Array<Record<string, unknown>> }).shots) : [];
+  if (!shots.length) return <div style={{ opacity: 0.6, fontSize: 12 }}>暂无 QA 记录</div>;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
+      {shots.map((s, i) => {
+        const qa = (s.last_qa as { ok?: boolean; text_issues?: string[]; motion_issues?: string[] } | undefined) ?? {};
+        return (
+          <div key={i} style={{ border: '1px solid rgba(255,255,255,.12)', borderRadius: 6, padding: 6 }}>
+            <div><b>shot {String(s.index ?? i + 1)}</b> · <span style={{ color: qa.ok ? '#16a34a' : '#dc2626' }}>{qa.ok ? 'passed' : 'qa_failed'}</span></div>
+            {(qa.text_issues ?? []).map((x, j) => <div key={j} style={{ color: '#fbbf24' }}>{x}</div>)}
+            {(qa.motion_issues ?? []).map((x, j) => <div key={j} style={{ color: '#fbbf24' }}>{x}</div>)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
