@@ -114,7 +114,16 @@ export class KeybindingEngine {
     // In text inputs, let native browser shortcuts (cut/copy/paste/undo/redo/save) pass through
     if (isTypingTarget(e) && hasModifier) {
       const rawKey = normalizeKey(e);
-      if ((e.ctrlKey || e.metaKey) && ['z', 'c', 'v', 'x', 'a', 's'].includes(rawKey)) return;
+      const inUndoScope = !!(e.target as HTMLElement).closest?.('[data-app-undo]');
+      if ((e.ctrlKey || e.metaKey) && ['z', 'c', 'v', 'x', 'a', 's'].includes(rawKey)) {
+        // 属性面板里的 Ctrl/Cmd+Z 必须撤销应用时间线，而不是只撤销输入框文字；
+        // 文本内容编辑（textarea）仍交给浏览器原生撤销。
+        if (inUndoScope && rawKey === 'z') {
+          // fall through to app binding
+        } else {
+          return;
+        }
+      }
     }
     // 轮73：输入中 Alt 组合一律不触发（Alt+S 切换吸附、Alt+←/→ slip、Ctrl+Alt+←/→ slide）
     // ——此前只拦「无修饰键」组合，导致在聊天输入框里按 Alt+S 会切换吸附并 preventDefault

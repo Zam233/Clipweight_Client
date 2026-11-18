@@ -263,7 +263,7 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
               <span className="font-mono text-on-surface">{layer.id}</span>
               <span className="text-on-surface-variant">{layer.type} · {layer.keyframes?.length ?? 0} kf</span>
             </div>
-            {(layer.keyframes ?? []).slice(0, 8).map((kf, i) => (
+            {(layer.keyframes ?? []).map((kf, i) => (
               <div key={`${layer.id}-${i}`} className="mt-1 flex items-center gap-1 text-[10px]">
                 <input
                   type="number" step="0.05" value={Number(kf.time).toFixed(2)}
@@ -311,7 +311,7 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
           {effective.camera && (
             <div className="space-y-1">
               <div>Camera（{effective.camera.keyframes?.length ?? 0} keyframes）</div>
-              {(effective.camera.keyframes ?? []).slice(0, 6).map((kf, i) => (
+              {(effective.camera.keyframes ?? []).map((kf, i) => (
                 <div key={`cam-${i}`} className="flex gap-1">
                   {(['scale', 'x', 'y', 'rotate'] as const).map((key) => (
                     <label key={key} className="flex items-center gap-0.5">
@@ -353,7 +353,7 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
               {(l.tracks ?? []).map((tr, ti) => (
                 <div key={`${l.id}-tr-${ti}`} className="flex flex-wrap items-center gap-1">
                   <span>{tr.property}</span>
-                  {(tr.segments ?? []).slice(0, 3).map((seg, si) => (
+                  {(tr.segments ?? []).map((seg, si) => (
                     <span key={si} className="flex items-center gap-0.5">
                       <input
                         type="number" step="0.05" value={Number(seg.start)} disabled={!canEdit}
@@ -384,7 +384,7 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
                       <option key={t} value={t}>{t}</option>
                     ))}
                   </select>
-                  {(l.motion_path.points ?? []).slice(0, 2).map((pt, i) => (
+                  {(l.motion_path.points ?? []).map((pt, i) => (
                     <span key={`p-${i}`} className="flex gap-0.5">
                       {(['x', 'y'] as const).map((axis) => (
                         <input
@@ -675,7 +675,7 @@ export function PropertiesPanel() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div data-app-undo className="flex-1 overflow-y-auto min-h-0">
         {selectedClipIds.length === 0 && <NoSelection />}
         {selectedClipIds.length > 1 && (
           <BatchEditSection count={selectedClipIds.length} set={set} pushHistory={pushHistory}
@@ -1827,7 +1827,7 @@ function KeyframeEditor({ clip }: { clip: Clip }) {
               )}
               <button
                 onClick={() => removeAt(kf.time)}
-                className="p-1 rounded-cw-xs text-on-surface-variant hover:text-error opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                className="p-1 rounded-cw-xs text-on-surface-variant hover:text-error opacity-100 transition-all cursor-pointer"
                 title="删除关键帧"
               >
                 <Trash2 className="w-3 h-3" />

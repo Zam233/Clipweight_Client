@@ -37,7 +37,6 @@ export function unpreviewableFeatures(clip: Clip): string[] {
   if (meta.fidelity === 'unsupported' || meta.preview_supported === false) {
     out.push('文字动效 provider 不支持预览');
   }
-  if (meta.fidelity === 'approx') out.push('文字动效仅近似预览');
   if (meta.motion_spec && !meta.mg_def) out.push('MotionSpec 待编译');
   const ops = meta.preview_ops;
   if (Array.isArray(ops) && ops.some((op) => (
@@ -69,6 +68,7 @@ export function previewFidelity(clip: Clip | null | undefined): FidelityReport {
 export function fidelityBadges(clip: Clip | null | undefined): string[] {
   const { noPreview, noExport } = previewFidelity(clip);
   const badges: string[] = [];
+  if (clip?.metadata?.fidelity === 'approx') badges.push('文字动效为近似预览');
   if (noPreview.length > 0) badges.push(`${noPreview.join('、')}·仅渲染后可见`);
   if (noExport.length > 0) badges.push(`${noExport.join('、')}·导出未支持`);
   return badges;

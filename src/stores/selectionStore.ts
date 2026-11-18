@@ -6,6 +6,8 @@ export type SelectionMode = 'select' | 'razor' | 'range';
 interface SelectionState {
   /** Currently selected clip IDs */
   selectedClipIds: string[];
+  /** MotionSpec keyframe 选中态（时间线 marker → Delete 用） */
+  selectedKeyframe: { clipId: string; layerId: string; index: number } | null;
   /** Currently selected track ID (for track-level operations) */
   selectedTrackId: string | null;
   /** Active tool mode */
@@ -18,6 +20,7 @@ interface SelectionState {
 
   // Actions
   selectClip: (clipId: string, additive?: boolean) => void;
+  selectKeyframe: (keyframe: { clipId: string; layerId: string; index: number } | null) => void;
   deselectAll: () => void;
   selectTrack: (trackId: string | null) => void;
   setToolMode: (mode: SelectionMode) => void;
@@ -28,6 +31,7 @@ interface SelectionState {
 
 export const useSelectionStore = create<SelectionState>((set) => ({
   selectedClipIds: [],
+  selectedKeyframe: null,
   selectedTrackId: null,
   toolMode: 'select',
   isRangeSelecting: false,
@@ -41,7 +45,9 @@ export const useSelectionStore = create<SelectionState>((set) => ({
           ? state.selectedClipIds.filter((id) => id !== clipId)
           : [...state.selectedClipIds, clipId]
         : [clipId],
+      selectedKeyframe: null,
     })),
+  selectKeyframe: (keyframe) => set({ selectedKeyframe: keyframe }),
 
   deselectAll: () =>
     set({ selectedClipIds: [], selectedTrackId: null, rangeStart: null, rangeEnd: null, toolMode: 'select', isRangeSelecting: false }),

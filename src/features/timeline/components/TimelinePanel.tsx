@@ -158,6 +158,13 @@ export function TimelinePanel() {
     // M8: 双击已有标记 → 打开命名输入框
     engine.onMotionSpecMarkerClick = (marker) => {
       useSelectionStore.getState().selectClip(marker.clipId);
+      const c = useTimelineStore.getState().timeline.tracks
+        .flatMap((t) => t.clips).find((x) => x.id === marker.clipId);
+      const spec = motionSpecOf(c?.metadata);
+      const layer = spec?.layers.find((l) => l.id === marker.layerId);
+      const index = layer?.keyframes?.findIndex((k) => Math.abs(k.time - marker.time) < 0.001) ?? -1;
+      useSelectionStore.getState().selectKeyframe(index >= 0
+        ? { clipId: marker.clipId, layerId: marker.layerId, index } : null);
       usePreviewStore.getState().setCurrentTime(marker.time);
     };
     engine.onMotionSpecMarkerDrag = (marker, time) => {
