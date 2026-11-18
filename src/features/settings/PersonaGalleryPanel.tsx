@@ -149,7 +149,10 @@ export function PersonaGalleryPanel({ onPick }: { onPick?: (personaId: string) =
           <Button variant="outline" onClick={() => navigate({ to: '/persona/forge' })}>
             <MessageSquare className="w-4 h-4" /> 对话创建
           </Button>
-          <Button variant="outline" onClick={() => navigate({ to: '/persona/new' })}>
+          <Button variant="outline" onClick={() => {
+            const id = `manual_${Date.now().toString(36)}`;
+            navigate({ to: '/persona/$personaId', params: { personaId: id }, search: { create: '1' } as never });
+          }}>
             <SlidersHorizontal className="w-4 h-4" /> 手动创建
           </Button>
           <Button onClick={() => navigate({ to: '/persona/forge' })}>

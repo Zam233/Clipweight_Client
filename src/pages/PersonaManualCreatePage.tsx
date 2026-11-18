@@ -6,9 +6,9 @@ import { toast } from '@/stores/toastStore';
 import { ArrowLeft, Save } from 'lucide-react';
 
 /** 手动人 Persona 创建：不调用 LLM，直接构造后端 PersonaManifest。 */
-export function PersonaManualCreatePage() {
+export function PersonaManualCreatePage({ initialId = 'my_persona' }: { initialId?: string } = {}) {
   const navigate = useNavigate();
-  const [personaId, setPersonaId] = useState('my_persona');
+  const [personaId, setPersonaId] = useState(initialId);
   const [name, setName] = useState('');
   const [tone, setTone] = useState('neutral');
   const [positioning, setPositioning] = useState('');
@@ -17,6 +17,11 @@ export function PersonaManualCreatePage() {
   const [slang, setSlang] = useState(0.1);
   const [maxSentence, setMaxSentence] = useState(30);
   const [shotMs, setShotMs] = useState('');
+  const [cutProfile, setCutProfile] = useState('even_flow');
+  const [minDuration, setMinDuration] = useState(30);
+  const [forbiddenTopics, setForbiddenTopics] = useState('');
+  const [animationStyles, setAnimationStyles] = useState('');
+  const [subtitleEnabled, setSubtitleEnabled] = useState(true);
   const [palette, setPalette] = useState('#4F8CFF');
   const [animation, setAnimation] = useState('');
   const [bgm, setBgm] = useState('');
@@ -51,7 +56,7 @@ export function PersonaManualCreatePage() {
           max_sentence_len: maxSentence,
         },
         rhythm: {
-          cut_profile: 'even_flow',
+          cut_profile: cutProfile.trim() || 'even_flow',
           base_shot_duration_ms: shotMs.trim() ? Number(shotMs) : null,
           cut_density_tier: 'medium',
         },
@@ -59,12 +64,18 @@ export function PersonaManualCreatePage() {
           palette: 'custom',
           primary_color: palette,
           animation_style: animation.trim(),
+          animation_styles: animationStyles.trim() ? { default: animationStyles.trim() } : undefined,
         },
         audio: {
           bgm_slots: bgm.trim() ? { default: [bgm.trim()] } : {},
           target_loudness_lufs: loudness,
+          subtitle_enabled: subtitleEnabled,
         },
-        constraints: { max_duration_sec: maxDuration },
+        constraints: {
+          max_duration_sec: maxDuration,
+          min_duration_sec: minDuration,
+          forbidden_topics: forbiddenTopics.split(',').map((s) => s.trim()).filter(Boolean),
+        },
       },
       prompt,
       vision_prompt: visionPrompt,
@@ -99,11 +110,18 @@ export function PersonaManualCreatePage() {
           <Field label="网络用语 0-1"><input type="number" min={0} max={1} step={0.05} value={slang} onChange={(e) => setSlang(Number(e.target.value))} className={inputCls} /></Field>
           <Field label="最长句长"><input type="number" min={1} value={maxSentence} onChange={(e) => setMaxSentence(Number(e.target.value))} className={inputCls} /></Field>
           <Field label="基准镜头 ms（可空）"><input value={shotMs} onChange={(e) => setShotMs(e.target.value)} className={inputCls} placeholder="留空=类型插件决定" /></Field>
+          <Field label="剪辑节奏档位"><input value={cutProfile} onChange={(e) => setCutProfile(e.target.value)} className={inputCls} placeholder="even_flow / surge" /></Field>
+          <Field label="最短时长 sec"><input type="number" min={0} value={minDuration} onChange={(e) => setMinDuration(Number(e.target.value))} className={inputCls} /></Field>
           <Field label="动画风格"><input value={animation} onChange={(e) => setAnimation(e.target.value)} className={inputCls} /></Field>
+          <Field label="高级动画风格（可选）"><input value={animationStyles} onChange={(e) => setAnimationStyles(e.target.value)} className={inputCls} /></Field>
           <Field label="BGM 描述"><input value={bgm} onChange={(e) => setBgm(e.target.value)} className={inputCls} /></Field>
           <Field label="响度 LUFS"><input type="number" min={-30} max={-10} value={loudness} onChange={(e) => setLoudness(Number(e.target.value))} className={inputCls} /></Field>
           <Field label="最长时长 sec"><input type="number" min={1} value={maxDuration} onChange={(e) => setMaxDuration(Number(e.target.value))} className={inputCls} /></Field>
+          <Field label="禁用主题（逗号分隔）"><input value={forbiddenTopics} onChange={(e) => setForbiddenTopics(e.target.value)} className={inputCls} /></Field>
         </div>
+        <label className="flex items-center gap-2 mb-3 text-label-sm text-on-surface-variant">
+          <input type="checkbox" checked={subtitleEnabled} onChange={(e) => setSubtitleEnabled(e.target.checked)} /> 默认生成字幕
+        </label>
         <Field label="系统 Prompt"><textarea rows={7} value={prompt} onChange={(e) => setPrompt(e.target.value)} className={`${inputCls} resize-y`} /></Field>
         <Field label="视觉 Prompt（可选）"><textarea rows={4} value={visionPrompt} onChange={(e) => setVisionPrompt(e.target.value)} className={`${inputCls} resize-y`} /></Field>
         <Button onClick={save} disabled={busy} className="mt-4"><Save className="w-4 h-4" /> {busy ? '创建中…' : '创建人格'}</Button>

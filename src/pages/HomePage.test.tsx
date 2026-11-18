@@ -29,6 +29,7 @@ const { mocks } = vi.hoisted(() => ({
     // 轮 148：插件 tab 复用完整面板后会调用健康聚合/贡献清单
     pluginHealth: vi.fn(),
     pluginContributions: vi.fn(),
+    navigate: vi.fn(),
   },
 }));
 
@@ -92,7 +93,7 @@ vi.mock('./useBackendHealth', async () => {
 vi.mock('@/stores/toastStore', () => ({ toast: mocks.toast }));
 
 vi.mock('@tanstack/react-router', () => ({
-  useNavigate: () => vi.fn(),
+  useNavigate: () => mocks.navigate,
 }));
 
 // \u9879\u76eeA = 'Project A', \u9879\u76eeB = 'Project B'
@@ -279,7 +280,7 @@ describe('图一：左侧导航切换右侧内容区', () => {
     expect(screen.getByRole('button', { name: /音色库/ })).toBeTruthy();
   });
 
-  it('点击「人格」→ 显示与 /persona 相同的完整人格画廊；点卡片选中并进入创作', async () => {
+  it('点击「人格」→ 显示完整画廊；点卡片进入详情页', async () => {
     mocks.personaList.mockResolvedValue([
       {
         persona_id: 'p_a', persona_name: '人格A', version: '1.0.0',
@@ -298,9 +299,11 @@ describe('图一：左侧导航切换右侧内容区', () => {
     // 画廊的完整内容也在（简化卡片没有这些）：节奏指纹 + 参数条
     expect(screen.getByText(/剪辑节奏 · medium/)).toBeTruthy();
     expect(screen.getByText('学术密度')).toBeTruthy();
-    // 点击人格卡片 → 选中该人格并切到创作 tab（首页语义）
+    // 点击人格卡片 → 进入 /persona/{id} 详情页（首页不再吞成“选中”）
     fireEvent.click(screen.getByText('人格A'));
-    await screen.findByPlaceholderText(/粘贴口播文案/);
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith({
+      to: '/persona/$personaId', params: { personaId: 'p_a' },
+    }));
   });
 
   it('点击「设置」→ 显示偏好设置界面（BUG1 修复：不再跳创作表单）', async () => {

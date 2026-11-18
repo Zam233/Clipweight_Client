@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { personaApi, voiceApi } from '@/services/api';
+import { PersonaManualCreatePage } from './PersonaManualCreatePage';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge, Slider } from '@/components/ui';
 import { asText } from '@/lib/render';
@@ -257,6 +258,11 @@ export function PersonaDetailPage() {
       setDeriveBusy(false);
     }
   };
+
+  // 手动创建也复用 /persona/{id} 页面：?create=1 时渲染创建表单。
+  if (!persona && new URLSearchParams(window.location.search).get('create') === '1') {
+    return <PersonaManualCreatePage initialId={personaId} />;
+  }
 
   if (!persona) {
     return (
