@@ -4,6 +4,7 @@ import { useTimelineStore } from '@/stores/timelineStore';
 import { usePreviewStore } from '@/stores/previewStore';
 import { useOverlayStore } from './overlayStore';
 import { buildOverlayPlan } from './mgDomPlan';
+import { overlayEligibility } from './overlayEligibility';
 import { transformCss, has3D } from './mgLayout';
 import { mgSpecOf, resolveElementProps } from '../mgRenderer';
 import { computePreviewFrameRect, type FrameRect } from '../frameGeometry';
@@ -49,8 +50,9 @@ export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivEleme
     if (!enabled || playing) return [];
     return timeline.tracks
       .filter((tr) => tr.kind === 'text' && !tr.hidden)
-      .flatMap((tr) => tr.clips)
-      .filter((c) => c.enabled !== false && t >= c.start_sec && t < c.start_sec + c.duration_sec)
+      .flatMap((tr) => tr.clips.map((c) => ({ c, tr })))
+      .filter(({ c, tr }) => overlayEligibility(c, tr, t, playing).ok)
+      .map(({ c }) => c)
       .filter((c) => {
         const spec = mgSpecOf(c.metadata);
         return !!spec && (spec.elements ?? []).some((el) => (el.keyframes ?? []).some(
@@ -65,8 +67,7 @@ export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivEleme
     requestOverlay(clipIds.split('|'));
     return () => releaseOverlay();
   }, [clipIds, requestOverlay, releaseOverlay]);
-  // 握手用于观测；Canvas 已 skip active ids，覆盖层可直接显示，避免因 React/WAAPI 时序一直 hidden。
-  const visible = active.length > 0;
+  const visible = generation > 0 && canvasGeneration >= generation;
 
   // WAAPI：暂停态只 seek currentTime，不 play；播放态由 Canvas 接管。
   useEffect(() => {

@@ -596,7 +596,7 @@ export function PreviewPanel() {
     let raf = 0;
     let lastW = 0;
     let lastH = 0;
-    const last = { t: -1, tl: null as unknown, safe: false, zoom: -1, mv: -1, guides: -1 };
+    const last = { t: -1, tl: null as unknown, safe: false, zoom: -1, mv: -1, guides: -1, overlayGen: -1 };
 
     // Re-render when media state changes (e.g. an asset errors while loading) —
     // otherwise the failed clip would stay a silent black frame until the playhead moves.
@@ -735,14 +735,17 @@ export function PreviewPanel() {
       const safe = pst.showSafeArea;
       const zoom = pst.zoomLevel;
       const guidesEpoch = guidesEpochRef.current;
+      const overlayGen = useOverlayStore.getState().generation;
       if (t !== last.t || tl !== last.tl || safe !== last.safe || zoom !== last.zoom
-          || mediaVersion !== last.mv || guidesEpoch !== last.guides) {
+          || mediaVersion !== last.mv || guidesEpoch !== last.guides
+          || overlayGen !== last.overlayGen) {
         last.t = t;
         last.tl = tl;
         last.safe = safe;
         last.zoom = zoom;
         last.mv = mediaVersion;
         last.guides = guidesEpoch;
+        last.overlayGen = overlayGen;
         // devplan T1.2：按当前播放头维护解码池（只在播放时连续解码）。
         // 活跃集合 = 当前时刻可见的 video clip，按轨道 z 序从上往下取前 2 个；
         // 其余 pause 保留最后一帧，超出预算的会进 frozen 列表（浮层与徽标用）。
