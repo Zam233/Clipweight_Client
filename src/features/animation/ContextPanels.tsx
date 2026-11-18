@@ -1,10 +1,11 @@
 import type { AnimationCall, AnimationContext } from './contextApi';
+import { AnimationBriefCard } from './BriefAndStyle';
 
 export function ContextInspector({ ctx }: { ctx: AnimationContext | null }) {
   if (!ctx) return <div style={{ opacity: 0.6, fontSize: 12 }}>暂无上下文</div>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
-      <div><b>brief</b><pre style={{ whiteSpace: 'pre-wrap', opacity: 0.8 }}>{JSON.stringify(ctx.blackboard.brief ?? {}, null, 2)}</pre></div>
+      <AnimationBriefCard ctx={ctx} />
       <div><b>风格</b><pre style={{ whiteSpace: 'pre-wrap', opacity: 0.8 }}>{JSON.stringify(ctx.blackboard.style ?? {}, null, 2)}</pre></div>
       <div><b>历史摘要</b><div style={{ opacity: 0.8 }}>{ctx.history_summary || '暂无摘要'}</div></div>
       <div><b>do_not_repeat</b><pre style={{ whiteSpace: 'pre-wrap', opacity: 0.8 }}>{JSON.stringify(ctx.blackboard.do_not_repeat ?? [], null, 2)}</pre></div>
