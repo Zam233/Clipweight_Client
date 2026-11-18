@@ -206,6 +206,7 @@ export interface TaskRequestView {
 
 export interface Task {
   id: string;
+  session_id?: string;
   status: TaskStatus;
   mode: string;
   request: TaskRequestView;
@@ -239,6 +240,7 @@ export interface TaskEvent {
 
 export interface CreateTaskBody {
   topic: string;
+  session_id?: string;
   persona_id?: string;
   category_plugin_id?: string;
   duration_sec?: number;
@@ -385,3 +387,4 @@ export interface TaskEventPage {
   latest_seq?: number;
   spilled_max_seq?: number;
 }
+
