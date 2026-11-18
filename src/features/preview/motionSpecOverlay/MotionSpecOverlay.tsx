@@ -8,6 +8,7 @@ import { transformCss, has3D } from './mgLayout';
 import { mgSpecOf, resolveElementProps } from '../mgRenderer';
 import { computePreviewFrameRect, type FrameRect } from '../frameGeometry';
 import { textMotionFlags } from '@/features/textMotion/flags';
+import { verdictForClip } from './fidelity';
 
 function propsOfElement(el: Record<string, unknown>, local: number): Record<string, unknown> {
   // resolveElementProps returns interpolated numbers; add element static values.
@@ -72,6 +73,13 @@ export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivEleme
         visibility: visible ? 'visible' : 'hidden',
       }}
     >
+      <div style={{
+        position: 'absolute', top: 8, left: 8, zIndex: 20, pointerEvents: 'none',
+        background: 'rgba(14,16,26,.72)', color: '#9fd0ff', borderRadius: 4,
+        padding: '2px 6px', fontSize: 11,
+      }}>
+        CSS3D · {verdictForClip(active[0], 'css3d-pause').fidelity === 'approx' ? '近似精确' : '精确'}
+      </div>
       <div style={{ position: 'absolute', left: 0, top: 0, width: timeline.width, height: timeline.height, transformOrigin: '0 0', transform: `scale(${u})` }}>
         {active.map((clip) => {
           const spec = mgSpecOf(clip.metadata);
