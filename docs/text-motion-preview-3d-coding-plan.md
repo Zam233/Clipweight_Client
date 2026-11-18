@@ -1484,3 +1484,11 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 覆盖层请求接管后保持 hidden，Canvas 完成 skip 帧后 markCanvasDrawn，覆盖层才 visible；
 - 播放时 release，Canvas 恢复绘制；
 - 提交 `8cdd38f`。
+
+
+### CP-3 浏览器复验（2026-11-18）
+
+- 给 `tc_e9831d60` 首帧加 `rotate_x=12` 并 commit（spec_hash `6a9e63ae...`）；
+- 暂停在 62.65s，`[data-testid="mg-overlay"]` 存在；
+- 黄色「并非回应」以 CSS3D 倾斜显示，Canvas 同 clip 已跳过；
+- 截图：`docs/e2e/motion-spec-3d-pause.jpg`。
