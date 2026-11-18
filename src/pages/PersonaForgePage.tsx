@@ -6,7 +6,7 @@ import { uid } from '@/lib/utils';
 import { toast } from '@/stores/toastStore';
 import type { ParameterLayer, Persona } from '@/types/persona';
 import {
-  ArrowLeft, Send, Sparkles, Bot, User, Check, Loader2, FileUp, Dna,
+  ArrowLeft, Send, Sparkles, Bot, User, Check, Loader2, Dna,
   FileText, MessageCircleQuestion, Wand2, RotateCcw, ExternalLink,
   ImagePlus, Trash2, Pencil, History, X, Plus,
 } from 'lucide-react';
@@ -652,10 +652,6 @@ export function PersonaForgePage() {
                   </div>
                 )}
                 <div className="flex gap-2">
-                  <label className="p-2.5 rounded-cw-sm bg-surface-container text-on-surface-variant hover:text-primary border border-outline-variant/30 transition-colors cursor-pointer" title="上传参考文档">
-                    <FileUp className="w-4 h-4" />
-                    <input type="file" className="hidden" accept=".md,.txt" onChange={handleKnowledge} disabled={kbBusy} />
-                  </label>
                   {/* 图片/文件附件：随消息一起发给后端（模型看不到图 → 视觉能力开启时先做分析） */}
                   <label className="p-2.5 rounded-cw-sm bg-surface-container text-on-surface-variant hover:text-primary border border-outline-variant/30 transition-colors cursor-pointer" title="上传文稿">
                     <FileText className="w-4 h-4" />
