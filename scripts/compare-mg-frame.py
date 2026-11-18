@@ -19,6 +19,36 @@ def yellow_bbox(path):
         "right": max(xs) / w, "bottom": max(ys) / h, "ratio": len(xs) / (w * h),
     }
 
+def yellow_mask_box(path):
+    im = Image.open(path).convert("RGB")
+    w, h = im.size
+    px = im.load()
+    mask = Image.new("L", (w, h), 0)
+    mp = mask.load()
+    xs, ys = [], []
+    for y in range(h):
+        for x in range(w):
+            r, g, b = px[x, y]
+            if r > 190 and g > 140 and b < 120 and r > b + 60:
+                mp[x, y] = 255; xs.append(x); ys.append(y)
+    if not xs:
+        return None, None
+    return mask.crop((min(xs), min(ys), max(xs) + 1, max(ys) + 1)), (min(xs), min(ys), max(xs), max(ys))
+
+def mask_iou(a_path, b_path):
+    ma, _ = yellow_mask_box(a_path); mb, _ = yellow_mask_box(b_path)
+    if ma is None or mb is None:
+        return None
+    size = (640, 320)
+    ma = ma.resize(size); mb = mb.resize(size)
+    pa, pb = ma.load(), mb.load(); inter = union = 0
+    for y in range(size[1]):
+        for x in range(size[0]):
+            a = pa[x, y] > 64; b = pb[x, y] > 64
+            inter += a and b; union += a or b
+    return inter / union if union else 0.0
+
+
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         raise SystemExit("usage: compare-mg-frame.py overlay.jpg server.png")
@@ -28,3 +58,4 @@ if __name__ == "__main__":
         raise SystemExit("no yellow bbox")
     for k in ("left", "top", "right", "bottom"):
         print(k, "delta", round(abs(a[k] - b[k]), 4))
+    print("yellow_mask_iou", round(mask_iou(sys.argv[1], sys.argv[2]) or 0, 4))

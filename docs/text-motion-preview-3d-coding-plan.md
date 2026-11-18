@@ -1526,3 +1526,11 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - overlay/server bbox：left Δ0.0005、top Δ0.0081、right Δ0.0015、bottom Δ0.0247；
 - 说明位置/宽度基本一致，底部差异来自覆盖层截图裁切/背景；
 - 仍不是 SSIM/Δedge 全图指标。
+
+
+### CP-6 mask IoU（2026-11-18）
+
+- `compare-mg-frame.py` 增加 yellow mask IoU；
+- 当前 3D clip 0.2s：bbox delta 0.0005/0.0081/0.0015/0.0247，mask IoU **0.4516**；
+- IoU 受截图裁切/背景/抗锯齿影响，说明“位置接近但还不是像素等价”；
+- 提交 `67939b1`（脚本修订待提交）。
