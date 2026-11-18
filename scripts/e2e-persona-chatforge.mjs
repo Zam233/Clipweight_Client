@@ -1,0 +1,21 @@
+import { chromium } from 'playwright';
+const id='e2e_persona_'+Date.now();
+const b=await chromium.launch(); const page=await b.newPage({viewport:{width:1440,height:900}}); page.on('pageerror',e=>console.error('PAGEERR',String(e))); page.on('console',m=>{if(m.type()==='error')console.error('CONSOLE',m.text())});
+await page.goto('http://127.0.0.1:5173/persona/new',{waitUntil:'domcontentloaded'});
+await page.getByLabel('Persona ID').fill(id);
+await page.getByLabel('名称').fill('E2E 手工人格');
+await page.getByLabel('系统 Prompt').fill('你是 E2E 手工人格。');
+await page.waitForTimeout(1500); console.log('BODY', (await page.locator('body').innerText()).slice(0,500)); await page.getByRole('button',{name:'创建人格'}).click();
+await page.waitForURL(new RegExp('/persona/'+id), {timeout:20000});
+await page.waitForTimeout(1000);
+console.log('URL',page.url()); console.log('BODY',(await page.locator('body').innerText()).slice(0,400)); if(!(await page.getByText('E2E 手工人格').count())) { await page.screenshot({path:'docs/e2e/persona-chatforge-manual-error.png'}); await b.close(); process.exit(2); }
+await page.getByRole('button',{name:'编辑'}).click();
+const pos=page.locator('input').nth(1);
+await pos.fill('浏览器 E2E 修改');
+const edited = await pos.inputValue();
+await page.getByRole('button',{name:'取消'}).click();
+await page.waitForTimeout(300);
+const text=await page.locator('body').innerText();
+console.log(JSON.stringify({id,url:page.url(),hasEditMode:edited === '浏览器 E2E 修改',hasPrompt:text.includes('E2E 手工人格')}));
+await page.screenshot({path:'docs/e2e/persona-chatforge-manual.png',fullPage:false});
+await b.close();
