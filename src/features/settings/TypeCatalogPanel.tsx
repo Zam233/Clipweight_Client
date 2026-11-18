@@ -36,6 +36,9 @@ export function TypeCatalogPanel() {
           <Button size="sm" variant="outline" onClick={reload} disabled={loading}>
             <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} /> 刷新
           </Button>
+          <Button size="sm" onClick={() => navigate({ to: '/settings/type-maker/forge' })}>
+            AI 创建
+          </Button>
         </div>
       </div>
 
