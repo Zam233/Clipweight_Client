@@ -1452,7 +1452,7 @@ function paintClipContent(
       const _fullWidth = ctx.measureText(text).width;
       const _revealSec = Math.max(0.1, Number(_motion.reveal_sec) || 0.4);
       const _p = Math.max(0, Math.min(1, _local / _revealSec));
-      let _motionDX = 0;
+      const _motionDX = 0;
       let _motionDY = 0;
       let _motionScale = 1;
       if (_motionType === 'slide_in') {
@@ -1469,7 +1469,7 @@ function paintClipContent(
         ctx.textAlign = 'left';
       }
       // 纯色底板（文字动画 style.box）：预览与 ASS BorderStyle=3 语义对齐
-      if (Boolean(_style.box)) {
+      if (_style.box) {
         const padX = Number(_style.box_padding_x) || 18;
         const padY = Number(_style.box_padding_y) || 8;
         const radius = Number(_style.box_radius) || 6;
