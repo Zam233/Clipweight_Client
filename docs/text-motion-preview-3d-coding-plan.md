@@ -1510,3 +1510,11 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - `blurModel.ts` 只对已有 bucket 返回半径，其余返回 null（继续 approx）；
 - 测试通过；提交 `e40fee3`。
 - 仍缺：scale 0.25/0.5、文字/细线测试图、SSIM/Δedge 阈值表。
+
+
+### CP-6 视觉对比首轮（2026-11-18）
+
+- 同一 clip local 0.2s：覆盖层截图 `docs/e2e/motion-spec-3d-overlay.jpg`；
+- 服务端 Hyperframes 抽帧 `docs/e2e/motion-spec-3d-server.png`；
+- 两者文字均倾斜、黄色，覆盖层叠加视频背景；服务端为透明/白底；
+- 仍为人工目视对比，未做 SSIM/bbox/Δedge 数值。
