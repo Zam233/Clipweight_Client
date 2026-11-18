@@ -1447,3 +1447,21 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 本计划不替代 `docs/text-motion-frontend-prd.md` §6；CP-4/CP-6 会把 §6.2 的 fidelity 文案与本节对齐。
 - 本计划关闭 `docs/text-motion-remaining-audit.md` 的第 4、5 条；其余条目（深链接、长项目验证、全量测试、author 队列、UI 上限、PR/CI）仍按该审计跟踪。
 - 服务端 PNG 路由需在 `docs/api_reference.md` 与 `docs/frontend-backend-parity.md` 登记；未登记前不得在 UI 里宣称“已有精确抽帧”。
+
+
+## 实施记录
+
+### CP-0（部分）
+
+- flags 增加 `overlay3d` / `overlayServerFrame` / `blurCalibrated`；
+- 新增 `src/features/preview/motionSpecOverlay/overlayTypes.ts`；
+- 提交 `7c482ae`。
+
+### CP-5（首版）
+
+- 新增 `POST /api/text-animation/preview-frame`；
+- 新增 `clipwright/services/mg_frame.py`；
+- `HyperframesRenderer.render_mg_html_to_png()` 使用 `hyperframes snapshot --at`；
+- 只接受 project/clip/time，不接受客户端 HTML/spec；
+- 测试：`test_text_motion_api.py` 7 passed；
+- 后端提交 `46b603a`。
