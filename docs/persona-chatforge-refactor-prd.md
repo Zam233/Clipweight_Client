@@ -60,6 +60,21 @@ ChatForge 的六维草稿在消息时更新，`prompt` 与 `vision_prompt` 却�
 
 **拟议并发字段**：Persona 资源 `revision`/ETag（与现有展示版号 `version` 分离），会话独立 revision；每次成功保存递增，不以客户端时间或 `version` 字符串推断并发次序。Prompt 版本至少保存修订号、修改时间、来源（generated/manual）、摘要和可回退快照；不能把当前版本页的单个 v1.0.0 当作历史记录。
 
+### 5.1 字段命名复核（以后端 Pydantic 为准）
+
+| 层 | 权威字段 | 说明 |
+| --- | --- | --- |
+| `PersonaManifest` | `persona_id, persona_name, version, description, owner_id, inherits, overrides, compose, parameter, prompt, vision_prompt, knowledge, exemplar, embedding, model` | `parameter` 是对象；`inherits` 不是前端曾用的 `parent_id` |
+| `ParameterLayer` | `persona_id, version, identity, language, rhythm, visual, audio, constraints` | 六维对象，不含 UI 包装 |
+| `LanguageConfig` | `academic_density, slang_ratio, max_sentence_len, variance_target, forbidden_patterns, allowed_patterns` | 后端用 `max_sentence_len`，不是 `max_sentence_length` |
+| `RhythmConfig` | `cut_profile, surge_sections, pause_sections, base_shot_duration_ms, cut_density_tier, pause_frequency` | 后端用毫秒，UI 用秒；`None` 合法 |
+| `VisualConfig` | `palette, primary_color, accent_color, background_color, animation_style, animation_styles, transition_weights` | UI 的 `color_palette` 是映射层，不是后端字段 |
+| `AudioConfig` | `bgm_slots, voice_model, target_loudness_lufs, subtitle_enabled` | UI 用 `loudness_target_lufs` / `voice_clone_model_id`，必须转换 |
+| `ConstraintsConfig` | `max_duration_sec, min_duration_sec, require_source_citation, forbidden_topics` | UI 用 `source_citation_required` |
+| ChatForge `persona_draft` | 直接放六维键 `identity/language/rhythm/visual/audio/constraints` | **不是** `{parameter: {...}}`；不能把 manifest 整包塞入 |
+
+所有 API 请求/响应以 `PersonaManifest` 的规范字段为准；前端 `src/types/persona.ts` 的视图字段只允许在 `personaFromBackend` / `buildUpdatePayload` 边界转换，禁止在 API 层混用别名。
+
 ## 6. API 契约
 
 ### 6.1 已存在且须保持兼容
@@ -87,6 +102,19 @@ ChatForge 的六维草稿在消息时更新，`prompt` 与 `vision_prompt` 却�
 4. **拟变更** `PUT /api/persona/{id}`（或另加 PATCH，经接口评审二选一）：要求 `If-Match`/`expected_revision`；服务端读取最新 manifest 并合并允许编辑的字段，校验 ID/owner 不变，持久化参数与两类 Prompt 后返回最新 manifest、revision。若仍保留全量 PUT，则 raw 读取失败必须禁止提交，且明确 Prompt 独立 PUT 的优先关系；冲突 409/412 返回当前 revision 供用户手工合并。`GET /api/persona/{id}` 暴露对应 revision/ETag。
 5. **拟新增** 附件上传及受控读取契约（具体路径待评审）：二进制分片/受限上传返回 `attachment_id`、检测 MIME、大小、SHA256、解析状态；消息只引用已归属当前会话的 ID。禁止把客户端任意路径或远程 URL 当作服务端读取源。旧 data URL 消息契约暂保留，阶段性拒绝超限并引导新接口。
 6. 统一错误格式建议 `{code,message,field_errors?,retryable?,current_revision?}`：400 非法附件/无效字段、401/403 授权失败、404 不存在、409 重复 ID 或 revision 冲突、410 过期、413 体积超限、422 schema 错误、429 限流、5xx 服务端/模型异常；SSE 必须在 `error` 中携带稳定 code 与请求/消息 ID。以上为拟定目标，不表示现有服务已实现这些状态。
+
+### 6.3 契约复核修正（2026-11-18）
+
+以下为对现有路由逐条核对后的修正，优先级高于 §6.1 的概括描述：
+
+1. `POST /start` 的 `reply` 当前固定为空字符串；`scope/context` 只在响应回显，不写会话文件。新契约若要持久化，必须新增字段迁移，不能假设现有实现已保存。
+2. `POST /message` 成功响应包含 `session_id`，且同步路径在追加助手消息后**没有**再次 `_persist_session`；这与流式 `done` 后落盘不同，PRD 的“同步回复可能未持久化”是待修事实，不是建议。
+3. `GET /state/{id}` 的准确形状是 `session_id, message_count, persona_draft, knowledge_base_count, created_at, updated_at`；没有 `messages`、`prompt_draft`、`attachments`、`revision`。拟新增历史/草稿读取必须另立端点或显式版本化。
+4. `POST /commit` 当前只接收 `{session_id, persona_id?, persona_name?}`；`parameter/prompt/vision_prompt/expected_revision/idempotency_key` 均为拟新增字段。ID 缺省为 `chat_<session_id>`，不能在未改契约时假设客户端可传最终 manifest。
+5. `GET /api/persona/{id}/prompt` 返回 `{persona_id, prompt}`，`PUT` 接收 `{prompt}`；`/vision-prompt` 对应 `{persona_id, vision_prompt}` / `{vision_prompt}`，PUT 返回 `{status, persona_id}`。不要把 GET 响应当纯字符串。
+6. `POST /api/persona/create` 与 `PUT /api/persona/{id}` 的请求/响应都是完整 `PersonaManifest`；手动创建不是 `PATCH` 局部更新。`POST` 已存在 ID 返回 409，`PUT` 是整份替换，必须加 revision 或以服务端合并实现。
+7. `GET /api/persona/list` 当前返回 `list[str]`，不是 manifest 列表；前端图库需要逐条 GET 或另加安全的汇总接口。
+8. 附件现有字段固定为 `{type,name,mime,data_url}`，后端限制 4 个、单 `data_url` 8 MiB 字符；新 `attachment_id` 契约必须与旧字段并存迁移，不能在同一请求里混用两套语义。
 
 ## 7. 前端改造
 
