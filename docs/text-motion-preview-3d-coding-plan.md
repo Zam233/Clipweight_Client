@@ -1567,3 +1567,12 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 标定表缺失/异常时回退原始设计半径；
 - 测试 `motionSpecOverlay` 4 files/8 tests passed；build 通过；
 - 提交 `480e8d0`。
+
+
+### CP-5 前端实测（2026-11-18）
+
+- 重启最新后端后，MotionSpec 面板点击“精确抽帧”；
+- 服务端返回 PNG 并显示在属性面板；
+- 实际画面为黄色「并非回应」；
+- 同时预览显示 CSS3D 覆盖层和 `近似 (3d:css3d)` 角标；
+- 截图 `docs/e2e/motion-spec-preview-frame-ui.jpg`。
