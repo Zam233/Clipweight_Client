@@ -5,6 +5,12 @@ export const textMotionFlags = {
   ui: env.VITE_TEXT_MOTION_SPEC_UI === '1' || import.meta.env.DEV,
   preview: env.VITE_TEXT_MOTION_SPEC_PREVIEW === '1',
   editor: env.VITE_TEXT_MOTION_SPEC_EDITOR === '1',
+  /** 暂停态 CSS 3D 覆盖层（CP-3）；默认关，灰度验证后开 */
+  overlay3d: env.VITE_TEXT_MOTION_OVERLAY_3D === '1',
+  /** 服务端 Hyperframes 精确抽帧按钮（CP-5） */
+  overlayServerFrame: env.VITE_TEXT_MOTION_SERVER_FRAME === '1',
+  /** blur 半径标定表通过验收后才置 1（CP-1） */
+  blurCalibrated: env.VITE_TEXT_MOTION_BLUR_CALIBRATED === '1',
 } as const;
 
 export function textMotionEditorAvailable(): boolean {
