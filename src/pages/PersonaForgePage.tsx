@@ -91,6 +91,10 @@ export function PersonaForgePage() {
   const [draft, setDraft] = useState<Partial<ParameterLayer> | null>(null);
   const [promptDraft, setPromptDraft] = useState('');
   const [sessionRevision, setSessionRevision] = useState(0);
+  const [patchOpen, setPatchOpen] = useState(false);
+  const [patchTone, setPatchTone] = useState('');
+  const [patchAcademic, setPatchAcademic] = useState('');
+  const [patchSaving, setPatchSaving] = useState(false);
   const [visionPromptDraft, setVisionPromptDraft] = useState('');
   const [personaName, setPersonaName] = useState('');
   const [kbBusy, setKbBusy] = useState(false);
@@ -486,6 +490,24 @@ export function PersonaForgePage() {
     }
   };
 
+  const saveDraftPatch = async () => {
+    if (!sessionId || patchSaving) return;
+    setPatchSaving(true);
+    try {
+      const patch: Record<string, unknown> = {};
+      if (patchTone.trim()) patch.identity = { tone: patchTone.trim() };
+      if (patchAcademic !== '') patch.language = { academic_density: Number(patchAcademic) };
+      const res = await personaApi.chatForgePatch(sessionId, patch, sessionRevision);
+      if (res.persona_draft) setDraft(res.persona_draft as Partial<ParameterLayer>);
+      if (res.revision != null) setSessionRevision(res.revision);
+      setPatchOpen(false);
+      toast('草稿已修订', 'success');
+    } catch (e) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      toast(status === 409 ? '草稿冲突，请重新载入会话' : '草稿保存失败', 'error');
+    } finally { setPatchSaving(false); }
+  };
+
   const overall = Math.round(DIMENSIONS.reduce((s, d) => s + progress[d.key], 0) / DIMENSIONS.length);
 
   return (
@@ -824,6 +846,31 @@ export function PersonaForgePage() {
                   <p className="text-label-sm text-on-surface-variant/60">随着对话进行，人格草稿会在这里实时成形。</p>
                 )}
               </div>
+            </div>
+
+            {/* 人工修订草稿（PATCH draft） */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-label font-medium text-on-surface-variant uppercase tracking-wide">手动修订</h2>
+                <button onClick={() => setPatchOpen((v) => !v)} disabled={!sessionId}
+                  className="text-caption text-primary disabled:opacity-40 hover:underline cursor-pointer">
+                  {patchOpen ? '收起' : '修改参数'}
+                </button>
+              </div>
+              {patchOpen && (
+                <div className="space-y-2 bg-surface-container border border-outline-variant/30 rounded-cw-md p-3">
+                  <input value={patchTone} onChange={(e) => setPatchTone(e.target.value)}
+                    placeholder="语调，如 sharp / warm_storyteller"
+                    className="w-full bg-surface rounded-cw-xs px-2 py-1.5 text-caption text-on-surface border border-outline-variant/30 outline-none focus:border-primary" />
+                  <input value={patchAcademic} onChange={(e) => setPatchAcademic(e.target.value)}
+                    type="number" min={0} max={1} step={0.05} placeholder="学术密度 0-1"
+                    className="w-full bg-surface rounded-cw-xs px-2 py-1.5 text-caption text-on-surface border border-outline-variant/30 outline-none focus:border-primary" />
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={saveDraftPatch} disabled={patchSaving}>{patchSaving ? '保存中…' : '保存修订'}</Button>
+                    <Button size="sm" variant="outline" onClick={() => setPatchOpen(false)}>取消</Button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Prompt 草稿：对话过程中可见，保存后写入 persona prompt/vision_prompt */}
