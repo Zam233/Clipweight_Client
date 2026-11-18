@@ -48,6 +48,14 @@ export interface CompileSpecResponse {
   errors?: MotionValidationError[];
 }
 
+export interface PreviewFrameRequest {
+  project_id: string;
+  clip_id: string;
+  time_sec: number;
+  dpr?: number;
+  spec_hash?: string;
+}
+
 export interface CommitSpecRequest {
   project_id: string;
   clip_id: string;
@@ -134,6 +142,11 @@ export const textMotionApi = {
   cancelAuthor: async (taskId: string) => {
     const { data } = await getApiClient().post<AuthorTaskStatus>(
       `/api/text-animation/author/${encodeURIComponent(taskId)}/cancel`);
+    return data;
+  },
+  previewFrame: async (payload: PreviewFrameRequest) => {
+    const { data } = await getApiClient().post<Blob>(
+      '/api/text-animation/preview-frame', payload, { responseType: 'blob', timeout: 30_000 });
     return data;
   },
   commit: async (payload: CommitSpecRequest) => {

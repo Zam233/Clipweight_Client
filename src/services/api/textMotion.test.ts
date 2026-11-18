@@ -35,3 +35,19 @@ describe('textMotionApi contract', () => {
     expect(post).toHaveBeenCalledWith('/api/text-animation/author', { clip_id: 'c' });
   });
 });
+
+
+describe('previewFrame', () => {
+  it('requests blob from preview-frame', async () => {
+    const blob = new Blob(['x'], { type: 'image/png' });
+    post.mockResolvedValueOnce({ data: blob });
+    await expect(textMotionApi.previewFrame({
+      project_id: 'p', clip_id: 'c', time_sec: 1,
+    })).resolves.toBe(blob);
+    expect(post).toHaveBeenCalledWith(
+      '/api/text-animation/preview-frame',
+      { project_id: 'p', clip_id: 'c', time_sec: 1 },
+      expect.objectContaining({ responseType: 'blob' }),
+    );
+  });
+});
