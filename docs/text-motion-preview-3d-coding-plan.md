@@ -1492,3 +1492,11 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 暂停在 62.65s，`[data-testid="mg-overlay"]` 存在；
 - 黄色「并非回应」以 CSS3D 倾斜显示，Canvas 同 clip 已跳过；
 - 截图：`docs/e2e/motion-spec-3d-pause.jpg`。
+
+
+### CP-4/CP-5 证据（2026-11-18）
+
+- 新增 `fidelity.ts`：canvas-play 3D=unsupported、css3d-pause=approx、server-frame=exact；覆盖层显示 `CSS3D · 近似精确`；
+- `render_mg_html_to_png` 实际执行成功：1920×1080 PNG，17,125 bytes，截图 `docs/e2e/motion-spec-server-frame.png`；
+- 前端 243 tests/build 通过；提交 `c328e3b`。
+- 仍缺 CP-1 标定表、CP-6 覆盖层/PNG 逐像素对比。
