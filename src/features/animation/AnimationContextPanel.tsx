@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { AnimationActivityFeed } from './AnimationActivityFeed';
-import { BlackboardPanel, CallDetailDrawer, ContextInspector } from './ContextPanels';
+import { BlackboardPanel, CallDetailDrawer, ContextInspector, QAReportPanel } from './ContextPanels';
 import { getAnimationContext, type AnimationCall, type AnimationContext } from './contextApi';
 import { useTaskStore } from '@/stores/taskStore';
 
 export function AnimationContextPanel({ sessionId, taskId }: { sessionId: string; taskId: string }) {
   const [ctx, setCtx] = useState<AnimationContext | null>(null);
-  const [tab, setTab] = useState<'activity' | 'context' | 'blackboard'>('activity');
+  const [tab, setTab] = useState<'activity' | 'context' | 'blackboard' | 'quality'>('activity');
   const [selected, setSelected] = useState<AnimationCall | null>(null);
   const taskEvents = useTaskStore((s) => s.events);
 
@@ -37,10 +37,12 @@ export function AnimationContextPanel({ sessionId, taskId }: { sessionId: string
         <div style={tabStyle(tab === 'activity')} onClick={() => setTab('activity')}>活动</div>
         <div style={tabStyle(tab === 'context')} onClick={() => setTab('context')}>上下文</div>
         <div style={tabStyle(tab === 'blackboard')} onClick={() => setTab('blackboard')}>黑板</div>
+        <div style={tabStyle(tab === 'quality')} onClick={() => setTab('quality')}>QA</div>
       </div>
       {tab === 'activity' ? <div onClick={(e) => { const el = (e.target as HTMLElement).closest('[data-call]'); if (el) setSelected(calls.find((c) => c.call_id === el.getAttribute('data-call')) ?? null); }}><AnimationActivityFeed calls={calls} /></div> : null}
       {tab === 'context' ? <ContextInspector ctx={ctx} /> : null}
       {tab === 'blackboard' ? <BlackboardPanel ctx={ctx} /> : null}
+      {tab === 'quality' ? <QAReportPanel ctx={ctx} /> : null}
       <CallDetailDrawer call={selected} onClose={() => setSelected(null)} />
     </div>
   );
