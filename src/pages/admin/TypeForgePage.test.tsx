@@ -13,7 +13,7 @@ const { mocks } = vi.hoisted(() => ({
 vi.mock('@/services/api', () => ({
   typeForgeApi: {
     sessions: mocks.sessions, start: mocks.start, detail: mocks.detail,
-    message: mocks.message, commit: mocks.commit, remove: mocks.remove,
+    message: mocks.message, messageStream: mocks.message, commit: mocks.commit, remove: mocks.remove,
   },
   typeMakerApi: { validate: mocks.validate },
 }));

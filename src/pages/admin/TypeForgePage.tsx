@@ -17,6 +17,9 @@ export function TypeForgePage() {
   const [busy, setBusy] = useState(false);
   const [typeId, setTypeId] = useState('');
   const [typeName, setTypeName] = useState('');
+  const [attachments, setAttachments] = useState<Array<{ type: string; name: string; mime: string; data_url: string }>>([]);
+  const [missing, setMissing] = useState<string[]>([]);
+  const [progress, setProgress] = useState<Record<string, number>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const loadSessions = async () => {
@@ -28,6 +31,7 @@ export function TypeForgePage() {
   const apply = (d: TypeForgeDetail) => {
     setDetail(d); setSessionId(d.session_id); setMessages(d.messages ?? []); setDraft(d.draft ?? {});
     setTypeId(String(d.draft?.id ?? '')); setTypeName(String(d.draft?.name ?? ''));
+    setMissing([]); setProgress({});
   };
 
   const newSession = async () => {
@@ -36,6 +40,7 @@ export function TypeForgePage() {
       const s = await typeForgeApi.start();
       setSessionId(s.session_id); setMessages([]); setDraft(s.draft ?? {});
       setTypeId(String(s.draft?.id ?? '')); setTypeName(String(s.draft?.name ?? ''));
+      setMissing([]); setProgress({});
       await loadSessions();
     } catch { toast('新类型会话创建失败', 'error'); } finally { setBusy(false); }
   };
@@ -47,13 +52,19 @@ export function TypeForgePage() {
   };
 
   const send = async () => {
-    if (!sessionId || !input.trim() || busy) return;
-    const text = input.trim(); setInput(''); setBusy(true);
-    setMessages((m) => [...m, { role: 'user', content: text }]);
+    if (!sessionId || (!input.trim() && attachments.length === 0) || busy) return;
+    const text = input.trim(); const files = attachments; setInput(''); setAttachments([]); setBusy(true);
+    setMessages((m) => [...m, { role: 'user', content: text || `[${files.length} 个附件]` }, { role: 'assistant', content: '' }]);
     try {
-      const res = await typeForgeApi.message(sessionId, text);
-      setMessages((m) => [...m, { role: 'assistant', content: res.reply }]);
+      let accumulated = '';
+      const res = await typeForgeApi.messageStream(sessionId, text, files, (delta) => {
+        accumulated += delta;
+        setMessages((m) => [...m.slice(0, -1), { role: 'assistant', content: accumulated }]);
+      });
+      setMessages((m) => [...m.slice(0, -1), { role: 'assistant', content: res.reply }]);
       setDraft(res.draft ?? {});
+      setMissing(res.missing_fields ?? []);
+      setProgress(res.progress ?? {});
       if (res.draft?.id) setTypeId(String(res.draft.id));
       if (res.draft?.name) setTypeName(String(res.draft.name));
     } catch { toast('发送失败', 'error'); } finally { setBusy(false); }
@@ -62,8 +73,16 @@ export function TypeForgePage() {
   const upload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; e.target.value = '';
     if (!file) return;
-    const text = await file.text();
-    setInput((v) => (v ? `${v}\n\n${text}` : text));
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    setAttachments((list) => [...list, {
+      type: file.type.startsWith('image/') ? 'image' : 'file',
+      name: file.name, mime: file.type, data_url: dataUrl,
+    }]);
   };
 
   const save = async () => {
@@ -111,10 +130,13 @@ export function TypeForgePage() {
           {messages.map((m, i) => <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[75%] rounded-cw-md px-3 py-2 text-body-sm ${m.role === 'user' ? 'bg-primary-container' : 'bg-surface-container border'}`}>{m.content}</div></div>)}
           {busy && <span className="text-caption text-on-surface-variant flex items-center gap-2"><Loader2 className="w-3 h-3 animate-spin" /> 生成中…</span>}
         </div>
-        <div className="p-3 border-t flex gap-2">
-          <label title="上传文稿" className="p-2.5 rounded-cw-sm bg-surface-container border cursor-pointer"><FileText className="w-4 h-4" /><input type="file" className="hidden" accept=".txt,.md,.srt" onChange={upload} /></label>
-          <textarea value={input} onChange={(e) => setInput(e.target.value)} rows={2} placeholder="描述视频类型、节奏、剪辑方式…" className="flex-1 resize-none bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm border outline-none focus:border-primary" />
-          <Button size="icon" onClick={() => void send()} disabled={!input.trim() || busy || !sessionId}><Send className="w-4 h-4" /></Button>
+        <div className="p-3 border-t space-y-2">
+          {attachments.length > 0 && <div className="flex flex-wrap gap-1.5">{attachments.map((a, i) => <span key={`${a.name}-${i}`} className="text-caption bg-surface-container border rounded-cw-full px-2 py-0.5 flex items-center gap-1">{a.type === 'image' ? '🖼' : '📄'} {a.name}<button aria-label={`移除附件 ${a.name}`} onClick={() => setAttachments((list) => list.filter((_, j) => j !== i))}>×</button></span>)}</div>}
+          <div className="flex gap-2">
+            <label title="上传图片/文稿" className="p-2.5 rounded-cw-sm bg-surface-container border cursor-pointer"><FileText className="w-4 h-4" /><input type="file" className="hidden" accept="image/*,.txt,.md,.srt" onChange={upload} /></label>
+            <textarea value={input} onChange={(e) => setInput(e.target.value)} rows={2} placeholder="描述视频类型、节奏、剪辑方式…" className="flex-1 resize-none bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm border outline-none focus:border-primary" />
+            <Button size="icon" onClick={() => void send()} disabled={(!input.trim() && attachments.length === 0) || busy || !sessionId}><Send className="w-4 h-4" /></Button>
+          </div>
         </div>
       </div>
       <aside className="w-[340px] shrink-0 p-5 overflow-y-auto bg-surface-container-low space-y-4">
@@ -127,6 +149,8 @@ export function TypeForgePage() {
           <p>转场：{String((draft.shot_params as TypeDefinition['shot_params'] | undefined)?.transition_type ?? '-')}</p>
           <p>Prompt 槽位：{Object.keys(draft.prompts ?? {}).length}/10</p>
         </div>
+        {missing.length > 0 && <div className="rounded-cw-sm border border-warning/30 bg-warning/10 p-2"><p className="text-caption font-medium text-warning mb-1">待确认</p><ul className="text-caption text-on-surface-variant space-y-0.5">{missing.map((m) => <li key={m}>· {m}</li>)}</ul></div>}
+        {Object.keys(progress).length > 0 && <div className="space-y-1">{[['identity','身份'],['params','参数'],['prompts','Prompt'],['rules','规则']].map(([k,label]) => <div key={k} className="flex items-center gap-2"><span className="text-caption w-12">{label}</span><div className="flex-1 h-1.5 rounded-full bg-surface-container"><div className="h-full rounded-full bg-primary" style={{width:`${Math.round((progress[k] ?? 0) * 100)}%`}} /></div></div>)}</div>}
         <details className="bg-surface rounded-cw-sm border p-2"><summary className="text-label-sm cursor-pointer">完整草稿 JSON</summary><pre className="mt-2 text-caption overflow-auto max-h-64">{JSON.stringify(draft, null, 2)}</pre></details>
         <Button className="w-full" onClick={() => void save()} disabled={busy || !sessionId || !typeId.trim() || !typeName.trim()}><Check className="w-4 h-4" /> 保存类型</Button>
         {detail && <p className="text-caption text-on-surface-variant/60">会话 {detail.session_id}</p>}

@@ -87,9 +87,17 @@ export function TypeDetailPage() {
             <Field label="最长镜头 sec"><input type="number" step={0.1} value={d.shot_params?.max_shot_sec ?? 4} onChange={(e) => setDraft({...d, shot_params:{...d.shot_params, max_shot_sec:Number(e.target.value)}})} className={inputCls} /></Field>
             <Field label="默认转场"><input value={d.shot_params?.transition_type ?? 'cut'} onChange={(e) => setDraft({...d, shot_params:{...d.shot_params, transition_type:e.target.value}})} className={inputCls} /></Field>
             <Field label="转场时长"><input type="number" step={0.1} value={d.shot_params?.transition_duration_sec ?? 0.5} onChange={(e) => setDraft({...d, shot_params:{...d.shot_params, transition_duration_sec:Number(e.target.value)}})} className={inputCls} /></Field>
+            <Field label="标签（逗号分隔）"><input value={(d.tags ?? []).join(', ')} onChange={(e) => setDraft({...d, tags:e.target.value.split(',').map((x)=>x.trim()).filter(Boolean)})} className={inputCls} /></Field>
+            <div className="md:col-span-2"><JsonField label="persona_mapping（JSON）" value={d.persona_mapping ?? {}} onChange={(v) => setDraft({...d, persona_mapping:v as TypeDefinition['persona_mapping']})} /></div>
+            <div className="md:col-span-2"><JsonField label="post_process（JSON）" value={d.post_process ?? {}} onChange={(v) => setDraft({...d, post_process:v as Record<string, unknown>})} /></div>
           </div>}
           {tab === 'prompts' && <div className="space-y-3">{SLOT_KEYS.map((k) => <Field key={k} label={k}><textarea rows={3} value={d.prompts?.[k]?.text ?? ''} onChange={(e) => setDraft({...d, prompts:{...d.prompts, [k]:{...(d.prompts?.[k] ?? {}), text:e.target.value}}})} className={`${inputCls} resize-y`} /></Field>)}</div>}
-          {tab === 'rules' && <pre className="bg-surface-container border rounded-cw-md p-4 text-caption overflow-auto">{JSON.stringify({param_rules:d.param_rules, signature_traits:d.signature_traits, declares:d.declares, waivers:d.waivers}, null, 2)}</pre>}
+          {tab === 'rules' && <div className="space-y-4">
+            <JsonField label="param_rules（JSON 数组）" value={d.param_rules ?? []} onChange={(v) => setDraft({...d, param_rules:v as TypeDefinition['param_rules']})} />
+            <JsonField label="signature_traits（JSON 数组）" value={d.signature_traits ?? []} onChange={(v) => setDraft({...d, signature_traits:v as TypeDefinition['signature_traits']})} />
+            <JsonField label="declares（JSON 对象）" value={d.declares ?? {}} onChange={(v) => setDraft({...d, declares:v as TypeDefinition['declares']})} />
+            <Field label="waivers（逗号分隔）"><input value={(d.waivers ?? []).join(', ')} onChange={(e) => setDraft({...d, waivers:e.target.value.split(',').map((x)=>x.trim()).filter(Boolean)})} className={inputCls} /></Field>
+          </div>}
           {tab === 'json' && <pre className="bg-surface-container border rounded-cw-md p-4 text-caption overflow-auto max-h-[520px]">{JSON.stringify(d, null, 2)}</pre>}
         </fieldset>
       </div>
@@ -99,3 +107,13 @@ export function TypeDetailPage() {
 
 const inputCls = 'w-full bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm border border-outline-variant/30 focus:border-primary outline-none';
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block"><span className="block text-label-sm text-on-surface-variant mb-1.5">{label}</span>{children}</label>; }
+
+function JsonField({ label, value, onChange }: { label: string; value: unknown; onChange: (v: unknown) => void }) {
+  const [text, setText] = useState(() => JSON.stringify(value ?? null, null, 2));
+  const [error, setError] = useState('');
+  useEffect(() => { setText(JSON.stringify(value ?? null, null, 2)); }, [value]);
+  return <Field label={label}><textarea rows={5} value={text} onChange={(e) => {
+    const next = e.target.value; setText(next);
+    try { onChange(JSON.parse(next)); setError(''); } catch { setError('JSON 格式错误，修正后才会写入'); }
+  }} className={`${inputCls} resize-y font-mono text-caption`} />{error && <span className="block text-caption text-error mt-1">{error}</span>}</Field>;
+}
