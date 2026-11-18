@@ -12,6 +12,8 @@ import { publishPlaybackStats, resetPlaybackStats } from './playbackStats';
 import { clearMgImageCache, drawMgFrame, emptyFidelity, mgParamsOf, mgSpecOf } from './mgRenderer';
 import { motionPreviewState } from '@/features/textMotion/adapter';
 import { reportMgFidelity, resetMgFidelity, useMgFidelityStore } from './mgFidelity';
+import { MotionSpecOverlay } from './motionSpecOverlay/MotionSpecOverlay';
+import { useOverlayStore } from './motionSpecOverlay/overlayStore';
 
 /**
  * 同时连续解码的视频路数上限（devplan T1.2）。
@@ -938,6 +940,7 @@ export function PreviewPanel() {
           onPointerCancel={handlePointerCancel}
           onDoubleClick={handleDoubleClick}
         />
+        <MotionSpecOverlay wrapRef={wrapRef} />
         {/* C1: 画布内联文字编辑 */}
         {editingText && (
           <div className="absolute z-20" style={{ left: editingText.x, top: editingText.y, transform: 'translate(-50%, -50%)' }}>
@@ -1211,6 +1214,8 @@ export function compositeTimelineClips(
     for (const clip of track.clips) {
       if (t < clip.start_sec || t >= clip.start_sec + clip.duration_sec) continue;
       if (clip.enabled === false) continue;
+      // CSS3D 覆盖层接管时，Canvas 不再画同一 MG clip，避免双 alpha。
+      if (useOverlayStore.getState().activeClipIds.includes(clip.id)) continue;
       // C3: 嵌套序列 — 递归合成子时间线（深度上限 4，防循环）
       if (clip.nested_timeline) {
         drawNestedTimeline(ctx, clip, track, fx, fy, fw, fh, t, 0, dpr, perf);
