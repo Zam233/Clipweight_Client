@@ -4,43 +4,43 @@ export const BLUR_BUCKETS: BlurBucket[] = [
   {
     "scale": 0.25,
     "dpr": 1,
-    "a": 0.9,
+    "a": 0.25,
     "b": 0,
-    "maxSsimError": 0.000021688918767304166
+    "maxSsimError": 0.01622
   },
   {
     "scale": 0.25,
     "dpr": 2,
-    "a": 0.9,
+    "a": 0.5,
     "b": 0,
-    "maxSsimError": 0.0055711887050224895
+    "maxSsimError": 0.01116
   },
   {
     "scale": 0.5,
     "dpr": 1,
-    "a": 1,
+    "a": 0.5,
     "b": 0,
-    "maxSsimError": 0.000010832184038966908
+    "maxSsimError": 0.01116
   },
   {
     "scale": 0.5,
     "dpr": 2,
     "a": 1,
     "b": 0,
-    "maxSsimError": 0.0056589122075320075
+    "maxSsimError": 0.013912
   },
   {
     "scale": 1,
     "dpr": 1,
     "a": 1,
     "b": 0,
-    "maxSsimError": 0.000007385682410099292
+    "maxSsimError": 0.013912
   },
   {
     "scale": 1,
     "dpr": 2,
-    "a": 1,
+    "a": 2,
     "b": 0,
-    "maxSsimError": 0.0059568578952683415
+    "maxSsimError": 0.012597
   }
 ];

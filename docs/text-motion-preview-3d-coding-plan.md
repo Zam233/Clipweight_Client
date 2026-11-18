@@ -1600,3 +1600,12 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - `mg-overlay` 存在，文字 `CSS3D · 近似 (3d:css3d)并非回应`；
 - WAAPI seek 生效；覆盖层激活即可见（generation 仍记录但不阻塞显示）；
 - 截图 `docs/e2e/motion-spec-waapi.jpg`。
+
+
+### CP-1 完整 288 例完成（2026-11-18）
+
+- `scripts/calibrate-blur-288.mjs`：6 图 × 8 半径 × 3 scale × 2 dpr；
+- Canvas 读 backing store，CSS 同 512×512 舞台截图；alpha 合成、bbox 对齐、SSIM 11×11 高斯窗；
+- 6 桶全部 mean SSIM > 0.999，min > 0.983；拟合 `a = scale*dpr`，b=0，偏差 0.00%；
+- 生成表更新；报告 `docs/blur-calibration-288-report.md`；
+- 测试 165 passed、tsc/build 通过。
