@@ -87,9 +87,10 @@ export function EditorPage() {
       );
       if (exists) useSelectionStore.getState().selectClip(clipId);
       if (Number.isFinite(seek) && seek >= 0) usePreviewStore.getState().setCurrentTime(seek);
-      if (exists || tries >= 40) window.clearInterval(timer);
+      // 项目加载后仍可能被草稿恢复/水合再次清空选择；持续 3s 重试，之后交还用户。
+      if (tries >= 12) window.clearInterval(timer);
     }, 250);
-    return () => window.clearTimeout(timer);
+    return () => window.clearInterval(timer);
   }, [loading, projectId, trackCount]);
   const [loadError, setLoadError] = useState<string | null>(null);
   // 加载慢的时候要给出可操作提示，不能只转圈（后端没起 / 刚重启时最常见）

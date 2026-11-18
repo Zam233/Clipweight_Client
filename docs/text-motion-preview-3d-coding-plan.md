@@ -1534,3 +1534,11 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 当前 3D clip 0.2s：bbox delta 0.0005/0.0081/0.0015/0.0247，mask IoU **0.4516**；
 - IoU 受截图裁切/背景/抗锯齿影响，说明“位置接近但还不是像素等价”；
 - 提交 `67939b1`（脚本修订待提交）。
+
+
+### 深链接与 3D 覆盖层联合复验（2026-11-18）
+
+- `?clip=tc_e9831d60&t=62.65` 现在会在水合后持续 3s 重试选中；
+- 页面选中 `tc_e9831d60`，属性面板显示 MotionSpec；
+- 暂停态 `mg-overlay` 可见，黄色 3D 文字与视频/字幕合成；
+- 截图 `docs/e2e/motion-spec-3d-deeplink.jpg`。
