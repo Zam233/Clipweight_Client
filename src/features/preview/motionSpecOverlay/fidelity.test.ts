@@ -22,3 +22,13 @@ describe('fidelity verdict', () => {
     expect(verdictForClip(clip({}), 'css3d-pause').fidelity).toBe('unsupported');
   });
 });
+
+
+it('marks blur as approx alongside 3D', () => {
+  const spec = { schema: 'motion_spec/1', duration_sec: 2, width: 100, height: 100,
+    elements: [{ type: 'text', content: 'x', keyframes: [
+      { time: 0, rotate_x: 10, blur: 8 }, { time: 1, rotate_x: 0, blur: 0 }] }] };
+  const v = verdictForClip(clip({ mg_def: spec }), 'css3d-pause');
+  expect(v.approx).toContain('3d:css3d');
+  expect(v.approx).toContain('blur');
+});

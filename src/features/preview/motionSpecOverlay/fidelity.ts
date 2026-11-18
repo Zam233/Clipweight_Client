@@ -22,7 +22,14 @@ export function verdictForClip(clip: Clip, mode: RenderMode): FidelityVerdict {
   const threeD = (spec.elements ?? []).some((el) => (el.keyframes ?? []).some(
     (k) => has3D({ ...el, ...(k.properties as Record<string, unknown>), ...k } as Record<string, unknown>),
   ));
-  if (!threeD) { out.exact.push('transform2d'); return out; }
+  const hasBlur = (spec.elements ?? []).some((el) => (el.keyframes ?? []).some(
+    (k) => 'blur' in { ...el, ...(k.properties as Record<string, unknown>), ...k },
+  ));
+  if (hasBlur) out.approx.push('blur');
+  if (!threeD) {
+    if (out.approx.length === 0) out.exact.push('transform2d');
+    return out;
+  }
   if (mode === 'canvas-play') {
     out.fidelity = 'unsupported'; out.unsupported.push('3d');
     out.reasons.push('连续播放 Canvas 2D 不支持 3D');

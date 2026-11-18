@@ -78,7 +78,7 @@ export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivEleme
         background: 'rgba(14,16,26,.72)', color: '#9fd0ff', borderRadius: 4,
         padding: '2px 6px', fontSize: 11,
       }}>
-        CSS3D · {verdictForClip(active[0], 'css3d-pause').fidelity === 'approx' ? '近似精确' : '精确'}
+        CSS3D · {verdictForClip(active[0], 'css3d-pause').approx.length ? `近似 (${verdictForClip(active[0], 'css3d-pause').approx.join('/')})` : '精确'}
       </div>
       <div style={{ position: 'absolute', left: 0, top: 0, width: timeline.width, height: timeline.height, transformOrigin: '0 0', transform: `scale(${u})` }}>
         {active.map((clip) => {
