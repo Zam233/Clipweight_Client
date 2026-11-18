@@ -1500,3 +1500,13 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - `render_mg_html_to_png` 实际执行成功：1920×1080 PNG，17,125 bytes，截图 `docs/e2e/motion-spec-server-frame.png`；
 - 前端 243 tests/build 通过；提交 `c328e3b`。
 - 仍缺 CP-1 标定表、CP-6 覆盖层/PNG 逐像素对比。
+
+
+### CP-1 采样标定（2026-11-18）
+
+- 新增 `scripts/calibrate-blur.mjs`：Playwright 对 Canvas/CSS 模糊矩形截图并比对；
+- 当前采样 4 个半径 × 2 dpr（8 例），不是计划中的完整 288 例；
+- 生成 `blur-calibration.generated.ts`：dpr=1 a=1.0，dpr=2 a=1.25；
+- `blurModel.ts` 只对已有 bucket 返回半径，其余返回 null（继续 approx）；
+- 测试通过；提交 `e40fee3`。
+- 仍缺：scale 0.25/0.5、文字/细线测试图、SSIM/Δedge 阈值表。
