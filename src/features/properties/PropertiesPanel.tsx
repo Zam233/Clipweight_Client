@@ -125,12 +125,16 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
   const [jsonMode, setJsonMode] = useState(false);
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState('');
+  const [frameUrl, setFrameUrl] = useState('');
+  const [frameBusy, setFrameBusy] = useState(false);
+  const [frameError, setFrameError] = useState('');
   useEffect(() => {
     setDraft(spec ? JSON.parse(JSON.stringify(spec)) as MotionSpec : null);
     setSaveError('');
     setSaved('');
   }, [clip.id, motionSpecMetaOf(clip.metadata).hash]);
   useEffect(() => () => { authorStream.current?.close(); }, []);
+  useEffect(() => () => { if (frameUrl) URL.revokeObjectURL(frameUrl); }, [frameUrl]);
   if (!spec) return null;
   const effective = draft ?? spec;
   const meta = motionSpecMetaOf(clip.metadata);
@@ -214,6 +218,23 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
       setBusy(false);
     }
   };
+  const grabFrame = async () => {
+    if (!projectId || frameBusy) return;
+    setFrameBusy(true); setFrameError('');
+    try {
+      const t = usePreviewStore.getState().currentTimeSec;
+      const blob = await textMotionApi.previewFrame({
+        project_id: projectId, clip_id: clip.id,
+        time_sec: Math.min(clip.start_sec + clip.duration_sec, Math.max(clip.start_sec, t)),
+        spec_hash: meta.hash,
+      });
+      if (frameUrl) URL.revokeObjectURL(frameUrl);
+      setFrameUrl(URL.createObjectURL(blob));
+    } catch (e) {
+      setFrameError(e instanceof Error ? e.message : '精确抽帧失败');
+    } finally { setFrameBusy(false); }
+  };
+
   const openJson = () => {
     setJsonText(JSON.stringify(effective, null, 2));
     setJsonError('');
@@ -431,6 +452,14 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
           </span>
         )}
         <button
+          type="button" disabled={!canEdit || frameBusy}
+          onClick={() => void grabFrame()}
+          className="px-2 py-1 rounded-cw-xs text-caption bg-surface-container text-on-surface disabled:opacity-40"
+          title="服务端 Hyperframes 精确帧（不在浏览器执行 mg_html）"
+        >
+          {frameBusy ? '抽帧中…' : '精确抽帧'}
+        </button>
+        <button
           type="button" disabled={!canEdit}
           onClick={() => void save()}
           className="px-2 py-1 rounded-cw-xs text-caption bg-primary/15 text-primary disabled:opacity-40"
@@ -442,6 +471,13 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
         </span>
       </div>
       {saveError && <p className="mt-1 text-caption text-error">{saveError}</p>}
+      {frameError && <p className="mt-1 text-caption text-error">{frameError}</p>}
+      {frameUrl && (
+        <div className="mt-2 rounded-cw-xs overflow-hidden border border-outline-variant/30 bg-black">
+          <img src={frameUrl} alt="服务端精确帧" className="w-full" />
+          <p className="px-2 py-1 text-caption text-on-surface-variant">服务端 Hyperframes 精确帧</p>
+        </div>
+      )}
       <button
         type="button"
         onClick={openJson}
