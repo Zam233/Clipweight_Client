@@ -1559,3 +1559,11 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 生成表覆盖 scale 0.25/0.5/1、dpr 1/2；
 - 测试更新；提交 `f7fab54`；
 - 仍不是计划中的 288 例（缺文字/细线/圆环）。
+
+
+### CP-1 接入运行时（2026-11-18）
+
+- `mgRenderer` 读取 `blurModel.canvasBlurRadius`，按 `box.w/designW` 和 DPR 选择最近标定桶；
+- 标定表缺失/异常时回退原始设计半径；
+- 测试 `motionSpecOverlay` 4 files/8 tests passed；build 通过；
+- 提交 `480e8d0`。
