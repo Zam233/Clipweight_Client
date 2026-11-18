@@ -12,7 +12,10 @@ import {
 } from 'lucide-react';
 
 /** 会话内附带的图片（data URL，前端可直接渲染缩略图） */
-interface ChatAttachment { type: 'image' | 'file'; name: string; mime: string; data_url: string }
+interface ChatAttachment {
+  type: 'image' | 'file'; name: string; mime: string;
+  data_url?: string; id?: string; storage_ref?: string;
+}
 
 interface ChatMsg {
   id: string;
@@ -154,7 +157,7 @@ export function PersonaForgePage() {
       try {
         const detail = await personaApi.chatForgeDetail(sid);
         if (!alive) return;
-        applySessionDetail(detail, true);
+        await applySessionDetail(detail, true);
         setRestoreMsg(`会话 ${detail.session_id} 已恢复`);
       } catch {
         if (alive) setRestoreMsg('恢复失败：会话不存在或后端不可达');
@@ -177,7 +180,7 @@ export function PersonaForgePage() {
     setMessages((m) => [...m, { id: uid('m'), role, content, ...(attachments?.length ? { attachments } : {}) }]);
 
   /** 用详情接口恢复真实消息/草稿/Prompt；replace=true 时重建消息列表。 */
-  const applySessionDetail = (
+  const applySessionDetail = async (
     detail: Awaited<ReturnType<typeof personaApi.chatForgeDetail>>,
     replace: boolean,
   ) => {
@@ -189,12 +192,20 @@ export function PersonaForgePage() {
     setPromptDraft(detail.prompt_draft ?? '');
     setVisionPromptDraft(detail.vision_prompt_draft ?? '');
     if (replace) {
-      setMessages((detail.messages ?? []).map((m) => ({
-        id: uid('m'),
-        role: m.role,
-        content: m.content,
-        ...(m.attachments?.length ? { attachments: m.attachments.map((a) => ({ ...a, name: a.name ?? '', mime: a.mime ?? '' })) } : {}),
-      })));
+      const mapped = await Promise.all((detail.messages ?? []).map(async (m) => {
+        const attachments = await Promise.all((m.attachments ?? []).map(async (a) => {
+          let url = a.data_url;
+          if (!url && a.id) {
+            try { url = await personaApi.chatForgeAttachment(detail.session_id, a.id); } catch { url = undefined; }
+          }
+          return { ...a, name: a.name ?? '', mime: a.mime ?? '', data_url: url };
+        }));
+        return {
+          id: uid('m'), role: m.role, content: m.content,
+          ...(attachments.length ? { attachments } : {}),
+        };
+      }));
+      setMessages(mapped);
     }
   };
 
@@ -205,7 +216,7 @@ export function PersonaForgePage() {
     setRestoreMsg('');
     try {
       const detail = await personaApi.chatForgeDetail(sid);
-      applySessionDetail(detail, true);
+      await applySessionDetail(detail, true);
       setRestoreMsg(`会话 ${detail.session_id} 已恢复`);
     } catch {
       setRestoreMsg('恢复失败：会话不存在或后端不可达');
@@ -234,7 +245,9 @@ export function PersonaForgePage() {
   const send = async () => {
     const text = input.trim();
     if ((!text && attachments.length === 0) || busy) return;
-    const outgoing = attachments;
+    const outgoing = attachments
+      .filter((a): a is ChatAttachment & { data_url: string } => Boolean(a.data_url))
+      .map((a) => ({ type: a.type, name: a.name, mime: a.mime, data_url: a.data_url }));
     setInput('');
     setAttachments([]);
     addMsg('user', text || '（见附件）', outgoing);
@@ -383,7 +396,7 @@ export function PersonaForgePage() {
     setRestoreBusy(true);
     try {
       const detail = await personaApi.chatForgeDetail(sid);
-      applySessionDetail(detail, true);
+      await applySessionDetail(detail, true);
       void refreshKnowledge(detail.session_id);
     } catch {
       toast('该会话不存在或后端不可达', 'error');

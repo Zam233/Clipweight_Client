@@ -245,6 +245,15 @@ export const personaApi = {
 
   // ── Chat Forge 历史欠账补齐：会话列表 / 知识库 CRUD（O5 后一轮） ──
 
+  /** 受控附件读取：返回可渲染的 blob URL。 */
+  async chatForgeAttachment(sessionId: string, attachmentId: string) {
+    const { data } = await getApiClient().get(
+      `/api/persona/forge/chat/sessions/${sessionId}/attachments/${attachmentId}`,
+      { responseType: 'blob' },
+    );
+    return URL.createObjectURL(data as Blob);
+  },
+
   /** 会话详情：真实消息 + 草稿 + 两类 Prompt 草稿（GET /sessions/{id}） */
   async chatForgeDetail(sessionId: string) {
     const { data } = await getApiClient().get(`/api/persona/forge/chat/sessions/${sessionId}`);
@@ -253,7 +262,10 @@ export const personaApi = {
       messages: Array<{
         role: 'user' | 'assistant';
         content: string;
-        attachments?: Array<{ type: 'image' | 'file'; name?: string; mime?: string; data_url: string }>;
+        attachments?: Array<{
+          type: 'image' | 'file'; name?: string; mime?: string; data_url?: string;
+          id?: string; storage_ref?: string; size?: number; sha256?: string;
+        }>;
       }>;
       persona_draft?: Record<string, unknown>;
       prompt_draft?: string;
