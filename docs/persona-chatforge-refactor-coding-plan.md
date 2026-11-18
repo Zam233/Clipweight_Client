@@ -1,6 +1,6 @@
 # Persona ChatForge 重构编码计划（M1–M4）
 
-- 状态：待评审（编码前基线）；依据 [PRD](./persona-chatforge-refactor-prd.md)（2026-11-18，含 §5.1 字段复核、§6.3 契约复核）
+- 状态：已被 [v2](./persona-chatforge-refactor-coding-plan-v2.md) 替代（保留供对照）；依据 [PRD](./persona-chatforge-refactor-prd.md)（2026-11-18，含 §5.1 字段复核、§6.3 契约复核）
 - 范围：`J:\Clipwright` + `J:\Clipweight-Client`；分支 `feat/zam_persona_chatforge_refactor`
 - 铁律：只写**待实施**改动。PRD 未证实的能力一律标「拟新增/拟变更」，不得当既有能力引用；代码路径与实际注册不符时以 M1-T0 核对为准。
 
