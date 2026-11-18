@@ -1576,3 +1576,11 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 实际画面为黄色「并非回应」；
 - 同时预览显示 CSS3D 覆盖层和 `近似 (3d:css3d)` 角标；
 - 截图 `docs/e2e/motion-spec-preview-frame-ui.jpg`。
+
+
+### CP-6 边缘跨度代理（2026-11-18）
+
+- `compare-mg-frame.py` 增加 `mean_span_delta`；
+- 当前 overlay/server：0.0356；
+- 这是文字像素横向跨度的差异代理，不是正式 Δedge 阈值；
+- 提交待入库。
