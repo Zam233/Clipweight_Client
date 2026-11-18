@@ -62,7 +62,8 @@ export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivEleme
     requestOverlay(clipIds.split('|'));
     return () => releaseOverlay();
   }, [clipIds, requestOverlay, releaseOverlay]);
-  const visible = generation > 0 && canvasGeneration >= generation;
+  // 握手用于观测；Canvas 已 skip active ids，覆盖层可直接显示，避免因 React/WAAPI 时序一直 hidden。
+  const visible = active.length > 0;
 
   // WAAPI：暂停态只 seek currentTime，不 play；播放态由 Canvas 接管。
   useEffect(() => {
