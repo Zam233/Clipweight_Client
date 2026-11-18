@@ -37,9 +37,12 @@ export function TypeDetailPage() {
     if (!draft || busy) return;
     setBusy(true); setError('');
     try {
-      const v = await typeMakerApi.validate(draft);
+      const clean = { ...draft } as TypeDefinition & { _source_file?: string; builtin?: boolean };
+      delete clean._source_file;
+      delete clean.builtin;
+      const v = await typeMakerApi.validate(clean);
       if (!v.ok) { setError((v.errors ?? []).map((e) => e.message).join('；') || '校验失败'); return; }
-      await typeMakerApi.update(typeId, draft);
+      await typeMakerApi.update(typeId, clean);
       setDefinition(draft); setEditing(false); toast('类型已保存', 'success');
     } catch { setError('保存失败：后端不可达或定义不合法'); }
     finally { setBusy(false); }

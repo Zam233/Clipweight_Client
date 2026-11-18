@@ -23,7 +23,7 @@ export function TypeForgePage() {
     try { setSessions((await typeForgeApi.sessions()).sessions); } catch { toast('类型会话读取失败', 'error'); }
   };
   useEffect(() => { void loadSessions(); }, []);
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [messages.length]);
+  useEffect(() => { scrollRef.current?.scrollTo?.({ top: scrollRef.current.scrollHeight }); }, [messages.length]);
 
   const apply = (d: TypeForgeDetail) => {
     setDetail(d); setSessionId(d.session_id); setMessages(d.messages ?? []); setDraft(d.draft ?? {});
