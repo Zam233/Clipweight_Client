@@ -27,6 +27,8 @@ export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivEleme
   const generation = useOverlayStore((s) => s.generation);
   const canvasGeneration = useOverlayStore((s) => s.canvasGeneration);
   const stageKey = useRef('');
+  const nodeRefs = useRef(new Map<string, HTMLElement>());
+  const animsRef = useRef<Array<{ a: Animation; clipId: string; start: number; speed: number; offset: number }>>([]);
   useEffect(() => {
     if (!textMotionFlags.overlay3d || !wrapRef.current) return;
     const update = () => {
@@ -61,6 +63,42 @@ export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivEleme
     return () => releaseOverlay();
   }, [clipIds, requestOverlay, releaseOverlay]);
   const visible = generation > 0 && canvasGeneration >= generation;
+
+  // WAAPI：暂停态只 seek currentTime，不 play；播放态由 Canvas 接管。
+  useEffect(() => {
+    animsRef.current.forEach(({ a }) => a.cancel());
+    animsRef.current = [];
+    if (playing || active.length === 0) return () => {};
+    for (const clip of active) {
+      const spec = mgSpecOf(clip.metadata);
+      if (!spec) continue;
+      const plan = buildOverlayPlan(spec as never, {}, { width: timeline.width, height: timeline.height, fps: timeline.fps });
+      plan.elements.forEach((pe, i) => {
+        const el = nodeRefs.current.get(`${clip.id}-${i}`);
+        if (!el || pe.tag === 'img' || typeof el.animate !== 'function') return;
+        const frames = pe.keyframes.map((k) => ({
+          offset: k.offset,
+          transform: `${pe.baseStyle.transform ?? ''} ${k.transform ?? ''}`.trim(),
+          opacity: k.opacity ?? '1',
+          ...(k.filter ? { filter: k.filter } : {}),
+          easing: 'linear',
+        }));
+        const a = el.animate(frames as Keyframe[], {
+          duration: Math.max(1, pe.durationSec * 1000), fill: 'both', easing: 'linear',
+        });
+        a.pause();
+        animsRef.current.push({ a, clipId: clip.id, start: clip.start_sec, speed: clip.speed, offset: clip.source_offset_sec });
+      });
+    }
+    return () => { animsRef.current.forEach(({ a }) => a.cancel()); animsRef.current = []; };
+  }, [clipIds, playing, timeline]);
+
+  useEffect(() => {
+    for (const it of animsRef.current) {
+      const local = Math.max(0, (t - it.start) * it.speed + it.offset);
+      try { it.a.currentTime = local * 1000; } catch { /* disposed */ }
+    }
+  }, [t, active]);
 
   if (!frame || active.length === 0) return null;
   const u = frame.fw / timeline.width;
@@ -101,8 +139,8 @@ export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivEleme
                   filter: p.blur !== undefined ? `blur(${Number(p.blur)}px)` : undefined,
                 };
                 return pe.tag === 'img'
-                  ? <img key={`${clip.id}-${i}`} src={pe.attrs.src} alt="" style={style} />
-                  : <div key={`${clip.id}-${i}`} style={style}>{pe.text}</div>;
+                  ? <img key={`${clip.id}-${i}`} ref={(el) => { if (el) nodeRefs.current.set(`${clip.id}-${i}`, el); }} src={pe.attrs.src} alt="" style={style} />
+                  : <div key={`${clip.id}-${i}`} ref={(el) => { if (el) nodeRefs.current.set(`${clip.id}-${i}`, el); }} style={style}>{pe.text}</div>;
               })}
             </div>
           );
