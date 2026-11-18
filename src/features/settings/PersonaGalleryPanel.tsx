@@ -5,7 +5,7 @@ import { Button, Badge } from '@/components/ui';
 import type { Persona } from '@/types/persona';
 import { asText, textList } from '@/lib/render';
 import {
-  Plus, Sparkles, MessageSquare, Layers, BookOpen,
+  Plus, Sparkles, Layers, BookOpen,
   Timer, ChevronRight, Dna, Copy, Download, Upload, SlidersHorizontal,
 } from 'lucide-react';
 
@@ -145,9 +145,6 @@ export function PersonaGalleryPanel({ onPick }: { onPick?: (personaId: string) =
           </Badge>
           <Button variant="outline" onClick={() => setImportInput((v) => !v)}>
             <Upload className="w-4 h-4" /> 导入
-          </Button>
-          <Button variant="outline" onClick={() => navigate({ to: '/persona/forge' })}>
-            <MessageSquare className="w-4 h-4" /> 对话创建
           </Button>
           <Button variant="outline" onClick={() => {
             const id = `manual_${Date.now().toString(36)}`;
