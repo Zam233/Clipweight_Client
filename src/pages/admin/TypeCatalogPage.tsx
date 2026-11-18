@@ -1,4 +1,4 @@
-import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
+import { ConsoleShell } from './ConsoleShell';
 import { TypeCatalogPanel } from '@/features/settings/TypeCatalogPanel';
 
 /**
@@ -10,8 +10,6 @@ import { TypeCatalogPanel } from '@/features/settings/TypeCatalogPanel';
 export function TypeCatalogPage() {
   return (
     <ConsoleShell>
-      <ConsoleHeading kicker="Catalog / Video Types" title="类型总览"
-        desc="全部可用视频类型（内置 + 自定义）。需要新建或修改类型请到「类型制作器」。" />
       <TypeCatalogPanel />
     </ConsoleShell>
   );

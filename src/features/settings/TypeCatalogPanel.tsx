@@ -25,8 +25,8 @@ export function TypeCatalogPanel() {
       <div className="flex flex-wrap items-center gap-3">
         <div>
           <p className="font-mono text-label-sm tracking-[0.3em] text-primary uppercase mb-1">Video Types</p>
-          <h1 className="font-display text-[32px] font-bold text-on-surface">视频类型</h1>
-          <p className="text-body-sm text-on-surface-variant mt-1 max-w-[560px]">
+          <h1 className="font-display text-[32px] font-bold text-on-surface leading-tight mb-2">视频类型</h1>
+          <p className="text-body-sm text-on-surface-variant mt-2 max-w-[560px]">
             类型封装品类级的剪辑逻辑差异——同一个 Persona 套用不同类型，产出风格一致但节奏迥异的视频。
           </p>
         </div>

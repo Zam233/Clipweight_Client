@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+const b=await chromium.launch(); const p=await b.newPage({viewport:{width:1440,height:1000}});
+const shot=async(n)=>{await p.screenshot({path:`docs/e2e/video-type-forge/${n}`});};
+await p.goto('http://127.0.0.1:5173/settings/types',{waitUntil:'domcontentloaded'}); await p.waitForTimeout(2500); await shot('10-current-type-catalog.png');
+await p.goto('http://127.0.0.1:5173/settings/type-maker',{waitUntil:'domcontentloaded'}); await p.waitForTimeout(2500); await shot('11-current-type-maker.png');
+await p.goto('http://127.0.0.1:5173/settings/type-maker/forge',{waitUntil:'domcontentloaded'}); await p.waitForTimeout(2500);
+const session=p.locator('aside button').filter({hasText:'1 条'}).first(); if(await session.count()){await session.click(); await p.waitForTimeout(1000);} await shot('12-current-typeforge-session.png');
+await p.goto('http://127.0.0.1:5173/settings/type-maker/video_type_screenshot',{waitUntil:'domcontentloaded'}); await p.waitForTimeout(2200); await shot('13-current-detail-params.png');
+await p.getByRole('button',{name:'Prompt'}).click(); await p.waitForTimeout(300); await shot('14-current-detail-prompt.png');
+await p.getByRole('button',{name:/编辑/}).click(); await p.waitForTimeout(300); await shot('15-current-detail-edit.png');
+await p.getByRole('button',{name:/删除/}).click(); await p.waitForTimeout(300); await shot('16-current-delete-confirm.png');
+await b.close(); console.log('done');
