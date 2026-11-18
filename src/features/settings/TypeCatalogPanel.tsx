@@ -1,4 +1,5 @@
 import { RefreshCw, Shapes, Film } from 'lucide-react';
+import { useNavigate } from '@tanstack/react-router';
 import { Button, Badge } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { useTypeCatalog } from './useTypeCatalog';
@@ -14,6 +15,7 @@ import { useTypeCatalog } from './useTypeCatalog';
  */
 export function TypeCatalogPanel() {
   const { types, loading, error, reload } = useTypeCatalog();
+  const navigate = useNavigate();
 
   const builtinCount = types.filter((t) => t.builtin).length;
   const customCount = types.length - builtinCount;
@@ -23,8 +25,8 @@ export function TypeCatalogPanel() {
       <div className="flex flex-wrap items-center gap-3">
         <div>
           <p className="font-mono text-label-sm tracking-[0.3em] text-primary uppercase mb-1">Video Types</p>
-          <h1 className="font-display text-[32px] font-bold text-on-surface">视频类型</h1>
-          <p className="text-body-sm text-on-surface-variant mt-1 max-w-[560px]">
+          <h1 className="font-display text-[32px] font-bold text-on-surface leading-tight mb-2">视频类型</h1>
+          <p className="text-body-sm text-on-surface-variant mt-2 max-w-[560px]">
             类型封装品类级的剪辑逻辑差异——同一个 Persona 套用不同类型，产出风格一致但节奏迥异的视频。
           </p>
         </div>
@@ -33,6 +35,9 @@ export function TypeCatalogPanel() {
           <Badge variant="default" className="font-mono">{builtinCount} 内置 · {customCount} 自定义</Badge>
           <Button size="sm" variant="outline" onClick={reload} disabled={loading}>
             <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} /> 刷新
+          </Button>
+          <Button size="sm" onClick={() => navigate({ to: '/settings/type-maker/forge' })}>
+            AI 创建
           </Button>
         </div>
       </div>
@@ -60,9 +65,10 @@ export function TypeCatalogPanel() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {types.map((t) => (
-            <div key={t.id}
-              className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-4
-                hover:border-primary/40 transition-all duration-short3">
+            <button key={t.id} type="button"
+              onClick={() => navigate({ to: '/settings/type-maker/$typeId', params: { typeId: t.id } })}
+              className="text-left bg-surface-container border border-outline-variant/30 rounded-cw-md p-4
+                hover:border-primary/40 hover:-translate-y-0.5 transition-all duration-short3 cursor-pointer">
               <div className="flex items-start gap-3 mb-2.5">
                 <span className="w-9 h-9 rounded-cw-sm bg-primary-container flex items-center justify-center shrink-0">
                   <Film className="w-4 h-4 text-on-primary-container" />
@@ -88,7 +94,7 @@ export function TypeCatalogPanel() {
                   ))}
                 </div>
               )}
-            </div>
+            </button>
           ))}
         </div>
       )}

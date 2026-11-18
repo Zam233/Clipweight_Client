@@ -31,6 +31,8 @@ const ToolsPage = lazyPage(() => import('./pages/admin/ToolsPage'), 'ToolsPage')
 const PluginsPage = lazyPage(() => import('./pages/admin/PluginsPage'), 'PluginsPage');
 const TypeMakerPage = lazyPage(() => import('./pages/admin/TypeMakerPage'), 'TypeMakerPage');
 const TypeCatalogPage = lazyPage(() => import('./pages/admin/TypeCatalogPage'), 'TypeCatalogPage');
+const TypeForgePage = lazyPage(() => import('./pages/admin/TypeForgePage'), 'TypeForgePage');
+const TypeDetailPage = lazyPage(() => import('./pages/admin/TypeDetailPage'), 'TypeDetailPage');
 const TemplatesPage = lazyPage(() => import('./pages/admin/TemplatesPage'), 'TemplatesPage');
 const LearningPage = lazyPage(() => import('./pages/admin/LearningPage'), 'LearningPage');
 const VideoEditorPage = lazyPage(() => import('./pages/admin/VideoEditorPage'), 'VideoEditorPage');
@@ -225,6 +227,20 @@ const typeCatalogRoute = createRoute({
   errorComponent: RouteErrorFallback,
 });
 
+const typeForgeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/type-maker/forge',
+  component: TypeForgePage,
+  errorComponent: RouteErrorFallback,
+});
+
+const typeDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings/type-maker/$typeId',
+  component: TypeDetailPage,
+  errorComponent: RouteErrorFallback,
+});
+
 const templatesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings/templates',
@@ -331,6 +347,8 @@ const routeTree = rootRoute.addChildren([
   pluginsRoute,
   typeMakerRoute,
   typeCatalogRoute,
+  typeForgeRoute,
+  typeDetailRoute,
   templatesRoute,
   webhooksRoute,
   learningRoute,

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { ConsoleShell, ConsoleHeading } from './ConsoleShell';
 import { typeMakerApi } from '@/services/api';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { asText } from '@/lib/render';
 import {
-  Plus, Copy, Trash2, Pencil, Film, Eye, X, SlidersHorizontal, ScanSearch,
+  Plus, Copy, Trash2, Pencil, Film, Eye, X, SlidersHorizontal, ScanSearch, Sparkles,
 } from 'lucide-react';
 import type { GenreCheckResult, TypePreviewResult } from '@/services/api/typeMaker';
 import { TypeSpecEditor } from '@/features/settings/TypeSpecEditor';
@@ -48,6 +49,7 @@ function apiErrorText(e: unknown, action: string): string {
  * CRUD backed by /api/type-maker/* (built-in types are read-only).
  */
 export function TypeMakerPage() {
+  const navigate = useNavigate();
   const [types, setTypes] = useState<VideoType[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<string | null>(null);
@@ -207,7 +209,10 @@ export function TypeMakerPage() {
 
       <div className="flex items-center justify-between mb-5 max-w-[900px]">
         <p className="font-mono text-caption text-on-surface-variant">{types.length} TYPES DEFINED</p>
-        <Button size="sm" onClick={addNew}><Plus className="w-3.5 h-3.5" /> 新建类型</Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => navigate({ to: '/settings/type-maker/forge' })}><Sparkles className="w-3.5 h-3.5" /> AI 创建</Button>
+          <Button size="sm" onClick={addNew}><Plus className="w-3.5 h-3.5" /> 新建类型</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-[900px]">
@@ -216,6 +221,7 @@ export function TypeMakerPage() {
         ) : (
           types.map((t) => (
             <TypeCard key={t.id} type={t} editing={editing === t.id}
+              onOpen={() => navigate({ to: '/settings/type-maker/$typeId', params: { typeId: t.id } })}
               onEdit={() => (editing === t.id ? commitEdit(t) : setEditing(t.id))}
               onDuplicate={() => duplicate(t)}
               onPreview={() => runPreview(t)}
@@ -416,9 +422,9 @@ export function TypeMakerPage() {
 }
 
 function TypeCard({
-  type, editing, onEdit, onDuplicate, onPreview, onSpec, onGenre, onRemove, onChange,
+  type, editing, onOpen, onEdit, onDuplicate, onPreview, onSpec, onGenre, onRemove, onChange,
 }: {
-  type: VideoType; editing: boolean; onEdit: () => void; onDuplicate: () => void;
+  type: VideoType; editing: boolean; onOpen: () => void; onEdit: () => void; onDuplicate: () => void;
   onPreview: () => void; onSpec: () => void; onGenre: () => void; onRemove: () => void;
   onChange: (patch: Partial<VideoType>) => void;
 }) {
@@ -427,7 +433,7 @@ function TypeCard({
   const bars = Array.from({ length: 10 }, (_, i) => ((i * 7 + density * 3) % 9) + 1);
 
   return (
-    <div className="relative bg-surface-container border border-outline-variant/30 rounded-cw-md overflow-hidden
+    <div onClick={() => { if (!editing) onOpen(); }} className="relative cursor-pointer bg-surface-container border border-outline-variant/30 rounded-cw-md overflow-hidden
       hover:border-outline/60 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/20 transition-all duration-short3 group">
       <span className="absolute top-0 left-0 w-full h-[3px]" style={{ background: `linear-gradient(90deg, ${type.color}, transparent)` }} />
 
@@ -436,7 +442,7 @@ function TypeCard({
           <span className="w-9 h-9 rounded-cw-sm flex items-center justify-center" style={{ background: `${type.color}1A`, color: type.color }}>
             <Film className="w-4.5 h-4.5" />
           </span>
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-short3">
+          <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-short3">
             <IconBtn title="预览" onClick={onPreview}><Eye className="w-3.5 h-3.5" /></IconBtn>
             {/* V17：类型同一性复核——贴时间线干跑"这像不像该类型" */}
             <IconBtn title="类型复核" onClick={onGenre}><ScanSearch className="w-3.5 h-3.5" /></IconBtn>

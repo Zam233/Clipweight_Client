@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const b=await chromium.launch(); const p=await b.newPage({viewport:{width:1440,height:1000}});
+await p.goto('http://127.0.0.1:5173/settings/type-maker/typeforge_e2e_demo',{waitUntil:'domcontentloaded'}); await p.waitForTimeout(2500);
+await p.getByRole('button',{name:'Prompt'}).click(); await p.waitForTimeout(300);
+await p.screenshot({path:'docs/e2e/video-type-forge/03-detail-custom-prompt.png'});
+await p.getByRole('button',{name:/编辑/}).click(); await p.waitForTimeout(300);
+await p.screenshot({path:'docs/e2e/video-type-forge/04-detail-editing.png'});
+await p.getByRole('button',{name:/删除/}).click(); await p.waitForTimeout(200);
+await p.screenshot({path:'docs/e2e/video-type-forge/05-delete-confirm.png'});
+await p.getByRole('button',{name:'确认删除'}).click(); await p.waitForTimeout(800);
+console.log('done'); await b.close();
