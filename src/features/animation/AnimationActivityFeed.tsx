@@ -11,7 +11,7 @@ export function AnimationActivityFeed({ calls }: { calls: AnimationCall[] }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {calls.map((c) => (
-        <div key={c.call_id} style={{ border: '1px solid rgba(255,255,255,.12)', borderRadius: 6, padding: '6px 8px', fontSize: 12 }}>
+        <div key={c.call_id} data-call={c.call_id} style={{ border: '1px solid rgba(255,255,255,.12)', borderRadius: 6, padding: '6px 8px', fontSize: 12 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <span style={{ color: statusColor(c.status), fontWeight: 600 }}>{c.status}</span>
             <span style={{ opacity: 0.65 }}>{c.kind}</span>
@@ -26,3 +26,4 @@ export function AnimationActivityFeed({ calls }: { calls: AnimationCall[] }) {
     </div>
   );
 }
+
