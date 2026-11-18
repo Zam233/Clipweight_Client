@@ -8,6 +8,7 @@ import { useProjectStore } from '@/stores/projectStore';
 import { renderApi, projectApi, assetApi, toolApi } from '@/services/api';
 import { connectSseStream, type SseStreamHandle } from '@/services/api/sseStream';
 import { toast } from '@/stores/toastStore';
+import { checkAnimationExportGate } from '@/features/animation/exportGate';
 import { createEmptyTimeline, type Timeline } from '@/types/timeline';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge } from '@/components/ui';
@@ -267,6 +268,18 @@ export function ExportPage() {
   const submitRender = async () => {
     if (timeline.tracks.length === 0) return;
     setSubmitting(true);
+    try {
+      const gate = await checkAnimationExportGate(timeline);
+      if (gate && !gate.allowed) {
+        toast(`动画 QA 未通过：${gate.reason}${gate.retry_action ? `（建议 ${gate.retry_action}）` : ''}`, 'error');
+        setSubmitting(false);
+        return;
+      }
+    } catch {
+      toast('动画 QA 校验失败 — 请检查后端连接', 'error');
+      setSubmitting(false);
+      return;
+    }
     // 类型插件 id：后端只在显式收到时才让类型插件改规格（如 shortform 竖屏）。
     // 取当前任务的 category_plugin_id；没有任务（手导入工程）就不传，走默认。
     const categoryId = useTaskStore.getState().task?.request?.category_plugin_id ?? '';
