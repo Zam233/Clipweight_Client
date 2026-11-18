@@ -851,7 +851,7 @@ export function HomePage() {
               点卡片 = 选中该人格并进入创作表单（首页语义）；查看/编辑参数请到人物详情页 */}
           {activeTab === 'personas' && (
             <section className="pt-8 max-w-[1080px]">
-              <PersonaGalleryPanel onPick={(id) => { setPersonaId(id); setActiveTab('create'); }} />
+              <PersonaGalleryPanel />
             </section>
           )}
 

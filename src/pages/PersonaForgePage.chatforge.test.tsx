@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   chatForgeStart: vi.fn(),
   chatForgeMessage: vi.fn(),
   chatForgeState: vi.fn(),
+  chatForgeDetail: vi.fn(),
   chatForgeKnowledge: vi.fn(),
   chatForgeSessions: vi.fn(),
   chatForgeDeleteSession: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock('@/services/api', () => ({
     chatForgeStart: mocks.chatForgeStart,
     chatForgeMessage: mocks.chatForgeMessage,
     chatForgeState: mocks.chatForgeState,
+    chatForgeDetail: mocks.chatForgeDetail,
     chatForgeKnowledge: mocks.chatForgeKnowledge,
     chatForgeCommit: vi.fn(),
     chatForgeSessions: mocks.chatForgeSessions,
@@ -51,6 +53,7 @@ function emptyState() {
     chatForgeStart: { session_id: 'sess_abc123456', persona_draft: {}, progress: {} },
     chatForgeMessage: { reply: '好的', persona_draft: {}, progress: {} },
     chatForgeState: { session_id: 'sess_old1', message_count: 2, knowledge_base_count: 1 },
+    chatForgeDetail: { session_id: 'sess_old1', messages: [{ role: 'assistant', content: '旧会话' }], persona_draft: {}, prompt_draft: '旧 Prompt', progress: {} },
   };
 }
 
@@ -68,9 +71,10 @@ describe('PersonaForgePage · ChatForge 欠账', () => {
     mocks.chatForgeStart.mockResolvedValue(state.chatForgeStart);
     mocks.chatForgeMessage.mockResolvedValue(state.chatForgeMessage);
     mocks.chatForgeState.mockResolvedValue(state.chatForgeState);
+    mocks.chatForgeDetail.mockResolvedValue(state.chatForgeDetail);
   });
 
-  it('会话 id 写入 localStorage，下次进入自动填回恢复框', async () => {
+  it('会话 id 写入 localStorage', async () => {
     const first = render(<PersonaForgePage />);
     fireEvent.click(screen.getByText('开始对话'));
     await waitFor(() => expect(mocks.chatForgeStart).toHaveBeenCalled());
@@ -80,13 +84,9 @@ describe('PersonaForgePage · ChatForge 欠账', () => {
     first.unmount();
     cleanup();
 
-    // 重新挂载（模拟刷新）：恢复框里应带出上次的会话 id
+    // 重新挂载（模拟刷新）：左侧会话列表自动加载
     render(<PersonaForgePage />);
-    await waitFor(() => {
-      const input = screen.getByPlaceholderText('会话 ID（恢复后端历史会话）') as HTMLInputElement;
-      expect(input.value).toBe('sess_abc123456');
-    });
-    expect(screen.getByText(/上次会话/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId('forge-sidebar')).toBeTruthy());
   });
 
   it('历史会话列表可列出、切换、删除', async () => {
@@ -98,18 +98,15 @@ describe('PersonaForgePage · ChatForge 欠账', () => {
       total: 1,
     });
     render(<PersonaForgePage />);
-    fireEvent.click(screen.getByText('历史会话'));
-    await waitFor(() => expect(screen.getByTestId('session-list')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('forge-sidebar')).toBeTruthy());
     expect(screen.getByText('冷峻学术风')).toBeTruthy();
 
-    // 切换：调用 state 并把消息清空后写入提示
+    // 切换：调用详情并按真实消息重建
     fireEvent.click(screen.getByText('冷峻学术风'));
-    await waitFor(() => expect(mocks.chatForgeState).toHaveBeenCalledWith('sess_old1'));
-    await waitFor(() => expect(screen.getByText(/已切到会话/)).toBeTruthy());
+    await waitFor(() => expect(mocks.chatForgeDetail).toHaveBeenCalledWith('sess_old1'));
+    await waitFor(() => expect(screen.getByText('旧会话')).toBeTruthy());
 
     // 删除：调用 DELETE 并从列表移除
-    fireEvent.click(screen.getByText('历史会话'));
-    await waitFor(() => expect(screen.getByTestId('session-list')).toBeTruthy());
     fireEvent.click(screen.getByLabelText('删除会话 sess_old1'));
     await waitFor(() => expect(mocks.chatForgeDeleteSession).toHaveBeenCalledWith('sess_old1'));
     await waitFor(() => expect(screen.queryByText('冷峻学术风')).toBeNull());
@@ -163,7 +160,7 @@ describe('PersonaForgePage · ChatForge 欠账', () => {
     await waitFor(() => expect(screen.getByTestId('pending-attachments')).toBeTruthy());
     expect(screen.getByText('ref.png')).toBeTruthy();
 
-    const chatInput = screen.getByPlaceholderText('描述这个人格的风格、语气、节奏…');
+    const chatInput = screen.getByPlaceholderText('描述这个人格的风格、语气、节奏…（可粘贴文稿）');
     fireEvent.change(chatInput, { target: { value: '参考这张图的风格' } });
     fireEvent.click(screen.getByTestId('chat-send'));
     await waitFor(() => expect(mocks.chatForgeMessage).toHaveBeenCalled());

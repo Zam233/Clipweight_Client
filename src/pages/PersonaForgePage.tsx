@@ -6,13 +6,16 @@ import { uid } from '@/lib/utils';
 import { toast } from '@/stores/toastStore';
 import type { ParameterLayer, Persona } from '@/types/persona';
 import {
-  ArrowLeft, Send, Sparkles, Bot, User, Check, Loader2, FileUp, Dna,
+  ArrowLeft, Send, Sparkles, Bot, User, Check, Loader2, Dna,
   FileText, MessageCircleQuestion, Wand2, RotateCcw, ExternalLink,
-  ImagePlus, Trash2, Pencil, History, X,
+  ImagePlus, Trash2, Pencil, History, X, Plus,
 } from 'lucide-react';
 
 /** 会话内附带的图片（data URL，前端可直接渲染缩略图） */
-interface ChatAttachment { type: 'image' | 'file'; name: string; mime: string; data_url: string }
+interface ChatAttachment {
+  type: 'image' | 'file'; name: string; mime: string;
+  data_url?: string; id?: string; storage_ref?: string;
+}
 
 interface ChatMsg {
   id: string;
@@ -41,6 +44,7 @@ const FORGE_SESSION_KEY = 'clipwright.forgeSessionId';
 /** 前端侧的附件上限（与后端 ChatForge.MAX_ATTACHMENTS / MAX_ATTACHMENT_CHARS 对齐） */
 const MAX_ATTACHMENTS = 4;
 const MAX_ATTACHMENT_BYTES = 6 * 1024 * 1024;
+const KB_CHUNK_LIMIT = 6000;
 type Dimension = 'identity' | 'language' | 'rhythm' | 'visual' | 'audio' | 'constraints';
 const DIMENSIONS: { key: Dimension; label: string; color: string }[] = [
   { key: 'identity', label: '身份', color: '#4F8CFF' },
@@ -49,15 +53,6 @@ const DIMENSIONS: { key: Dimension; label: string; color: string }[] = [
   { key: 'visual', label: '视觉', color: '#34D399' },
   { key: 'audio', label: '音频', color: '#F59E0B' },
   { key: 'constraints', label: '约束', color: '#FF6B6B' },
-];
-
-type ForgeMode = 'chat' | 'prompt' | 'script' | 'dialogue';
-
-const FORGE_MODES: { key: ForgeMode; label: string; icon: typeof Sparkles }[] = [
-  { key: 'chat', label: '对话创建', icon: Bot },
-  { key: 'prompt', label: '从提示词生成', icon: Wand2 },
-  { key: 'script', label: '从脚本文稿生成', icon: FileText },
-  { key: 'dialogue', label: '引导问答', icon: MessageCircleQuestion },
 ];
 
 /** GET /api/persona/forge/chat/state/{session} 的响应结构 */
@@ -77,7 +72,6 @@ interface ChatForgeStateResp {
  */
 export function PersonaForgePage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<ForgeMode>('chat');
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -86,6 +80,13 @@ export function PersonaForgePage() {
     identity: 0, language: 0, rhythm: 0, visual: 0, audio: 0, constraints: 0,
   });
   const [draft, setDraft] = useState<Partial<ParameterLayer> | null>(null);
+  const [promptDraft, setPromptDraft] = useState('');
+  const [sessionRevision, setSessionRevision] = useState(0);
+  const [patchOpen, setPatchOpen] = useState(false);
+  const [patchTone, setPatchTone] = useState('');
+  const [patchAcademic, setPatchAcademic] = useState('');
+  const [patchSaving, setPatchSaving] = useState(false);
+  const [visionPromptDraft, setVisionPromptDraft] = useState('');
   const [personaName, setPersonaName] = useState('');
   const [kbBusy, setKbBusy] = useState(false);
   const [kbFile, setKbFile] = useState<{ name: string; total: number; current: number } | null>(null);
@@ -142,6 +143,8 @@ export function PersonaForgePage() {
     }
   };
 
+  useEffect(() => { void refreshSessions(); }, []);
+
   // 挂载时若 URL 带 ?session= 则自动恢复后端会话状态（GET /state/{session}）
   useEffect(() => {
     const sid = new URLSearchParams(window.location.search).get('session');
@@ -150,23 +153,10 @@ export function PersonaForgePage() {
     (async () => {
       setRestoreBusy(true);
       try {
-        const state = (await personaApi.chatForgeState(sid)) as ChatForgeStateResp;
+        const detail = await personaApi.chatForgeDetail(sid);
         if (!alive) return;
-        const realId = state.session_id || sid;
-        setSessionId(realId);
-        if (state.persona_draft) {
-          setDraft(state.persona_draft as Partial<ParameterLayer>);
-          setProgress(estimateProgressFromDraft(state.persona_draft));
-        }
-        setMessages((m) => [
-          ...m,
-          {
-            id: uid('m'),
-            role: 'assistant',
-            content: `已恢复会话 ${realId.slice(0, 12)}：${state.message_count ?? 0} 条对话、${state.knowledge_base_count ?? 0} 个知识块。继续描述即可完善。`,
-          },
-        ]);
-        setRestoreMsg(`会话 ${realId} 已恢复`);
+        await applySessionDetail(detail, true);
+        setRestoreMsg(`会话 ${detail.session_id} 已恢复`);
       } catch {
         if (alive) setRestoreMsg('恢复失败：会话不存在或后端不可达');
       } finally {
@@ -187,21 +177,46 @@ export function PersonaForgePage() {
   const addMsg = (role: ChatMsg['role'], content: string, attachments?: ChatAttachment[]) =>
     setMessages((m) => [...m, { id: uid('m'), role, content, ...(attachments?.length ? { attachments } : {}) }]);
 
+  /** 用详情接口恢复真实消息/草稿/Prompt；replace=true 时重建消息列表。 */
+  const applySessionDetail = async (
+    detail: Awaited<ReturnType<typeof personaApi.chatForgeDetail>>,
+    replace: boolean,
+  ) => {
+    setSessionId(detail.session_id);
+    setSessionRevision(Number((detail as { revision?: number }).revision ?? 0));
+    if (detail.persona_draft) {
+      setDraft(detail.persona_draft as Partial<ParameterLayer>);
+      setProgress(estimateProgressFromDraft(detail.persona_draft));
+    }
+    setPromptDraft(detail.prompt_draft ?? '');
+    setVisionPromptDraft(detail.vision_prompt_draft ?? '');
+    if (replace) {
+      const mapped = await Promise.all((detail.messages ?? []).map(async (m) => {
+        const attachments = await Promise.all((m.attachments ?? []).map(async (a) => {
+          let url = a.data_url;
+          if (!url && a.id) {
+            try { url = await personaApi.chatForgeAttachment(detail.session_id, a.id); } catch { url = undefined; }
+          }
+          return { ...a, name: a.name ?? '', mime: a.mime ?? '', data_url: url };
+        }));
+        return {
+          id: uid('m'), role: m.role, content: m.content,
+          ...(attachments.length ? { attachments } : {}),
+        };
+      }));
+      setMessages(mapped);
+    }
+  };
+
   const handleRestore = async () => {
     const sid = restoreId.trim();
     if (!sid || restoreBusy) return;
     setRestoreBusy(true);
     setRestoreMsg('');
     try {
-      const state = (await personaApi.chatForgeState(sid)) as ChatForgeStateResp;
-      const realId = state.session_id || sid;
-      setSessionId(realId);
-      if (state.persona_draft) {
-        setDraft(state.persona_draft as Partial<ParameterLayer>);
-        setProgress(estimateProgressFromDraft(state.persona_draft));
-      }
-      addMsg('assistant', `已恢复会话 ${realId.slice(0, 12)}：${state.message_count ?? 0} 条对话、${state.knowledge_base_count ?? 0} 个知识块。继续描述即可完善。`);
-      setRestoreMsg(`会话 ${realId} 已恢复`);
+      const detail = await personaApi.chatForgeDetail(sid);
+      await applySessionDetail(detail, true);
+      setRestoreMsg(`会话 ${detail.session_id} 已恢复`);
     } catch {
       setRestoreMsg('恢复失败：会话不存在或后端不可达');
     } finally {
@@ -211,6 +226,9 @@ export function PersonaForgePage() {
 
   const start = async () => {
     setBusy(true);
+    setMessages([]);
+    setDraft(null);
+    setPromptDraft('');
     addMsg('assistant', '你好！我是 PersonaForge。先描述一下你想打造的创作人格吧——比如「一个说话犀利、节奏快、爱用数据说话的科技评论人格」。');
     try {
       const res = await personaApi.chatForgeStart();
@@ -219,7 +237,8 @@ export function PersonaForgePage() {
       const prog = res.progress;
       if (prog) setProgress((p) => ({ ...p, ...normalizeProgress(prog) }));
     } catch {
-      setSessionId(uid('forge')); // offline session
+      setMessages([]);
+      toast('会话启动失败：后端未连接或请求被拒绝', 'error');
     } finally {
       setBusy(false);
     }
@@ -228,7 +247,9 @@ export function PersonaForgePage() {
   const send = async () => {
     const text = input.trim();
     if ((!text && attachments.length === 0) || busy) return;
-    const outgoing = attachments;
+    const outgoing = attachments
+      .filter((a): a is ChatAttachment & { data_url: string } => Boolean(a.data_url))
+      .map((a) => ({ type: a.type, name: a.name, mime: a.mime, data_url: a.data_url }));
     setInput('');
     setAttachments([]);
     addMsg('user', text || '（见附件）', outgoing);
@@ -258,6 +279,10 @@ export function PersonaForgePage() {
             const scaled = normalizeProgress(prog);
             setProgress((p) => ({ ...p, ...scaled }));
           }
+          void personaApi.chatForgeDetail(sessionId).then((d) => {
+            setPromptDraft(d.prompt_draft ?? '');
+            setVisionPromptDraft(d.vision_prompt_draft ?? '');
+          }).catch(() => {});
         },
         onError: (detail, partial) => {
           // 中断时保留已产出的文本，并说明原因（不让用户白等）
@@ -278,18 +303,34 @@ export function PersonaForgePage() {
         if (res?.persona_draft) setDraft(res.persona_draft);
         const prog = res?.progress;
         if (prog) setProgress((p) => ({ ...p, ...normalizeProgress(prog) }));
+        void personaApi.chatForgeDetail(sessionId ?? '').then((d) => {
+          setPromptDraft(d.prompt_draft ?? '');
+          setVisionPromptDraft(d.vision_prompt_draft ?? '');
+        }).catch(() => {});
         const reply = res?.reply ?? '收到，让我想想…';
         setMessages((m) => m.map((msg) => (msg.id === streamMsgId ? { ...msg, content: reply } : msg)));
       } catch {
-        // Offline: simulate progressive persona building
-        await new Promise((r) => setTimeout(r, 500));
-        const filled = simulateProgress(progress, text);
-        setProgress(filled.progress);
-        setDraft(filled.draft);
-        setMessages((m) => m.map((msg) => (msg.id === streamMsgId ? { ...msg, content: filled.reply } : msg)));
+        setMessages((m) => m.map((msg) => (msg.id === streamMsgId
+          ? { ...msg, content: '发送失败：后端未连接或请求被拒绝。内容已保留，请重试。' }
+          : msg)));
+        toast('发送失败：后端未连接或请求被拒绝', 'error');
       }
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** 上传文稿（原“从脚本文稿生成”入口）：把正文载入输入框，随对话发送。 */
+  const handleScriptFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const text = await file.text();
+      setInput((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
+      toast(`已载入文稿「${file.name}」，确认后发送`, 'success');
+    } catch {
+      toast('文稿读取失败', 'error');
     }
   };
 
@@ -370,15 +411,9 @@ export function PersonaForgePage() {
     setRestoreId(sid);
     setRestoreBusy(true);
     try {
-      const state = (await personaApi.chatForgeState(sid)) as ChatForgeStateResp;
-      setSessionId(state.session_id || sid);
-      if (state.persona_draft) {
-        setDraft(state.persona_draft as Partial<ParameterLayer>);
-        setProgress(estimateProgressFromDraft(state.persona_draft));
-      }
-      setMessages([]);
-      addMsg('assistant', `已切到会话 ${sid.slice(0, 12)}：${state.message_count ?? 0} 条对话、${state.knowledge_base_count ?? 0} 个知识块。`);
-      void refreshKnowledge(state.session_id || sid);
+      const detail = await personaApi.chatForgeDetail(sid);
+      await applySessionDetail(detail, true);
+      void refreshKnowledge(detail.session_id);
     } catch {
       toast('该会话不存在或后端不可达', 'error');
     } finally {
@@ -405,12 +440,16 @@ export function PersonaForgePage() {
     if (!personaName.trim()) return;
     setBusy(true);
     try {
-      if (sessionId) await personaApi.chatForgeCommit(sessionId, personaName);
+      if (sessionId) await personaApi.chatForgeCommit(sessionId, personaName, {
+        expectedRevision: sessionRevision,
+        idempotencyKey: `forge-${sessionId}`,
+      });
       toast('人格已保存', 'success');
       navigate({ to: '/persona' });
-    } catch {
-      // Stay on the page so the user's work isn't silently lost
-      toast('保存失败 — 后端未连接或请求被拒绝', 'error');
+    } catch (e) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (status === 409) toast('保存冲突：草稿已被修改，请刷新会话后重试', 'error');
+      else toast('保存失败 — 后端未连接或请求被拒绝', 'error');
     } finally {
       setBusy(false);
     }
@@ -461,6 +500,24 @@ export function PersonaForgePage() {
     }
   };
 
+  const saveDraftPatch = async () => {
+    if (!sessionId || patchSaving) return;
+    setPatchSaving(true);
+    try {
+      const patch: Record<string, unknown> = {};
+      if (patchTone.trim()) patch.identity = { tone: patchTone.trim() };
+      if (patchAcademic !== '') patch.language = { academic_density: Number(patchAcademic) };
+      const res = await personaApi.chatForgePatch(sessionId, patch, sessionRevision);
+      if (res.persona_draft) setDraft(res.persona_draft as Partial<ParameterLayer>);
+      if (res.revision != null) setSessionRevision(res.revision);
+      setPatchOpen(false);
+      toast('草稿已修订', 'success');
+    } catch (e) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      toast(status === 409 ? '草稿冲突，请重新载入会话' : '草稿保存失败', 'error');
+    } finally { setPatchSaving(false); }
+  };
+
   const overall = Math.round(DIMENSIONS.reduce((s, d) => s + progress[d.key], 0) / DIMENSIONS.length);
 
   return (
@@ -476,84 +533,37 @@ export function PersonaForgePage() {
         </div>
         <div>
           <h1 className="text-title-sm font-semibold text-on-surface leading-tight">PersonaForge · AI 人格构建</h1>
-          <p className="text-caption text-on-surface-variant leading-tight">对话 / 提示词 / 脚本 / 引导问答 四种方式塑造创作人格</p>
+          <p className="text-caption text-on-surface-variant leading-tight">通过对话与文稿上传塑造创作人格</p>
         </div>
-        {mode === 'chat' && <Badge variant="info" className="ml-auto font-mono">{overall}% 完成</Badge>}
+        <Badge variant="info" className="ml-auto font-mono">{overall}% 完成</Badge>
       </div>
 
-      {/* forge mode tabs */}
-      <div className="flex gap-1 px-6 pt-2 border-b border-outline-variant/25 shrink-0">
-        {FORGE_MODES.map((m) => (
-          <button key={m.key} onClick={() => setMode(m.key)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-label-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer ${
-              mode === m.key ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'
-            }`}>
-            <m.icon className="w-3.5 h-3.5" /> {m.label}
-          </button>
-        ))}
-      </div>
-
-      {/* chat session restore bar */}
-      {mode === 'chat' && (
-        <div className="flex items-center gap-2 px-6 py-1.5 border-b border-outline-variant/15 bg-surface-container-low shrink-0">
-          <input
-            value={restoreId}
-            onChange={(e) => setRestoreId(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleRestore()}
-            placeholder="会话 ID（恢复后端历史会话）"
-            className="w-60 bg-surface rounded-cw-xs px-2.5 py-1 text-caption font-mono text-on-surface
-              outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50"
-          />
-          <Button size="sm" variant="outline" onClick={handleRestore} disabled={restoreBusy || !restoreId.trim()}>
-            <RotateCcw className="w-3.5 h-3.5" /> {restoreBusy ? '恢复中…' : '恢复会话'}
-          </Button>
-          <Button size="sm" variant="outline" onClick={refreshSessions}>
-            <History className="w-3.5 h-3.5" /> 历史会话
-          </Button>
-          {restoreMsg && <span className="text-caption text-on-surface-variant">{restoreMsg}</span>}
-        </div>
-      )}
-
-      {/* 会话列表（GET /sessions；点条目切换、右侧垃圾桶删除） */}
-      {mode === 'chat' && sessionsOpen && (
-        <div className="px-6 py-2 border-b border-outline-variant/15 bg-surface-container-low shrink-0 max-h-[180px] overflow-y-auto"
-             data-testid="session-list">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-caption text-on-surface-variant uppercase tracking-wide">历史会话（{sessions.length}）</span>
-            <button onClick={() => setSessionsOpen(false)} className="text-on-surface-variant hover:text-on-surface cursor-pointer">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          {sessions.length === 0 && (
-            <p className="text-caption text-on-surface-variant/60 py-1">暂无会话（后端 chatforge_sessions/ 为空）</p>
-          )}
-          {sessions.map((s) => (
-            <div key={s.session_id} className="flex items-center gap-2 py-1">
-              <button
-                onClick={() => switchSession(s.session_id)}
-                className={`flex-1 text-left px-2 py-1 rounded-cw-xs hover:bg-surface transition-colors cursor-pointer ${
-                  sessionId === s.session_id ? 'bg-surface' : ''
-                }`}
-              >
-                <span className="text-label-sm text-on-surface truncate">{s.title || '(未命名会话)'}</span>
-                <span className="ml-2 text-caption font-mono text-on-surface-variant/60">
-                  {s.message_count} 对话 · {s.knowledge_count} 知识 · {new Date(s.updated_at).toLocaleString('zh-CN')}
-                </span>
-              </button>
-              <button
-                onClick={() => deleteSession(s.session_id)}
-                aria-label={`删除会话 ${s.session_id}`}
-                className="p-1 rounded-cw-xs text-on-surface-variant hover:text-error transition-colors cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+      <div className="flex flex-1 overflow-hidden">
+          {/* ── 左侧会话管理 ── */}
+          <aside className="w-[240px] shrink-0 border-r border-outline-variant/25 bg-surface-container-low flex flex-col" data-testid="forge-sidebar">
+            <div className="p-3 border-b border-outline-variant/20">
+              <Button className="w-full" size="sm" onClick={() => void start()} disabled={busy}>
+                <Plus className="w-4 h-4" /> 新建人格
+              </Button>
             </div>
-          ))}
-        </div>
-      )}
-
-      {mode === 'chat' ? (
-        <div className="flex flex-1 overflow-hidden">
+            <div className="px-3 py-2 text-caption uppercase tracking-wide text-on-surface-variant">历史会话</div>
+            <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-1">
+              {sessions.length === 0 && <p className="px-2 py-2 text-caption text-on-surface-variant/60">还没有会话</p>}
+              {sessions.map((sess) => (
+                <div key={sess.session_id} className="group flex items-center gap-1">
+                  <button onClick={() => void switchSession(sess.session_id)}
+                    className={`flex-1 text-left px-2 py-2 rounded-cw-xs transition-colors cursor-pointer ${sessionId === sess.session_id ? 'bg-surface text-primary' : 'text-on-surface hover:bg-surface'}`}>
+                    <span className="block text-label-sm truncate">{sess.title || '(未命名会话)'}</span>
+                    <span className="block text-caption text-on-surface-variant/60 truncate">{sess.message_count} 条 · {new Date(sess.updated_at).toLocaleDateString('zh-CN')}</span>
+                  </button>
+                  <button onClick={() => void deleteSession(sess.session_id)} aria-label={`删除会话 ${sess.session_id}`}
+                    className="p-1 text-on-surface-variant/50 hover:text-error cursor-pointer opacity-0 group-hover:opacity-100">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </aside>
           {/* ── chat column ── */}
           <div className="flex-1 flex flex-col min-w-0 border-r border-outline-variant/25">
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-4 min-h-0">
@@ -642,11 +652,11 @@ export function PersonaForgePage() {
                   </div>
                 )}
                 <div className="flex gap-2">
-                  <label className="p-2.5 rounded-cw-sm bg-surface-container text-on-surface-variant hover:text-primary border border-outline-variant/30 transition-colors cursor-pointer" title="上传参考文档">
-                    <FileUp className="w-4 h-4" />
-                    <input type="file" className="hidden" accept=".md,.txt" onChange={handleKnowledge} disabled={kbBusy} />
-                  </label>
                   {/* 图片/文件附件：随消息一起发给后端（模型看不到图 → 视觉能力开启时先做分析） */}
+                  <label className="p-2.5 rounded-cw-sm bg-surface-container text-on-surface-variant hover:text-primary border border-outline-variant/30 transition-colors cursor-pointer" title="上传文稿">
+                    <FileText className="w-4 h-4" />
+                    <input type="file" className="hidden" accept=".txt,.md,.srt" onChange={handleScriptFile} data-testid="script-upload" />
+                  </label>
                   <label className="p-2.5 rounded-cw-sm bg-surface-container text-on-surface-variant hover:text-primary border border-outline-variant/30 transition-colors cursor-pointer" title="附带图片（最多 4 张）">
                     <ImagePlus className="w-4 h-4" />
                     <input
@@ -658,12 +668,12 @@ export function PersonaForgePage() {
                       data-testid="attachment-input"
                     />
                   </label>
-                  <input
+                  <textarea
                     value={input}
+                    rows={2}
                     onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && send()}
-                    placeholder="描述这个人格的风格、语气、节奏…"
-                    className="flex-1 bg-surface-container rounded-cw-sm px-3.5 py-2.5 text-body-sm text-on-surface
+                    placeholder="描述这个人格的风格、语气、节奏…（可粘贴文稿）"
+                    className="flex-1 resize-none bg-surface-container rounded-cw-sm px-3.5 py-2.5 text-body-sm text-on-surface
                       outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50"
                   />
                   <Button size="icon" onClick={send} data-testid="chat-send"
@@ -801,6 +811,52 @@ export function PersonaForgePage() {
               </div>
             </div>
 
+            {/* 人工修订草稿（PATCH draft） */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-label font-medium text-on-surface-variant uppercase tracking-wide">手动修订</h2>
+                <button onClick={() => setPatchOpen((v) => !v)} disabled={!sessionId}
+                  className="text-caption text-primary disabled:opacity-40 hover:underline cursor-pointer">
+                  {patchOpen ? '收起' : '修改参数'}
+                </button>
+              </div>
+              {patchOpen && (
+                <div className="space-y-2 bg-surface-container border border-outline-variant/30 rounded-cw-md p-3">
+                  <input value={patchTone} onChange={(e) => setPatchTone(e.target.value)}
+                    placeholder="语调，如 sharp / warm_storyteller"
+                    className="w-full bg-surface rounded-cw-xs px-2 py-1.5 text-caption text-on-surface border border-outline-variant/30 outline-none focus:border-primary" />
+                  <input value={patchAcademic} onChange={(e) => setPatchAcademic(e.target.value)}
+                    type="number" min={0} max={1} step={0.05} placeholder="学术密度 0-1"
+                    className="w-full bg-surface rounded-cw-xs px-2 py-1.5 text-caption text-on-surface border border-outline-variant/30 outline-none focus:border-primary" />
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={saveDraftPatch} disabled={patchSaving}>{patchSaving ? '保存中…' : '保存修订'}</Button>
+                    <Button size="sm" variant="outline" onClick={() => setPatchOpen(false)}>取消</Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Prompt 草稿：对话过程中可见，保存后写入 persona prompt/vision_prompt */}
+            {(promptDraft || visionPromptDraft) && (
+              <div>
+                <h2 className="text-label font-medium text-on-surface-variant uppercase tracking-wide mb-2.5">Prompt 草稿</h2>
+                <div className="space-y-2" data-testid="forge-prompt-draft">
+                  {promptDraft && (
+                    <details className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-3">
+                      <summary className="text-label-sm text-on-surface cursor-pointer">系统 Prompt（{promptDraft.length} 字）</summary>
+                      <pre className="mt-2 whitespace-pre-wrap text-caption text-on-surface-variant max-h-40 overflow-y-auto">{promptDraft}</pre>
+                    </details>
+                  )}
+                  {visionPromptDraft && (
+                    <details className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-3">
+                      <summary className="text-label-sm text-on-surface cursor-pointer">视觉 Prompt（{visionPromptDraft.length} 字）</summary>
+                      <pre className="mt-2 whitespace-pre-wrap text-caption text-on-surface-variant max-h-40 overflow-y-auto">{visionPromptDraft}</pre>
+                    </details>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* commit */}
             <div className="mt-auto pt-3 border-t border-outline-variant/25 space-y-2.5">
               <input
@@ -810,321 +866,25 @@ export function PersonaForgePage() {
                 className="w-full bg-surface-container rounded-cw-sm px-3 py-2 text-body-sm text-on-surface
                   outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50"
               />
-              <Button className="w-full" onClick={commit} disabled={overall < 40 || !personaName.trim() || busy}>
+              <Button className="w-full" onClick={commit} disabled={!personaName.trim() || busy}>
                 <Check className="w-4 h-4" /> 保存人格
               </Button>
-              {overall < 40 && (
-                <p className="text-caption text-on-surface-variant/60 text-center">完成度达 40% 后可保存</p>
-              )}
             </div>
           </div>
         </div>
-      ) : mode === 'prompt' ? (
-        <PromptForgeBody />
-      ) : mode === 'script' ? (
-        <ScriptForgeBody />
-      ) : (
-        <DialogueForgeBody />
-      )}
     </div>
   );
 }
 
-/**
- * PromptForgeBody — 从自然语言提示词生成 Persona（POST /from-prompt）。
- */
-function PromptForgeBody() {
-  const navigate = useNavigate();
-  const [description, setDescription] = useState('');
-  const [personaId, setPersonaId] = useState('');
-  const [personaName, setPersonaName] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<Persona | null>(null);
-  const [error, setError] = useState('');
-
-  const generate = async () => {
-    if (!description.trim() || busy) return;
-    setBusy(true);
-    setError('');
-    setResult(null);
-    try {
-      const manifest = await personaApi.forgeFromPrompt(
-        description.trim(),
-        personaId.trim() || uid('persona_'),
-        personaName.trim() || undefined,
-      );
-      setResult(manifest as Persona);
-    } catch {
-      setError('生成失败：后端未连接或请求被拒绝');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <ForgeBodyShell>
-      <h2 className="text-body-sm font-medium text-on-surface mb-1.5">描述你的创作人格</h2>
-      <p className="text-label-sm text-on-surface-variant mb-2">用自然语言描述风格、语气、节奏等，系统自动映射为结构化 Persona。</p>
-      <textarea
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        rows={8}
-        placeholder="例如：一个说话犀利、节奏快、爱用数据说话的科技评论人格……"
-        className="w-full bg-surface-container rounded-cw-md px-4 py-3 text-body-sm text-on-surface
-          outline-none border border-outline-variant/30 focus:border-primary resize-y leading-relaxed placeholder:text-on-surface-variant/40"
-      />
-      <div className="grid grid-cols-2 gap-3">
-        <input
-          value={personaId}
-          onChange={(e) => setPersonaId(e.target.value)}
-          placeholder="Persona ID（留空自动生成）"
-          className="w-full bg-surface-container rounded-cw-xs px-3 py-2 text-body-sm text-on-surface
-            outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50"
-        />
-        <input
-          value={personaName}
-          onChange={(e) => setPersonaName(e.target.value)}
-          placeholder="人格名称（可选）"
-          className="w-full bg-surface-container rounded-cw-xs px-3 py-2 text-body-sm text-on-surface
-            outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50"
-        />
-      </div>
-      <div className="flex items-center gap-3">
-        <Button onClick={generate} disabled={busy || !description.trim()}>
-          <Wand2 className="w-4 h-4" /> {busy ? '生成中…' : '从提示词生成'}
-        </Button>
-        {error && <span className="text-caption text-error">{error}</span>}
-      </div>
-      {result && <ManifestResultCard persona={result} navigate={navigate} />}
-    </ForgeBodyShell>
-  );
-}
-
-/**
- * ScriptForgeBody — 从脚本/口播文本生成 Persona（POST /from-script）。
- */
-function ScriptForgeBody() {
-  const navigate = useNavigate();
-  const [script, setScript] = useState('');
-  const [scriptFormat, setScriptFormat] = useState<'txt' | 'srt' | 'md'>('txt');
-  const [personaId, setPersonaId] = useState('');
-  const [personaName, setPersonaName] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<Persona | null>(null);
-  const [error, setError] = useState('');
-
-  const generate = async () => {
-    if (!script.trim() || busy) return;
-    setBusy(true);
-    setError('');
-    setResult(null);
-    try {
-      const manifest = await personaApi.forgeFromScript(
-        script.trim(),
-        personaId.trim() || uid('persona_'),
-        personaName.trim() || undefined,
-        scriptFormat,
-      );
-      setResult(manifest as Persona);
-    } catch {
-      setError('生成失败：后端未连接或请求被拒绝');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <ForgeBodyShell>
-      <div className="flex items-center justify-between mb-1.5">
-        <h2 className="text-body-sm font-medium text-on-surface">粘贴脚本文稿</h2>
-        <select
-          value={scriptFormat}
-          onChange={(e) => setScriptFormat(e.target.value as 'txt' | 'srt' | 'md')}
-          className="bg-surface-container rounded-cw-xs px-2 py-1 text-caption text-on-surface
-            outline-none border border-outline-variant/30 focus:border-primary cursor-pointer"
-        >
-          <option value="txt">纯文本 (.txt)</option>
-          <option value="srt">字幕 (.srt)</option>
-          <option value="md">Markdown (.md)</option>
-        </select>
-      </div>
-      <p className="text-label-sm text-on-surface-variant mb-2">上传或粘贴口播稿/字幕，系统通过语言分析提取创作风格。</p>
-      <textarea
-        value={script}
-        onChange={(e) => setScript(e.target.value)}
-        rows={10}
-        placeholder="粘贴你的脚本、口播稿或字幕内容……"
-        className="w-full bg-surface-container rounded-cw-md px-4 py-3 text-body-sm font-mono text-on-surface
-          outline-none border border-outline-variant/30 focus:border-primary resize-y leading-relaxed placeholder:text-on-surface-variant/40"
-      />
-      <div className="grid grid-cols-2 gap-3">
-        <input
-          value={personaId}
-          onChange={(e) => setPersonaId(e.target.value)}
-          placeholder="Persona ID（留空自动生成）"
-          className="w-full bg-surface-container rounded-cw-xs px-3 py-2 text-body-sm text-on-surface
-            outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50"
-        />
-        <input
-          value={personaName}
-          onChange={(e) => setPersonaName(e.target.value)}
-          placeholder="人格名称（可选）"
-          className="w-full bg-surface-container rounded-cw-xs px-3 py-2 text-body-sm text-on-surface
-            outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50"
-        />
-      </div>
-      <div className="flex items-center gap-3">
-        <Button onClick={generate} disabled={busy || !script.trim()}>
-          <FileText className="w-4 h-4" /> {busy ? '生成中…' : '从脚本文稿生成'}
-        </Button>
-        {error && <span className="text-caption text-error">{error}</span>}
-      </div>
-      {result && <ManifestResultCard persona={result} navigate={navigate} />}
-    </ForgeBodyShell>
-  );
-}
-
-/**
- * DialogueForgeBody — 引导问答生成 Persona
- * （POST /dialogue/generate-questions → 问答 → POST /dialogue/build）。
- */
-function DialogueForgeBody() {
-  const navigate = useNavigate();
-  const [personaId, setPersonaId] = useState('');
-  const [questions, setQuestions] = useState<Array<{ question?: string; category?: string; field?: string }>>([]);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<Persona | null>(null);
-  const [error, setError] = useState('');
-
-  const generateQuestions = async () => {
-    const pid = personaId.trim();
-    if (!pid || busy) return;
-    setBusy(true);
-    setError('');
-    setResult(null);
-    try {
-      const qs = await personaApi.forgeDialogueQuestions(pid);
-      setQuestions(qs.length ? qs : [{ question: '请描述你的视频创作风格', category: 'identity', field: 'tone' }]);
-      setAnswers({});
-    } catch {
-      setError('生成引导问题失败：后端不可达或人格不存在');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const build = async () => {
-    const pid = personaId.trim();
-    if (!pid || busy) return;
-    setBusy(true);
-    setError('');
-    try {
-      const manifest = await personaApi.forgeDialogueBuild(pid, answers);
-      setResult(manifest as Persona);
-    } catch {
-      setError('构建失败：后端未连接或请求被拒绝');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <ForgeBodyShell>
-      <h2 className="text-body-sm font-medium text-on-surface mb-1.5">引导问答</h2>
-      <p className="text-label-sm text-on-surface-variant mb-2">基于已有 Persona 生成引导问题，逐题回答后编译为完整配置。</p>
-      <div className="flex gap-2">
-        <input
-          value={personaId}
-          onChange={(e) => setPersonaId(e.target.value)}
-          placeholder="Persona ID（已有的人格）"
-          className="flex-1 bg-surface-container rounded-cw-xs px-3 py-2 text-body-sm text-on-surface
-            outline-none border border-outline-variant/30 focus:border-primary placeholder:text-on-surface-variant/50"
-        />
-        <Button variant="outline" onClick={generateQuestions} disabled={busy || !personaId.trim()}>
-          <MessageCircleQuestion className="w-4 h-4" /> 生成引导问题
-        </Button>
-      </div>
-      {questions.length > 0 && (
-        <div className="space-y-3">
-          {questions.map((q, i) => (
-            <div key={i} className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-3">
-              <p className="text-body-sm text-on-surface mb-1.5">{q.question}</p>
-              <textarea
-                value={answers[q.field ?? q.question ?? String(i)] ?? ''}
-                onChange={(e) => setAnswers((a) => ({ ...a, [q.field ?? q.question ?? String(i)]: e.target.value }))}
-                rows={2}
-                placeholder="回答…"
-                className="w-full bg-surface rounded-cw-xs px-2.5 py-1.5 text-body-sm text-on-surface
-                  outline-none border border-outline-variant/30 focus:border-primary resize-none placeholder:text-on-surface-variant/50"
-              />
-            </div>
-          ))}
-          <div className="flex items-center gap-3">
-            <Button onClick={build} disabled={busy}>
-              <Check className="w-4 h-4" /> {busy ? '构建中…' : '构建 Persona'}
-            </Button>
-            {error && <span className="text-caption text-error">{error}</span>}
-          </div>
-        </div>
-      )}
-      {questions.length === 0 && error && <p className="text-caption text-error">{error}</p>}
-      {result && <ManifestResultCard persona={result} navigate={navigate} />}
-    </ForgeBodyShell>
-  );
-}
-
-/** 扩展模式通用外层布局。 */
-function ForgeBodyShell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex-1 overflow-y-auto p-6 min-h-0">
-      <div className="max-w-[760px] mx-auto space-y-4">{children}</div>
-    </div>
-  );
-}
-
-/** 生成结果卡片：展示 PersonaManifest 摘要并跳转到详情页。 */
-function ManifestResultCard({ persona, navigate }: { persona: Persona; navigate: ReturnType<typeof useNavigate> }) {
-  const p = persona.parameter;
-  return (
-    <div className="bg-surface-container border border-outline-variant/30 rounded-cw-md p-4 space-y-2">
-      <h3 className="text-body-sm font-medium text-on-surface">已生成 Persona</h3>
-      <p className="text-body-sm text-on-surface font-semibold">{persona.persona_name}</p>
-      <p className="text-caption text-on-surface-variant font-mono">{persona.persona_id} · v{persona.version}</p>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-label-sm">
-        <span className="text-on-surface-variant">语气: <span className="text-primary font-mono">{p?.identity?.tone || '-'}</span></span>
-        <span className="text-on-surface-variant">剪切密度: <span className="text-primary font-mono">{p?.rhythm?.cut_density_tier || '-'}</span></span>
-        <span className="text-on-surface-variant">动画风格: <span className="text-primary">{p?.visual?.animation_style || '-'}</span></span>
-        <span className="text-on-surface-variant">定位: <span className="text-primary">{p?.identity?.positioning || '-'}</span></span>
-      </div>
-      <div className="pt-1">
-        <Button size="sm" variant="outline"
-          onClick={() => navigate({ to: '/persona/$personaId', params: { personaId: persona.persona_id } })}>
-          前往编辑 <ExternalLink className="w-3.5 h-3.5" />
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-/** 由后端会话草稿估算各维度完成度（get_state 不返回 progress 字段）。 */
 function estimateProgressFromDraft(draft: unknown): Record<Dimension, number> {
-  const out: Record<Dimension, number> = {
-    identity: 0, language: 0, rhythm: 0, visual: 0, audio: 0, constraints: 0,
-  };
+  const out: Record<Dimension, number> = { identity: 0, language: 0, rhythm: 0, visual: 0, audio: 0, constraints: 0 };
   if (!draft || typeof draft !== 'object') return out;
   const d = draft as Record<string, unknown>;
   const dims: [Dimension, unknown][] = [
-    ['identity', d.identity],
-    ['language', d.language],
-    ['rhythm', d.rhythm],
-    ['visual', d.visual],
-    ['audio', d.audio],
-    ['constraints', d.constraints],
+    ['identity', d.identity], ['language', d.language], ['rhythm', d.rhythm],
+    ['visual', d.visual], ['audio', d.audio], ['constraints', d.constraints],
   ];
-  for (const [key, val] of dims) {
-    if (dimensionHasSignal(val)) out[key] = 100;
-  }
+  for (const [key, val] of dims) if (dimensionHasSignal(val)) out[key] = 100;
   return out;
 }
 
@@ -1140,51 +900,11 @@ function dimensionHasSignal(val: unknown): boolean {
   });
 }
 
-/** Offline simulation: each user message advances 1-2 dimensions. */
-function simulateProgress(
-  prev: Record<Dimension, number>,
-  _userText: string,
-): { progress: Record<Dimension, number>; draft: Partial<ParameterLayer>; reply: string } {
-  const order: Dimension[] = ['identity', 'language', 'rhythm', 'visual', 'audio', 'constraints'];
-  const next = { ...prev };
-  // advance the least-filled dimension(s)
-  const sorted = [...order].sort((a, b) => next[a] - next[b]);
-  const bump = sorted[0];
-  next[bump] = Math.min(100, next[bump] + 34 + Math.round(Math.random() * 12));
-  if (Math.random() > 0.5 && next[sorted[1]] < 100) {
-    next[sorted[1]] = Math.min(100, next[sorted[1]] + 25);
-  }
-
-  const draft: Partial<ParameterLayer> = {
-    identity: { persona_id: 'forging', persona_name: '新人格', version: '0.1.0', tone: 'critical', knowledge_domains: ['科技'] },
-    language: next.language > 30 ? { max_sentence_length: 20, academic_density: 0.6, slang_ratio: 0.25 } : undefined,
-    rhythm: next.rhythm > 30 ? { cut_density_tier: 'high', base_shot_duration_sec: 5 } : undefined,
-    visual: next.visual > 30 ? { animation_style: '关键词标注', color_palette: { primary: '#1a1a2e', accent: '#e94560' } } : undefined,
-    audio: next.audio > 30 ? { loudness_target_lufs: -15 } : undefined,
-    constraints: next.constraints > 30 ? { max_duration_sec: 720 } : undefined,
-  };
-
-  const replies: Record<Dimension, string> = {
-    identity: '明白了，这个人格的定位和语气我记下了。它主要聊哪些领域？',
-    language: '好的，语言风格已捕捉——措辞密度和句式节奏我会按这个来。它的剪辑节奏偏快还是偏慢？',
-    rhythm: '收到，节奏感很清晰。视觉上它偏好什么动画风格和配色？',
-    visual: '视觉基调已定。音频方面呢——BGM 是铺垫型还是节奏骨架型？响度目标大概多少？',
-    audio: '音频参数记好了。最后，有什么硬性约束吗？比如最长时长、是否必须标注来源。',
-    constraints: '约束已记录。人格画像基本完整了，给它起个名字就可以保存啦。',
-  };
-  return { progress: next, draft, reply: replies[bump] };
-}
-
-const KB_CHUNK_LIMIT = 6000;
-
 function normalizeProgress(prog: Record<string, number>): Record<string, number> {
   const vals = Object.values(prog).filter((v) => v > 0);
   if (vals.length === 0) return prog;
-  // 逐键归一化：混合 0-1 与 0-100 的比例时也按各自尺度处理，避免 0.x 渲染为 0%
   const scaled: Record<string, number> = {};
-  for (const [k, v] of Object.entries(prog)) {
-    scaled[k] = v <= 1 ? Math.round(v * 100) : v;
-  }
+  for (const [k, v] of Object.entries(prog)) scaled[k] = v <= 1 ? Math.round(v * 100) : v;
   return scaled;
 }
 
@@ -1198,10 +918,8 @@ function splitByH1(text: string): { heading: string; content: string }[] {
     const heading = lines[0].trim();
     const body = lines.slice(1).join('\n').trim();
     const chunkContent = heading ? `# ${heading}\n\n${body}` : body;
-    chunks.push({
-      heading: heading || `section_${chunks.length + 1}`,
-      content: chunkContent.length > KB_CHUNK_LIMIT ? chunkContent.slice(0, KB_CHUNK_LIMIT) : chunkContent,
-    });
+    chunks.push({ heading: heading || `section_${chunks.length + 1}`, content: chunkContent.slice(0, KB_CHUNK_LIMIT) });
   }
   return chunks.length ? chunks : [{ heading: '', content: text.slice(0, KB_CHUNK_LIMIT) }];
 }
+

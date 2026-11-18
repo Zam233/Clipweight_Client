@@ -31,6 +31,15 @@ export const personaApi = {
     return data as Record<string, unknown>;
   },
 
+  /** 原始 manifest + revision（保存时 If-Match，防并发覆盖）。 */
+  async getRawWithRevision(personaId: string) {
+    const res = await getApiClient().get(`/api/persona/${personaId}`);
+    return {
+      data: res.data as Record<string, unknown>,
+      revision: Number(res.headers['x-persona-revision'] ?? 0),
+    };
+  },
+
   /** Create a new persona */
   async create(persona: Partial<Persona>) {
     const { data } = await getApiClient().post('/api/persona/create', persona);
@@ -38,8 +47,10 @@ export const personaApi = {
   },
 
   /** Update a persona（P0-05: updates 为 buildUpdatePayload 产出的合并负载） */
-  async update(personaId: string, updates: Record<string, unknown>) {
-    const { data } = await getApiClient().put(`/api/persona/${personaId}`, updates);
+  async update(personaId: string, updates: Record<string, unknown>, revision?: number) {
+    const { data } = await getApiClient().put(`/api/persona/${personaId}`, updates, {
+      ...(revision != null ? { headers: { 'If-Match': `"${revision}"` } } : {}),
+    });
     return data;
   },
 
@@ -245,6 +256,39 @@ export const personaApi = {
 
   // ── Chat Forge 历史欠账补齐：会话列表 / 知识库 CRUD（O5 后一轮） ──
 
+  /** 受控附件读取：返回可渲染的 blob URL。 */
+  async chatForgeAttachment(sessionId: string, attachmentId: string) {
+    const { data } = await getApiClient().get(
+      `/api/persona/forge/chat/sessions/${sessionId}/attachments/${attachmentId}`,
+      { responseType: 'blob' },
+    );
+    return URL.createObjectURL(data as Blob);
+  },
+
+  /** 会话详情：真实消息 + 草稿 + 两类 Prompt 草稿（GET /sessions/{id}） */
+  async chatForgeDetail(sessionId: string) {
+    const { data } = await getApiClient().get(`/api/persona/forge/chat/sessions/${sessionId}`);
+    return data as {
+      session_id: string;
+      messages: Array<{
+        role: 'user' | 'assistant';
+        content: string;
+        attachments?: Array<{
+          type: 'image' | 'file'; name?: string; mime?: string; data_url?: string;
+          id?: string; storage_ref?: string; size?: number; sha256?: string;
+        }>;
+      }>;
+      persona_draft?: Record<string, unknown>;
+      prompt_draft?: string;
+      vision_prompt_draft?: string;
+      progress?: Record<string, number>;
+      missing_dimensions?: string[];
+      knowledge_base_count?: number;
+      created_at?: string;
+      updated_at?: string;
+    };
+  },
+
   /** 列出会话（scope=mine 只看自己的；off 鉴权下两者等价） */
   async chatForgeSessions(scope: 'mine' | 'all' = 'mine') {
     const { data } = await getApiClient().get('/api/persona/forge/chat/sessions', { params: { scope } });
@@ -309,12 +353,29 @@ export const personaApi = {
   },
 
   /** Commit/finalize the persona from chat forge */
-  async chatForgeCommit(sessionId: string, personaName: string) {
+  async chatForgeCommit(
+    sessionId: string,
+    personaName: string,
+    opts: { expectedRevision?: number; idempotencyKey?: string } = {},
+  ) {
     const { data } = await getApiClient().post('/api/persona/forge/chat/commit', {
       session_id: sessionId,
       persona_name: personaName,
+      ...(opts.expectedRevision != null ? { expected_revision: opts.expectedRevision } : {}),
+      ...(opts.idempotencyKey ? { idempotency_key: opts.idempotencyKey } : {}),
     });
     return data;
+  },
+
+  /** 人工修订六维草稿；expectedRevision 不符返回 409。 */
+  async chatForgePatch(
+    sessionId: string, parameterPatch: Record<string, unknown>, expectedRevision?: number,
+  ) {
+    const { data } = await getApiClient().patch(
+      `/api/persona/forge/chat/sessions/${sessionId}/draft`,
+      { ...(expectedRevision != null ? { expected_revision: expectedRevision } : {}), parameter_patch: parameterPatch },
+    );
+    return data as { revision?: number; persona_draft?: Record<string, unknown> };
   },
 
   /** Get a chat forge session's current state */

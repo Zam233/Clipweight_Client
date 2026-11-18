@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { personaApi, voiceApi } from '@/services/api';
+import { PersonaManualCreatePage } from './PersonaManualCreatePage';
 import { StandardLayout } from '@/layouts/StandardLayout';
 import { Button, Badge, Slider } from '@/components/ui';
 import { asText } from '@/lib/render';
@@ -30,8 +31,11 @@ export function PersonaDetailPage() {
   const { personaId } = useParams({ from: '/persona/$personaId' });
   const navigate = useNavigate();
   const [persona, setPersona] = useState<Persona | null>(null);
+  const [loadError, setLoadError] = useState('');
   const [tab, setTab] = useState<Tab>('params');
   const [prompt, setPrompt] = useState('');
+  const [editing, setEditing] = useState(false);
+  const editSnapshotRef = useRef<{ persona: Persona; prompt: string; visionPrompt: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -65,7 +69,7 @@ export function PersonaDetailPage() {
         const p = await personaApi.get(personaId);
         if (alive) { setPersona(p); setPrompt(p.prompt ?? ''); }
       } catch {
-        if (alive) setPersona(makeShell(personaId));
+        if (alive) setLoadError('人格读取失败：不存在、无权限或后端不可达');
       }
       // Prompt 与知识库走独立路由（GET /prompt、GET /knowledge）
       personaApi.getPrompt(personaId)
@@ -125,6 +129,21 @@ export function PersonaDetailPage() {
     }
   };
 
+  const startEdit = () => {
+    if (!persona) return;
+    editSnapshotRef.current = { persona, prompt, visionPrompt };
+    setEditing(true);
+  };
+  const cancelEdit = () => {
+    const snap = editSnapshotRef.current;
+    if (snap) {
+      setPersona(snap.persona);
+      setPrompt(snap.prompt);
+      setVisionPrompt(snap.visionPrompt);
+    }
+    setEditing(false);
+  };
+
   const save = async () => {
     if (!persona) return;
     setSaving(true);
@@ -133,17 +152,24 @@ export function PersonaDetailPage() {
       // P0-05：PUT 是全量替换语义——先取原始 manifest，把 UI 未映射的后端专有字段
       // 原样并回请求体，避免一次保存把它们静默重置为默认值
       let raw: Record<string, unknown> = {};
+      let revision: number | undefined;
       try {
-        raw = await personaApi.getRaw(persona.persona_id);
+        const meta = await personaApi.getRawWithRevision(persona.persona_id);
+        raw = meta.data;
+        revision = meta.revision;
       } catch {
-        // 取不到原始 manifest（后端异常等）——退化为仅回传 UI 字段
+        setSaveError('读取原始人格失败，已阻止保存（避免覆盖未知字段）');
+        setSaving(false);
+        return;
       }
       await personaApi.update(
         persona.persona_id,
         buildUpdatePayload({ ...persona, prompt }, raw),
+        revision,
       );
-    } catch {
-      setSaveError('保存失败：后端未连接或请求被拒绝');
+    } catch (e) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      setSaveError(status === 412 ? '保存冲突：人格已被其他窗口修改，请刷新后重试' : '保存失败：后端未连接或请求被拒绝');
     }
     setSaving(false);
   };
@@ -233,18 +259,46 @@ export function PersonaDetailPage() {
     }
   };
 
+  // 手动创建也复用 /persona/{id} 页面：?create=1 时渲染创建表单。
+  if (!persona && new URLSearchParams(window.location.search).get('create') === '1') {
+    return <PersonaManualCreatePage initialId={personaId} />;
+  }
+
   if (!persona) {
-    return <StandardLayout title="人格详情"><p className="text-on-surface-variant">加载中…</p></StandardLayout>;
+    return (
+      <StandardLayout title="人格详情">
+        <div className="max-w-[900px]">
+          {loadError ? (
+            <div className="bg-error/10 border border-error/30 rounded-cw-md p-4 text-error text-body-sm">
+              {loadError}
+              <button onClick={() => window.location.reload()} className="ml-3 underline cursor-pointer">重试</button>
+            </div>
+          ) : <p className="text-on-surface-variant">加载中…</p>}
+        </div>
+      </StandardLayout>
+    );
   }
 
   const P = persona.parameter;
 
   return (
     <StandardLayout title={persona.persona_name}>
-      <button onClick={() => navigate({ to: '/persona' })}
-        className="flex items-center gap-1.5 text-label-sm text-on-surface-variant hover:text-primary transition-colors mb-5 cursor-pointer">
-        <ArrowLeft className="w-3.5 h-3.5" /> 返回人格库
-      </button>
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={() => navigate({ to: '/persona' })}
+          className="flex items-center gap-1.5 text-label-sm text-on-surface-variant hover:text-primary transition-colors cursor-pointer">
+          <ArrowLeft className="w-3.5 h-3.5" /> 返回人格库
+        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {!editing ? (
+            <Button size="sm" onClick={startEdit}><Pencil className="w-3.5 h-3.5" /> 编辑</Button>
+          ) : (
+            <>
+              <Button size="sm" variant="outline" onClick={cancelEdit}>取消</Button>
+              <Button size="sm" onClick={save} disabled={saving}><Save className="w-3.5 h-3.5" /> {saving ? '保存中…' : '保存'}</Button>
+            </>
+          )}
+        </div>
+      </div>
 
       {/* P10: 派生入口 */}
       <div className="flex items-center gap-2 mb-5 max-w-[900px]">
@@ -289,7 +343,7 @@ export function PersonaDetailPage() {
         ))}
       </div>
 
-      <div className="max-w-[900px]">
+      <fieldset disabled={!editing} className="max-w-[900px] min-w-0">
         {tab === 'params' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <Section icon={<Fingerprint className="w-4 h-4" />} title="身份 Identity">
@@ -511,13 +565,15 @@ export function PersonaDetailPage() {
           </div>
         )}
 
-        <div className="mt-7 flex items-center justify-end gap-3">
-          {saveError && <span className="text-caption text-error">{saveError}</span>}
-          <Button onClick={save} disabled={saving}>
-            <Save className="w-4 h-4" /> {saving ? '保存中…' : '保存人格'}
-          </Button>
-        </div>
-      </div>
+        {editing && (
+          <div className="mt-7 flex items-center justify-end gap-3">
+            {saveError && <span className="text-caption text-error">{saveError}</span>}
+            <Button onClick={save} disabled={saving}>
+              <Save className="w-4 h-4" /> {saving ? '保存中…' : '保存人格'}
+            </Button>
+          </div>
+        )}
+      </fieldset>
     </StandardLayout>
   );
 }
@@ -554,19 +610,6 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
   );
 }
 
-function makeShell(personaId: string): Persona {
-  return {
-    persona_id: personaId, persona_name: personaId, version: '1.0.0',
-    parameter: {
-      identity: { persona_id: personaId, persona_name: personaId, version: '1.0.0', tone: 'warm_storyteller', positioning: '', knowledge_domains: [] },
-      language: { max_sentence_length: 25, academic_density: 0.5, slang_ratio: 0.3 },
-      rhythm: { cut_density_tier: 'medium', base_shot_duration_sec: 6 },
-      visual: { color_palette: { primary: '#1a1a2e', accent: '#e94560' }, animation_style: '' },
-      audio: { loudness_target_lufs: -16 },
-      constraints: { max_duration_sec: 900 },
-    },
-  };
-}
 
 function RagSearch({ personaId }: { personaId: string }) {
   const [query, setQuery] = useState('');
