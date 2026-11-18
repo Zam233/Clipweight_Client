@@ -1476,3 +1476,11 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 测试：`mgDomPlan.test.ts` 3 passed；前端 241 passed；build 通过；
 - 提交 `3185513`。
 - 仍是首版：没有 generation 握手、没有 WAAPI 动画、blur 标定/服务端 E2E 未完成。
+
+
+### CP-3 generation 握手（2026-11-18）
+
+- `overlayStore` 增加 generation/canvasGeneration；
+- 覆盖层请求接管后保持 hidden，Canvas 完成 skip 帧后 markCanvasDrawn，覆盖层才 visible；
+- 播放时 release，Canvas 恢复绘制；
+- 提交 `8cdd38f`。
