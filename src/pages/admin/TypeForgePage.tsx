@@ -67,6 +67,7 @@ export function TypeForgePage() {
       setProgress(res.progress ?? {});
       if (res.draft?.id) setTypeId(String(res.draft.id));
       if (res.draft?.name) setTypeName(String(res.draft.name));
+      await loadSessions();
     } catch { toast('发送失败', 'error'); } finally { setBusy(false); }
   };
 
@@ -149,7 +150,7 @@ export function TypeForgePage() {
           <p>转场：{String((draft.shot_params as TypeDefinition['shot_params'] | undefined)?.transition_type ?? '-')}</p>
           <p>Prompt 槽位：{Object.keys(draft.prompts ?? {}).length}/10</p>
         </div>
-        {missing.length > 0 && <div className="rounded-cw-sm border border-warning/30 bg-warning/10 p-2"><p className="text-caption font-medium text-warning mb-1">待确认</p><ul className="text-caption text-on-surface-variant space-y-0.5">{missing.map((m) => <li key={m}>· {m}</li>)}</ul></div>}
+        {missing.length > 0 && <div className="rounded-cw-sm border border-warning/30 bg-warning/10 p-2 min-w-0"><p className="text-caption font-medium text-warning mb-1">待确认</p><ul className="text-caption text-on-surface-variant space-y-0.5 break-words">{missing.map((m) => <li key={m}>· {m}</li>)}</ul></div>}
         {Object.keys(progress).length > 0 && <div className="space-y-1">{[['identity','身份'],['params','参数'],['prompts','Prompt'],['rules','规则']].map(([k,label]) => <div key={k} className="flex items-center gap-2"><span className="text-caption w-12">{label}</span><div className="flex-1 h-1.5 rounded-full bg-surface-container"><div className="h-full rounded-full bg-primary" style={{width:`${Math.round((progress[k] ?? 0) * 100)}%`}} /></div></div>)}</div>}
         <details className="bg-surface rounded-cw-sm border p-2"><summary className="text-label-sm cursor-pointer">完整草稿 JSON</summary><pre className="mt-2 text-caption overflow-auto max-h-64">{JSON.stringify(draft, null, 2)}</pre></details>
         <Button className="w-full" onClick={() => void save()} disabled={busy || !sessionId || !typeId.trim() || !typeName.trim()}><Check className="w-4 h-4" /> 保存类型</Button>
