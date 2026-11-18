@@ -7,7 +7,8 @@ import { buildOverlayPlan } from './mgDomPlan';
 import { transformCss, has3D } from './mgLayout';
 import { mgSpecOf, resolveElementProps } from '../mgRenderer';
 import { computePreviewFrameRect, type FrameRect } from '../frameGeometry';
-import { textMotionFlags } from '@/features/textMotion/flags';
+import { useProjectStore } from '@/stores/projectStore';
+import { isMotionSpec3DEnabled } from '@/features/textMotion/rollout';
 import { verdictForClip } from './fidelity';
 
 function propsOfElement(el: Record<string, unknown>, local: number): Record<string, unknown> {
@@ -18,6 +19,8 @@ function propsOfElement(el: Record<string, unknown>, local: number): Record<stri
 
 export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivElement | null> }) {
   const timeline = useTimelineStore((s) => s.timeline);
+  const projectId = useProjectStore((s) => s.projectId);
+  const enabled = isMotionSpec3DEnabled(projectId);
   const t = usePreviewStore((s) => s.currentTimeSec);
   const playing = usePreviewStore((s) => s.isPlaying);
   const zoom = usePreviewStore((s) => s.zoomLevel);
@@ -30,7 +33,7 @@ export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivEleme
   const nodeRefs = useRef(new Map<string, HTMLElement>());
   const animsRef = useRef<Array<{ a: Animation; clipId: string; start: number; speed: number; offset: number }>>([]);
   useEffect(() => {
-    if (!textMotionFlags.overlay3d || !wrapRef.current) return;
+    if (!enabled || !wrapRef.current) return;
     const update = () => {
       const rect = wrapRef.current?.getBoundingClientRect();
       if (!rect) return;
@@ -40,10 +43,10 @@ export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivEleme
     const ro = new ResizeObserver(update);
     ro.observe(wrapRef.current);
     return () => ro.disconnect();
-  }, [timeline.width, timeline.height, zoom, wrapRef]);
+  }, [enabled, timeline.width, timeline.height, zoom, wrapRef]);
 
   const active = useMemo(() => {
-    if (!textMotionFlags.overlay3d || playing) return [];
+    if (!enabled || playing) return [];
     return timeline.tracks
       .filter((tr) => tr.kind === 'text' && !tr.hidden)
       .flatMap((tr) => tr.clips)
@@ -54,7 +57,7 @@ export function MotionSpecOverlay({ wrapRef }: { wrapRef: RefObject<HTMLDivEleme
           (k) => has3D({ ...el, ...(k.properties as Record<string, unknown>), ...k } as Record<string, unknown>),
         ));
       });
-  }, [timeline, t, playing]);
+  }, [enabled, timeline, t, playing]);
 
   const clipIds = active.map((c) => c.id).join('|');
   useEffect(() => {

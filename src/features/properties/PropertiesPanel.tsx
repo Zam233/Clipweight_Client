@@ -26,6 +26,7 @@ import { mgSpecOf } from '@/features/preview/mgRenderer';
 import { motionSpecOf, motionSpecMetaOf } from '@/features/textMotion/adapter';
 import { textMotionApi } from '@/services/api/textMotion';
 import { textMotionFlags } from '@/features/textMotion/flags';
+import { isServerFrameEnabled } from '@/features/textMotion/rollout';
 import type { AssetPackSummary } from '@/services/api/textMotion';
 import { validateDraftSpec } from '@/features/textMotion/schema';
 import { addKeyframe, removeKeyframe, updateCameraValue, updateKeyframeEasing, updateKeyframeTime, updateKeyframeValue, updatePathPoint, updatePathType, updateTrackSegment, removeEffect, addEffect } from '@/features/textMotion/draft';
@@ -140,6 +141,7 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
   const meta = motionSpecMetaOf(clip.metadata);
   const errors = validateDraftSpec(effective);
   const canEdit = !busy && Boolean(projectId);
+  const frameEnabled = isServerFrameEnabled(projectId);
   const runAuthor = async () => {
     if (!projectId || busy) return;
     setAuthorState(reduceAuthorState(initialAuthorState, { type: 'start', taskId: '' }));
@@ -452,7 +454,7 @@ function MotionSpecSection({ clip }: { clip: Clip }) {
           </span>
         )}
         <button
-          type="button" disabled={!canEdit || frameBusy}
+          type="button" disabled={!canEdit || frameBusy || !frameEnabled}
           onClick={() => void grabFrame()}
           className="px-2 py-1 rounded-cw-xs text-caption bg-surface-container text-on-surface disabled:opacity-40"
           title="服务端 Hyperframes 精确帧（不在浏览器执行 mg_html）"
