@@ -1584,3 +1584,11 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 当前 overlay/server：0.0356；
 - 这是文字像素横向跨度的差异代理，不是正式 Δedge 阈值；
 - 提交待入库。
+
+
+### CP-3 WAAPI seek（2026-11-18）
+
+- 覆盖层为每个 DOM 元素创建 `Element.animate`，创建后 `pause()`；
+- 暂停/seek 只改 `currentTime`，不播放；
+- 不支持 WAAPI 的浏览器回退 inline style；
+- 提交 `d3e5c23`（push 网络失败，本地 ahead 1）。
