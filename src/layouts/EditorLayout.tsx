@@ -12,6 +12,7 @@ import { AssetPanel } from '@/features/assets/AssetPanel';
 import { PreviewPanel } from '@/features/preview/PreviewPanel';
 import { TimelinePanel } from '@/features/timeline/components/TimelinePanel';
 import { PropertiesPanel } from '@/features/properties/PropertiesPanel';
+import { AnimationContextMount } from '@/features/animation/AnimationContextMount';
 import { CopilotDock } from '@/features/copilot/CopilotDock';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ReviewPanel } from '@/features/agent/ReviewPanel';
@@ -296,6 +297,7 @@ export function EditorLayout() {
               style={{ width: panelWidths.properties }}
             >
               <ErrorBoundary region="属性"><PropertiesPanel /></ErrorBoundary>
+              <AnimationContextMount />
             </div>
           </>
         )}
@@ -482,3 +484,4 @@ const MOBILE_PANEL_LABELS: Record<'assets' | 'properties' | 'agent', string> = {
   properties: '属性面板',
   agent: 'Agent 副驾驶',
 };
+
