@@ -1465,3 +1465,14 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 只接受 project/clip/time，不接受客户端 HTML/spec；
 - 测试：`test_text_motion_api.py` 7 passed；
 - 后端提交 `46b603a`。
+
+
+### CP-2/CP-3 首版（2026-11-18）
+
+- 新增 `mgLayout.ts`：anchor、transform 顺序、CSS 值安全检查、图片白名单；
+- 新增 `mgDomPlan.ts`：结构化 mg_def → DOM 计划、keyframes、3D/fidelity 标记；
+- 新增 `MotionSpecOverlay.tsx` + `overlayStore.ts`：暂停/seek 时 CSS3D 覆盖层；
+- PreviewPanel 在覆盖层接管时跳过同 clip 的 Canvas MG 绘制；
+- 测试：`mgDomPlan.test.ts` 3 passed；前端 241 passed；build 通过；
+- 提交 `3185513`。
+- 仍是首版：没有 generation 握手、没有 WAAPI 动画、blur 标定/服务端 E2E 未完成。
