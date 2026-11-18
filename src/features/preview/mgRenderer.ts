@@ -361,6 +361,9 @@ export function drawMgFrame(
         if (!fidelity.unsupportedProps.includes(key)) fidelity.unsupportedProps.push(key);
       }
     }
+    for (const key of ['font_stretch', 'mix_blend_mode', 'object_position', 'background_size', 'background_position']) {
+      if (key in el && !fidelity.approxProps.includes(key)) fidelity.approxProps.push(key);
+    }
     for (const key of ['blur', 'clip_inset', 'mask']) {
       if (key in p || key in el) {
         if (!fidelity.approxProps.includes(key)) fidelity.approxProps.push(key);
