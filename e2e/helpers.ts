@@ -255,6 +255,27 @@ export async function mockBackendApi(page: Page): Promise<void> {
     }),
   );
 
+  // 相对路径 /api/requirements/*：编辑器项目请求走真实后端，仅 mock 需求会话。
+  await page.route(/\/api\/requirements\//, async (route) => {
+    const url = route.request().url();
+    if (route.request().method() === 'POST' && /\/api\/requirements\/init(\?|$)/.test(url)) {
+      return route.fulfill({ json: { session_id: 'sess-e2e', status: 'gathering' } });
+    }
+    if (url.includes('/api/requirements/chat/stream/')) {
+      const frames = [
+        { type: 'status', data: 'gathering' },
+        { type: 'result', data: { reply: '（E2E mock）已收到你的需求。', status: 'gathering' } },
+      ];
+      return route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache' }, body: frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join('') });
+    }
+    if (route.request().method() === 'POST' && /\/api\/requirements\/chat(\?|$)/.test(url)) {
+      return route.fulfill({ json: { reply: '（E2E mock）已收到你的需求。', status: 'gathering' } });
+    }
+    if (route.request().method() === 'POST' && /\/api\/requirements\/edit(\?|$)/.test(url)) {
+      return route.fulfill({ json: { status: 'gathering', reply: '已根据指令调整时间线（E2E mock）。', action: 'adjust', proposed_timeline: { ...demoTimeline, duration_sec: 9, tracks: demoTimeline.tracks.map((t) => (t.id === 'track-v1' ? { ...t, clips: [{ ...t.clips[0], duration_sec: 6 }] } : t)) } } });
+    }
+    return route.continue();
+  });
   await page.route(/https?:\/\/[^/]+\/api\//, (route) => {
     const url = route.request().url();
 
@@ -336,3 +357,5 @@ export function collectPageErrors(page: Page): string[] {
   page.on('pageerror', (err) => errors.push(err.message));
   return errors;
 }
+
+
