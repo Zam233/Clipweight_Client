@@ -151,8 +151,11 @@ export function PersonaDetailPage() {
       // P0-05：PUT 是全量替换语义——先取原始 manifest，把 UI 未映射的后端专有字段
       // 原样并回请求体，避免一次保存把它们静默重置为默认值
       let raw: Record<string, unknown> = {};
+      let revision: number | undefined;
       try {
-        raw = await personaApi.getRaw(persona.persona_id);
+        const meta = await personaApi.getRawWithRevision(persona.persona_id);
+        raw = meta.data;
+        revision = meta.revision;
       } catch {
         setSaveError('读取原始人格失败，已阻止保存（避免覆盖未知字段）');
         setSaving(false);
@@ -161,9 +164,11 @@ export function PersonaDetailPage() {
       await personaApi.update(
         persona.persona_id,
         buildUpdatePayload({ ...persona, prompt }, raw),
+        revision,
       );
-    } catch {
-      setSaveError('保存失败：后端未连接或请求被拒绝');
+    } catch (e) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      setSaveError(status === 412 ? '保存冲突：人格已被其他窗口修改，请刷新后重试' : '保存失败：后端未连接或请求被拒绝');
     }
     setSaving(false);
   };

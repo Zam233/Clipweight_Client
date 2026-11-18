@@ -31,6 +31,15 @@ export const personaApi = {
     return data as Record<string, unknown>;
   },
 
+  /** 原始 manifest + revision（保存时 If-Match，防并发覆盖）。 */
+  async getRawWithRevision(personaId: string) {
+    const res = await getApiClient().get(`/api/persona/${personaId}`);
+    return {
+      data: res.data as Record<string, unknown>,
+      revision: Number(res.headers['x-persona-revision'] ?? 0),
+    };
+  },
+
   /** Create a new persona */
   async create(persona: Partial<Persona>) {
     const { data } = await getApiClient().post('/api/persona/create', persona);
@@ -38,8 +47,10 @@ export const personaApi = {
   },
 
   /** Update a persona（P0-05: updates 为 buildUpdatePayload 产出的合并负载） */
-  async update(personaId: string, updates: Record<string, unknown>) {
-    const { data } = await getApiClient().put(`/api/persona/${personaId}`, updates);
+  async update(personaId: string, updates: Record<string, unknown>, revision?: number) {
+    const { data } = await getApiClient().put(`/api/persona/${personaId}`, updates, {
+      ...(revision != null ? { headers: { 'If-Match': `"${revision}"` } } : {}),
+    });
     return data;
   },
 
