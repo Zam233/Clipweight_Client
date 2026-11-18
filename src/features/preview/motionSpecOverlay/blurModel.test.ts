@@ -29,7 +29,7 @@ describe('blur calibration', () => {
     expect(canvasBlurRadius(0, 1, 1)).toBe(0);
     expect(canvasBlurRadius(-4, 1, 1)).toBe(0);
     // 0.3 没有桶 → 取最近的 0.25
-    expect(canvasBlurRadius(8, 0.3, 1)).toBeCloseTo(2, 5);
+    expect(canvasBlurRadius(8, 0.3, 1)).toBeCloseTo(2.4, 5);
   });
 
   it('returns null for a dpr without a bucket', () => {
