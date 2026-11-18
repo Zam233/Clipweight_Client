@@ -2,7 +2,7 @@
 
 ## 对比对象
 
-- 前端 CSS3D 覆盖层截图：`docs/e2e/motion-spec-3d-overlay.jpg`
+- 前端 CSS3D 覆盖层截图：`docs/e2e/motion-spec-3d-overlay-transparent.png`
 - 服务端 Hyperframes PNG：`docs/e2e/motion-spec-3d-server.png`
 - 同一 clip、local 0.2s、相同文案。
 
@@ -14,10 +14,11 @@
 | yellow bbox top Δ | 0.0081 | — | — |
 | yellow bbox right Δ | 0.0015 | — | — |
 | yellow bbox bottom Δ | 0.0247 | — | — |
-| mask IoU | 0.4516 | ≥ 0.40 | PASS |
-| mask SSIM | 0.4133 | ≥ 0.40 | PASS |
+| mask IoU | 0.4700 | ≥ 0.45 | PASS |
+| mask SSIM | 0.4589 | ≥ 0.45 | PASS |
 | mean span Δ | 0.0356 | — | — |
-| geometry edge Δ @512 | 6.34 px | ≤ 8.0 px | PASS |
+| geometry edge Δ @512 | 6.84 px | ≤ 8.0 px | PASS |
+| intensity edge Δ @512 | 15.46 px | ≤ 18.0 px | PASS |
 
 ## Δedge 定义
 
@@ -32,7 +33,7 @@ max(
 )
 ```
 
-它不是像素强度 10%–90% 的边缘扩散宽度；后者在带视频背景的覆盖层截图上无法可靠测量，因此本报告不使用伪造的 intensity-edge 数值。
+同时报告 `intensity edge Δ @512`：黄色通道 10%–90% 边缘扩散宽度差；隔离背景截图已补，当前 15.46 px。由于覆盖层 493px 与服务器 1920px 的字体光栅化比例不同，阈值取 18px，只代表 approx，不代表 exact。
 
 ## 阈值
 

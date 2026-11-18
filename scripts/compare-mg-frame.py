@@ -166,7 +166,12 @@ if __name__ == "__main__":
     )
     iou = mask_iou(sys.argv[1], sys.argv[2]) or 0
     ssim = mask_ssim(sys.argv[1], sys.argv[2]) or 0
-    passed = edge_px <= 8.0 and iou >= 0.40 and ssim >= 0.40
-    print("edge_delta_px_512", round(edge_px, 2), "pass", passed)
+    e1,e2 = edge_width_512(sys.argv[1]), edge_width_512(sys.argv[2])
+    intensity_delta = abs(e1-e2) if (e1 is not None and e2 is not None) else None
+    passed = (edge_px <= 8.0 and iou >= 0.45 and ssim >= 0.45
+              and intensity_delta is not None and intensity_delta <= 18.0)
+    print("geometry_edge_delta_px_512", round(edge_px, 2))
+    print("intensity_edge_delta_px_512", round(intensity_delta, 2) if intensity_delta is not None else None)
+    print("fidelity_pass", passed)
 
 

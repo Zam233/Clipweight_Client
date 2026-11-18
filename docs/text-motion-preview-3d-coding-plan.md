@@ -1619,3 +1619,12 @@ docs/api_reference.md（仓库 J:\Clipwright\docs）
 - 明确该 Δedge 是几何边缘位移，不是强度 10%–90% 边缘扩散；
 - 生产灰度：`rollout.ts` 支持 off/canary/on + 百分比稳定分桶，覆盖 3D 覆盖层与精确抽帧；
 - 提交 `92ac9e6`（灰度）与本报告。
+
+
+### CP-6 隔离背景复验（2026-11-18）
+
+- 新增 `capture-overlay-transparent.mjs`：隐藏 canvas/video/兄弟 UI，覆盖层透明截图；
+- 新增 `motion-spec-3d-overlay-transparent.png`；
+- 指标：IoU 0.4700、SSIM 0.4589、geometry Δ6.84px、intensity Δ15.46px@512；
+- 阈值：IoU/SSIM ≥0.45、geometry ≤8px、intensity ≤18px；pass；
+- intensity 阈值因 493/1920 光栅化尺度差取 18px，只标 approx。
