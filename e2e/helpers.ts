@@ -261,6 +261,12 @@ export async function mockBackendApi(page: Page): Promise<void> {
     if (route.request().method() === 'POST' && /\/api\/requirements\/init(\?|$)/.test(url)) {
       return route.fulfill({ json: { session_id: 'sess-e2e', status: 'gathering' } });
     }
+    if (route.request().method() === 'GET' && /\/api\/requirements\/[^/]+\/timeline(\?|$)/.test(url)) {
+      return route.fulfill({ json: { items: [
+        { seq: 1, type: 'content', time: new Date().toISOString(), turn: 1, state: 'done', source: 'server', ref: null, content_ref: null, content_inline: { role: 'user', text: '选题：E2E 编辑测试选题' }, meta: { role: 'user' }, content: '选题：E2E 编辑测试选题' },
+        { seq: 2, type: 'content', time: new Date().toISOString(), turn: 1, state: 'done', source: 'server', ref: null, content_ref: null, content_inline: { role: 'assistant', text: '（E2E mock）已收到你的需求。' }, meta: { role: 'assistant' }, content: '（E2E mock）已收到你的需求。' },
+      ], latest_seq: 2, has_more: false, archived_until_seq: 0 } });
+    }
     if (url.includes('/api/requirements/chat/stream/')) {
       const frames = [
         { type: 'status', data: 'gathering' },
@@ -280,6 +286,12 @@ export async function mockBackendApi(page: Page): Promise<void> {
   await page.route(/https?:\/\/[^/]+\/api\//, (route) => {
     const url = route.request().url();
 
+    if (route.request().method() === 'GET' && /\/api\/requirements\/[^/]+\/timeline(\?|$)/.test(url)) {
+      return route.fulfill({ json: { items: [
+        { seq: 1, type: 'content', time: new Date().toISOString(), turn: 1, state: 'done', source: 'server', ref: null, content_ref: null, content_inline: { role: 'user', text: '选题：E2E 编辑测试选题' }, meta: { role: 'user' }, content: '选题：E2E 编辑测试选题' },
+        { seq: 2, type: 'content', time: new Date().toISOString(), turn: 1, state: 'done', source: 'server', ref: null, content_ref: null, content_inline: { role: 'assistant', text: '（E2E mock）已收到你的需求。' }, meta: { role: 'assistant' }, content: '（E2E mock）已收到你的需求。' },
+      ], latest_seq: 2, has_more: false, archived_until_seq: 0 } });
+    }
     if (/\/api\/project\/proj_img_demo(\/|$|\?)/.test(url)) {
       return route.fulfill({ json: demoImageProject });
     }
