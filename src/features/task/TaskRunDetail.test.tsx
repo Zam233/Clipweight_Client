@@ -18,6 +18,11 @@ const RUN = {
   outputs: { report_path: 'reports/07-animation-2.md', generated_mg_count: 6 },
   needs: [{ key: 'timeline', reason: '缺上一版时间线' }],
   failure: { category: 'quality_gate', retryable: 'retryable', evidence: ['覆盖 12%'] },
+  issues: [{
+    category: 'animation', clip_id: 'c_fail', reason: '动效位移不足',
+    retry: { stage: 'animation', inputs: { retry_clip_ids: ['c_fail'] } },
+  }],
+  redo_hint: '只重跑 c_fail',
   degradations: [{ kind: 'text_motion_weak', scope: 'animation', detail: '位移不足 24px' }],
   tool_calls_path: 'reports/tool_calls/animation-2.json',
 };
@@ -34,6 +39,11 @@ describe('TaskRunDetail', () => {
     expect(screen.getByText(/report_path/)).toBeTruthy();
     expect(screen.getByText(/缺上一版时间线/)).toBeTruthy();
     expect(screen.getByText(/quality_gate/)).toBeTruthy();
+    const issue = screen.getByTestId('run-detail-issues');
+    expect(issue.textContent).toContain('c_fail');
+    expect(issue.textContent).toContain('动效位移不足');
+    expect(issue.textContent).toContain('重跑 c_fail');
+    expect(screen.getByText('只重跑 c_fail')).toBeTruthy();
     const deg = screen.getByTestId('run-detail-degradations');
     expect(deg.textContent).toContain('text_motion_weak');
     expect(deg.textContent).toContain('位移不足 24px');

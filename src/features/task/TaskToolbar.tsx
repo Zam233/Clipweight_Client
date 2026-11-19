@@ -88,7 +88,7 @@ export function TaskToolbar({
   const action = STATUS_ACTIONS[status] ?? STATUS_ACTIONS.pending;
   const terminal = !action.pause && !action.resume && !action.inject && action.view === true;
 
-  const resumeLabel = status === 'paused' ? '继续' : '开始';
+  const resumeLabel = status === 'paused' || status === 'cancelled' ? '继续' : '开始';
 
   return (
     <div className="space-y-2" data-testid="task-toolbar" data-status={status}>

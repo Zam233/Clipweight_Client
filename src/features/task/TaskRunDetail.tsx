@@ -17,7 +17,7 @@ import { ChevronDown, ChevronRight, Copy } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { taskApi } from '@/services/api';
-import type { TaskRunDegradation, TaskRunDetail as RunDetail } from '@/types/task';
+import type { TaskRunDegradation, TaskRunDetail as RunDetail, TaskRunIssue } from '@/types/task';
 
 import { describeRunActionError } from './taskApiError';
 
@@ -85,6 +85,29 @@ function DegradationList({ items }: { items: TaskRunDegradation[] }) {
   );
 }
 
+function IssueList({ items }: { items: TaskRunIssue[] }) {
+  if (!items.length) return null;
+  return (
+    <ul className="space-y-0.5" data-testid="run-detail-issues">
+      {items.map((it, i) => {
+        const retryIds = it.retry?.inputs?.retry_clip_ids;
+        return (
+          <li key={`${it.clip_id || 'i'}-${i}`} className="text-caption">
+            <span className="mr-1 font-mono text-error">{it.category || 'issue'}</span>
+            {it.clip_id && <span className="mr-1 font-mono">{it.clip_id}</span>}
+            {it.reason && <span className="text-on-surface-variant">{it.reason}</span>}
+            {Array.isArray(retryIds) && retryIds.length > 0 && (
+              <span className="ml-1 text-on-surface-variant/60">
+                重跑 {retryIds.map(String).join(', ')}
+              </span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function TaskRunDetail({ taskId, runId, className }: Props) {
   const [run, setRun] = useState<RunDetail | null>(null);
   const [error, setError] = useState('');
@@ -113,6 +136,9 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
   const needs = (run?.needs || []) as Array<Record<string, unknown>>;
   const failure = (run?.failure || null) as Record<string, unknown> | null;
   const degradations = (run?.degradations || []) as TaskRunDegradation[];
+  const issues = (run?.issues || []) as TaskRunIssue[];
+  const redoHint = String(run?.redo_hint || '');
+  const details = (run?.details || {}) as Record<string, unknown>;
   const toolCalls = (run?.tool_calls || []) as Array<Record<string, unknown>>;
   const callsPath = String(run?.tool_calls_path || '');
 
@@ -173,8 +199,9 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
             {needs.length > 0
               ? needs.slice(0, 6).map((n, i) => (
                 <p key={i} className="truncate" title={_str(n)}>
-                  {String(n.key || n.kind || '需要')}
-                  {n.reason ? `：${String(n.reason)}` : ''}
+                  {String(n.field || n.key || n.kind || '需要')}
+                  {n.from_stage ? ` ← ${String(n.from_stage)}` : ''}
+                  {n.why || n.reason ? `：${String(n.why || n.reason)}` : ''}
                 </p>
               ))
               : undefined}
@@ -195,6 +222,28 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
               </>
             ) : undefined}
           </Section>
+
+          <Section title={`失败片段（${issues.length}）`} empty="这次没有失败片段">
+            {issues.length > 0 ? <IssueList items={issues} /> : undefined}
+          </Section>
+
+          {redoHint && (
+            <Section title="建议重做">
+              <p className="whitespace-pre-wrap break-words">{redoHint}</p>
+            </Section>
+          )}
+
+          {Object.keys(details).length > 0 && (
+            <Section title="结构化详情">
+              {Object.entries(details).slice(0, 8).map(([k, v]) => (
+                <p key={k} className="truncate" title={`${k}: ${_str(v)}`}>
+                  <span className="font-mono text-on-surface-variant/70">{k}</span>
+                  {' = '}
+                  {_str(v).slice(0, 200)}
+                </p>
+              ))}
+            </Section>
+          )}
 
           <Section title={`降级与处置（${degradations.length}）`} empty="这次没有降级">
             {degradations.length > 0 ? <DegradationList items={degradations} /> : undefined}

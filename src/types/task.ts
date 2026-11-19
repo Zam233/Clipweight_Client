@@ -327,6 +327,21 @@ export interface TaskRunDegradation {
 }
 
 /** `GET /api/task/{id}/runs/{run_id}` 里的 AgentResult（只声明前端要读的字段） */
+export interface TaskRunIssue {
+  severity?: string;
+  category?: string;
+  clip_id?: string;
+  anim_id?: string;
+  anim_name?: string;
+  reason?: string;
+  retry?: {
+    stage?: string;
+    clip_id?: string;
+    inputs?: Record<string, unknown>;
+  };
+  [key: string]: unknown;
+}
+
 export interface TaskRunDetail {
   run_id?: string;
   kind?: string;
@@ -341,6 +356,10 @@ export interface TaskRunDetail {
   writes?: string[];
   needs?: Array<Record<string, unknown>>;
   failure?: Record<string, unknown> | null;
+  issues?: TaskRunIssue[];
+  redo_agent?: string;
+  redo_hint?: string;
+  details?: Record<string, unknown>;
   degradations?: TaskRunDegradation[];
   tool_calls?: Array<Record<string, unknown>>;
   tool_calls_path?: string;
