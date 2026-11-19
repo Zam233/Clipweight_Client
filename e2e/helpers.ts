@@ -255,9 +255,43 @@ export async function mockBackendApi(page: Page): Promise<void> {
     }),
   );
 
+  // 相对路径 /api/requirements/*：编辑器项目请求走真实后端，仅 mock 需求会话。
+  await page.route(/\/api\/requirements\//, async (route) => {
+    const url = route.request().url();
+    if (route.request().method() === 'POST' && /\/api\/requirements\/init(\?|$)/.test(url)) {
+      return route.fulfill({ json: { session_id: 'sess-e2e', status: 'gathering' } });
+    }
+    if (route.request().method() === 'GET' && /\/api\/requirements\/[^/]+\/timeline(\?|$)/.test(url)) {
+      return route.fulfill({ json: { items: [
+        { seq: 1, type: 'content', time: new Date().toISOString(), turn: 1, state: 'done', source: 'server', ref: null, content_ref: null, content_inline: { role: 'user', text: '选题：E2E 编辑测试选题' }, meta: { role: 'user' }, content: '选题：E2E 编辑测试选题' },
+        { seq: 2, type: 'content', time: new Date().toISOString(), turn: 1, state: 'done', source: 'server', ref: null, content_ref: null, content_inline: { role: 'assistant', text: '（E2E mock）已收到你的需求。' }, meta: { role: 'assistant' }, content: '（E2E mock）已收到你的需求。' },
+      ], latest_seq: 2, has_more: false, archived_until_seq: 0 } });
+    }
+    if (url.includes('/api/requirements/chat/stream/')) {
+      const frames = [
+        { type: 'status', data: 'gathering' },
+        { type: 'delta', data: '（E2E mock）已收到你的需求。' },
+        { type: 'result', data: { reply: '（E2E mock）已收到你的需求。', status: 'gathering' } },
+      ];
+      return route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache' }, body: frames.map((f) => `data: ${JSON.stringify(f)}\n\n`).join('') });
+    }
+    if (route.request().method() === 'POST' && /\/api\/requirements\/chat(\?|$)/.test(url)) {
+      return route.fulfill({ json: { reply: '（E2E mock）已收到你的需求。', status: 'gathering' } });
+    }
+    if (route.request().method() === 'POST' && /\/api\/requirements\/edit(\?|$)/.test(url)) {
+      return route.fulfill({ json: { status: 'gathering', reply: '已根据指令调整时间线（E2E mock）。', action: 'adjust', proposed_timeline: { ...demoTimeline, duration_sec: 9, tracks: demoTimeline.tracks.map((t) => (t.id === 'track-v1' ? { ...t, clips: [{ ...t.clips[0], duration_sec: 6 }] } : t)) } } });
+    }
+    return route.continue();
+  });
   await page.route(/https?:\/\/[^/]+\/api\//, (route) => {
     const url = route.request().url();
 
+    if (route.request().method() === 'GET' && /\/api\/requirements\/[^/]+\/timeline(\?|$)/.test(url)) {
+      return route.fulfill({ json: { items: [
+        { seq: 1, type: 'content', time: new Date().toISOString(), turn: 1, state: 'done', source: 'server', ref: null, content_ref: null, content_inline: { role: 'user', text: '选题：E2E 编辑测试选题' }, meta: { role: 'user' }, content: '选题：E2E 编辑测试选题' },
+        { seq: 2, type: 'content', time: new Date().toISOString(), turn: 1, state: 'done', source: 'server', ref: null, content_ref: null, content_inline: { role: 'assistant', text: '（E2E mock）已收到你的需求。' }, meta: { role: 'assistant' }, content: '（E2E mock）已收到你的需求。' },
+      ], latest_seq: 2, has_more: false, archived_until_seq: 0 } });
+    }
     if (/\/api\/project\/proj_img_demo(\/|$|\?)/.test(url)) {
       return route.fulfill({ json: demoImageProject });
     }
@@ -336,3 +370,5 @@ export function collectPageErrors(page: Page): string[] {
   page.on('pageerror', (err) => errors.push(err.message));
   return errors;
 }
+
+

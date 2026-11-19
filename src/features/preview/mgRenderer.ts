@@ -361,6 +361,9 @@ export function drawMgFrame(
         if (!fidelity.unsupportedProps.includes(key)) fidelity.unsupportedProps.push(key);
       }
     }
+    for (const key of ['font_stretch', 'background_size', 'background_position']) {
+      if (key in el && !fidelity.approxProps.includes(key)) fidelity.approxProps.push(key);
+    }
     for (const key of ['blur', 'clip_inset', 'mask']) {
       if (key in p || key in el) {
         if (!fidelity.approxProps.includes(key)) fidelity.approxProps.push(key);
@@ -384,6 +387,11 @@ export function drawMgFrame(
 
     ctx.save();
     ctx.globalAlpha = opacity;
+    const _blend = str(el.mix_blend_mode, '');
+    if (_blend) {
+      const m: Record<string, GlobalCompositeOperation> = { multiply:'multiply', screen:'screen', overlay:'overlay', darken:'darken', lighten:'lighten', 'color-dodge':'color-dodge', 'color-burn':'color-burn', 'hard-light':'hard-light', 'soft-light':'soft-light', difference:'difference', exclusion:'exclusion', hue:'hue', saturation:'saturation', color:'color', luminosity:'luminosity' };
+      if (m[_blend]) ctx.globalCompositeOperation = m[_blend];
+    }
     // 近似原语：blur 用 Canvas filter；clip/mask 用矩形裁剪；3D 已记 unsupported。
     if (typeof p.blur === 'number' || typeof el.blur === 'number') {
       const _designBlur = num(p.blur, num(el.blur, 0));
@@ -585,7 +593,13 @@ export function drawMgFrame(
         }
         const img = imageCache.get(src);
         if (img && img.complete && img.naturalWidth > 0) {
-          ctx.drawImage(img, ex, ey, w, h);
+          const nw = img.naturalWidth || w; const nh = img.naturalHeight || h;
+          const fit = Math.min(Math.abs(w) / nw, Math.abs(h) / nh);
+          const dw = nw * fit; const dh = nh * fit;
+          const op = str(el.object_position, 'center');
+          const ox = op.includes('left') ? 0 : op.includes('right') ? w - dw : (w - dw) / 2;
+          const oy = op.includes('top') ? 0 : op.includes('bottom') ? h - dh : (h - dh) / 2;
+          ctx.drawImage(img, ex + ox, ey + oy, dw, dh);
         } else {
           // 首帧还没解码完：登记异步加载，下一帧（媒体版本变化）会重绘
           requestSpecImage(src);

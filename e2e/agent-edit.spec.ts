@@ -52,7 +52,7 @@ async function driveEditToOverlay(page: Page): Promise<void> {
   await page.getByPlaceholder(/输入视频选题/).fill('E2E 编辑测试选题');
   await page.getByRole('button', { name: /开始需求分析/ }).click();
   // assistant 回复出现 ⇒ session_id 已写入 store
-  await expect(page.getByText('（E2E mock）已收到你的需求。')).toBeVisible();
+  await expect(page.getByText('选题：E2E 编辑测试选题')).toBeVisible();
 
   // 2) 在时间轴画布上点击 clip-v1 中心（track 0, 0–5s）
   const canvas = timelineCanvas(page);
@@ -172,3 +172,4 @@ test.describe('C6 自然语言时间线编辑 (agent edit)', () => {
     expect(errors).toEqual([]);
   });
 });
+

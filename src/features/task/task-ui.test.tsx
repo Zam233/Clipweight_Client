@@ -222,15 +222,20 @@ describe('PlanPanel', () => {
 });
 
 describe('TaskToolbar', () => {
-  it('PRD B11：状态→动作映射唯一（终态没有「继续」，paused 有）', () => {
+  it('PRD B11：终态默认没有「继续」，paused/cancelled 有', () => {
     const { rerender } = render(<TaskToolbar status="paused" onResume={vi.fn()} />);
     expect(screen.getByRole('button', { name: /继续/ })).toBeTruthy();
 
-    for (const st of ['done', 'failed', 'cancelled', 'unknown_terminal'] as const) {
+    for (const st of ['done', 'failed', 'unknown_terminal'] as const) {
       rerender(<TaskToolbar status={st} onResume={vi.fn()} onViewResult={vi.fn()} />);
       expect(screen.queryByRole('button', { name: /继续|开始/ }), st).toBeNull();
       expect(screen.getByRole('button', { name: /查看结果/ }), st).toBeTruthy();
     }
+
+    // cancelled 不是不可逆终态：后端允许从同一检查点续跑
+    rerender(<TaskToolbar status="cancelled" onResume={vi.fn()} onViewResult={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /继续/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /查看结果/ })).toBeTruthy();
   });
 
   it('PRD B11：unknown_terminal 明确说「后端终态」而不是冒充失败', () => {

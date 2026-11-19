@@ -62,7 +62,9 @@ export const STATUS_ACTIONS: Record<TaskStatus, StatusAction> = {
     label: '未完成', hint: '任务已结束（失败）；可以先看结果，再新建重做', view: true,
   },
   cancelled: {
-    label: '已取消', hint: '任务已结束，不能继续', view: true,
+    label: '已取消',
+    hint: '取消不是不可逆：点「继续」会从同一检查点接着跑，已完成的阶段不会重跑',
+    resume: true, view: true,
   },
   // devplan 2026-11-02（用户裁定 3）：撞上限但已交付收尾报告。
   // 按钮只给「查看结果」——不给继续/取消/插话，因为任务已经真的停了；
@@ -86,7 +88,7 @@ export function TaskToolbar({
   const action = STATUS_ACTIONS[status] ?? STATUS_ACTIONS.pending;
   const terminal = !action.pause && !action.resume && !action.inject && action.view === true;
 
-  const resumeLabel = status === 'paused' ? '继续' : '开始';
+  const resumeLabel = status === 'paused' || status === 'cancelled' ? '继续' : '开始';
 
   return (
     <div className="space-y-2" data-testid="task-toolbar" data-status={status}>
