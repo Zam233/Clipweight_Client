@@ -139,6 +139,7 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
   const degradations = (run?.degradations || []) as TaskRunDegradation[];
   const issues = (run?.issues || []) as TaskRunIssue[];
   const redoHint = String(run?.redo_hint || '');
+  const redoRequest = (run?.redo_request || null) as Record<string, unknown> | null;
   const details = (run?.details || {}) as Record<string, unknown>;
   const toolCalls = (run?.tool_calls || []) as Array<Record<string, unknown>>;
   const callsPath = String(run?.tool_calls_path || '');
@@ -210,6 +211,7 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
                   {String(n.field || n.key || n.kind || '需要')}
                   {n.from_stage ? ` ← ${String(n.from_stage)}` : ''}
                   {n.why || n.reason ? `：${String(n.why || n.reason)}` : ''}
+                  {n.resolution ? `（由 ${String(n.resolution)} 补齐）` : ''}
                 </p>
               ))
               : undefined}
@@ -238,6 +240,26 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
           {redoHint && (
             <Section title="建议重做">
               <p className="whitespace-pre-wrap break-words">{redoHint}</p>
+            </Section>
+          )}
+
+          {redoRequest && (
+            <Section title="结构化重做请求">
+              <p data-testid="run-redo-request">
+                目标阶段：{String(redoRequest.target_stage || '上游')}
+                {redoRequest.scope ? ` · 范围：${String(redoRequest.scope)}` : ''}
+              </p>
+              {redoRequest.base_artifact_sha ? (
+                <p className="truncate font-mono text-on-surface-variant/70"
+                   title={String(redoRequest.base_artifact_sha)}>
+                  基线：{String(redoRequest.base_artifact_sha).slice(0, 16)}…
+                </p>
+              ) : null}
+              {Array.isArray(redoRequest.issue_ids) && redoRequest.issue_ids.length > 0 ? (
+                <p className="text-on-surface-variant/70">
+                  问题：{(redoRequest.issue_ids as unknown[]).slice(0, 5).map(_str).join('、')}
+                </p>
+              ) : null}
             </Section>
           )}
 
@@ -305,7 +327,8 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
             <Section title="交接摘要">
               {handoff ? <p className="whitespace-pre-wrap break-words">{handoff}</p> : undefined}
               <p className="text-on-surface-variant/70">
-                报告：{reportState || '未知'}
+                报告：{reportState === 'not_applicable' ? '无需报告'
+                  : reportState === 'unavailable' ? '不可读' : (reportState || '未知')}
                 {run?.report_seq ? `（#${String(run.report_seq)}）` : ''}
               </p>
             </Section>

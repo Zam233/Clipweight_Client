@@ -137,7 +137,9 @@ export function CopilotDocsTab({ projectId }: { projectId: string }) {
             #{r.seq} {asText(r.stage)}（{asText(r.status)}）— {r.schema_version !== 2
               ? '协议错误'
               : (asText(r.summary || r.handoff_summary)
-                || (r.report_state === 'unavailable' ? '正文不可读' : '（无摘要）'))}
+                || (r.report_state === 'unavailable' ? '正文不可读'
+                  : r.report_state === 'not_applicable' ? '（无需报告）'
+                  : '（无摘要）'))}
           </button>
         ))}
       </div>

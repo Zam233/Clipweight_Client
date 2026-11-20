@@ -99,11 +99,18 @@ export function DecisionTimeline({ entries, className }: Props) {
                   {entry.failure && (
                     <div className="text-caption text-error">
                       失败原因：{entry.failure.blocking_point || entry.failure.category}
-                      {entry.failure.needs?.length
-                        ? `（需要 ${entry.failure.needs
-                            .map((n) => `${stageLabel(n.from_stage)}补齐 ${n.field}`)
-                            .join('、')}）`
-                        : ''}
+                      {(() => {
+                        // B21c 起后端缺项在 AgentResult.needs（`entry.needs`）；
+                        // 旧 supervisor 账本仍在 failure.needs 里镜像，两处都读。
+                        const needs = entry.needs?.length
+                          ? entry.needs
+                          : (entry.failure?.needs ?? []);
+                        return needs.length
+                          ? `（需要 ${needs
+                              .map((n) => `${stageLabel(n.from_stage || '')}补齐 ${n.field}`)
+                              .join('、')}）`
+                          : '';
+                      })()}
                     </div>
                   )}
                   {entry.degradations?.map((d, i) => (
