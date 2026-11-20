@@ -12,7 +12,12 @@ export interface BackendHealthDetail {
   status: BackendStatus;
   /** 原始响应（离线/未上报时为空） */
   detail: HealthResponse | null;
+  /** 后端合同版本与前端期望不一致（含旧后端缺字段）：必须显式提示，不能静默连 */
+  contractMismatch: boolean;
 }
+
+/** 前端实现的 AgentResult 合同版本（与后端 `/health.contract_version` 对齐）。 */
+export const EXPECTED_CONTRACT_VERSION = '2';
 
 // G5: 心跳轮询间隔（毫秒）——后端中途挂掉时前端能及时反映离线
 const POLL_INTERVAL_MS = 30_000;
@@ -29,6 +34,7 @@ export function useBackendHealthDetail(): BackendHealthDetail {
   const [state, setState] = useState<BackendHealthDetail>({
     status: 'checking',
     detail: null,
+    contractMismatch: false,
   });
   const apiBaseUrl = useSettingsStore((s) => s.apiBaseUrl);
 
@@ -40,10 +46,16 @@ export function useBackendHealthDetail(): BackendHealthDetail {
       healthApi
         .check()
         .then((data) => {
-          if (alive) setState({ status: 'online', detail: data ?? null });
+          if (!alive) return;
+          const version = data?.contract_version;
+          setState({
+            status: 'online',
+            detail: data ?? null,
+            contractMismatch: Boolean(data) && version !== EXPECTED_CONTRACT_VERSION,
+          });
         })
         .catch(() => {
-          if (alive) setState({ status: 'offline', detail: null });
+          if (alive) setState({ status: 'offline', detail: null, contractMismatch: false });
         });
     };
 

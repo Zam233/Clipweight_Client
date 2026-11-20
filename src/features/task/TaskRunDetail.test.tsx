@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-const { api } = vi.hoisted(() => ({ api: { runDetail: vi.fn() } }));
+const { api } = vi.hoisted(() => ({ api: { runDetail: vi.fn(), toolCalls: vi.fn() } }));
 vi.mock('@/services/api', () => ({ taskApi: api }));
 
 import { TaskRunDetail } from './TaskRunDetail';
@@ -25,9 +25,22 @@ const RUN = {
   redo_hint: '只重跑 c_fail',
   degradations: [{ kind: 'text_motion_weak', scope: 'animation', detail: '位移不足 24px' }],
   tool_calls_path: 'reports/tool_calls/animation-2.json',
+  terminal_reason: 'scenes_fallback',
+  report_state: 'written',
+  report_seq: 7,
+  handoff_summary: '弱动效已标注，可进音频',
+  trace_state: 'complete',
+  tool_calls_total: 12,
 };
 
-beforeEach(() => { cleanup(); vi.clearAllMocks(); });
+beforeEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+  api.toolCalls.mockResolvedValue({
+    task_id: 't1', stage: 'animation', attempt: 2, path: '', total: 0, offset: 0,
+    limit: 200, count: 0, internal: 0, failed: 0, items: [], available: [],
+  });
+});
 
 describe('TaskRunDetail', () => {
   it('展开后摊开 brief / 产出 / 待补 / 失败 / 降级 / 轨迹路径', async () => {
@@ -87,5 +100,41 @@ describe('TaskRunDetail', () => {
     expect(screen.queryByText('把文字动效做强，别压字幕')).toBeNull();
     fireEvent.click(screen.getByTestId('run-detail-toggle'));
     expect(screen.getByText('把文字动效做强，别压字幕')).toBeTruthy();
+  });
+});
+
+describe('TaskRunDetail · v2 字段（F04）', () => {
+  it('显示终态原因/交接摘要/轨迹状态，并按 run_id 读轨迹', async () => {
+    api.runDetail.mockResolvedValue({ task_id: 't1', run: RUN });
+    render(<TaskRunDetail taskId="t1" runId="run_a" />);
+    await waitFor(() => expect(api.runDetail).toHaveBeenCalledWith('t1', 'run_a'));
+    expect(await screen.findByText(/scenes_fallback/)).toBeTruthy();
+    expect(await screen.findByText(/弱动效已标注，可进音频/)).toBeTruthy();
+    expect(screen.getByTestId('run-trace-state').textContent).toContain('complete');
+    await waitFor(() => expect(api.toolCalls).toHaveBeenCalled());
+    expect(api.toolCalls.mock.calls[0][1].runId).toBe('run_a');
+  });
+});
+
+describe('TaskRunDetail · 结构化重做（B19）', () => {
+  it('展示 redo_request 与 needs.resolution', async () => {
+    api.runDetail.mockResolvedValue({
+      task_id: 't1',
+      run: {
+        run_id: 'run_r', stage: 'quality', status: 'failed', attempt: 1,
+        needs: [{ field: 'timeline', why: '缺时间线', resolution: 'upstream' }],
+        redo_request: {
+          target_stage: 'animation', scope: 'clip:c1',
+          base_artifact_sha: 'a'.repeat(64), issue_ids: ['animation:c1', 'animation:c2'],
+        },
+      },
+    });
+    render(<TaskRunDetail taskId="t1" runId="run_r" />);
+    await waitFor(() => expect(api.runDetail).toHaveBeenCalledWith('t1', 'run_r'));
+    const req = await screen.findByTestId('run-redo-request');
+    expect(req.textContent).toContain('animation');
+    expect(req.textContent).toContain('clip:c1');
+    expect(screen.getByText(/由 upstream 补齐/)).toBeTruthy();
+    expect(screen.getByText(/animation:c1/)).toBeTruthy();
   });
 });

@@ -15,6 +15,8 @@ export interface EvalReportSummary {
   success_rate_spread?: number | null;
   cost_avg_usd?: number | null;
   warnings?: number;
+  /** v2：撞上限但已交付的试运行次数（不进成功率） */
+  capped_count?: number;
   mtime?: number;
   error?: string;
 }
@@ -33,6 +35,9 @@ export interface EvalReportPayload {
   topic?: { id?: string; topic?: string; duration_sec?: number };
   metrics?: Record<string, EvalMetricSummary>;
   warnings?: string[];
+  /** v2：capped 单列，eligible_runs 为参与成功率的分母 */
+  capped_count?: number;
+  eligible_runs?: number;
   raw_runs?: {
     task_id?: string;
     status?: string;
@@ -40,6 +45,9 @@ export interface EvalReportPayload {
     turns?: number;
     tool_calls?: number;
     cost_usd?: number | null;
+    cost_unknown?: boolean;
+    capped?: boolean;
+    terminal_reason?: string;
     wall_sec?: number;
   }[];
   generated_at?: number;

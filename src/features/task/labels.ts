@@ -68,6 +68,7 @@ export const EVENT_CN: Record<TaskEventType, string> = {
   agent_run_end: '子 agent 结束',
   subagent_tool: '子 agent 工具调用',
   subagent_progress: '子 agent 进度',
+  subagent_round: '子 agent 轮次',
   // 反思流 / 主动询问 / 进度播报（2026-10-30）
   question: '向你提问',
   answer: '已回答',

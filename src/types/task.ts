@@ -127,6 +127,7 @@ export type TaskEventType =
   // 子 agent 透明化（后端 2026-10-29）
   | 'subagent_tool'
   | 'subagent_progress'
+  | 'subagent_round'
   // 反思流 / 主动询问 / 进度播报（后端 2026-10-30，PRD §13/§14/§15）
   | 'question'
   | 'answer'
@@ -296,6 +297,9 @@ export interface TaskToolCalls {
   items: TaskToolCall[];
   /** 磁盘上可看的 `<stage>-<attempt>` 列表 */
   available: string[];
+  /** v2：按 run 寻址时的 run_id 与轨迹状态 */
+  run_id?: string;
+  trace_state?: string;
 }
 
 
@@ -315,6 +319,18 @@ export interface TaskRunSummary {
   report_path: string;
   summary: string;
   replayed: boolean;
+  // v2（B10）：终态/报告/轨迹事实
+  schema_version?: number;
+  mode?: string;
+  terminal_reason?: string;
+  needs?: number;
+  tool_calls_total?: number;
+  trace_state?: string;
+  report_state?: string;
+  handoff_summary?: string;
+  cost_unknown?: boolean;
+  replay_of?: string;
+  live?: boolean;
 }
 
 /** 一次派发里的单条降级（run 详情用） */
@@ -368,6 +384,19 @@ export interface TaskRunDetail {
   provider?: string;
   model?: string;
   replayed?: boolean;
+  // v2（B10）
+  schema_version?: number;
+  mode?: string;
+  terminal_reason?: string;
+  report_path?: string;
+  report_seq?: number;
+  report_state?: string;
+  handoff_summary?: string;
+  tool_calls_total?: number;
+  trace_state?: string;
+  cost_unknown?: boolean;
+  replay_of?: string;
+  redo_request?: Record<string, unknown> | null;
   [key: string]: unknown;
 }
 

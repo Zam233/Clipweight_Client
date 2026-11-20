@@ -8,6 +8,7 @@ import { clearRequirementsDraft } from '@/stores/agentStore';
 import {
   useBackendHealthDetail,
   buildHealthComponents,
+  EXPECTED_CONTRACT_VERSION,
 } from './useBackendHealth';
 import {
   healthApi, personaApi, projectApi, assetApi, typeMakerApi, pipelineApi,
@@ -1572,6 +1573,19 @@ export function HomePage() {
                 {/* 组件级健康：后端 /health 逐项探测 mongodb / llm / ffmpeg /
                     hyperframes / 队列，前端此前只读 status 把这些全丢了。
                     只在拿到响应且在线时展示（离线时组件状态无意义，不编造）。 */}
+                {backend === 'online' && healthState.contractMismatch && (
+                  <p
+                    data-testid="health-contract-mismatch"
+                    role="status"
+                    className="mt-2 rounded-cw-sm border border-warning/40 bg-warning/10 px-2 py-1 text-caption text-warning"
+                  >
+                    后端协议版本不匹配：前端需要 v{EXPECTED_CONTRACT_VERSION}
+                    {healthState.detail?.contract_version
+                      ? `，当前后端 v${healthState.detail.contract_version}`
+                      : '，当前后端未上报 contract_version（旧版）'}
+                    。部分报告/运行数据可能无法解析，请先升级后端。
+                  </p>
+                )}
                 {backend === 'online' && healthComponents.length > 0 && (
                   <div className="mt-2.5 flex flex-wrap gap-1.5" data-testid="health-components">
                     {healthComponents.map((item) => (

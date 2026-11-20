@@ -17,6 +17,7 @@ import { ChevronDown, ChevronRight, Copy } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { taskApi } from '@/services/api';
+import { TaskToolTrace } from './TaskToolTrace';
 import type { TaskRunDegradation, TaskRunDetail as RunDetail, TaskRunIssue } from '@/types/task';
 
 import { describeRunActionError } from './taskApiError';
@@ -138,9 +139,15 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
   const degradations = (run?.degradations || []) as TaskRunDegradation[];
   const issues = (run?.issues || []) as TaskRunIssue[];
   const redoHint = String(run?.redo_hint || '');
+  const redoRequest = (run?.redo_request || null) as Record<string, unknown> | null;
   const details = (run?.details || {}) as Record<string, unknown>;
   const toolCalls = (run?.tool_calls || []) as Array<Record<string, unknown>>;
   const callsPath = String(run?.tool_calls_path || '');
+  const terminalReason = String(run?.terminal_reason || '');
+  const handoff = String(run?.handoff_summary || '');
+  const reportState = String(run?.report_state || '');
+  const traceState = String(run?.trace_state || '');
+  const totalCalls = typeof run?.tool_calls_total === 'number' ? run.tool_calls_total : undefined;
 
   return (
     <div
@@ -159,7 +166,9 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
         <span className="text-caption text-on-surface">运行详情</span>
         {loading && <span className="text-caption text-on-surface-variant/50">读取中…</span>}
         {run?.status && (
-          <span className="text-caption text-on-surface-variant/70">{String(run.status)}</span>
+          <span className="text-caption text-on-surface-variant/70">
+            {String(run.status)}{terminalReason ? ` · ${terminalReason}` : ''}
+          </span>
         )}
       </button>
 
@@ -202,6 +211,7 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
                   {String(n.field || n.key || n.kind || '需要')}
                   {n.from_stage ? ` ← ${String(n.from_stage)}` : ''}
                   {n.why || n.reason ? `：${String(n.why || n.reason)}` : ''}
+                  {n.resolution ? `（由 ${String(n.resolution)} 补齐）` : ''}
                 </p>
               ))
               : undefined}
@@ -230,6 +240,26 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
           {redoHint && (
             <Section title="建议重做">
               <p className="whitespace-pre-wrap break-words">{redoHint}</p>
+            </Section>
+          )}
+
+          {redoRequest && (
+            <Section title="结构化重做请求">
+              <p data-testid="run-redo-request">
+                目标阶段：{String(redoRequest.target_stage || '上游')}
+                {redoRequest.scope ? ` · 范围：${String(redoRequest.scope)}` : ''}
+              </p>
+              {redoRequest.base_artifact_sha ? (
+                <p className="truncate font-mono text-on-surface-variant/70"
+                   title={String(redoRequest.base_artifact_sha)}>
+                  基线：{String(redoRequest.base_artifact_sha).slice(0, 16)}…
+                </p>
+              ) : null}
+              {Array.isArray(redoRequest.issue_ids) && redoRequest.issue_ids.length > 0 ? (
+                <p className="text-on-surface-variant/70">
+                  问题：{(redoRequest.issue_ids as unknown[]).slice(0, 5).map(_str).join('、')}
+                </p>
+              ) : null}
             </Section>
           )}
 
@@ -293,8 +323,34 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
             ) : undefined}
           </Section>
 
-          <Section title="完整轨迹文件" empty="这次运行没有落盘轨迹">
-            {callsPath ? <CopyPath path={callsPath} /> : undefined}
+          {(handoff || reportState) && (
+            <Section title="交接摘要">
+              {handoff ? <p className="whitespace-pre-wrap break-words">{handoff}</p> : undefined}
+              <p className="text-on-surface-variant/70">
+                报告：{reportState === 'not_applicable' ? '无需报告'
+                  : reportState === 'unavailable' ? '不可读' : (reportState || '未知')}
+                {run?.report_seq ? `（#${String(run.report_seq)}）` : ''}
+              </p>
+            </Section>
+          )}
+
+          <Section title={`完整轨迹${totalCalls != null ? `（${totalCalls} 次调用）` : ''}`}
+                   empty="这次运行没有落盘轨迹">
+            {(callsPath || traceState || (runId && totalCalls)) ? (
+              <>
+                {callsPath ? <CopyPath path={callsPath} /> : null}
+                {traceState ? (
+                  <p className="text-on-surface-variant/70" data-testid="run-trace-state">
+                    轨迹状态：{traceState}
+                  </p>
+                ) : null}
+                {runId && (callsPath || totalCalls) ? (
+                  <div className="mt-1">
+                    <TaskToolTrace taskId={taskId} runId={runId} />
+                  </div>
+                ) : null}
+              </>
+            ) : undefined}
           </Section>
         </div>
       )}

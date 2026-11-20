@@ -43,6 +43,19 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+describe('TaskToolTrace · run 寻址（F04）', () => {
+  it('给了 runId 就按 run 读，不再猜 stage/attempt', async () => {
+    api.toolCalls.mockResolvedValue(page({ run_id: 'run_9' }));
+    render(<TaskToolTrace taskId="task_1" runId="run_9" />);
+    await waitFor(() => expect(api.toolCalls).toHaveBeenCalled());
+    const args = api.toolCalls.mock.calls[0];
+    expect(args[0]).toBe('task_1');
+    expect(args[1].runId).toBe('run_9');
+    expect(args[1].stage).toBeUndefined();
+    expect(args[1].attempt).toBeUndefined();
+  });
+});
+
 describe('TaskToolTrace', () => {
   it('折叠时只显示统计，点开才列出全部调用', async () => {
     api.toolCalls.mockResolvedValue(page());

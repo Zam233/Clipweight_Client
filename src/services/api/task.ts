@@ -238,9 +238,10 @@ export const taskApi = {
    */
   async toolCalls(
     taskId: string,
-    opts: { stage?: string; attempt?: number; limit?: number; offset?: number } = {},
+    opts: { stage?: string; attempt?: number; runId?: string; limit?: number; offset?: number } = {},
   ): Promise<TaskToolCalls> {
     const params: Record<string, string | number> = {};
+    if (opts.runId) params.run_id = opts.runId;  // v2：优先按 run 寻址
     if (opts.stage) params.stage = opts.stage;
     if (opts.attempt) params.attempt = opts.attempt;
     if (opts.limit) params.limit = opts.limit;

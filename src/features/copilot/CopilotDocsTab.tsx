@@ -6,12 +6,16 @@
 import React from 'react';
 import { FileText, RefreshCw } from 'lucide-react';
 import { workspaceApi, type WorkspaceDoc, type WorkspaceReport } from '@/services/api';
+import { asText } from '@/lib/render';
 
 export function CopilotDocsTab({ projectId }: { projectId: string }) {
   const [docs, setDocs] = React.useState<WorkspaceDoc[]>([]);
   const [reports, setReports] = React.useState<WorkspaceReport[]>([]);
   const [openSeq, setOpenSeq] = React.useState<number | null>(null);
   const [content, setContent] = React.useState('');
+  const [nextOffset, setNextOffset] = React.useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = React.useState(false);
+  const [protoError, setProtoError] = React.useState('');
   const [openDoc, setOpenDoc] = React.useState<string>('');
   const [note, setNote] = React.useState('');
   const [loading, setLoading] = React.useState(false);
@@ -41,11 +45,34 @@ export function CopilotDocsTab({ projectId }: { projectId: string }) {
   const readReport = async (seq: number) => {
     setOpenSeq(seq);
     setOpenDoc('');
+    setNextOffset(null);
+    setProtoError('');
+    setContent('');
     try {
       const res = await workspaceApi.report(projectId, seq);
-      setContent(res.content);
+      if (res.schema_version !== 2) {
+        setProtoError(`协议错误：报告 DTO schema_version=${String(res.schema_version)}`);
+      }
+      setContent(res.content ?? '');
+      setNextOffset(res.next_offset ?? null);
     } catch (e) {
-      setContent(`读取失败：${String((e as Error)?.message || e)}`);
+      setContent('');
+      setProtoError(`读取失败：${String((e as Error)?.message || e)}`);
+    }
+  };
+
+  /** 自由正文分页续读：继续追加，不覆盖已读内容。 */
+  const loadMore = async () => {
+    if (openSeq == null || nextOffset == null || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await workspaceApi.report(projectId, openSeq, { offset: nextOffset });
+      setContent((prev) => `${prev}${res.content ?? ''}`);
+      setNextOffset(res.next_offset ?? null);
+    } catch (e) {
+      setProtoError(`续读失败：${String((e as Error)?.message || e)}`);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -107,7 +134,12 @@ export function CopilotDocsTab({ projectId }: { projectId: string }) {
             className="block w-full truncate text-left text-caption hover:text-primary"
             onClick={() => void readReport(r.seq)}
           >
-            #{r.seq} {r.stage}（{r.status}）— {r.next_for || r.preview || r.headline}
+            #{r.seq} {asText(r.stage)}（{asText(r.status)}）— {r.schema_version !== 2
+              ? '协议错误'
+              : (asText(r.summary || r.handoff_summary)
+                || (r.report_state === 'unavailable' ? '正文不可读'
+                  : r.report_state === 'not_applicable' ? '（无需报告）'
+                  : '（无摘要）'))}
           </button>
         ))}
       </div>
@@ -128,6 +160,24 @@ export function CopilotDocsTab({ projectId }: { projectId: string }) {
         </div>
       )}
 
+      {protoError && (
+        <p className="px-3 py-1 text-caption text-error" data-testid="docs-report-error">
+          {protoError}
+        </p>
+      )}
+      {openSeq != null && nextOffset != null && (
+        <div className="px-3 py-1">
+          <button
+            type="button"
+            data-testid="docs-report-more"
+            className="rounded-cw-xs border border-outline-variant/40 px-2 py-0.5 text-caption text-on-surface-variant hover:border-outline hover:text-on-surface disabled:opacity-50"
+            disabled={loadingMore}
+            onClick={() => void loadMore()}
+          >
+            {loadingMore ? '加载中…' : '继续读取'}
+          </button>
+        </div>
+      )}
       <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap px-3 py-2 text-caption text-on-surface">
         {content || (openSeq || openDoc ? '' : '点上面的条目看内容（只读）。')}
       </pre>

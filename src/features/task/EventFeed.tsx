@@ -50,11 +50,11 @@ const _EXPANDABLE = new Set([
   // 2026-10-30：这些事件也有结构化 detail（去重/来源/剩余回合/收据/问答/进度），
   // 不给展开入口就只能看到一行中文，等于把事实藏起来。
   'tool_result', 'narration', 'thinking', 'agent_run_start', 'agent_run_update',
-  'agent_run_end', 'subagent_tool', 'subagent_progress',
+  'agent_run_end', 'subagent_tool', 'subagent_progress', 'subagent_round', 'step_end',
   'question', 'answer', 'progress', 'gate_hit',
 ]);
 /** 这些事件带产物路径，要能直接看到/复制 */
-const _PATH_KEYS = ['path', 'report_path', 'artifact_path', 'script_path'];
+const _PATH_KEYS = ['path', 'report_path', 'artifact_path', 'script_path', 'tool_calls_path'];
 
 /**
  * 事件语义后缀（PRD §6.2 文案表）。

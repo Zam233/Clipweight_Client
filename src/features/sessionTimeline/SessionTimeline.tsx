@@ -389,6 +389,9 @@ function Row({
     case 'artifact': {
       const path = typeof item.meta?.path === 'string' ? item.meta.path : '';
       const label = asText(item.meta?.title ?? item.meta?.artifact) || itemText(item);
+      // v2（F05）：doc_write 投影带 run_id/seq 时给出归属，便于按 run 回查报告
+      const runId = typeof item.meta?.run_id === 'string' ? item.meta.run_id : '';
+      const reportSeq = typeof item.meta?.seq === 'number' ? item.meta.seq : undefined;
       return (
         <div className="flex items-baseline gap-2 px-2 py-0.5 text-caption"
           data-testid="session-item-artifact" data-seq={item.seq}>
@@ -407,6 +410,12 @@ function Row({
             <span className="max-w-[45%] truncate font-mono text-caption text-on-surface-variant/50"
               title={path}>
               {path.split(/[\\/]/).slice(-2).join('/')}
+            </span>
+          )}
+          {(runId || reportSeq) && (
+            <span className="shrink-0 text-caption text-on-surface-variant/50" data-testid="artifact-run">
+              {reportSeq ? `#${reportSeq}` : ''}
+              {runId ? ` · run ${runId.slice(0, 8)}` : ''}
             </span>
           )}
         </div>

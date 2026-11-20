@@ -79,18 +79,38 @@ export interface WorkspaceMaterial {
   indexed_at?: string;
 }
 
-/** 子 agent 报告（reports/*.md 的索引条目） */
+/** 子 agent 报告（v2 DTO：机器事实来自 AgentResult；正文是自由 Markdown） */
 export interface WorkspaceReport {
+  schema_version: number;
   seq: number;
+  run_id: string;
+  task_id: string;
   stage: string;
   status: string;
   attempt: number;
-  headline: string;
   path: string;
+  summary: string;
+  handoff_summary: string;
+  report_state: 'written' | 'unavailable' | 'not_applicable';
   cost_usd?: number | null;
+  cost_unknown: boolean;
   created_at?: string;
-  preview?: string;
-  next_for?: string;
+}
+
+/** 读报告正文的分页响应（offset/max_chars） */
+export interface WorkspaceReportBody {
+  project_id: string;
+  schema_version: number;
+  seq: number;
+  run_id: string;
+  stage: string;
+  path: string;
+  total_chars: number;
+  offset: number;
+  next_offset: number | null;
+  truncated: boolean;
+  report_state: string;
+  content: string;
 }
 
 /** 需求文档（docs/brief.md、docs/plan.md） */
@@ -240,13 +260,12 @@ export const workspaceApi = {
     return data;
   },
 
-  /** 读一份报告正文 */
-  async report(projectId: string, seq: number, maxChars = 20000): Promise<{
-    seq: number; path: string; truncated: boolean; content: string;
-  }> {
+  /** 读一份报告正文（v2：自由 Markdown，offset/max_chars 分页；没有 section） */
+  async report(projectId: string, seq: number,
+               opts: { offset?: number; maxChars?: number } = {}): Promise<WorkspaceReportBody> {
     const { data } = await getApiClient().get(
       `/api/workspace/${encodeURIComponent(projectId)}/reports/${seq}`,
-      { params: { max_chars: maxChars } },
+      { params: { max_chars: opts.maxChars ?? 20000, offset: opts.offset ?? 0 } },
     );
     return data;
   },

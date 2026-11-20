@@ -90,6 +90,18 @@ describe('DecisionTimeline', () => {
     expect(screen.getAllByText('第 1 次').length).toBeGreaterThanOrEqual(1);
   });
 
+  it('顶层 needs（AgentResult.needs）优先于 failure.needs', () => {
+    const entries: LedgerEntry[] = [{
+      id: 'le_needs', stage: 'edit', attempt: 1, decision: 'fail',
+      failure: { category: 'input_insufficient', blocking_point: '缺镜头' },
+      needs: [{ from_stage: 'structure', field: 'shots', why: '需要分镜' }],
+      degradations: [], warnings: [], duration_ms: 100, ts: '2026-10-17T10:00:00Z',
+    }];
+    render(<DecisionTimeline entries={entries} />);
+    fireEvent.click(screen.getByText('剪辑').closest('button')!);
+    expect(screen.getByText(/补齐 shots/)).toBeTruthy();
+  });
+
   it('展开后能看到失败原因与降级明细', () => {
     render(<DecisionTimeline entries={sampleLedgerEntries} />);
 

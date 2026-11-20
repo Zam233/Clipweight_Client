@@ -89,9 +89,18 @@ export function EvalPanel() {
 
   const metrics = payload?.metrics || {};
   const runs = payload?.raw_runs || [];
+  const cappedCount = Number(payload?.capped_count || 0);
+  const eligibleRuns = payload?.eligible_runs;
 
   return (
     <div className="mb-6" data-testid="eval-panel">
+      {cappedCount > 0 && (
+        <p className="mb-2 rounded-cw-sm border border-warning/40 bg-warning/10 px-2 py-1 text-caption text-warning"
+          data-testid="eval-capped-banner">
+          {cappedCount} 次运行撞到上限但已收口交付（capped），已从成功率统计中排除
+          {typeof eligibleRuns === 'number' ? `；有效样本 ${eligibleRuns} 次` : ''}。
+        </p>
+      )}
       <div className="mb-2 flex items-center justify-between">
         <p className="text-label-sm text-on-surface-variant flex items-center gap-2">
           <Activity className="h-3.5 w-3.5" />
@@ -148,6 +157,7 @@ export function EvalPanel() {
                   <span className="block text-on-surface-variant/60">
                     {it.runs ?? 0} 次 · 成功 {pct(it.success_rate_mean)} · 波动{' '}
                     {num(it.success_rate_spread, 2)}
+                    {it.capped_count ? ` · capped ${it.capped_count}` : ''}
                   </span>
                 </button>
               </li>
