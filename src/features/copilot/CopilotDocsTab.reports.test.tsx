@@ -68,12 +68,14 @@ describe('CopilotDocsTab 报告视图（F02）', () => {
         reportItem({ seq: 1 }),
         reportItem({ seq: 2, summary: '', report_state: 'unavailable' }),
         reportItem({ seq: 3, schema_version: 1 }),
+        reportItem({ seq: 4, summary: '', report_state: 'not_applicable' }),
       ],
     });
     render(<CopilotDocsTab projectId="p1" />);
     await waitFor(() => expect(screen.getByText(/#1/)).toBeTruthy());
     expect(screen.getByText(/#2.*正文不可读/)).toBeTruthy();
     expect(screen.getByText(/#3.*协议错误/)).toBeTruthy();
+    expect(screen.getByText(/#4.*无需报告/)).toBeTruthy();
   });
 
   it('自由正文按 offset 续读并追加', async () => {
