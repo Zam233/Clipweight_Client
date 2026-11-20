@@ -43,6 +43,8 @@ export interface LedgerEntry {
   decision: 'pass' | 'fail' | 'cancelled' | 'skipped' | string;
   input_digest?: string;
   failure?: FailureReport | null;
+  /** v2：缺项真相（AgentResult.needs），与 failure.needs 二选一读取 */
+  needs?: Array<{ from_stage?: string; field: string; why?: string; resolution?: string }>;
   degradations: Degradation[];
   warnings: string[];
   model?: string;
