@@ -23,6 +23,9 @@ export interface HealthResponse {
   queue?: string;
   queue_pending?: number;
   queue_running?: number;
+  /** X02 版本探针：双仓合同版本（缺省 = 旧后端，前端应提示不匹配） */
+  contract_version?: string;
+  contract_schema?: string;
 }
 
 // ── Project ──
