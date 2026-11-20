@@ -26,6 +26,8 @@ interface Props {
   active?: boolean;
   /** 初始阶段；留空 = 取最近一次落盘的轨迹 */
   stage?: string;
+  /** v2：按 run 寻址（优先于 stage/attempt，后端从 run.tool_calls_path 读） */
+  runId?: string;
   /** 每页条数 */
   pageSize?: number;
   className?: string;
@@ -102,6 +104,7 @@ function TraceRow({ call }: { call: TaskToolCall }) {
 export function TaskToolTrace({
   taskId,
   active = false,
+  runId,
   stage: initialStage = '',
   pageSize = PAGE,
   className,
@@ -126,8 +129,9 @@ export function TaskToolTrace({
       setError('');
       try {
         const res = await taskApi.toolCalls(taskId, {
-          stage: nextStage || undefined,
-          attempt: nextAttempt || undefined,
+          runId: runId || undefined,
+          stage: runId ? undefined : (nextStage || undefined),
+          attempt: runId ? undefined : (nextAttempt || undefined),
           limit: pageSize,
           offset,
         });
@@ -146,7 +150,7 @@ export function TaskToolTrace({
         if (requestId === reqSeq.current) setLoading(false);
       }
     },
-    [taskId, pageSize],
+    [taskId, pageSize, runId],
   );
 
   useEffect(() => {
@@ -156,9 +160,9 @@ export function TaskToolTrace({
     setData(null);
     if (!taskId) return;
     void load(stage, attempt, 0);
-    // stage / attempt 变化由下面两个 handler 触发，这里只跟 taskId 走
+    // stage / attempt 变化由 handler 触发；taskId / runId 变化必须重拉
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId, load]);
+  }, [taskId, runId, load]);
 
   // 任务在跑时每 10s 刷新第一页（轨迹文件是每次尝试写一次，不需要更密）
   useEffect(() => {

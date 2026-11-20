@@ -17,6 +17,7 @@ import { ChevronDown, ChevronRight, Copy } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { taskApi } from '@/services/api';
+import { TaskToolTrace } from './TaskToolTrace';
 import type { TaskRunDegradation, TaskRunDetail as RunDetail, TaskRunIssue } from '@/types/task';
 
 import { describeRunActionError } from './taskApiError';
@@ -141,6 +142,11 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
   const details = (run?.details || {}) as Record<string, unknown>;
   const toolCalls = (run?.tool_calls || []) as Array<Record<string, unknown>>;
   const callsPath = String(run?.tool_calls_path || '');
+  const terminalReason = String(run?.terminal_reason || '');
+  const handoff = String(run?.handoff_summary || '');
+  const reportState = String(run?.report_state || '');
+  const traceState = String(run?.trace_state || '');
+  const totalCalls = typeof run?.tool_calls_total === 'number' ? run.tool_calls_total : undefined;
 
   return (
     <div
@@ -159,7 +165,9 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
         <span className="text-caption text-on-surface">运行详情</span>
         {loading && <span className="text-caption text-on-surface-variant/50">读取中…</span>}
         {run?.status && (
-          <span className="text-caption text-on-surface-variant/70">{String(run.status)}</span>
+          <span className="text-caption text-on-surface-variant/70">
+            {String(run.status)}{terminalReason ? ` · ${terminalReason}` : ''}
+          </span>
         )}
       </button>
 
@@ -293,8 +301,33 @@ export function TaskRunDetail({ taskId, runId, className }: Props) {
             ) : undefined}
           </Section>
 
-          <Section title="完整轨迹文件" empty="这次运行没有落盘轨迹">
-            {callsPath ? <CopyPath path={callsPath} /> : undefined}
+          {(handoff || reportState) && (
+            <Section title="交接摘要">
+              {handoff ? <p className="whitespace-pre-wrap break-words">{handoff}</p> : undefined}
+              <p className="text-on-surface-variant/70">
+                报告：{reportState || '未知'}
+                {run?.report_seq ? `（#${String(run.report_seq)}）` : ''}
+              </p>
+            </Section>
+          )}
+
+          <Section title={`完整轨迹${totalCalls != null ? `（${totalCalls} 次调用）` : ''}`}
+                   empty="这次运行没有落盘轨迹">
+            {(callsPath || traceState || (runId && totalCalls)) ? (
+              <>
+                {callsPath ? <CopyPath path={callsPath} /> : null}
+                {traceState ? (
+                  <p className="text-on-surface-variant/70" data-testid="run-trace-state">
+                    轨迹状态：{traceState}
+                  </p>
+                ) : null}
+                {runId && (callsPath || totalCalls) ? (
+                  <div className="mt-1">
+                    <TaskToolTrace taskId={taskId} runId={runId} />
+                  </div>
+                ) : null}
+              </>
+            ) : undefined}
           </Section>
         </div>
       )}

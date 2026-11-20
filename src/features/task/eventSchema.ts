@@ -6,7 +6,7 @@
  * `detail as Record<string, unknown>` 再猜字段名，后端改名叫 `stage`→`phase` 时
  * 静默变成空白——所以这里做成**集中式 parser**，并用跨仓契约测试锁住键集合：
  * `tests/test_event_contract.py` 断言后端 `EVENT_TYPES` 与本文件的
- * `EVENT_TYPE_KEYS` 集合完全相等（数量 31）。
+ * `EVENT_TYPE_KEYS` 集合完全相等（数量 32）。
  *
  * 设计约束：
  * 1. **只补默认值、不丢字段**：未知键原样保留在 `raw` 里，方便排查；
@@ -44,6 +44,8 @@ export const EVENT_TYPE_KEYS = [
   // 子 agent 透明化（后端 2026-10-29）：子 agent 的工具调用与长阶段分段进度
   'subagent_tool',
   'subagent_progress',
+  // 阶段循环的每轮聚合（B12：run_id/round/visible_calls）
+  'subagent_round',
   // 反思流 / 主动询问 / 进度播报（后端 2026-10-30，PRD §13/§14/§15）
   'question',
   'answer',
@@ -91,6 +93,12 @@ export interface StageDetail {
   status?: string;
   summary?: string;
   cost_usd?: number;
+  /** v2：报告状态与 run 身份（B08） */
+  report_state?: string;
+  report_path?: string;
+  report_seq?: number;
+  run_id?: string;
+  input_revision?: number;
 }
 
 /** 模型说话/思考 */
@@ -127,6 +135,16 @@ export interface AgentRunDetail {
   failure?: Record<string, unknown>;
   needs?: Array<Record<string, unknown>>;
   replayed?: boolean;
+  /** v2（B10）：终态原因/尝试号/报告与轨迹状态/结构化交接摘要 */
+  terminal_reason?: string;
+  attempt?: number;
+  report_state?: string;
+  report_seq?: number;
+  tool_calls_total?: number;
+  trace_state?: string;
+  handoff_summary?: string;
+  cost_unknown?: boolean;
+  replay_of?: string;
 }
 
 /** 上下文装载（B12 已把 trimmed 改成被裁段名 list） */
@@ -185,6 +203,11 @@ export interface DocDetail {
   status?: string;
   bullets?: string[];
   tool_calls?: number;
+  /** v2（B08）：真实字节数、run 归属与报告状态 */
+  bytes?: number;
+  run_id?: string;
+  seq?: number;
+  report_state?: string;
 }
 
 /** 终态 / 闸 / 注入 / 计划 */
@@ -194,6 +217,8 @@ export interface TaskEndDetail {
   unfinished?: string[];
   tool_calls?: number;
   dry_run?: boolean;
+  terminal_reason?: string;
+  status?: string;
 }
 
 /** 子 agent 分段进度（后端 subagent_progress） */
@@ -204,6 +229,14 @@ export interface SubagentProgressDetail {
   anim_id?: string;
   clip_id?: string;
   error?: string;
+  run_id?: string;
+}
+
+/** 阶段循环每轮聚合（B12 subagent_round） */
+export interface SubagentRoundDetail {
+  run_id?: string;
+  round?: number;
+  visible_calls?: string[];
 }
 
 function str(v: unknown): string | undefined {
@@ -238,6 +271,7 @@ export type ParsedEvent =
   | (ParsedEventBase & { kind: 'context_loaded'; context: ContextDetail })
   | (ParsedEventBase & { kind: 'doc_write' | 'report'; doc: DocDetail })
   | (ParsedEventBase & { kind: 'subagent_progress'; progress: SubagentProgressDetail })
+  | (ParsedEventBase & { kind: 'subagent_round'; round: SubagentRoundDetail })
   | (ParsedEventBase & { kind: 'question'; question: QuestionDetail })
   | (ParsedEventBase & { kind: 'answer'; answer: AnswerDetail })
   | (ParsedEventBase & { kind: 'progress'; stageProgress: StageProgressDetail })
@@ -297,6 +331,17 @@ export function parseTaskEvent(event: TaskEvent): ParsedEvent {
           anim_id: str(raw.anim_id),
           clip_id: str(raw.clip_id),
           error: str(raw.error),
+          run_id: str(raw.run_id),
+        },
+      };
+    case 'subagent_round':
+      return {
+        ...base,
+        kind,
+        round: {
+          run_id: str(raw.run_id),
+          round: num(raw.round),
+          visible_calls: strArr(raw.visible_calls),
         },
       };
     case 'step_start':
@@ -309,6 +354,11 @@ export function parseTaskEvent(event: TaskEvent): ParsedEvent {
           status: str(raw.status),
           summary: str(raw.summary),
           cost_usd: num(raw.cost_usd),
+          report_state: str(raw.report_state),
+          report_path: str(raw.report_path),
+          report_seq: num(raw.report_seq),
+          run_id: str(raw.run_id),
+          input_revision: num(raw.input_revision),
         },
       };
     case 'narration':
@@ -359,6 +409,15 @@ export function parseTaskEvent(event: TaskEvent): ParsedEvent {
             ? (raw.failure as Record<string, unknown>) : undefined,
           needs: objArr(raw.needs),
           replayed: Boolean(raw.replayed),
+          terminal_reason: str(raw.terminal_reason),
+          attempt: num(raw.attempt),
+          report_state: str(raw.report_state),
+          report_seq: num(raw.report_seq),
+          tool_calls_total: num(raw.tool_calls_total),
+          trace_state: str(raw.trace_state),
+          handoff_summary: str(raw.handoff_summary),
+          cost_unknown: typeof raw.cost_unknown === 'boolean' ? raw.cost_unknown : undefined,
+          replay_of: str(raw.replay_of),
         },
       };
     case 'context_loaded':
@@ -449,6 +508,10 @@ export function parseTaskEvent(event: TaskEvent): ParsedEvent {
           status: str(raw.status),
           bullets: strArr(raw.bullets),
           tool_calls: num(raw.tool_calls),
+          bytes: num(raw.bytes),
+          run_id: str(raw.run_id),
+          seq: num(raw.seq),
+          report_state: str(raw.report_state),
         },
       };
     case 'goal_update':
