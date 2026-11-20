@@ -51,6 +51,25 @@ describe('useBackendHealth', () => {
     await waitFor(() => expect(result.current).toBe('online'));
   });
 
+  it('contract_version=2 时 contractMismatch=false', async () => {
+    mocks.check.mockResolvedValue({ status: 'ok', contract_version: '2' });
+    const { result } = renderHook(() => useBackendHealthDetail());
+    await waitFor(() => expect(result.current.status).toBe('online'));
+    expect(result.current.contractMismatch).toBe(false);
+  });
+
+  it('旧后端/版本不符时 contractMismatch=true', async () => {
+    mocks.check.mockResolvedValue({ status: 'ok', contract_version: '1' });
+    const { result } = renderHook(() => useBackendHealthDetail());
+    await waitFor(() => expect(result.current.status).toBe('online'));
+    expect(result.current.contractMismatch).toBe(true);
+
+    mocks.check.mockResolvedValue({ status: 'ok' });
+    const second = renderHook(() => useBackendHealthDetail());
+    await waitFor(() => expect(second.result.current.status).toBe('online'));
+    expect(second.result.current.contractMismatch).toBe(true);
+  });
+
   it('apiBaseUrl 变化后不会无限循环', async () => {
     const { result } = renderHook(() => useBackendHealth());
     await waitFor(() => expect(result.current).toBe('online'));
