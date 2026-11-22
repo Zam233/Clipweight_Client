@@ -62,7 +62,7 @@ describe('B11 / N4：授权提交入口', () => {
     render(<CopilotTaskRunTab taskId="task_x" />);
     expect(screen.getByTestId('approval-rows').textContent).toContain('待授权');
     expect(screen.getByRole('button', { name: '授权' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '拒绝' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: '拒绝' }).length).toBeGreaterThan(0);
   });
 
   it('点授权 → approveExec(高风险两次确认) 并回显已授权', async () => {
@@ -78,7 +78,7 @@ describe('B11 / N4：授权提交入口', () => {
 
   it('点拒绝 → rejectExec 并回显已拒绝', async () => {
     render(<CopilotTaskRunTab taskId="task_x" />);
-    fireEvent.click(screen.getByRole('button', { name: '拒绝' }));
+    fireEvent.click(screen.getAllByRole('button', { name: '拒绝' })[0]);
     await waitFor(() => expect(mocks.rejectExec).toHaveBeenCalledWith('task_x', 'ap_1'));
     expect(await screen.findByText('已拒绝')).toBeTruthy();
   });

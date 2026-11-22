@@ -504,16 +504,52 @@ function ToolCallRows({ events }: { events: Ev }) {
  * 「授权 / 拒绝」，命中高风险时要求二次确认（与后端两级确认一致）；提交结果以
  * 可读文案回显，失败如实说明（不假装已授权）。
  */
+function _approvalOf(e: Ev[number], parsed: ReturnType<typeof parseTaskEvent>): PendingExecApproval {
+  const raw = parsed.raw as Record<string, unknown>;
+  const risk = String(parsed.kind === 'approval_request' || parsed.kind === 'approval_result'
+    ? parsed.approval.risk ?? 'high' : 'high');
+  const report = raw.risk_report as { reasons?: unknown } | undefined;
+  const reported = Array.isArray(raw.risk_reasons)
+    ? raw.risk_reasons.map(String)
+    : Array.isArray(report?.reasons) ? report.reasons.map(String) : [];
+  return {
+    id: String(raw.approval_id ?? ''),
+    command: String(raw.command ?? asText(e.message)),
+    riskLevel: (risk as PendingExecApproval['riskLevel']) || 'high',
+    riskReasons: reported,
+    dangerExplanation: String(raw.danger_explanation ?? ''),
+    requestedBy: 'kernel',
+    expiresAt: String(raw.expires_at ?? ''),
+    exec_request_id: String(raw.exec_request_id ?? '') || undefined,
+    cwd: String(raw.cwd ?? '') || undefined,
+    history: Array.isArray(raw.history)
+      ? raw.history as PendingExecApproval['history'] : undefined,
+    riskReport: raw.risk_report as PendingExecApproval['riskReport'],
+    needsDoubleConfirm: Boolean(raw.needs_double_confirm),
+    hardFloor: Boolean(raw.hard_floor),
+  };
+}
+
 function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
   const [busyId, setBusyId] = React.useState('');
   const [note, setNote] = React.useState<Record<string, string>>({});
   const [dialog, setDialog] = React.useState<PendingExecApproval | null>(null);
+  const [dismissed, setDismissed] = React.useState<Set<string>>(new Set());
 
   const rows = React.useMemo(
     () => events.filter((e) => e.type === 'approval_request' || e.type === 'approval_result'),
     [events],
   );
   if (!rows.length) return null;
+  const autoApproval = React.useMemo(() => {
+    for (const e of rows) {
+      const parsed = parseTaskEvent(e);
+      if (parsed.kind !== 'approval_request' || parsed.approval.status) continue;
+      const approval = _approvalOf(e, parsed);
+      if (approval.id && !dismissed.has(approval.id)) return approval;
+    }
+    return null;
+  }, [rows, dismissed]);
 
   const submit = async (approvalId: string, risk: string, approve: boolean,
                        confirmHigh = false, secondConfirm = false) => {
@@ -532,6 +568,7 @@ function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
       } else {
         await supervisorApi.rejectExec(taskId, approvalId);
         setNote((n) => ({ ...n, [approvalId]: '已拒绝' }));
+        setDismissed((prev) => new Set(prev).add(approvalId));
         setDialog(null);
       }
     } catch (e) {
@@ -572,29 +609,7 @@ function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
                     data-approval-detail={approvalId}
                     disabled={busyId === approvalId}
                     className="rounded-cw-xs border border-outline-variant/50 px-2 py-0.5 text-on-surface-variant hover:border-primary disabled:opacity-50"
-                    onClick={() => {
-                      const raw = parsed.raw as Record<string, unknown>;
-                      setDialog({
-                        id: approvalId,
-                        command: String(raw.command ?? asText(e.message)),
-                        riskLevel: (risk as PendingExecApproval['riskLevel']) || 'high',
-                        riskReasons: Array.isArray(raw.risk_reasons)
-                          ? raw.risk_reasons.map(String)
-                          : Array.isArray((raw.risk_report as { reasons?: unknown } | undefined)?.reasons)
-                            ? ((raw.risk_report as { reasons: unknown[] }).reasons).map(String)
-                            : [],
-                        dangerExplanation: String(raw.danger_explanation ?? ''),
-                        requestedBy: 'kernel',
-                        expiresAt: String(raw.expires_at ?? ''),
-                        exec_request_id: String(raw.exec_request_id ?? '') || undefined,
-                        cwd: String(raw.cwd ?? '') || undefined,
-                        history: Array.isArray(raw.history)
-                          ? raw.history as PendingExecApproval['history'] : undefined,
-                        riskReport: raw.risk_report as PendingExecApproval['riskReport'],
-                        needsDoubleConfirm: Boolean(raw.needs_double_confirm),
-                        hardFloor: Boolean(raw.hard_floor),
-                      });
-                    }}
+                    onClick={() => setDialog(_approvalOf(e, parsed))}
                   >
                     详情
                   </button>
@@ -635,13 +650,17 @@ function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
         })}
       </ul>
       <ExecPermissionDialog
-        approval={dialog}
-        busy={busyId === (dialog?.id ?? '')}
+        approval={dialog ?? autoApproval}
+        busy={busyId === ((dialog ?? autoApproval)?.id ?? '')}
         onApprove={(confirm, second) => {
-          if (dialog) void submit(dialog.id, dialog.riskLevel, true, confirm, second);
+          const active = dialog ?? autoApproval;
+          if (active) void submit(active.id, active.riskLevel, true, confirm, second);
         }}
         onReject={() => {
-          if (dialog) void submit(dialog.id, dialog.riskLevel, false);
+          const active = dialog ?? autoApproval;
+          if (!active) return;
+          setDismissed((prev) => new Set(prev).add(active.id));
+          void submit(active.id, active.riskLevel, false);
         }}
       />
     </div>
