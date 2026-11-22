@@ -157,7 +157,14 @@ export const useSessionTimelineStore = create<SessionTimelineState>((set) => ({
         return {
           bySession: { ...s.bySession, [sessionId]: capBucket(bucket) },
           latestSeq: { ...s.latestSeq, [sessionId]: latest },
-          hasMore: { ...s.hasMore, [sessionId]: !!frame.has_more },
+          hasMore: {
+            ...s.hasMore,
+            // 增量 snapshot 的 has_more 只代表“snapshot 内没有更多”，
+            // 不能覆盖首屏 REST 已经拿到的更早分页标记。
+            [sessionId]: Boolean(
+              s.hasMore[sessionId] || frame.has_more_before || frame.has_more
+            ),
+          },
           archivedUntil: { ...s.archivedUntil, [sessionId]: frame.archived_until_seq ?? 0 },
         };
       }

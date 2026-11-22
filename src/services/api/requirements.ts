@@ -80,11 +80,19 @@ export const requirementsApi = {
         if (!line) continue;
         const payload = line.slice(5).trim();
         if (payload === '[DONE]') continue;
+        let chunk: { type: string; data: unknown };
         try {
-          const chunk = JSON.parse(payload) as { type: string; data: unknown };
-          onChunk?.(chunk);
-          if (chunk.type === 'result') { result = (chunk.data as Record<string, unknown>) ?? result; gotResult = true; }
-        } catch { /* 忽略坏块 */ }
+          chunk = JSON.parse(payload) as { type: string; data: unknown };
+        } catch {
+          continue; // 忽略坏块
+        }
+        onChunk?.(chunk);
+        if (chunk.type === 'error') {
+          // 后端把流式异常转成 error 帧；不能静默返回 {}（否则 UI 会空转）。
+          const detail = typeof chunk.data === 'string' ? chunk.data : '对话处理失败';
+          throw new Error(detail);
+        }
+        if (chunk.type === 'result') { result = (chunk.data as Record<string, unknown>) ?? result; gotResult = true; }
       }
       // Playwright route.fulfill 的 SSE 不保证触发 reader done；拿到权威 result 即收口。
       if (gotResult) break;

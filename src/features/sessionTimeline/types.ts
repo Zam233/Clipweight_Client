@@ -80,6 +80,8 @@ export type SessionTimelineFrame =
       op: 'snapshot';
       items: SessionTimelineItem[];
       has_more: boolean;
+      /** 增量 snapshot 之前是否还有更早条目（不能覆盖首屏分页） */
+      has_more_before?: boolean;
       latest_seq: number;
       archived_until_seq: number;
     }
