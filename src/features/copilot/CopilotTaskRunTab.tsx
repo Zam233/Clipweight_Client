@@ -540,7 +540,6 @@ function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
     () => events.filter((e) => e.type === 'approval_request' || e.type === 'approval_result'),
     [events],
   );
-  if (!rows.length) return null;
   const autoApproval = React.useMemo(() => {
     for (const e of rows) {
       const parsed = parseTaskEvent(e);
@@ -551,6 +550,7 @@ function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
     return null;
   }, [rows, dismissed]);
 
+  if (!rows.length) return null;
   const submit = async (approvalId: string, risk: string, approve: boolean,
                        confirmHigh = false, secondConfirm = false) => {
     if (!approvalId || !taskId) return;
