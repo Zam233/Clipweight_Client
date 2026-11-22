@@ -296,7 +296,7 @@ export interface PendingExecApproval {
   exec_request_id?: string;
   command: string;
   cwd?: string;
-  riskLevel: Exclude<RiskLevel, 'low'>;
+  riskLevel: RiskLevel;
   riskReasons: string[];
   dangerExplanation: string;
   requestedBy: string;

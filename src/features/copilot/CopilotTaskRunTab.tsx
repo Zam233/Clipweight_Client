@@ -618,11 +618,7 @@ function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
                     data-approval-approve={approvalId}
                     disabled={busyId === approvalId}
                     className="rounded-cw-xs border border-outline-variant/50 px-2 py-0.5 text-primary hover:border-primary disabled:opacity-50"
-                    onClick={() => {
-                      if ((risk === 'high' || risk === 'critical')
-                        && !window.confirm(`这条操作被判定为 ${risk} 风险，确认授权？`)) return;
-                      void submit(approvalId, risk, true, true, risk === 'critical');
-                    }}
+                    onClick={() => setDialog(_approvalOf(e, parsed))}
                   >
                     授权
                   </button>

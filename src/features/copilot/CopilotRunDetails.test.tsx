@@ -65,14 +65,15 @@ describe('B11 / N4：授权提交入口', () => {
     expect(screen.getAllByRole('button', { name: '拒绝' }).length).toBeGreaterThan(0);
   });
 
-  it('点授权 → approveExec(高风险两次确认) 并回显已授权', async () => {
+  it('点授权 → 打开完整弹窗，勾选后 approveExec 并回显已授权', async () => {
     render(<CopilotTaskRunTab taskId="task_x" />);
     fireEvent.click(screen.getByRole('button', { name: '授权' }));
+    fireEvent.click(screen.getByLabelText(/我已了解风险/));
+    fireEvent.click(screen.getByRole('button', { name: '允许执行' }));
 
     await waitFor(() => expect(mocks.approveExec).toHaveBeenCalledWith(
       'task_x', 'ap_1', true, false,
     ));
-    expect(window.confirm).toHaveBeenCalled();
     expect(await screen.findByText('已授权')).toBeTruthy();
   });
 
@@ -87,16 +88,17 @@ describe('B11 / N4：授权提交入口', () => {
     mocks.approveExec.mockRejectedValue(new Error('后端离线'));
     render(<CopilotTaskRunTab taskId="task_x" />);
     fireEvent.click(screen.getByRole('button', { name: '授权' }));
+    fireEvent.click(screen.getByLabelText(/我已了解风险/));
+    fireEvent.click(screen.getByRole('button', { name: '允许执行' }));
 
     expect(await screen.findByText(/提交失败：后端离线/)).toBeTruthy();
     expect(screen.queryByText('已授权')).toBeNull();
   });
 
-  it('高风险二次确认被用户取消 → 不发请求', async () => {
-    (window.confirm as unknown as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  it('高风险未勾选 → 不允许提交', () => {
     render(<CopilotTaskRunTab taskId="task_x" />);
     fireEvent.click(screen.getByRole('button', { name: '授权' }));
-    await waitFor(() => expect(window.confirm).toHaveBeenCalled());
+    expect((screen.getByRole('button', { name: '允许执行' }) as HTMLButtonElement).disabled).toBe(true);
     expect(mocks.approveExec).not.toHaveBeenCalled();
   });
 });
