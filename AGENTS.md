@@ -23,14 +23,14 @@ scripts\stop.ps1         # 停止全部
 ```
 
 - 后端：`uvicorn clipwright.main:app --port 8080`（`CLIPWRIGHT_PORT=8080`，见 `.env.example`）
-- 前端：独立仓库 `J:\Clipweight-Client`（`npm run dev`，vite 5173；`/api` 代理 → 8080）
+- 前端：本仓库（`npm run dev`，vite 5173；`/api` 代理 → 8080）
 - ~~账号/市场服务~~：2026-11-08 已剥离（`feat/zam_remove_account_system`）。无登录/注册/CREADIT/市场，
   鉴权只剩本地 `CLIPWRIGHT_API_TOKEN`；`K:\Clipwright Server` 不再被启动、也不再被引用
 
 ## 项目结构（monorepo）
 
 ```
-J:\Clipwright
+..\Clipwright/
 ├── clipwright/       # 后端（Python FastAPI）
 │   ├── agents/       # 阶段子 Agent（结构/素材/剪辑/动画/音频/质检）+ requirements 规划，由主 Agent 派发
 │   ├── api/          # 33 个 API 路由文件
@@ -313,7 +313,7 @@ J:\Clipwright
 ## 文档维护规则
 
 每次功能更新后，必须同步更新 `docs/` 中的相关文档。详见 [docs/README.md](docs/README.md) 的文档维护规则。
-执行计划期间，`docs/fix-and-feature-plan.md` §10 每批追加执行记录，并同步 `J:\Clipweight-Client\docs\` 副本。
+执行计划期间，`docs/fix-and-feature-plan.md` §10 每批追加执行记录，并同步本仓库 `docs/` 副本。
 
 ## 新增模块
 
@@ -329,11 +329,11 @@ J:\Clipwright
 
 修改代码后，运行：
 ```bash
-# 后端回归（工作目录 J:\Clipwright；用带依赖的解释器，如 py -3.14）
+# 后端回归（在后端仓库根目录执行；用带依赖的解释器，如 py -3.14）
 python -m pytest tests -q
 python -c "import clipwright.main"
 
-# 前端回归（工作目录 J:\Clipweight-Client）
+# 前端回归（在本仓库根目录执行）
 npx tsc --noEmit
 npm run test                     # 2026-11-01 基线：1125 passed / 5 skipped
 npm run build

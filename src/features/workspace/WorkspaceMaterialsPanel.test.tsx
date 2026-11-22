@@ -34,15 +34,15 @@ vi.mock('@/services/api/sseStream', () => ({
 describe('WorkspaceMaterialsPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();    mocks.get.mockResolvedValue({
-      project_id: 'p1', exists: true, root: 'J:/ws/p1', health: 'ok',
+      project_id: 'p1', exists: true, root: '/tmp/ws/p1', health: 'ok',
       counts: { total: 3, video: 2, image: 1, audio: 0, other: 0, indexed: 2, pending: 1 },
       index: { vision: true, provider: 'transformers' },
       scan: { auto: true, last_scan_at: '2026-10-24T10:00:00Z' },
     });
     mocks.materials.mockResolvedValue({
-      project_id: 'p1', root: 'J:/ws/p1', count: 1, pending: 1,
+      project_id: 'p1', root: '/tmp/ws/p1', count: 1, pending: 1,
       items: [{
-        sha256: 'abc12345', path: 'J:/ws/p1/materials/video/a.mp4', rel: 'video/a.mp4',
+        sha256: 'abc12345', path: '/tmp/ws/p1/materials/video/a.mp4', rel: 'video/a.mp4',
         kind: 'video', size: 1024, status: 'indexed', tags: ['舞台', '特写'],
         vision: { status: 'ok' },
       }],
@@ -57,7 +57,7 @@ describe('WorkspaceMaterialsPanel', () => {
 
   it('显示工作区路径、计数与素材行', async () => {
     render(<WorkspaceMaterialsPanel projectId="p1" />);
-    expect(await screen.findByText(/J:\/ws\/p1/)).toBeTruthy();
+    expect(await screen.findByText(/ws\/p1/)).toBeTruthy();
     expect(screen.getByText(/素材 3（视频 2 \/ 图 1 \/ 音 0）/)).toBeTruthy();
     expect(screen.getByText('video/a.mp4')).toBeTruthy();
     expect(screen.getByText(/舞台、特写/)).toBeTruthy();
@@ -82,7 +82,7 @@ describe('WorkspaceMaterialsPanel', () => {
    */
   it('M-02：rel/kind/status/tags/vision 为脏形状时面板不白屏', async () => {
     mocks.materials.mockResolvedValue({
-      project_id: 'p1', root: 'J:/ws/p1', count: 1, pending: 0,
+      project_id: 'p1', root: '/tmp/ws/p1', count: 1, pending: 0,
       items: [{
         sha256: 'dirty01',
         path: { p: '/x' },
@@ -103,9 +103,9 @@ describe('WorkspaceMaterialsPanel', () => {
 
   it('M-02：failed 索引列表的 rel/reason 为对象时也不崩', async () => {
     mocks.materials.mockResolvedValue({
-      project_id: 'p1', root: 'J:/ws/p1', count: 0, pending: 1,
+      project_id: 'p1', root: '/tmp/ws/p1', count: 0, pending: 1,
       items: [{
-        sha256: 'dirty02', path: 'J:/x', rel: 'video/b.mp4', kind: 'video',
+        sha256: 'dirty02', path: '/tmp/x', rel: 'video/b.mp4', kind: 'video',
         size: 1, status: 'failed', tags: [],
         vision: { status: 'failed', summary: { why: '解码失败' } },
       }],
@@ -126,9 +126,9 @@ describe('WorkspaceMaterialsPanel', () => {
       pid === 'p1'
         ? p1Materials
         : Promise.resolve({
-          project_id: 'p2', root: 'J:/ws/p2', count: 1, pending: 0,
+          project_id: 'p2', root: '/tmp/ws/p2', count: 1, pending: 0,
           items: [{
-            sha256: 'p2only', path: 'J:/ws/p2/materials/video/new.mp4',
+            sha256: 'p2only', path: '/tmp/ws/p2/materials/video/new.mp4',
             rel: 'video/new.mp4', kind: 'video', size: 1, status: 'indexed',
             tags: [], vision: { status: 'ok' },
           }],
@@ -143,9 +143,9 @@ describe('WorkspaceMaterialsPanel', () => {
 
     // p1 之后才返回：不得把新项目的行覆盖回旧数据
     resolveP1({
-      project_id: 'p1', root: 'J:/ws/p1', count: 1, pending: 0,
+      project_id: 'p1', root: '/tmp/ws/p1', count: 1, pending: 0,
       items: [{
-        sha256: 'p1only', path: 'J:/ws/p1/materials/video/old.mp4',
+        sha256: 'p1only', path: '/tmp/ws/p1/materials/video/old.mp4',
         rel: 'video/old.mp4', kind: 'video', size: 1, status: 'indexed',
         tags: [], vision: { status: 'ok' },
       }],

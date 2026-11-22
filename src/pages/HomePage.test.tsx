@@ -50,7 +50,7 @@ vi.mock('@/services/api', () => ({
   pipelineApi: { predictScript: mocks.predictScript, topicSuggest: mocks.topicSuggest },
   // 04 工作区（PRD workspace-prd）：项目建好后会创建；失败不阻断启动
   workspaceApi: {
-    create: vi.fn(async () => ({ root: 'J:/tmp/ws', exists: true })),
+    create: vi.fn(async () => ({ root: '/tmp/tmp/ws', exists: true })),
     get: vi.fn(async () => ({ exists: false })),
     materials: vi.fn(async () => ({ items: [], count: 0, pending: 0 })),
     scan: vi.fn(async () => ({ scanned: 0, new: 0, indexed: 0, deduped: 0, failed: 0 })),
@@ -409,7 +409,7 @@ describe('配音上传入口（默认可用）', () => {
       mocks.assetUpload.mockResolvedValue({
         asset_id: 'asset_1',
         filename: 'voice.mp3',
-        file_path: 'J:/lib/files/asset_1.mp3',
+        file_path: '/tmp/lib/files/asset_1.mp3',
         media_type: 'audio',
         duration_sec: 12,
         deduplicated: true,

@@ -99,14 +99,14 @@ describe('B12 / N7：EventFeed 不再二次截断', () => {
 describe('B12 / N8：结构化详情与产物路径', () => {
   it('doc_write 可展开 detail 并显示产物路径', () => {
     const events: TaskEvent[] = [ev(7, 'doc_write', {
-      path: 'J:/ws/proj/docs/script.md', chars: 8400,
+      path: '/tmp/ws/proj/docs/script.md', chars: 8400,
     }, { message: '写入 docs/script.md' })];
     render(<EventFeed events={events} />);
 
     // 路径按钮的 title 随交互语义变过（现在是“应用内打开 / Ctrl+点击系统打开”），
     // 断言应落在稳定契约 data-event-path 上，而不是文案。
     const pathBtn = document.querySelector('[data-event-path]') as HTMLElement;
-    expect(pathBtn.getAttribute('data-event-path')).toBe('J:/ws/proj/docs/script.md');
+    expect(pathBtn.getAttribute('data-event-path')).toBe('/tmp/ws/proj/docs/script.md');
 
     fireEvent.click(screen.getByRole('button', { name: /详情/ }));
     const detail = document.querySelector('[data-event-detail]') as HTMLElement;
