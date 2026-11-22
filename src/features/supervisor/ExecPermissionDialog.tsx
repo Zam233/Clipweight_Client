@@ -99,6 +99,34 @@ export function ExecPermissionDialog({ approval, onApprove, onReject, busy, clas
           {approval.command}
         </pre>
 
+        <div className="text-caption text-on-surface-variant space-y-0.5">
+          {approval.cwd && <p>cwd：<code>{approval.cwd}</code></p>}
+          {approval.exec_request_id && <p>request：<code>{approval.exec_request_id}</code></p>}
+          {approval.expiresAt && <p>授权有效期至：{approval.expiresAt}</p>}
+        </div>
+
+        {approval.history && approval.history.length > 0 && (
+          <details className="text-caption text-on-surface-variant" open={approval.history.length <= 3}>
+            <summary className="cursor-pointer">此前执行（{approval.history.length}）</summary>
+            <ul className="mt-1 space-y-0.5">
+              {approval.history.slice(-8).map((h) => (
+                <li key={h.exec_request_id}>
+                  <code>{h.text.slice(0, 80)}</code>
+                  {h.cwd ? ` · ${h.cwd}` : ''}
+                  {h.exit_code != null ? ` · exit=${h.exit_code}` : ''}
+                  {h.risk ? ` · ${h.risk}` : ''}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+
+        {approval.riskReport?.affected_paths && approval.riskReport.affected_paths.length > 0 && (
+          <p className="text-caption text-on-surface-variant">
+            可能影响：{approval.riskReport.affected_paths.join('；')}
+          </p>
+        )}
+
         {stage === 1 && needsConfirm && (
           <label htmlFor={checkId} className="flex items-center gap-2 text-caption text-warning">
             <input

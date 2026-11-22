@@ -17,10 +17,10 @@ const ev = (type: TaskEventType, detail: Record<string, unknown> = {}, message =
   ({ seq: 1, type, ts: '', message, detail });
 
 describe('B5 事件契约', () => {
-  it('EVENT_TYPE_KEYS 覆盖 32 类且无重复', () => {
+  it('EVENT_TYPE_KEYS 覆盖 35 类且无重复', () => {
     // 2026-11-08：后端 EVENT_TYPES 增至 32（+progress / goal_update / soft_landing）。
-    expect(EVENT_TYPE_KEYS).toHaveLength(32);
-    expect(new Set(EVENT_TYPE_KEYS).size).toBe(32);
+    expect(EVENT_TYPE_KEYS).toHaveLength(35);
+    expect(new Set(EVENT_TYPE_KEYS).size).toBe(35);
   });
 
   it('32 类事件逐个 parse 不抛异常，kind 与类型一致', () => {

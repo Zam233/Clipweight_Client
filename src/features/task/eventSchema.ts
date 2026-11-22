@@ -25,6 +25,9 @@ export const EVENT_TYPE_KEYS = [
   'tool_result',
   'approval_request',
   'approval_result',
+  'exec_request',
+  'exec_risk',
+  'exec_result',
   'degradation',
   'artifact',
   'step_end',
@@ -116,9 +119,18 @@ export interface ModelTurnDetail {
 /** 授权 */
 export interface ApprovalDetail {
   approval_id?: string;
+  exec_request_id?: string;
   risk?: string;
+  risk_level?: string;
+  command?: string;
+  cwd?: string;
   tool?: string;
   status?: string;
+  history?: Array<Record<string, unknown>>;
+  risk_report?: Record<string, unknown>;
+  needs_double_confirm?: boolean;
+  hard_floor?: boolean;
+  expires_at?: string;
 }
 
 /** AgentRun（子 agent） */
@@ -267,6 +279,7 @@ export type ParsedEvent =
   | (ParsedEventBase & { kind: 'step_start' | 'step_end'; stage: StageDetail })
   | (ParsedEventBase & { kind: 'narration' | 'thinking' | 'intent'; turn: ModelTurnDetail })
   | (ParsedEventBase & { kind: 'approval_request' | 'approval_result'; approval: ApprovalDetail })
+  | (ParsedEventBase & { kind: 'exec_request' | 'exec_risk' | 'exec_result'; exec: Record<string, unknown> })
   | (ParsedEventBase & { kind: 'agent_run_start' | 'agent_run_update' | 'agent_run_end'; run: AgentRunDetail })
   | (ParsedEventBase & { kind: 'context_loaded'; context: ContextDetail })
   | (ParsedEventBase & { kind: 'doc_write' | 'report'; doc: DocDetail })
@@ -531,6 +544,10 @@ export function parseTaskEvent(event: TaskEvent): ParsedEvent {
           ...raw,
         },
       };
+    case 'exec_request':
+    case 'exec_risk':
+    case 'exec_result':
+      return { ...base, kind, exec: { ...raw } };
     default:
       return {
         ...base,

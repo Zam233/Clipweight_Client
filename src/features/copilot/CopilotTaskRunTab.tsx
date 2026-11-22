@@ -25,6 +25,8 @@ import type { TaskEvent } from '@/types/task';
 import { supervisorApi } from '@/services/api';
 import { ThinkingDisclosure } from './ThinkingDisclosure';
 import { RunningSubagents } from './RunningSubagents';
+import { ExecPermissionDialog } from '@/features/supervisor/ExecPermissionDialog';
+import type { PendingExecApproval } from '@/types/supervisor';
 
 function StageRows({ events }: { events: ReturnType<typeof useTaskStore.getState>['events'] }) {
   const stages = React.useMemo(() => {
@@ -505,6 +507,7 @@ function ToolCallRows({ events }: { events: Ev }) {
 function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
   const [busyId, setBusyId] = React.useState('');
   const [note, setNote] = React.useState<Record<string, string>>({});
+  const [dialog, setDialog] = React.useState<PendingExecApproval | null>(null);
 
   const rows = React.useMemo(
     () => events.filter((e) => e.type === 'approval_request' || e.type === 'approval_result'),
@@ -512,22 +515,24 @@ function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
   );
   if (!rows.length) return null;
 
-  const submit = async (approvalId: string, risk: string, approve: boolean) => {
+  const submit = async (approvalId: string, risk: string, approve: boolean,
+                       confirmHigh = false, secondConfirm = false) => {
     if (!approvalId || !taskId) return;
     const highRisk = risk === 'high' || risk === 'critical';
-    if (approve && highRisk && !window.confirm(
-      `这条操作被判定为 ${risk} 风险，确认授权？`,
-    )) return;
+    const first = confirmHigh || !highRisk;
+    if (approve && highRisk && !first) return;
     setBusyId(approvalId);
     try {
       if (approve) {
         await supervisorApi.approveExec(
-          taskId, approvalId, highRisk, risk === 'critical',
+          taskId, approvalId, first, secondConfirm || risk === 'critical',
         );
         setNote((n) => ({ ...n, [approvalId]: '已授权' }));
+        setDialog(null);
       } else {
         await supervisorApi.rejectExec(taskId, approvalId);
         setNote((n) => ({ ...n, [approvalId]: '已拒绝' }));
+        setDialog(null);
       }
     } catch (e) {
       setNote((n) => ({
@@ -564,10 +569,45 @@ function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
                 <span className="ml-auto flex shrink-0 items-center gap-1">
                   <button
                     type="button"
+                    data-approval-detail={approvalId}
+                    disabled={busyId === approvalId}
+                    className="rounded-cw-xs border border-outline-variant/50 px-2 py-0.5 text-on-surface-variant hover:border-primary disabled:opacity-50"
+                    onClick={() => {
+                      const raw = parsed.raw as Record<string, unknown>;
+                      setDialog({
+                        id: approvalId,
+                        command: String(raw.command ?? asText(e.message)),
+                        riskLevel: (risk as PendingExecApproval['riskLevel']) || 'high',
+                        riskReasons: Array.isArray(raw.risk_reasons)
+                          ? raw.risk_reasons.map(String)
+                          : Array.isArray((raw.risk_report as { reasons?: unknown } | undefined)?.reasons)
+                            ? ((raw.risk_report as { reasons: unknown[] }).reasons).map(String)
+                            : [],
+                        dangerExplanation: String(raw.danger_explanation ?? ''),
+                        requestedBy: 'kernel',
+                        expiresAt: String(raw.expires_at ?? ''),
+                        exec_request_id: String(raw.exec_request_id ?? '') || undefined,
+                        cwd: String(raw.cwd ?? '') || undefined,
+                        history: Array.isArray(raw.history)
+                          ? raw.history as PendingExecApproval['history'] : undefined,
+                        riskReport: raw.risk_report as PendingExecApproval['riskReport'],
+                        needsDoubleConfirm: Boolean(raw.needs_double_confirm),
+                        hardFloor: Boolean(raw.hard_floor),
+                      });
+                    }}
+                  >
+                    详情
+                  </button>
+                  <button
+                    type="button"
                     data-approval-approve={approvalId}
                     disabled={busyId === approvalId}
                     className="rounded-cw-xs border border-outline-variant/50 px-2 py-0.5 text-primary hover:border-primary disabled:opacity-50"
-                    onClick={() => void submit(approvalId, risk, true)}
+                    onClick={() => {
+                      if ((risk === 'high' || risk === 'critical')
+                        && !window.confirm(`这条操作被判定为 ${risk} 风险，确认授权？`)) return;
+                      void submit(approvalId, risk, true, true, risk === 'critical');
+                    }}
                   >
                     授权
                   </button>
@@ -594,6 +634,16 @@ function ApprovalRows({ events, taskId }: { events: Ev; taskId: string }) {
           );
         })}
       </ul>
+      <ExecPermissionDialog
+        approval={dialog}
+        busy={busyId === (dialog?.id ?? '')}
+        onApprove={(confirm, second) => {
+          if (dialog) void submit(dialog.id, dialog.riskLevel, true, confirm, second);
+        }}
+        onReject={() => {
+          if (dialog) void submit(dialog.id, dialog.riskLevel, false);
+        }}
+      />
     </div>
   );
 }

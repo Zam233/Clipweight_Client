@@ -29,6 +29,8 @@ const OUTCOME_CN: Record<ExecResponse['status'], string> = {
   failed: '已执行但失败（非 0 退出）',
   pending_approval: '等待你授权后才会执行',
   rejected: '已被拒绝（安全底线，不可授权）',
+  refused: '被策略拒绝',
+  expired: '授权已过期',
 };
 
 export function ExecRequestForm({ onSubmit, busy, result, className }: Props) {
