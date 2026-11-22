@@ -43,7 +43,7 @@ describe('E-02 projectStore.resetProject 覆盖全部字段', () => {
     st.setDryRun(true);
     st.setWorkspaceAutoIndex(false);
     st.setWorkspaceVisionIndex(false);
-    st.setWorkspaceRoot('J:/ws/old');
+    st.setWorkspaceRoot('/tmp/ws/old');
 
     useProjectStore.getState().resetProject();
 

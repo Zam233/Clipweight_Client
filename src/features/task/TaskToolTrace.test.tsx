@@ -22,7 +22,7 @@ function page(over: Record<string, unknown> = {}) {
     task_id: 'task_1',
     stage: 'edit',
     attempt: 2,
-    path: 'J:/Clipwright/_cache/ws/task_1/reports/tool_calls/edit-2.json',
+    path: '/tmp/Clipwright/_cache/ws/task_1/reports/tool_calls/edit-2.json',
     total: 2,
     offset: 0,
     limit: 200,

@@ -28,7 +28,7 @@ vi.mock('@/stores/projectStore', () => ({
 }));
 
 const TREE = {
-  root: 'J:/ws/p1',
+  root: '/tmp/ws/p1',
   count: 1,
   kinds: { video: 1 },
   dirs: [{ dir: 'materials/video', count: 1, files: [{ path: 'a.mp4', rel: 'video/a.mp4', name: 'a.mp4', kind: 'video', size: 10, mtime: 0 }] }],

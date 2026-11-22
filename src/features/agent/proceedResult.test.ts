@@ -14,11 +14,11 @@ describe('proceedResult（双轨返回处理）', () => {
 
   it('task_id 优先：返回 task 模式并记住 workspace_root', () => {
     const target = applyProceedResult({
-      task_id: 'task_1', pipeline_id: 'task_1', workspace_root: 'J:/ws/x',
+      task_id: 'task_1', pipeline_id: 'task_1', workspace_root: '/tmp/ws/x',
     });
     expect(target).toEqual({ mode: 'task', id: 'task_1' });
     expect(storedTaskId()).toBe('task_1');
-    expect(storedWorkspaceRoot()).toBe('J:/ws/x');
+    expect(storedWorkspaceRoot()).toBe('/tmp/ws/x');
   });
 
   it('只有 pipeline_id：走老管线模式', async () => {

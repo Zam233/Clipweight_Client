@@ -57,7 +57,7 @@ beforeEach(() => {
   mocks.getReport.mockResolvedValue({ name: 'r1', payload: PAYLOAD });
   mocks.result.mockResolvedValue({
     has_timeline: true, tracks: 2, clips: 5, duration_sec: 30,
-    output_path: 'J:/renders/out.mp4',
+    output_path: '/tmp/renders/out.mp4',
   });
 });
 afterEach(cleanup);
@@ -99,8 +99,8 @@ describe('B9 产物回链', () => {
     render(<TaskArtifacts taskId="task_1" />);
 
     const path = await screen.findByTestId('artifact-path');
-    expect(path.textContent).toBe('J:/renders/out.mp4');
+    expect(path.textContent).toBe('/tmp/renders/out.mp4');
     screen.getByTestId('artifact-path-copy').click();
-    expect(writeText).toHaveBeenCalledWith('J:/renders/out.mp4');
+    expect(writeText).toHaveBeenCalledWith('/tmp/renders/out.mp4');
   });
 });

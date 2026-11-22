@@ -50,7 +50,7 @@ vi.mock('@/services/api/sseStream', () => ({
 }));
 
 const STATUS = {
-  project_id: 'p1', exists: true, root: 'J:/ws/p1', health: 'ok',
+  project_id: 'p1', exists: true, root: '/tmp/ws/p1', health: 'ok',
   counts: { total: 3, video: 1, image: 1, audio: 1, other: 0, indexed: 2, pending: 1 },
   index: { vision: true, provider: 'llm' },
   scan: { auto: true, interval_sec: 60, last_scan_at: '2026-10-29T01:00:00Z', pending: 1 },
@@ -63,7 +63,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.lastOnMessage = null;
   mocks.get.mockResolvedValue(STATUS);
-  mocks.materials.mockResolvedValue({ project_id: 'p1', root: 'J:/ws/p1', count: 0, items: [], pending: 0 });
+  mocks.materials.mockResolvedValue({ project_id: 'p1', root: '/tmp/ws/p1', count: 0, items: [], pending: 0 });
   mocks.events.mockResolvedValue({ project_id: 'p1', events: [], last_seq: 0 });
   mocks.scan.mockResolvedValue({
     scanned: 3, changed: 0, new: 0, deduped: 0, indexed: 3, deferred: 0, failed: 0, items: [],
