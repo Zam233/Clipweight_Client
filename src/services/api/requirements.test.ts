@@ -61,4 +61,12 @@ describe('requirementsApi.streamChat (W1 SSE 流式消费)', () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, status: 500 });
     await expect(requirementsApi.streamChat('sess_2', 'hi')).rejects.toThrow('chat stream failed: 500');
   });
+
+  it('error 帧必须抛错，不能静默返回空对象', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(makeStream([
+      'data: {"type":"error","data":"对话处理失败，请稍后重试"}\n\n',
+      'data: [DONE]\n\n',
+    ]));
+    await expect(requirementsApi.streamChat('sess_3', 'hi')).rejects.toThrow('对话处理失败');
+  });
 });
