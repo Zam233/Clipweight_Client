@@ -23,6 +23,7 @@ import { useOverlayStore } from './motionSpecOverlay/overlayStore';
  */
 const DECODE_BUDGET = 2;
 import { computePreviewFrameRect, xToScrubTime } from './frameGeometry';
+import { activeAudioByAsset, type AudioClipState } from './audioSync';
 import type { FrameRect } from './frameGeometry';
 import { formatTimecode, clamp } from '@/lib/utils';
 import { secondsToFrame } from '@/lib/mediaTime';
@@ -142,10 +143,7 @@ export function PreviewPanel() {
   const audioStateRef = useRef({ playing: false, muted: false, tl: timeline as unknown });
   /** 只在时间线对象变化时重建音频片段索引——旧实现每次同步都遍历全部轨道 */
   const audioClips = useMemo(() => {
-    const out: Array<{
-      assetId: string; start: number; end: number; speed: number;
-      volume: number; trackMuted: boolean; offset: number;
-    }> = [];
+    const out: AudioClipState[] = [];
     for (const track of timeline.tracks) {
       if (track.kind !== 'audio' && track.kind !== 'waveform') continue;
       for (const clip of track.clips) {
@@ -170,6 +168,46 @@ export function PreviewPanel() {
   const volumeRef = useRef(volume);
   volumeRef.current = volume;
 
+  /**
+   * 同一素材（assetId）在时间线上可能有多个片段（分割旁白就是这种情况）。
+   * 它们共享同一个 HTMLAudioElement，不能逐片段 play/pause——后一个片段的
+   * pause() 会把前一个刚 play() 的片段停掉。这里先按 assetId 选当前活跃片段，
+   * 再每个元素只驱动一次。
+   */
+  const syncAudioClips = useCallback((t: number, playing: boolean, muted: boolean, master: number) => {
+    const active = activeAudioByAsset(audioClipsRef.current, t);
+    const done = new Set<string>();
+    for (const item of audioClipsRef.current) {
+      if (done.has(item.assetId)) continue;
+      done.add(item.assetId);
+      const entry = mediaManager.get(item.assetId);
+      const el = entry?.audioEl ?? entry?.videoEl;
+      if (!el) continue;
+      const current = active.get(item.assetId);
+      if (!current) {
+        if (!el.paused) el.pause();
+        continue;
+      }
+      const localT = (t - current.start) * current.speed + current.offset;
+      el.volume = applyMasterVolume(current.volume, master);
+      el.muted = muted || current.trackMuted;
+      if (Math.abs(el.playbackRate - current.speed) > 0.01) {
+        try { el.playbackRate = current.speed; } catch { /* not supported */ }
+      }
+      if (!playing) {
+        if (!el.paused) el.pause();
+        continue;
+      }
+      if (Math.abs(el.currentTime - localT) > 0.08) {
+        try { el.currentTime = localT; } catch { /* seek not available */ }
+      }
+      if (el.paused) {
+        mediaManager.attachAnalyser(current.assetId);
+        el.play().catch(() => {});
+      }
+    }
+  }, []);
+
   useEffect(() => {
     const prev = audioStateRef.current;
     const stateChanged = prev.playing !== isPlaying || prev.muted !== isMuted;
@@ -185,36 +223,10 @@ export function PreviewPanel() {
     lastAudioSyncRef.current = now;
 
     const t = usePreviewStore.getState().currentTimeSec;
-    const playing = isPlaying;
-    const muted = isMuted;
-    for (const item of audioClips) {
-      const entry = mediaManager.get(item.assetId);
-      const el = entry?.audioEl ?? entry?.videoEl;
-      if (!el) continue;
-      const inClip = t >= item.start && t < item.end;
-      // Account for clip speed so audio stays in sync with sped-up/slowed video
-      const localT = (t - item.start) * item.speed + item.offset;
-      el.volume = applyMasterVolume(item.volume, volume);
-      el.muted = muted || item.trackMuted;
-      if (Math.abs(el.playbackRate - item.speed) > 0.01) {
-        try { el.playbackRate = item.speed; } catch { /* not supported */ }
-      }
-      if (inClip && playing) {
-        // 校正阈值 0.08s（约 2 帧@30fps）：再小会频繁 seek，反而听得出断续
-        if (Math.abs(el.currentTime - localT) > 0.08) {
-          try { el.currentTime = localT; } catch { /* seek not available */ }
-        }
-        if (el.paused) {
-          mediaManager.attachAnalyser(item.assetId);
-          el.play().catch(() => {});
-        }
-      } else {
-        if (!el.paused) el.pause();
-      }
-    }
+    syncAudioClips(t, isPlaying, isMuted, volume);
     // V9: 预缓冲——播放头后 3s 内的画面片段升级解码预载，消除跨片段边界闪白。
     // 与音频同步解耦：它扫全时间线，500ms 一次足够。
-    if (playing && now - lastPrebufferRef.current >= 500) {
+    if (isPlaying && now - lastPrebufferRef.current >= 500) {
       lastPrebufferRef.current = now;
       const upcoming = new Set<string>();
       for (const track of timeline.tracks) {
@@ -228,7 +240,7 @@ export function PreviewPanel() {
       if (upcoming.size > 0) mediaManager.prebuffer([...upcoming]);
     }
     // P-06：依赖里去掉 currentTimeSec（播放中由下方 rAF 驱动同步，不再每帧重渲染整树）
-  }, [isPlaying, isMuted, timeline, volume, audioClips]);
+  }, [isPlaying, isMuted, timeline, volume, audioClips, syncAudioClips]);
 
   // P-06：播放中的音频同步 rAF——从"每帧触发 React effect"改为纯 ref 循环，
   // 与合成 rAF（读取 store，不触发渲染）同构；volume 经 ref 读取避免重建循环。
@@ -239,34 +251,11 @@ export function PreviewPanel() {
       raf = requestAnimationFrame(tick);
       const pst = usePreviewStore.getState();
       if (!pst.isPlaying) return;
-      const t = pst.currentTimeSec;
-      for (const item of audioClipsRef.current) {
-        const entry = mediaManager.get(item.assetId);
-        const el = entry?.audioEl ?? entry?.videoEl;
-        if (!el) continue;
-        const inClip = t >= item.start && t < item.end;
-        const localT = (t - item.start) * item.speed + item.offset;
-        el.volume = applyMasterVolume(item.volume, volumeRef.current);
-        el.muted = pst.isMuted || item.trackMuted;
-        if (Math.abs(el.playbackRate - item.speed) > 0.01) {
-          try { el.playbackRate = item.speed; } catch { /* not supported */ }
-        }
-        if (inClip) {
-          if (Math.abs(el.currentTime - localT) > 0.08) {
-            try { el.currentTime = localT; } catch { /* seek not available */ }
-          }
-          if (el.paused) {
-            mediaManager.attachAnalyser(item.assetId);
-            el.play().catch(() => {});
-          }
-        } else if (!el.paused) {
-          el.pause();
-        }
-      }
+      syncAudioClips(pst.currentTimeSec, true, pst.isMuted, volumeRef.current);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [isPlaying, audioClips]);
+  }, [isPlaying, audioClips, syncAudioClips]);
 
   // Playback loop
   //
