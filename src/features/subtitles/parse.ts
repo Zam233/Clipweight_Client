@@ -36,12 +36,19 @@ export interface SubtitleParseResult {
   strippedTags: number;
 }
 
-const SRT_TIME_RE = /(\d+):(\d+):(\d+)[.,](\d+)\s*-->\s*(\d+):(\d+):(\d+)[.,](\d+)/;
+// WebVTT 允许省略零小时写成 mm:ss.ttt；小时段必须可选。
+const SRT_TIME_RE = /(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})\s*-->\s*(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})/;
 const ASS_TIME_RE = /^(\d+):(\d{1,2}):(\d{1,2})[.,](\d{1,2})$/;
 
-/** SRT/VTT 时间戳 → 秒 */
-function srtTimeToSec(m: RegExpMatchArray | string[]): number {
-  return +m[1] * 3600 + +m[2] * 60 + +m[3] + +m[4].padEnd(3, '0').slice(0, 3) / 1000;
+/** SRT/VTT 时间戳 → 秒；offset=0 是 start，4 是 end。 */
+function srtTimeToSec(m: RegExpMatchArray | string[], offset = 0): number {
+  // offset 0 / 4 指向「第一组/第五组」；m[0] 是整串匹配，不能当小时。
+  const base = offset + 1;
+  const h = m[base] ? +m[base] * 3600 : 0;
+  const min = +m[base + 1] * 60;
+  const sec = +m[base + 2];
+  const ms = +m[base + 3].padEnd(3, '0').slice(0, 3) / 1000;
+  return h + min + sec + ms;
 }
 
 /** ASS 时间戳（`H:MM:SS.cc`，厘秒）→ 秒 */
@@ -77,12 +84,14 @@ export function detectSubtitleFormat(filename: string, raw: string): SubtitleFor
   return 'unknown';
 }
 
-/** 去掉 HTML 标签与 ASS 覆盖标签，并把 `\N` 还原成换行 */
-function cleanText(text: string): { text: string; stripped: number } {
+/** 去掉 HTML 标签；只在 ASS 中剥离 `{\...}` 覆盖标签，普通数学花括号保留。 */
+function cleanText(text: string, stripAssOverrides = false): { text: string; stripped: number } {
   let stripped = 0;
-  let out = text
-    .replace(/\{[^}]*\}/g, () => { stripped += 1; return ''; })
-    .replace(/<[^>]+>/g, () => { stripped += 1; return ''; });
+  let out = text;
+  if (stripAssOverrides) {
+    out = out.replace(/\{\\[^}]*\}/g, () => { stripped += 1; return ''; });
+  }
+  out = out.replace(/<[^>]+>/g, () => { stripped += 1; return ''; });
   out = out.replace(/\\[Nn]/g, '\n').replace(/\\h/g, ' ');
   return { text: out.trim(), stripped };
 }
@@ -122,8 +131,8 @@ function parseSrtLike(raw: string, format: SubtitleFormat): SubtitleParseResult 
       continue;
     }
     const m = blockLines[timeIdx].match(SRT_TIME_RE)!;
-    const start = srtTimeToSec(m);
-    const end = srtTimeToSec(m.slice(4));
+    const start = srtTimeToSec(m, 0);
+    const end = srtTimeToSec(m, 4);
     const cleaned = cleanText(blockLines.slice(timeIdx + 1).join('\n'));
     strippedTags += cleaned.stripped;
     const lineNo = block.line + timeIdx;
@@ -183,7 +192,7 @@ function parseAss(raw: string): SubtitleParseResult {
     const endRaw = (parts[2] ?? '').trim();
     const start = assTimeToSec(startRaw);
     const end = assTimeToSec(endRaw);
-    const cleaned = cleanText(parts[parts.length - 1] ?? '');
+    const cleaned = cleanText(parts[parts.length - 1] ?? '', true);
     strippedTags += cleaned.stripped;
     const lineNo = i + 1;
     if (start === null || end === null) {

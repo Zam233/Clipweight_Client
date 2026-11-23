@@ -92,14 +92,14 @@ describe('AutoModeSwitch', () => {
   it('关时说明会逐条确认，点击回调', () => {
     const onChange = vi.fn();
     render(<AutoModeSwitch enabled={false} onChange={onChange} />);
-    expect(screen.getByText(/逐条请你确认/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /自动模式/ }));
+    expect(screen.getByText(/所有命令都将逐条请你确认/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /低风险自动执行/ }));
     expect(onChange).toHaveBeenCalledWith(true);
   });
 
-  it('开时说明只减免中危', () => {
+  it('开时说明只放行低风险', () => {
     render(<AutoModeSwitch enabled onChange={() => {}} />);
-    expect(screen.getByText(/中危命令将直接执行，高危仍会询问/)).toBeTruthy();
+    expect(screen.getByText(/低风险命令将直接执行，中高危仍逐条询问/)).toBeTruthy();
   });
 });
 

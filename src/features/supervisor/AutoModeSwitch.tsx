@@ -22,12 +22,12 @@ export function AutoModeSwitch({ enabled, onChange, busy, className }: Props) {
         disabled={busy}
         aria-pressed={enabled}
       >
-        自动模式：{enabled ? '开' : '关'}
+        低风险自动执行：{enabled ? '开' : '关'}
       </Button>
       <span className="text-caption text-on-surface-variant">
         {enabled
-          ? '中危命令将直接执行，高危仍会询问'
-          : '危险命令将逐条请你确认'}
+          ? '低风险命令将直接执行，中高危仍逐条询问'
+          : '所有命令都将逐条请你确认'}
       </span>
     </div>
   );

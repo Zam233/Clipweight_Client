@@ -102,7 +102,7 @@ const EMPTY = {
   execRecords: [] as ExecRecord[],
   pendingApprovals: [] as PendingExecApproval[],
   pendingReviews: [] as PendingWorkerReview[],
-  autoMode: false,
+  autoMode: true,
   loading: false,
   error: '',
 };
@@ -132,17 +132,24 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
 
   hydrateExecution: async (pipelineId) => {
     try {
-      const [subagents, exec, approvals, auto] = await Promise.all([
+      const [subagents, exec, history, approvals, auto] = await Promise.all([
         supervisorApi.getSubagents(pipelineId).catch(() => null),
         supervisorApi.getExecLog(pipelineId).catch(() => null),
+        (typeof supervisorApi.listExecutions === 'function'
+          ? supervisorApi.listExecutions(pipelineId)
+          : Promise.resolve(null)).catch(() => null),
         supervisorApi.getPendingApprovals(pipelineId).catch(() => null),
         supervisorApi.getAutoMode(pipelineId).catch(() => null),
       ]);
+      const merged = new Map<string, ExecRecord>();
+      for (const rec of [...(exec?.records ?? []), ...(history?.items ?? [])]) {
+        if (rec.id) merged.set(rec.id, rec);
+      }
       set({
         subagents: subagents?.tree ?? [],
-        execRecords: exec?.records ?? [],
+        execRecords: Array.from(merged.values()),
         pendingApprovals: approvals?.items ?? [],
-        autoMode: Boolean(auto?.enabled),
+        autoMode: auto ? Boolean(auto.enabled) : true,
       });
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
@@ -371,6 +378,10 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
           dangerExplanation: rec.dangerExplanation ?? (rec.riskReasons ?? []).join('；'),
           requestedBy: rec.requestedBy ?? 'supervisor',
           expiresAt: '',
+          cwd: typeof (rec as { cwd?: string }).cwd === 'string' ? (rec as { cwd?: string }).cwd : '',
+          exec_request_id: (rec as { execRequestId?: string }).execRequestId,
+          history: (rec as { history?: PendingExecApproval['history'] }).history,
+          riskReport: (rec as { riskReport?: PendingExecApproval['riskReport'] }).riskReport,
         };
         const others = get().pendingApprovals.filter((a) => a.id !== approval.id);
         set({ pendingApprovals: [...others, approval] });

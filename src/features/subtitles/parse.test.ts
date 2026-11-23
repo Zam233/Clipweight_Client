@@ -195,3 +195,42 @@ describe('summarizeParse', () => {
     expect(text).toContain('4.5s');
   });
 });
+
+
+describe('回归 · issue #24 / #26', () => {
+  it('SRT 数学集合花括号不被当样式标签', () => {
+    const raw = `1
+00:00:01,000 --> 00:00:03,000
+集合 A = {1, 2, 3}
+`;
+    const result = parseSubtitles(raw, 'math.srt');
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0].text).toBe('集合 A = {1, 2, 3}');
+    expect(result.strippedTags).toBe(0);
+  });
+
+  it('WebVTT 省略零小时的 mm:ss.ttt 能解析', () => {
+    const raw = `WEBVTT
+
+00:01.000 --> 00:03.000
+一段旁白
+`;
+    const result = parseSubtitles(raw, 'short.vtt');
+    expect(result.cues).toHaveLength(1);
+    expect(result.cues[0]).toMatchObject({ start: 1, end: 3, text: '一段旁白' });
+  });
+
+  it('带小时与省略小时的 VTT 结果一致', () => {
+    const short = parseSubtitles(`WEBVTT
+
+00:01.000 --> 00:03.000
+旁白
+`, 's.vtt');
+    const long = parseSubtitles(`WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+旁白
+`, 'l.vtt');
+    expect(short.cues).toEqual(long.cues);
+  });
+});

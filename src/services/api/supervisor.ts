@@ -124,6 +124,28 @@ export const supervisorApi = {
     return data as { records: ExecRecord[] };
   },
 
+  /** 任务执行历史（Kernel Exec PRD）；与 supervisor 手动手动执行共用任务 id。 */
+  async listExecutions(taskId: string): Promise<{ items: ExecRecord[] }> {
+    const { data } = await getApiClient().get(`/api/task/${taskId}/executions`);
+    const rows = (data?.items ?? []) as Array<Record<string, unknown>>;
+    return {
+      items: rows.map((row) => ({
+        id: String(row.exec_request_id ?? ''),
+        ts: String(row.created_at ?? ''),
+        kind: row.kind === 'python' ? 'python' : 'shell',
+        command: String(row.text ?? ''),
+        cwd: String(row.cwd ?? ''),
+        riskLevel: String(row.risk ?? 'high') as ExecRecord['riskLevel'],
+        riskReasons: [],
+        autoMode: false,
+        exitCode: typeof row.exit_code === 'number' ? row.exit_code : null,
+        durationMs: 0,
+        outputTail: String(row.output_tail ?? ''),
+        shell: String(row.shell ?? ''),
+      })),
+    };
+  },
+
   /**
    * 请求执行（PRD F11）：低风险直接跑；`med+` 返回 `pending_approval`（等授权）；
    * 命中硬底线返回 `rejected`（**任何模式都不可授权**）。

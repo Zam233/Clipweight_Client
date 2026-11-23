@@ -31,6 +31,7 @@ export function ExecPermissionDialog({ approval, onApprove, onReject, busy, clas
   const [confirmed, setConfirmed] = useState(false);
   const [stage, setStage] = useState<1 | 2>(1);
   const [finalConfirmed, setFinalConfirmed] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const checkId = useId();
   const finalId = useId();
   // P2-19：授权弹层打开时停用单键快捷键（Space 会误触播放/时间线操作）
@@ -42,6 +43,20 @@ export function ExecPermissionDialog({ approval, onApprove, onReject, busy, clas
     setConfirmed(false);
     setFinalConfirmed(false);
   }, [approval?.id]);
+
+  useEffect(() => {
+    if (!approval?.expiresAt) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [approval?.expiresAt]);
+
+  const expiresMs = approval?.expiresAt
+    ? new Date(approval.expiresAt).getTime() - now : null;
+  const expiresText = expiresMs == null
+    ? ''
+    : expiresMs > 0
+      ? `剩余 ${Math.ceil(expiresMs / 1000)}s`
+      : '已过期';
 
   if (!approval) return null;
 
@@ -98,6 +113,36 @@ export function ExecPermissionDialog({ approval, onApprove, onReject, busy, clas
         <pre className="text-caption text-on-surface whitespace-pre-wrap break-all bg-surface-container-low rounded-cw-sm p-2">
           {approval.command}
         </pre>
+
+        <div className="text-caption text-on-surface-variant space-y-0.5">
+          {approval.cwd && <p>cwd：<code>{approval.cwd}</code></p>}
+          {approval.exec_request_id && <p>request：<code>{approval.exec_request_id}</code></p>}
+          {approval.expiresAt && (
+            <p>授权有效期至：{approval.expiresAt}{expiresText ? `（${expiresText}）` : ''}</p>
+          )}
+        </div>
+
+        {approval.history && approval.history.length > 0 && (
+          <details className="text-caption text-on-surface-variant" open={approval.history.length <= 3}>
+            <summary className="cursor-pointer">此前执行（{approval.history.length}）</summary>
+            <ul className="mt-1 space-y-0.5">
+              {approval.history.slice(-8).map((h) => (
+                <li key={h.exec_request_id}>
+                  <code>{h.text.slice(0, 80)}</code>
+                  {h.cwd ? ` · ${h.cwd}` : ''}
+                  {h.exit_code != null ? ` · exit=${h.exit_code}` : ''}
+                  {h.risk ? ` · ${h.risk}` : ''}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+
+        {approval.riskReport?.affected_paths && approval.riskReport.affected_paths.length > 0 && (
+          <p className="text-caption text-on-surface-variant">
+            可能影响：{approval.riskReport.affected_paths.join('；')}
+          </p>
+        )}
 
         {stage === 1 && needsConfirm && (
           <label htmlFor={checkId} className="flex items-center gap-2 text-caption text-warning">

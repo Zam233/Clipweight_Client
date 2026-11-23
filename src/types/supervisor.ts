@@ -261,17 +261,48 @@ export interface ExecRecord {
   exitCode: number | null;
   durationMs: number;
   outputTail?: string;
+  shell?: string;
+  exec_request_id?: string;
   rejected?: { reason: string };
+}
+
+export interface ExecHistoryItem {
+  exec_request_id: string;
+  kind: 'shell' | 'python';
+  text: string;
+  cwd?: string;
+  exit_code?: number | null;
+  status?: string;
+  risk?: RiskLevel;
+  decided_by?: string;
+  output_tail?: string;
+  created_at?: string;
+}
+
+export interface ExecRiskReport {
+  risk: RiskLevel;
+  reasons: string[];
+  affected_paths?: string[];
+  external_network?: boolean;
+  destructive?: boolean;
+  credential_access?: boolean;
+  hard_floor?: boolean;
+  shell?: string;
+  model?: string;
 }
 
 export interface PendingExecApproval {
   id: string;
+  exec_request_id?: string;
   command: string;
-  riskLevel: Exclude<RiskLevel, 'low'>;
+  cwd?: string;
+  riskLevel: RiskLevel;
   riskReasons: string[];
   dangerExplanation: string;
   requestedBy: string;
   expiresAt: string;
+  history?: ExecHistoryItem[];
+  riskReport?: ExecRiskReport;
   /** true = 还要过「再次确认窗口」（critical / 命中硬底线） */
   needsDoubleConfirm?: boolean;
   /** true = 命中确定性硬底线（读凭据 / 不可逆破坏） */
@@ -292,11 +323,12 @@ export interface ExecRequest {
 /** 执行请求的三种结局：已执行 / 等授权 / 被拒（硬底线不可授权） */
 export interface ExecResponse {
   pipeline_id: string;
-  status: 'done' | 'failed' | 'pending_approval' | 'rejected';
+  status: 'done' | 'failed' | 'pending_approval' | 'rejected' | 'refused' | 'expired';
   reason?: string;
   approval?: PendingExecApproval;
   record?: ExecRecord;
   kind?: string;
+  exec_request_id?: string;
   exitCode?: number | null;
   outputTail?: string;
 }
